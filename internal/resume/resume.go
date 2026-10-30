@@ -166,7 +166,7 @@ func Build(ctx context.Context, o Options) (Result, error) {
 		return r, nil
 	}
 	cap, exchangeCap, nowCap := 7000, 2700, 2800
-	stale := chosen != nil && (pg.asOf.IsZero() || pg.asOf.Before(chosen.latest))
+	stale := chosen != nil && (pg.asOf.IsZero() || pg.asOf.Before(workedAt(*chosen)))
 	if stale || pg.now == "" {
 		exchangeCap, nowCap = 4000, 1500
 	}
@@ -274,11 +274,11 @@ func ending(h history) string {
 	for i := len(h.records) - 1; i >= 0; i-- {
 		r := h.records[i]
 		switch {
-		case strings.HasPrefix(r.Text, "stop_failure"):
+		case r.Kind == "event" && strings.HasPrefix(r.Text, "stop_failure"):
 			return "no reply (" + oneLine(r.Text, 200) + ")"
-		case r.Text == "interrupt":
+		case r.Kind == "event" && r.Text == "interrupt":
 			return "interrupted"
-		case r.Text == "compact":
+		case r.Kind == "event" && r.Text == "compact":
 			return "compacted"
 		case r.Kind == "reply":
 			return "reply recorded"
@@ -287,6 +287,20 @@ func ending(h history) string {
 		}
 	}
 	return "no reply recorded"
+}
+
+// workedAt is the time of the newest exchange or piece of work. Events such
+// as the session_start written just before a brief don't count.
+func workedAt(h history) time.Time {
+	var latest time.Time
+	for _, r := range h.records {
+		if r.Kind == "prompt" || r.Kind == "reply" || r.Kind == "tool" || r.Kind == "plan" {
+			if ts := parseTime(r.TS); ts.After(latest) {
+				latest = ts
+			}
+		}
+	}
+	return latest
 }
 
 // lastActivity describes another chat in one line. Its message text is

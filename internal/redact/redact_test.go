@@ -145,7 +145,7 @@ func TestPrivacyRegressions(t *testing.T) {
 			}
 		})
 	}
-	for _, input := range []string{"password=" + strings.ToUpper(sha40), "token=op://Vault/" + ghTok + "/credential"} {
+	for _, input := range []string{"token=op://Vault/" + ghTok + "/credential"} {
 		if output, n := Redact(input); output != input || n != 0 {
 			t.Fatalf("protected value changed: %q", output)
 		}
@@ -154,6 +154,51 @@ func TestPrivacyRegressions(t *testing.T) {
 		input := ghTok[:12] + control + ghTok[12:]
 		if output, n := Redact(input); output != "[REDACTED:github_token]" || n != 1 {
 			t.Fatalf("split token leaked for control %q", control)
+		}
+	}
+}
+
+// A SHA or UUID is kept in ordinary text but redacted as the value of a
+// secret-looking key, where it may well be the secret.
+func TestSecretKeyKeepsNoSHAOrUUID(t *testing.T) {
+	isolate(t)
+	for _, v := range []string{uuid, strings.ToUpper(uuid), sha40, strings.ToUpper(sha40)} {
+		for _, in := range []string{
+			"password=" + v,
+			"GITHUB_TOKEN=" + v,
+			"api_key: " + v,
+			`{"client_secret": "` + v + `"}`,
+			"export ACCESS_KEY='" + v + "'",
+			"connect with token=" + v + " now",
+			"https://user:" + v + "@example.dev/x",
+			"Authorization: Bearer " + v,
+		} {
+			out, n := Redact(in)
+			if n == 0 || strings.Contains(out, v) {
+				t.Errorf("Redact(%q) = %q, %d", in, out, n)
+			}
+			if again, k := Redact(out); again != out || k != 0 {
+				t.Errorf("not idempotent: %q then %q", out, again)
+			}
+		}
+	}
+	for _, in := range []string{
+		"the token refresh landed in " + sha40,
+		"password reset for request " + uuid,
+		"run " + uuid + " used the secret store",
+	} {
+		if out, n := Redact(in); out != in || n != 0 {
+			t.Errorf("Redact(%q) = %q, %d; want unchanged", in, out, n)
+		}
+	}
+	// A bearer token is not a key's value, so it leaves a passphrase line
+	// whole for the rule that takes all of it.
+	for _, in := range []string{
+		"PASSWORD=correct horse battery Bearer " + uuid + " staple",
+		"passphrase: correct horse bearer " + sha40 + " battery staple",
+	} {
+		if out, _ := Redact(in); strings.Contains(out, "horse") || strings.Contains(out, "staple") {
+			t.Errorf("Redact(%q) = %q; want the whole value taken", in, out)
 		}
 	}
 }

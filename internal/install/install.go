@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -60,7 +61,19 @@ type hostPlan struct {
 func Run(ctx context.Context, opts Options) (Result, error) { return runInstall(ctx, opts, native) }
 
 func runInstall(ctx context.Context, opts Options, run runner) (result Result, err error) {
+	// Ctrl-C or SIGTERM fails the next step, so the rollback below still runs.
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	run = finishStarted(run)
 	result.Binary = filepath.Join(opts.Dirs.Share, "bin", "eva-md")
+	// The planned actions are printed with a failed run's error, so an error
+	// before the first change says that none of them ran.
+	mutated := false
+	defer func() {
+		if err != nil && !mutated && !opts.DryRun && len(result.Actions) > 0 {
+			err = fmt.Errorf("%w; none of the planned actions ran", err)
+		}
+	}()
 	if _, err = config.LoadContext(ctx, opts.Dirs.ConfigFile()); err != nil {
 		return result, fmt.Errorf("install: run eva-md setup first: %w", err)
 	}
@@ -115,6 +128,10 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			return result, err
 		}
 	}
+	// A symlinked executable, such as one on PATH, is read from its real file.
+	if opts.Binary, err = filepath.EvalSymlinks(opts.Binary); err != nil {
+		return result, fmt.Errorf("install: read executable: %w", err)
+	}
 	binary, err := readRegular(opts.Binary, 128<<20)
 	if err != nil {
 		return result, fmt.Errorf("install: read executable: %w", err)
@@ -154,13 +171,15 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 	for _, p := range plans {
 		p.changed = true
 		if share != nil {
-			p.changed, err = treeChanged(share, filepath.Join("marketplace", p.host), p.files)
+			p.changed, err = treeChanged(share, filepath.Join("marketplace", p.host), p.files, false)
 			if err != nil {
 				return result, err
 			}
 		}
-		if p.before.Installed && previousBinary == nil {
-			return result, errors.New("install: installed plugin has no owned binary; repair registration first")
+		// A missing binary is restored only under eva-md's own install marker.
+		// A plugin folder that differs is rendered again, as in any upgrade.
+		if p.before.Installed && previousBinary == nil && !owned {
+			return result, errors.New("install: installed plugin has no owned binary; run eva-md uninstall --apply first")
 		}
 		if p.changed {
 			result.Actions = append(result.Actions, p.host+": render generated marketplace")
@@ -207,9 +226,9 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 	if err = mkdirAll(share, "bin"); err != nil {
 		return result, err
 	}
-	// Recheck filesystem under the lock too.
+	// Recheck filesystem under the lock too, and remove OS metadata files.
 	for _, p := range plans {
-		changed, e := treeChanged(share, filepath.Join("marketplace", p.host), p.files)
+		changed, e := treeChanged(share, filepath.Join("marketplace", p.host), p.files, true)
 		if e != nil {
 			return result, e
 		}
@@ -227,7 +246,6 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 	if err = paths.WriteFileAtomicAt(ctx, share, installMarker, []byte(installMarkerValue), 0o600); err != nil {
 		return result, err
 	}
-	mutated := false
 	defer func() {
 		if err == nil {
 			for _, p := range plans {
@@ -244,6 +262,8 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		defer cancel()
 		if rollbackErr := rollback(rollbackCtx, opts.Dirs, share, plans, previousBinary, owned, run); rollbackErr != nil {
 			err = fmt.Errorf("%w; rollback incomplete: %v; generated files were kept for recovery", err, rollbackErr)
+		} else {
+			err = fmt.Errorf("%w; this run's changes were rolled back", err)
 		}
 	}()
 	mutated = true
@@ -369,7 +389,9 @@ func rollback(ctx context.Context, dirs paths.Dirs, root *os.Root, plans []*host
 		if err != nil {
 			return err
 		}
-		if reconciled.Installed != p.before.Installed || reconciled.Marketplace != p.before.Marketplace {
+		// A plugin a failed upgrade removed is re-added below, after the old
+		// files are back, so only new registrations are checked here.
+		if reconciled.Installed && !p.before.Installed || reconciled.Marketplace && !p.before.Marketplace {
 			return errors.New("native rollback did not restore prior registrations")
 		}
 	}
@@ -486,7 +508,21 @@ func (s *folderSwap) finish() error {
 	return nil
 }
 
-func treeChanged(root *os.Root, base string, expected map[string][]byte) (bool, error) {
+// finishStarted lets a host command that has started run to the end of its
+// own timeout when ctx is cancelled, since killing it could leave the host's
+// plugin records half written, and starts none once ctx is done.
+func finishStarted(run runner) runner {
+	return func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return run(context.WithoutCancel(ctx), host, args...)
+	}
+}
+
+// treeChanged ignores OS metadata files such as .DS_Store, and removes them
+// when clean is set.
+func treeChanged(root *os.Root, base string, expected map[string][]byte, clean bool) (bool, error) {
 	info, err := root.Lstat(base)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true, nil
@@ -520,7 +556,7 @@ func treeChanged(root *os.Root, base string, expected map[string][]byte) (bool, 
 		}
 		if d.IsDir() {
 			if !allowedDirs[name] {
-				return errors.New("install: unexpected directory in managed marketplace")
+				return fmt.Errorf("install: unexpected directory %s in managed marketplace", filepath.Join(root.Name(), name))
 			}
 			return nil
 		}
@@ -529,8 +565,14 @@ func treeChanged(root *os.Root, base string, expected map[string][]byte) (bool, 
 		}
 		rel, _ := filepath.Rel(base, name)
 		want, ok := expected[filepath.ToSlash(rel)]
+		if !ok && (d.Name() == ".DS_Store" || strings.HasPrefix(d.Name(), "._")) {
+			if clean {
+				return root.Remove(name)
+			}
+			return nil
+		}
 		if !ok {
-			return errors.New("install: unexpected file in managed marketplace; refusing to overwrite it")
+			return fmt.Errorf("install: unexpected file %s in managed marketplace; refusing to overwrite it", filepath.Join(root.Name(), name))
 		}
 		actual, e := readAt(root, name, 2<<20)
 		if e != nil {
@@ -669,41 +711,48 @@ func Uninstall(ctx context.Context, dirs paths.Dirs, apply bool) (Result, error)
 }
 func uninstall(ctx context.Context, dirs paths.Dirs, apply bool, run runner) (result Result, err error) {
 	result.Binary = filepath.Join(dirs.Share, "bin", "eva-md")
+	// Without the install folder or its marker, the hosts may still list
+	// eva-md, so their registrations are checked and removed anyway.
+	owned := false
 	root, err := paths.OpenRoot(dirs.Share, false)
 	if errors.Is(err, fs.ErrNotExist) {
-		return result, nil
+		root, err = nil, nil
 	}
 	if err != nil {
 		return result, err
 	}
-	defer root.Close()
-	owned, err := hasMarker(root, installMarker, installMarkerValue)
-	if err != nil {
-		return result, err
-	}
-	if !owned {
-		for _, name := range []string{"bin/eva-md", "marketplace/claude", "marketplace/codex"} {
-			if _, e := root.Lstat(name); !errors.Is(e, fs.ErrNotExist) {
-				return result, errors.New("install: refusing to uninstall an unmanaged installation")
+	if root != nil {
+		defer root.Close()
+		if owned, err = hasMarker(root, installMarker, installMarkerValue); err != nil {
+			return result, err
+		}
+		if !owned {
+			for _, name := range []string{"bin/eva-md", "marketplace/claude", "marketplace/codex"} {
+				if _, e := root.Lstat(name); !errors.Is(e, fs.ErrNotExist) {
+					return result, errors.New("install: refusing to uninstall an unmanaged installation")
+				}
 			}
 		}
-		return result, nil
 	}
 	var plans []*hostPlan
 	for _, host := range []string{"claude", "codex"} {
-		files, e := render(host, result.Binary)
-		if e != nil {
-			return result, e
-		}
-		_, e = treeChanged(root, filepath.Join("marketplace", host), files)
-		if e != nil {
-			return result, e
+		if owned {
+			files, e := render(host, result.Binary)
+			if e != nil {
+				return result, e
+			}
+			if _, e = treeChanged(root, filepath.Join("marketplace", host), files, false); e != nil {
+				return result, e
+			}
 		}
 		s, e := inspect(ctx, dirs, host, run)
 		if e != nil {
 			return result, e
 		}
 		if !s.Available {
+			if !owned {
+				continue
+			}
 			if _, e = root.Lstat(filepath.Join("marketplace", host)); e == nil {
 				return result, fmt.Errorf("install: %s CLI missing; cannot safely unregister its marketplace", host)
 			}
@@ -715,7 +764,9 @@ func uninstall(ctx context.Context, dirs paths.Dirs, apply bool, run runner) (re
 			result.Actions = append(result.Actions, host+": remove eva-md plugin and marketplace registration")
 		}
 	}
-	result.Actions = append(result.Actions, "delete owned marketplace folders and binary; retain config, inbox and wiki")
+	if owned {
+		result.Actions = append(result.Actions, "delete owned marketplace folders and binary; retain config, inbox and wiki")
+	}
 	if !apply {
 		return result, nil
 	}
@@ -752,6 +803,9 @@ func uninstall(ctx context.Context, dirs paths.Dirs, apply bool, run runner) (re
 			return result, errors.New("install: host still reports eva-md; generated files retained")
 		}
 	}
+	if !owned {
+		return result, nil
+	}
 	for _, p := range plans {
 		if err = root.RemoveAll(filepath.Join("marketplace", p.host)); err != nil {
 			return result, err
@@ -763,6 +817,11 @@ func uninstall(ctx context.Context, dirs paths.Dirs, apply bool, run runner) (re
 	if err = root.Remove(installMarker); err != nil {
 		return result, err
 	}
+	// Remove the folders install created; Remove fails on a folder that is
+	// not empty, so anything else in them stays.
+	_ = root.Remove("bin")
+	_ = root.Remove("marketplace")
+	_ = os.Remove(dirs.Share)
 	state, e := paths.OpenRoot(dirs.State, false)
 	if e == nil {
 		_ = state.Remove("needs-trust.json")

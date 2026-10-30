@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/inbox"
 )
@@ -70,6 +72,50 @@ func TestDoctorJSONAndStatusNeverNeedModels(t *testing.T) {
 	for _, c := range r.Checks {
 		if c.Name == "background updates" && c.Status == "PASS" {
 			t.Fatal("unbuilt background updates reported as ready")
+		}
+	}
+}
+
+func TestInstallOutputSaysPreviewDoneOrFailed(t *testing.T) {
+	d := isolated(t)
+	c := config.Default()
+	c.WikiPath = filepath.Join(filepath.Dir(d.Share), "wiki")
+	c.ExpectedRemote = "github.com/example/wiki"
+	c.Instance = "test-12345678"
+	c.MachineLabel = "test"
+	if err := config.Save(d.ConfigFile(), c); err != nil {
+		t.Fatal(err)
+	}
+	// A fake claude that lists nothing, so verification fails and install
+	// rolls back. The real host CLIs are never run.
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '[]'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	for _, tc := range []struct {
+		args       []string
+		code       int
+		out, error string
+	}{
+		{[]string{"install", "--host", "claude", "--dry-run"}, 0, "Preview; nothing was changed", ""},
+		{[]string{"install", "--host", "claude"}, 1, "Failed.", "rolled back"},
+		{[]string{"uninstall"}, 0, "Preview; nothing was changed", ""},
+		{[]string{"uninstall", "--apply"}, 0, "Done:", ""},
+	} {
+		if tc.args[0] == "uninstall" {
+			// An owned, empty installation, so uninstall has an action to report.
+			if err := os.MkdirAll(d.Share, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(d.Share, ".eva-md-install"), []byte("eva-md installation v1\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var out, errOut bytes.Buffer
+		code := run(context.Background(), tc.args, strings.NewReader(""), &out, &errOut)
+		if code != tc.code || !strings.HasPrefix(out.String(), tc.out) || !strings.Contains(errOut.String(), tc.error) {
+			t.Fatalf("%v: %d %q %q", tc.args, code, out.String(), errOut.String())
 		}
 	}
 }

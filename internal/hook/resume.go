@@ -20,6 +20,11 @@ type briefMarker struct {
 	Refreshed bool   `json:"refreshed"`
 }
 
+// markerReserve is kept before the hook's deadline for the briefed marker's
+// rename and folder sync, which take a few milliseconds. A marker not renamed
+// by then is not saved, and its brief is retried on the next prompt.
+const markerReserve = 20 * time.Millisecond
+
 func resumeContext(ctx context.Context, host string, p payload, env Env, project identity.Project, now time.Time) string {
 	if p.Event != "SessionStart" && p.Event != "UserPromptSubmit" {
 		return ""
@@ -61,10 +66,6 @@ func resumeContext(ctx context.Context, host string, p payload, env Env, project
 	} else {
 		marker = briefMarker{Hash: result.NowHash, Variant: variant}
 	}
-	data, _ := json.Marshal(marker)
-	if err := markers.SetContext(ctx, host, p.Session, session.Briefed, string(data)); err != nil {
-		return ""
-	}
 	notice := ""
 	if p.Event == "SessionStart" || !found {
 		notice = health.QuickNotice(ctx, env.Dirs, env.Config, host)
@@ -73,6 +74,18 @@ func resumeContext(ctx context.Context, host string, p payload, env Env, project
 	// A health notice is a fixed diagnostic, not recovered chat content.
 	if notice != "" && contextText == "" {
 		contextText = notice
+	}
+	// The marker is saved last, and only with markerReserve to spare, so a
+	// brief lost to the deadline is retried on the next prompt.
+	saveCtx := ctx
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		saveCtx, cancel = context.WithDeadline(ctx, deadline.Add(-markerReserve))
+		defer cancel()
+	}
+	data, _ := json.Marshal(marker)
+	if err := markers.SetContext(saveCtx, host, p.Session, session.Briefed, string(data)); err != nil {
+		return ""
 	}
 	if contextText == "" {
 		return ""

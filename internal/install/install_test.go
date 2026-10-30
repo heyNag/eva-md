@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -452,4 +455,275 @@ func TestNativeRunnerIsBoundedAndHidesDiagnostics(t *testing.T) {
 		t.Fatalf("unsafe error %v", err)
 	}
 	_ = opts
+}
+
+func TestInstallRestoresMissingBinary(t *testing.T) {
+	opts, f := setup(t)
+	result, err := runInstall(context.Background(), opts, f.run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(result.Binary); err != nil {
+		t.Fatal(err)
+	}
+	f.calls = nil
+	if _, err = runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatalf("missing binary not restored: %v", err)
+	}
+	if data, _ := os.ReadFile(result.Binary); string(data) != "binary version 1" {
+		t.Fatal("binary not restored")
+	}
+	if len(mutateCalls(f.calls)) != 0 {
+		t.Fatalf("binary restore mutated registrations: %+v", f.calls)
+	}
+	// A plugin folder that differs, as after an upgrade, is rendered again.
+	if err = os.Remove(result.Binary); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(pluginPath(opts.Dirs.Share, "claude"), ".claude-plugin", "plugin.json")
+	if err = os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatalf("missing binary not restored beside a changed plugin folder: %v", err)
+	}
+	if data, _ := os.ReadFile(result.Binary); string(data) != "binary version 1" {
+		t.Fatal("binary not restored")
+	}
+	if data, _ := os.ReadFile(path); string(data) == "{}" {
+		t.Fatal("changed plugin folder not rendered again")
+	}
+	// Without eva-md's install marker it still refuses.
+	if err = os.Remove(result.Binary); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(filepath.Join(opts.Dirs.Share, installMarker)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runInstall(context.Background(), opts, f.run); err == nil || !strings.Contains(err.Error(), "uninstall --apply") {
+		t.Fatalf("restored a binary without the install marker: %v", err)
+	}
+}
+
+// A run that fails before its first change says that none of the planned
+// actions ran.
+func TestPreflightFailureSaysNothingRan(t *testing.T) {
+	opts, f := setup(t)
+	lists := 0
+	run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		if host == "claude" && strings.Join(args, " ") == "plugin list --json" {
+			// Another install registers the plugin between the two looks.
+			if lists++; lists == 2 {
+				f.installed["claude"] = true
+			}
+		}
+		return f.run(ctx, host, args...)
+	}
+	_, err := runInstall(context.Background(), opts, run)
+	if err == nil || !strings.Contains(err.Error(), "none of the planned actions ran") {
+		t.Fatalf("preflight failure: %v", err)
+	}
+	if len(mutateCalls(f.calls)) != 0 {
+		t.Fatalf("preflight failure changed registrations: %+v", f.calls)
+	}
+}
+
+func TestRollbackReaddsPluginAFailedUpgradeRemoved(t *testing.T) {
+	opts, f := setup(t)
+	opts.Host = "claude"
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(pluginPath(opts.Dirs.Share, "claude"), ".claude-plugin", "plugin.json")
+	old, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old = bytes.Replace(old, []byte("Resume your project"), []byte("Older plugin: resume your project"), 1)
+	if err = os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The upgrade's install removes the old plugin, then fails.
+	failed := false
+	run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		if !failed && host+" "+strings.Join(args, " ") == "claude "+strings.Join(addArgs("claude"), " ") {
+			failed = true
+			delete(f.installed, "claude")
+			return nil, errors.New("synthetic failure after removal")
+		}
+		return f.run(ctx, host, args...)
+	}
+	_, err = runInstall(context.Background(), opts, run)
+	if err == nil || strings.Contains(err.Error(), "rollback incomplete") {
+		t.Fatalf("expected fully rolled back failure: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if !f.installed["claude"] || !bytes.Equal(got, old) {
+		t.Fatal("old plugin was not re-added")
+	}
+}
+
+func TestInterruptRollsBackInstall(t *testing.T) {
+	opts, f := setup(t)
+	// Keep the test process alive if install does not catch the signal.
+	caught := make(chan os.Signal, 1)
+	signal.Notify(caught, syscall.SIGTERM)
+	defer signal.Stop(caught)
+	run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if strings.HasPrefix(host+" "+strings.Join(args, " "), "codex plugin add ") {
+			// The command that has started still finishes; the signal fails
+			// the next step.
+			_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+			<-caught
+			time.Sleep(50 * time.Millisecond)
+		}
+		return f.run(ctx, host, args...)
+	}
+	_, err := runInstall(context.Background(), opts, run)
+	if err == nil || strings.Contains(err.Error(), "rollback incomplete") {
+		t.Fatalf("expected interrupted install to roll back: %v", err)
+	}
+	if len(f.installed) != 0 || len(f.markets) != 0 {
+		t.Fatalf("registration remains: %+v %+v", f.installed, f.markets)
+	}
+	if _, err = os.Stat(filepath.Join(opts.Dirs.Share, "bin", "eva-md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("new binary remains")
+	}
+}
+
+// A host command that has started runs to its end when install is
+// interrupted, and no command starts after that.
+func TestFinishStartedLetsARunningCommandFinish(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	run := finishStarted(func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		close(started)
+		time.Sleep(50 * time.Millisecond)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return []byte("done"), nil
+	})
+	go func() { <-started; cancel() }()
+	if out, err := run(ctx, "codex", "plugin", "add", "eva-md@eva-md"); err != nil || string(out) != "done" {
+		t.Fatalf("running command: %q %v", out, err)
+	}
+	if _, err := run(ctx, "codex", "plugin", "list", "--json"); err == nil {
+		t.Fatal("a command started after the interrupt")
+	}
+}
+
+func TestUninstallWithoutInstallFolderRemovesRegistrations(t *testing.T) {
+	for _, scenario := range []string{"no-folder", "no-marker"} {
+		t.Run(scenario, func(t *testing.T) {
+			opts, f := setup(t)
+			if scenario == "no-marker" {
+				if err := os.MkdirAll(opts.Dirs.Share, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, host := range []string{"claude", "codex"} {
+				f.installed[host], f.markets[host] = true, true
+			}
+			preview, err := uninstall(context.Background(), opts.Dirs, false, f.run)
+			if err != nil || len(preview.Hosts) != 2 || len(mutateCalls(f.calls)) != 0 {
+				t.Fatalf("preview %+v %v %+v", preview, err, f.calls)
+			}
+			if _, err = uninstall(context.Background(), opts.Dirs, true, f.run); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.installed) != 0 || len(f.markets) != 0 {
+				t.Fatalf("host still registered: %+v %+v", f.installed, f.markets)
+			}
+			// Only eva-md's own plugin and marketplace names are removed.
+			for _, call := range mutateCalls(f.calls) {
+				if !strings.Contains(call, " eva-md@eva-md ") && !strings.Contains(call, " marketplace remove eva-md ") {
+					t.Fatalf("unexpected host change: %s", call)
+				}
+			}
+		})
+	}
+}
+
+func TestOSMetadataFilesAreIgnoredAndCleaned(t *testing.T) {
+	opts, f := setup(t)
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	plugin := pluginPath(opts.Dirs.Share, "codex")
+	stray := []string{filepath.Join(plugin, ".DS_Store"), filepath.Join(plugin, "hooks", "._hooks.json")}
+	for _, path := range stray {
+		if err := os.WriteFile(path, []byte("finder"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opts.DryRun = true
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatalf("metadata file blocked a preview: %v", err)
+	}
+	opts.DryRun = false
+	f.calls = nil
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatalf("metadata file blocked install: %v", err)
+	}
+	if len(mutateCalls(f.calls)) != 0 {
+		t.Fatalf("metadata file changed registrations: %+v", f.calls)
+	}
+	for _, path := range stray {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("metadata file kept: %s", path)
+		}
+	}
+	// Other unknown files still block, and the error names them.
+	other := filepath.Join(plugin, "notes.txt")
+	if err := os.WriteFile(other, []byte("user content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runInstall(context.Background(), opts, f.run); err == nil || !strings.Contains(err.Error(), "notes.txt") {
+		t.Fatalf("unknown file error does not name it: %v", err)
+	}
+	if err := os.Remove(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stray[0], []byte("finder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), opts.Dirs, true, f.run); err != nil {
+		t.Fatalf("metadata file blocked uninstall: %v", err)
+	}
+}
+
+func TestInstallThroughSymlinkedExecutable(t *testing.T) {
+	opts, f := setup(t)
+	link := filepath.Join(t.TempDir(), "eva-md")
+	if err := os.Symlink(opts.Binary, link); err != nil {
+		t.Fatal(err)
+	}
+	opts.Binary = link
+	result, err := runInstall(context.Background(), opts, f.run)
+	if err != nil {
+		t.Fatalf("symlinked executable: %v", err)
+	}
+	if data, _ := os.ReadFile(result.Binary); string(data) != "binary version 1" {
+		t.Fatal("binary not copied from the link target")
+	}
+}
+
+func TestUninstallRemovesEmptyFolders(t *testing.T) {
+	opts, f := setup(t)
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), opts.Dirs, true, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(opts.Dirs.Share); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty install folder kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(opts.Dirs.Share)); err != nil {
+		t.Fatalf("removed a folder eva-md does not own: %v", err)
+	}
 }

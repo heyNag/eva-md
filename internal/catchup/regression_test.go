@@ -262,7 +262,9 @@ func TestLongRowsDoNotWedgeRecovery(t *testing.T) {
 					appendJSON(t, file, claudeRow(e, "user", "PROMPT-TWO: what about retention?", "turn-2"))
 					appendJSON(t, file, claudeRow(e, "assistant", "REPLY-TWO: keep it.", "turn-2"))
 					appendJSON(t, file, claudeRow(e, "user", "PROMPT-THREE: thanks", "turn-3"))
-					passes := hookPasses(t, dirs, e, 10)
+					// The claim is that recovery finishes, not how fast, so
+					// the cap leaves room for a slow or busy machine.
+					passes := hookPasses(t, dirs, e, 30)
 					s, _, _ := load(context.Background(), dirs, e.Host, e.Session)
 					info, _ := os.Stat(file)
 					if s.Offset != info.Size() || s.Blocked || offMarker(t, dirs, e) {

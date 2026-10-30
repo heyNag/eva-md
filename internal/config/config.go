@@ -16,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
@@ -59,6 +60,9 @@ type Config struct {
 	DailyCap              int               `toml:"daily_cap"`                // default 40
 	Effort                map[string]string `toml:"effort"`                   // keys "claude-code", "codex" or "<host>/<model>"; value an effort level or "highest"
 	CodexIgnoreUserConfig bool              `toml:"codex_ignore_user_config"` // default false
+	// Unknown lists keys in the file that eva-md does not know, such as a
+	// misspelled one. They are reported, not saved.
+	Unknown []string `toml:"-"`
 }
 
 // Default returns the config used when no file exists.
@@ -78,17 +82,20 @@ func Load(file string) (Config, error) {
 func LoadContext(ctx context.Context, file string) (Config, error) {
 	data, err := readTOML(ctx, file)
 	if err != nil {
-		return Default(), fmt.Errorf("config: read %s: %w", file, err)
+		return Default(), fmt.Errorf("config: %w", err)
 	}
+	// Decoding into Default() keeps the defaults of absent keys, so an
+	// explicit daily_cap = 0 stays 0.
 	c := Default()
-	if _, err := toml.Decode(string(data), &c); err != nil {
+	md, err := toml.Decode(string(data), &c)
+	if err != nil {
 		return Default(), errors.New("config: invalid TOML")
+	}
+	for _, key := range md.Undecoded() {
+		c.Unknown = append(c.Unknown, key.String())
 	}
 	if c.Notice == "" {
 		c.Notice = NoticeStart
-	}
-	if c.DailyCap == 0 {
-		c.DailyCap = DefaultDailyCap
 	}
 	if err := c.Validate(); err != nil {
 		return Default(), fmt.Errorf("config: %s: %w", file, err)
@@ -137,8 +144,12 @@ func (c Config) Validate() error {
 func checkExclude(e string) error {
 	e = strings.TrimSpace(e)
 	if pat, ok := strings.CutPrefix(e, RemotePrefix); ok {
-		if strings.Trim(pat, "/ ") == "" {
+		pat = remotePattern(pat)
+		if pat == "" {
 			return errors.New("exclude entry has an empty remote pattern")
+		}
+		if strings.Contains(pat, "://") {
+			return errors.New("exclude entry has a remote URL that can't be normalized; write it as host/owner/repo")
 		}
 		if _, err := path.Match(pat, ""); err != nil {
 			return errors.New("exclude entry has an invalid remote glob")
@@ -179,7 +190,7 @@ func (c Config) Excluded(dir, remote string) bool {
 	for _, e := range c.Exclude {
 		e = strings.TrimSpace(e)
 		if pat, ok := strings.CutPrefix(e, RemotePrefix); ok {
-			pat = strings.ToLower(strings.Trim(pat, "/"))
+			pat = remotePattern(pat)
 			if remote != "" && matchUp(pat, remote, path.Match, path.Dir) {
 				return true
 			}
@@ -212,6 +223,18 @@ func (c Config) Excluded(dir, remote string) bool {
 		}
 	}
 	return false
+}
+
+// remotePattern normalizes a remote exclusion the way remotes are normalized,
+// so "remote: git@github.com:acme/*.git" becomes "github.com/acme/*". A URL
+// with "?" or "#" is left as it is, since a URL parser would drop the glob.
+func remotePattern(pat string) string {
+	pat = strings.TrimSpace(pat)
+	if id, ok := identity.NormalizeRemote(pat); ok && !(strings.Contains(pat, "://") && strings.ContainsAny(pat, "?#")) {
+		return id
+	}
+	pat = strings.Trim(strings.ToLower(pat), "/")
+	return strings.Trim(strings.TrimSuffix(pat, ".git"), "/")
 }
 
 // canonicalPattern resolves an existing literal prefix, so entering an
@@ -250,7 +273,7 @@ type WikiSchema struct {
 func LoadSchema(file string) (WikiSchema, error) {
 	data, err := readTOML(context.Background(), file)
 	if err != nil {
-		return WikiSchema{}, err
+		return WikiSchema{}, fmt.Errorf("config: %w", err)
 	}
 	var schema WikiSchema
 	if _, err := toml.Decode(string(data), &schema); err != nil {
@@ -275,22 +298,23 @@ func readTOML(ctx context.Context, file string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	// The errors name the file once; callers add the "config: " prefix.
 	f, err := os.OpenFile(file, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
 	if err != nil {
-		return nil, fmt.Errorf("config: read: %w", err)
+		return nil, err
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		return nil, errors.New("config: expected a regular file")
+		return nil, fmt.Errorf("%s is not a regular file", file)
 	}
 	const maxBytes = 1 << 20
 	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("config: read: %w", err)
+		return nil, err
 	}
 	if len(data) > maxBytes {
-		return nil, errors.New("config: file exceeds 1 MiB")
+		return nil, fmt.Errorf("%s exceeds 1 MiB", file)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

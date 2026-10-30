@@ -145,11 +145,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		if len(items) != 1 || items[0].Name() != ".git" || hasHead {
 			return result, errors.New("wikiinit: non-empty repository has no eva-md schema; refusing to modify it")
 		}
-		label, err := os.Hostname()
-		if err != nil || label == "" {
-			label = "mac"
-		}
-		label, err = paths.SafeName(label)
+		label, err := machineLabel()
 		if err != nil {
 			return result, err
 		}
@@ -178,7 +174,9 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	if len(v.Errors)+len(v.Warnings)+len(v.Orphans)+len(v.BrokenLinks) != 0 {
+	// A fresh scaffold must have no findings at all. An adopted wiki is held
+	// to what eva-md validate refuses.
+	if (!adopt && len(v.Warnings) != 0) || len(v.Errors)+len(v.Orphans)+len(v.BrokenLinks) != 0 || BlockingWarning(v.Warnings) {
 		return result, errors.New("wikiinit: wiki validation has findings; run eva-md validate to inspect")
 	}
 	if hasHead {
@@ -221,7 +219,9 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	previous.WikiPath, previous.ExpectedRemote, previous.Instance = root, expected, schema.Instance
 	if previous.MachineLabel == "" {
-		previous.MachineLabel, _ = os.Hostname()
+		if previous.MachineLabel, err = machineLabel(); err != nil {
+			return result, err
+		}
 	}
 	if err := config.Save(o.Dirs.ConfigFile(), previous); err != nil {
 		return result, err
@@ -259,7 +259,7 @@ func scaffold(root string, o Options, schema config.WikiSchema) error {
 		"general/index.md":         "# General\n\n" + okfadapter.IndexLine("General memory", "now.md", "Overview of general conversations") + "\n" + okfadapter.IndexLine("Threads", "threads/index.md", "Conversation threads") + "\n",
 		"general/threads/index.md": "# Threads\n\n" + okfadapter.IndexLine("General · default", "default.md", "General conversations outside a project") + "\n",
 		".gitattributes":           "log.md merge=union\n*.md text eol=lf\n",
-		".gitignore":               "*.jsonl\ninbox/\n.eva-md/tmp/\n.tmp-okf-*\n.tmp-eva-*\n.DS_Store\n",
+		".gitignore":               "*.jsonl\n/inbox/\n.eva-md/tmp/\n.tmp-okf-*\n.tmp-eva-*\n.DS_Store\n",
 	}
 	for _, name := range []string{"index.md", "general/index.md", "general/threads/index.md", ".gitattributes", ".gitignore"} {
 		if err := w.WriteFile(name, []byte(files[name])); err != nil {
@@ -267,6 +267,30 @@ func scaffold(root string, o Options, schema config.WikiSchema) error {
 		}
 	}
 	return config.SaveSchema(filepath.Join(root, ".eva-md", "schema.toml"), schema)
+}
+
+// hostname is a variable so tests can set the machine's name.
+var hostname = os.Hostname
+
+// machineLabel is the sanitized hostname, or "mac" without one.
+func machineLabel() (string, error) {
+	label, err := hostname()
+	if err != nil || label == "" {
+		label = "mac"
+	}
+	return paths.SafeName(label)
+}
+
+// BlockingWarning reports a warning that eva-md validate and adopting a wiki
+// refuse: an invalid actor or a parent-index problem.
+func BlockingWarning(warnings []string) bool {
+	for _, warning := range warnings {
+		lower := strings.ToLower(warning)
+		if strings.Contains(lower, "actor") || strings.Contains(lower, "parent index") || strings.Contains(lower, "parent-index") {
+			return true
+		}
+	}
+	return false
 }
 
 func isScaffoldFile(name string) bool {
@@ -294,10 +318,15 @@ func checkInitialFiles(root string) error {
 			case "general", "general/threads", ".eva-md":
 				return nil
 			}
-			return errors.New("wikiinit: unexpected directory in initial wiki")
+			return fmt.Errorf("wikiinit: unexpected directory in initial wiki: %s", rel)
+		}
+		// Finder writes .DS_Store files, and the scaffold's .gitignore keeps
+		// them out of the commit.
+		if d.Name() == ".DS_Store" && d.Type().IsRegular() {
+			return nil
 		}
 		if !d.Type().IsRegular() || !isScaffoldFile(filepath.ToSlash(rel)) {
-			return errors.New("wikiinit: unexpected file in initial wiki")
+			return fmt.Errorf("wikiinit: unexpected file in initial wiki: %s", rel)
 		}
 		return nil
 	})

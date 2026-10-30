@@ -123,3 +123,69 @@ func TestDuplicateAndDiagnosticsNeverPassTrust(t *testing.T) {
 		})
 	}
 }
+
+// withInventory answers the native plugin commands before the hooks RPC.
+func withInventory(t *testing.T, d paths.Dirs, installed, markets string) {
+	t.Helper()
+	file := filepath.Join(d.Share, "test-bin", "codex")
+	script, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := "#!/bin/sh\ncase \"$*\" in\n" +
+		"'plugin list --json') printf '%s\\n' '" + installed + "'; exit 0;;\n" +
+		"'plugin marketplace list --json') printf '%s\\n' '" + markets + "'; exit 0;;\n" +
+		"'features list') printf '%s\\n' 'hooks experimental true'; exit 0;;\n" +
+		"esac\n"
+	if err := os.WriteFile(file, []byte(prefix+strings.TrimPrefix(string(script), "#!/bin/sh\n")), 0700); err != nil {
+		t.Fatal(err)
+	}
+}
+func hostStatuses(t *testing.T, d paths.Dirs) map[string]Check {
+	t.Helper()
+	var r Report
+	inspectHosts(context.Background(), &r, d)
+	checks := map[string]Check{}
+	for _, c := range r.Checks {
+		checks[c.Name] = c
+	}
+	return checks
+}
+func TestEnabledPluginWithNoLoadedHooksFails(t *testing.T) {
+	d := fakeTrustHost(t, map[string]any{"data": []any{map[string]any{"hooks": []any{}}}})
+	plugin := filepath.Join(d.Share, "marketplace", "codex", "plugins", "eva-md")
+	market := filepath.Join(d.Share, "marketplace", "codex")
+	withInventory(t, d,
+		`{"installed":[{"pluginId":"eva-md@eva-md","enabled":true,"source":{"path":"`+plugin+`"}}]}`,
+		`{"marketplaces":[{"name":"eva-md","path":"`+market+`"}]}`)
+	checks := hostStatuses(t, d)
+	if checks["codex plugin"].Status != "PASS" {
+		t.Fatalf("plugin: %+v", checks["codex plugin"])
+	}
+	if c := checks["codex hook trust"]; c.Status != "FAIL" || c.Fix == "" {
+		t.Fatalf("enabled plugin without hooks: %+v", c)
+	}
+}
+func TestNoLoadedHooksWithoutPluginStaysUnknown(t *testing.T) {
+	d := fakeTrustHost(t, map[string]any{"data": []any{map[string]any{"hooks": []any{}}}})
+	withInventory(t, d, `{"installed":[]}`, `{"marketplaces":[]}`)
+	if c := hostStatuses(t, d)["codex hook trust"]; c.Status != "UNKNOWN" {
+		t.Fatalf("missing plugin judged as trust failure: %+v", c)
+	}
+}
+func TestConflictingRegistrationFails(t *testing.T) {
+	d := fakeTrustHost(t, map[string]any{"data": []any{map[string]any{"hooks": trustHooks()}}})
+	withInventory(t, d,
+		`{"installed":[{"pluginId":"eva-md@elsewhere","enabled":true}]}`,
+		`{"marketplaces":[]}`)
+	if c := hostStatuses(t, d)["codex plugin"]; c.Status != "FAIL" || c.Fix == "" || strings.HasPrefix(c.Detail, "install:") {
+		t.Fatalf("conflicting registration: %+v", c)
+	}
+}
+func TestBrokenInventoryStaysUnknown(t *testing.T) {
+	d := fakeTrustHost(t, map[string]any{"data": []any{map[string]any{"hooks": trustHooks()}}})
+	withInventory(t, d, `not json`, `{"marketplaces":[]}`)
+	if c := hostStatuses(t, d)["codex plugin"]; c.Status != "UNKNOWN" {
+		t.Fatalf("unreadable inventory: %+v", c)
+	}
+}

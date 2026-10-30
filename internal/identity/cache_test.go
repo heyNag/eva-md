@@ -246,12 +246,12 @@ func TestCacheInvalidation(t *testing.T) {
 	})
 
 	t.Run("a tag named like the branch", func(t *testing.T) {
+		// The branch comes from HEAD's full ref name, so the tag changes
+		// nothing and the entry still answers.
 		runGit(t, repo, "tag", "main")
-		if p := f.live(t, repo); p.Branch != "heads/main" {
+		if p := f.hit(t, repo); p.Branch != "main" {
 			t.Fatalf("got %+v", p)
 		}
-		// The ambiguous state was never stored, and deleting the tag
-		// restores exactly what the entry describes.
 		runGit(t, repo, "tag", "-d", "main")
 		if p, _ := f.resolve(t, repo); p.Branch != "main" {
 			t.Fatalf("got %+v", p)

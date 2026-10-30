@@ -3,7 +3,9 @@ package resume
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,11 +23,21 @@ type gitInfo struct {
 
 var objectID = regexp.MustCompile(`^[a-fA-F0-9]{7,64}$`)
 
+// gitReserve is the time left after live git for the rest of the brief, the
+// briefed marker and the hook's output.
+const gitReserve = 50 * time.Millisecond
+
 func gitSummary(parent context.Context, p identity.Project, head string) gitInfo {
 	if p.Root == "" {
 		return gitInfo{text: "Live git: not a repository"}
 	}
-	ctx, cancel := context.WithTimeout(parent, 800*time.Millisecond)
+	// Slow git is reported as unknown. It must not use up the time the hook
+	// needs to deliver the brief.
+	timeout := 800 * time.Millisecond
+	if deadline, ok := parent.Deadline(); ok && time.Until(deadline)-gitReserve < timeout {
+		timeout = time.Until(deadline) - gitReserve
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	status, err := git(ctx, p.Root, "status", "--porcelain=v2", "--branch", "--untracked-files=normal")
 	if err != nil {
@@ -85,7 +97,8 @@ func gitSummary(parent context.Context, p identity.Project, head string) gitInfo
 	for _, name := range []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "BISECT_LOG"} {
 		path, e := git(ctx, p.Root, "rev-parse", "--git-path", name)
 		if e != nil {
-			continue
+			parts = append(parts, "operation in progress: unknown")
+			break
 		}
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(p.Root, path)
@@ -93,6 +106,9 @@ func gitSummary(parent context.Context, p identity.Project, head string) gitInfo
 		if _, e = os.Lstat(path); e == nil {
 			parts = append(parts, "operation in progress: "+name)
 			r.changed = true
+		} else if !errors.Is(e, fs.ErrNotExist) {
+			parts = append(parts, "operation in progress: unknown")
+			break
 		}
 	}
 	stashes, e := git(ctx, p.Root, "reflog", "show", "--format=%H", "refs/stash")

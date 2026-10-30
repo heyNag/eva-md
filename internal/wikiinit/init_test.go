@@ -342,3 +342,115 @@ func TestCheckFolder(t *testing.T) {
 		t.Fatal("bad remote accepted")
 	}
 }
+
+func TestAdoptionAllowsNonBlockingWarnings(t *testing.T) {
+	for _, tc := range []struct {
+		name, from, to string
+		adopt          bool
+	}{
+		{"stale page", "status: stable\n", "status: stable\nstale_after: 2000-01-01\n", true},
+		{"invalid actor", "by: eva-md/test,", "by: not an actor,", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := fixture(t)
+			if _, err := Run(context.Background(), o); err != nil {
+				t.Fatal(err)
+			}
+			page := filepath.Join(o.Dir, "general", "now.md")
+			b, err := os.ReadFile(page)
+			if err != nil || !strings.Contains(string(b), tc.from) {
+				t.Fatalf("page %q %v", b, err)
+			}
+			if err := os.WriteFile(page, []byte(strings.Replace(string(b), tc.from, tc.to, 1)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			testGit(t, o.Dir, "commit", "-am", "Fixture warning")
+			_, err = Run(context.Background(), o)
+			if tc.adopt && err != nil {
+				t.Fatalf("refused a wiki eva-md validate passes: %v", err)
+			}
+			if !tc.adopt && (err == nil || !strings.Contains(err.Error(), "validation")) {
+				t.Fatalf("adopted a wiki eva-md validate refuses: %v", err)
+			}
+		})
+	}
+}
+
+func TestAdoptedWikiSanitizesMachineLabel(t *testing.T) {
+	o := fixture(t)
+	hostname = func() (string, error) { return "Eva's Mac", nil }
+	t.Cleanup(func() { hostname = os.Hostname })
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Load(o.Dirs.ConfigFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := c.MachineLabel
+	if want, _ := paths.SafeName("Eva's Mac"); fresh != want {
+		t.Fatalf("fresh label %q, want %q", fresh, want)
+	}
+	if err := os.Remove(o.Dirs.ConfigFile()); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := Run(context.Background(), o); err != nil || !r.Adopted {
+		t.Fatalf("adopt: %+v %v", r, err)
+	}
+	if c, err = config.Load(o.Dirs.ConfigFile()); err != nil || c.MachineLabel != fresh {
+		t.Fatalf("adopted label %q, want %q (%v)", c.MachineLabel, fresh, err)
+	}
+}
+
+func TestGitignoreAnchorsInbox(t *testing.T) {
+	o := fixture(t)
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "-C", o.Dir, "check-ignore", "-q", "--no-index", "general/inbox/page.md")
+	cmd.Env = gitEnvironment()
+	if err := cmd.Run(); err == nil {
+		t.Fatal("a nested inbox folder is ignored")
+	}
+	cmd = exec.Command("git", "-C", o.Dir, "check-ignore", "-q", "--no-index", "inbox/chat.md")
+	cmd.Env = gitEnvironment()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("the root inbox folder is not ignored: %v", err)
+	}
+}
+
+func TestRerunAfterFailedSignatureToleratesDSStore(t *testing.T) {
+	o := fixture(t)
+	home := filepath.Dir(o.Dir)
+	program := filepath.Join(home, "signer")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, home, "config", "--global", "commit.gpgsign", "true")
+	testGit(t, home, "config", "--global", "gpg.program", program)
+	testGit(t, home, "config", "--global", "user.signingkey", "fixture")
+	if _, err := Run(context.Background(), o); err == nil {
+		t.Fatal("failed signer accepted")
+	}
+	testGit(t, home, "config", "--global", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(o.Dir, "user.txt"), []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "user.txt") {
+		t.Fatalf("error does not name the file: %v", err)
+	}
+	if err := os.Remove(filepath.Join(o.Dir, "user.txt")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".DS_Store", "general/.DS_Store"} {
+		if err := os.WriteFile(filepath.Join(o.Dir, name), []byte("finder"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("rerun: %v", err)
+	}
+	if files := testGit(t, o.Dir, "ls-files"); strings.Contains(files, ".DS_Store") {
+		t.Fatalf("committed .DS_Store:\n%s", files)
+	}
+}

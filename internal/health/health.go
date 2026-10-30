@@ -47,6 +47,10 @@ func QuickNotice(ctx context.Context, d paths.Dirs, c config.Config, activeHost 
 	if ctx.Err() != nil {
 		return ""
 	}
+	// A misspelled key can be a missing exclusion.
+	if len(c.Unknown) > 0 {
+		return "eva.md: config has unknown keys, which are ignored; run eva-md doctor."
+	}
 	if c.WikiPath != "" {
 		if _, err := readPrivate(filepath.Join(c.WikiPath, "index.md"), 1<<20); err != nil {
 			return "eva.md: wiki index is unavailable; run eva-md doctor."
@@ -76,8 +80,11 @@ func QuickNotice(ctx context.Context, d paths.Dirs, c config.Config, activeHost 
 		if pending.Host != "codex" || !pending.NeedsTrust {
 			return "eva.md: hook trust status is unavailable; run eva-md doctor."
 		}
+		// A Codex hook that is running now has been trusted. Its own
+		// heartbeat is written only after this notice is built.
+		running := len(activeHost) > 0 && activeHost[0] == "codex"
 		b, valid := readBeat(d, "codex", "SessionStart", now)
-		if !valid || !b.At.After(info.ModTime()) {
+		if !running && (!valid || !b.At.After(info.ModTime())) {
 			return "eva.md: review its hooks in Codex /hooks; run eva-md doctor to verify."
 		}
 	}
@@ -116,6 +123,9 @@ func Inspect(ctx context.Context, d paths.Dirs, module string, hosts bool) Repor
 		r.add("config", "FAIL", "configuration is missing or invalid", "run eva-md setup, or repair the eva-md config")
 	} else {
 		r.add("config", "PASS", "configuration parses", "")
+		if len(c.Unknown) > 0 {
+			r.add("config keys", "FAIL", "unknown keys are ignored: "+strings.Join(c.Unknown, ", "), "correct or remove them in the eva-md config")
+		}
 		if info, e := os.Lstat(d.ConfigFile()); e != nil || info.Mode().Perm()&0077 != 0 {
 			r.add("config permissions", "FAIL", "config must be private", "set config mode to 0600")
 		}

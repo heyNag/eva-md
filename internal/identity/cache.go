@@ -34,7 +34,7 @@ type Cache struct {
 }
 
 // cacheVersion changes whenever the entry format or the fingerprint changes.
-const cacheVersion = 1
+const cacheVersion = 2
 
 const (
 	maxEntry        = 16 << 10
@@ -236,8 +236,7 @@ func (w prediction) agrees(p Project, root string) bool {
 //     and config.worktree, and every file they include (followed whatever
 //     the condition), by content and stat, or as missing;
 //   - packed-refs by stat, and whether the branch's loose ref exists;
-//   - that no other ref could make the branch name ambiguous, since git would
-//     then shorten it differently.
+//   - that no other ref is named HEAD, which git would refuse as ambiguous.
 //
 // The top level's own mtime is left out: files come and go there all the
 // time without changing the answer. It reports false when something is not
@@ -344,9 +343,6 @@ func fingerprint(pl place, system string) (string, prediction, bool) {
 			s.add("branch", "loose")
 			want.loose = true
 		default:
-			return "", prediction{}, false
-		}
-		if !noRefs(refDirs, want.branch, "refs/"+want.branch, "refs/tags/"+want.branch, "refs/remotes/"+want.branch, "refs/remotes/"+want.branch+"/HEAD") {
 			return "", prediction{}, false
 		}
 	default:

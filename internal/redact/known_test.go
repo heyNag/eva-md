@@ -89,6 +89,25 @@ func TestIdentifier(t *testing.T) {
 	}
 }
 
+// The cut that makes room for the hash can turn code after a key into a
+// value, as token=getToken(user) cut to token=getToken. Cleaning the result
+// again still changes nothing.
+func TestIdentifierStableAfterHashCut(t *testing.T) {
+	isolate(t)
+	for pad := 960; pad < 1000; pad++ {
+		for _, tail := range []string{"/token=getToken(user)", "/password=abcdefgh(x)"} {
+			s := strings.Repeat("a", pad) + "/" + ghTok + tail
+			once, _ := Identifier(s, 1024)
+			if utf8.RuneCountInString(once) > 1024 || strings.Contains(once, ghTok[4:30]) {
+				t.Errorf("pad %d: %q", pad, once[max(0, len(once)-60):])
+			}
+			if twice, n := Identifier(once, 1024); twice != once || n != 0 {
+				t.Errorf("pad %d: not stable: %q then %q", pad, once[len(once)-40:], twice[max(0, len(twice)-40):])
+			}
+		}
+	}
+}
+
 // Provider token formats also match ordinary names, such as
 // sk-learn for scikit-learn or ops_ for operations. In identifiers a match
 // that reads as a name is kept, so such branches stay whole and apart, while

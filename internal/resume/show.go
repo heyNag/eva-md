@@ -82,7 +82,7 @@ func Show(ctx context.Context, dirs paths.Dirs, cfg config.Config, ref string) (
 func showSource(ctx context.Context, dirs paths.Dirs, ref string) (string, error) {
 	sid, num, ok := strings.Cut(strings.TrimPrefix(ref, "s:"), "#")
 	line, err := strconv.Atoi(num)
-	if !ok || err != nil || line < 1 || len([]rune(sid)) < 1 || len([]rune(sid)) > 8 || strings.ContainsAny(sid, "/\\\x00") {
+	if !ok || err != nil || line < 1 || len([]rune(sid)) < 1 || len(sid) > 128 || strings.ContainsAny(sid, "/\\\x00") {
 		return "", errors.New("resume: invalid source reference")
 	}
 	for _, r := range sid {
@@ -141,7 +141,8 @@ func showSource(ctx context.Context, dirs paths.Dirs, ref string) (string, error
 			if err != nil {
 				continue
 			}
-			if inbox.Ref(entry.Session, line) != ref {
+			// A ref names a session by its first 8 characters or in full.
+			if inbox.Ref(entry.Session, line) != ref && entry.Session != sid {
 				continue
 			}
 			if filepath.Base((inbox.Store{Root: dirs.Inbox()}).Path(entry.Project, entry.Host, entry.Session)) != f.Name() {
@@ -157,7 +158,7 @@ func showSource(ctx context.Context, dirs paths.Dirs, ref string) (string, error
 		return "", errors.New("resume: source not found")
 	}
 	if len(found) > 1 {
-		return "", errors.New("resume: ambiguous source reference; inspect the inbox session explicitly")
+		return "", errors.New("resume: ambiguous source reference; use the full session id, as in s:<session>#<line>")
 	}
 	return found[0], nil
 }

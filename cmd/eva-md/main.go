@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
@@ -146,14 +145,8 @@ func runWiki(ctx context.Context, args []string, in io.Reader, out, errOut io.Wr
 	fmt.Fprintf(out, "Concepts: %d\nErrors: %d\nWarnings: %d\nOrphans: %d\nBroken links: %d\n", v.ConceptCount, len(v.Errors), len(v.Warnings), len(v.Orphans), len(v.BrokenLinks))
 	// Findings can contain page titles or metadata. Report counts, not captured
 	// content; inspection remains local in the named wiki.
-	if len(v.Errors)+len(v.Orphans)+len(v.BrokenLinks) > 0 {
+	if len(v.Errors)+len(v.Orphans)+len(v.BrokenLinks) > 0 || wikiinit.BlockingWarning(v.Warnings) {
 		return 1
-	}
-	for _, warning := range v.Warnings {
-		lower := strings.ToLower(warning)
-		if strings.Contains(lower, "actor") || strings.Contains(lower, "parent index") || strings.Contains(lower, "parent-index") {
-			return 1
-		}
 	}
 	return 0
 }

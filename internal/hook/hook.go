@@ -36,6 +36,9 @@ type Env struct {
 	// in a package variable, because a test's abandoned capture can still be
 	// running when the next test starts.
 	recoverTranscript func(ctx context.Context, dirs paths.Dirs, host, id string) (int, error)
+	// slack lengthens the hook's own budget in tests, so a busy machine can't
+	// fail a test that checks what is stored rather than how long it took.
+	slack time.Duration
 }
 
 type payload struct {
@@ -68,7 +71,7 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	deadline := invocationDeadline(ctx, started.Add(300*time.Millisecond))
+	deadline := invocationDeadline(ctx, started.Add(300*time.Millisecond+env.slack))
 	var event, output string
 	defer func() {
 		_ = recover()
@@ -127,7 +130,7 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	if event == "SessionStart" {
 		budget = 1500 * time.Millisecond
 	}
-	deadline = invocationDeadline(ctx, started.Add(budget))
+	deadline = invocationDeadline(ctx, started.Add(budget+env.slack))
 	workCtx, cancel := context.WithDeadline(ctx, deadline.Add(-10*time.Millisecond))
 	defer cancel()
 	done := make(chan string, 1)

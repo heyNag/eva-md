@@ -233,6 +233,9 @@ func Recover(ctx context.Context, dirs paths.Dirs, host, id string) (int, error)
 	if s.Blocked || s.Missing || s.Path == "" {
 		return 0, nil
 	}
+	// Recovered rows are the main thread's. The hook event that registered
+	// the chat may have been a subagent's, so its agent id is never kept.
+	s.Entry.Agent = ""
 	_, off, err := markers.GetContext(ctx, host, id, session.OffRecord)
 	if err != nil || off {
 		return 0, err
@@ -944,13 +947,30 @@ func RecoverProject(ctx context.Context, dirs paths.Dirs, project, excludeHost, 
 		if err != nil {
 			continue
 		}
-		items, _ := d.ReadDir(256)
+		// At most 4096 records, so the listing stays within the startup
+		// budget, and of those the 256 newest. Records are never pruned, so
+		// past 4096 a recent chat can still be missed.
+		items, _ := d.ReadDir(4096)
 		d.Close()
+		type record struct {
+			name string
+			mod  time.Time
+		}
+		var records []record
 		for _, item := range items {
 			if !strings.HasSuffix(item.Name(), ".json") || !item.Type().IsRegular() {
 				continue
 			}
-			s, ok, err := loadFile(ctx, root, filepath.Join(host, item.Name()))
+			if info, err := item.Info(); err == nil {
+				records = append(records, record{item.Name(), info.ModTime()})
+			}
+		}
+		sort.Slice(records, func(i, j int) bool { return records[i].mod.After(records[j].mod) })
+		if len(records) > 256 {
+			records = records[:256]
+		}
+		for _, item := range records {
+			s, ok, err := loadFile(ctx, root, filepath.Join(host, item.name))
 			if err != nil || !ok {
 				continue
 			}

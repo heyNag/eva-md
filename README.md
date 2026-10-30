@@ -69,7 +69,7 @@ The plugins call a stable copy of the binary at `~/.local/share/eva-md/bin/eva-m
 
 ## Privacy
 
-- **Redaction before disk.** Every prompt, reply and recovered transcript line is redacted before it is written. Redaction removes the union of what two rule sets catch: a frozen set of baseline rules and the current rules. So a change to the current rules can never let through a secret the baseline rules catch. Git SHAs, UUIDs and `op://` references are kept.
+- **Redaction before disk.** Every prompt, reply and recovered transcript line is redacted before it is written. Redaction removes the union of what two rule sets catch: a frozen set of baseline rules and the current rules. So a change to the current rules can never let through a secret the baseline rules catch. Git SHAs and UUIDs are kept in ordinary text, but not as the value of a secret-looking key such as `password=`. `op://` references are kept.
 - **Off the record.** Start a prompt with "off the record", or put it on a line of its own, to pause capture for that chat. Say "back on the record" to resume. Notes already captured stay saved.
 - **Exclusions.** The config can exclude folders or git remotes. Chats in an excluded project are not captured and get no brief. Hooks also skip temporary folders, the wiki folder and eva-md's own state folder.
 - **Local-first.** The inbox and config stay on your Mac. Only the wiki leaves it, when `setup` or `init` clones it and pushes the first commit to the private repository you chose.

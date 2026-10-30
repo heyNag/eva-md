@@ -105,3 +105,40 @@ func TestInboxPrivateAndUnsafeStates(t *testing.T) {
 		t.Fatal("public inbox accepted")
 	}
 }
+func TestUnknownConfigKeysAreReported(t *testing.T) {
+	d := isolated(t)
+	put(t, d.ConfigFile(), []byte("excludes = [\"~/client\"]\n"))
+	r := Inspect(context.Background(), d, "v0.7.2", false)
+	reported := false
+	for _, c := range r.Checks {
+		if c.Name == "config keys" && c.Status == "FAIL" && strings.Contains(c.Detail, "excludes") {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Fatalf("unknown key not reported: %+v", r.Checks)
+	}
+	c, err := config.Load(d.ConfigFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := QuickNotice(context.Background(), d, c, "codex"); !strings.Contains(got, "unknown keys") {
+		t.Fatalf("notice = %q", got)
+	}
+}
+func TestFirstTrustedCodexChatHasNoTrustNotice(t *testing.T) {
+	d := isolated(t)
+	flag := filepath.Join(d.State, "needs-trust.json")
+	put(t, flag, []byte(`{"host":"codex","needs_trust":true}`))
+	info, _ := os.Stat(flag)
+	// The last SessionStart heartbeat predates install. The running Codex
+	// hook writes its own heartbeat only after the notice is built.
+	raw, _ := json.Marshal(beat{At: info.ModTime().Add(-time.Hour), Host: "codex", Event: "SessionStart"})
+	put(t, filepath.Join(d.State, "heartbeats", "codex", "SessionStart.json"), raw)
+	if got := QuickNotice(context.Background(), d, config.Default(), "codex"); got != "" {
+		t.Fatalf("running trusted Codex hook got: %s", got)
+	}
+	if got := QuickNotice(context.Background(), d, config.Default(), "claude-code"); !strings.Contains(got, "/hooks") {
+		t.Fatalf("Claude chat lost the trust notice: %q", got)
+	}
+}

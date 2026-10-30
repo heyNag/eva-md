@@ -11,7 +11,8 @@ import (
 // Redact replaces secrets with [REDACTED:<kind>] and returns the new text and
 // the number of replacements. It strips ANSI escapes, bidi controls and NUL
 // first, and removes zero-width characters, so a secret split by them is
-// still caught. Git SHAs, UUIDs and op:// references are kept.
+// still caught. Git SHAs and UUIDs are kept in ordinary text, but not as the
+// value of a secret-looking key; op:// references are kept.
 //
 // The text removed is the union of what the baseline rules
 // (internal/redact/baseline) remove and what the current rules remove, both

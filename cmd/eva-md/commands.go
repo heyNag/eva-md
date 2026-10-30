@@ -128,6 +128,19 @@ func runInstall(ctx context.Context, args []string, out, errOut io.Writer) int {
 	} else {
 		r, err = install.Uninstall(ctx, d, apply)
 	}
+	// Say whether the actions were only previewed, done, or not completed.
+	// A failed install's error says whether its changes were rolled back, or
+	// that none of the planned actions ran.
+	if len(r.Actions) > 0 {
+		switch {
+		case dry || args[0] == "uninstall" && !apply:
+			fmt.Fprintln(out, "Preview; nothing was changed. Planned actions:")
+		case err != nil:
+			fmt.Fprintln(out, "Failed. Planned actions:")
+		default:
+			fmt.Fprintln(out, "Done:")
+		}
+	}
 	for _, action := range r.Actions {
 		fmt.Fprintln(out, action)
 	}

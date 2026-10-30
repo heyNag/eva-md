@@ -169,6 +169,7 @@ func TestLoadRejectsBadFiles(t *testing.T) {
 		"empty remote":  "exclude = [\"remote:\"]\n",
 		"bad glob":      "exclude = [\"/a/[\"]\n",
 		"empty effort":  "[effort]\ncodex = \"\"\n",
+		"remote query":  "exclude = [\"remote:https://github.com/acme/repo?\"]\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			file := filepath.Join(t.TempDir(), "config.toml")
@@ -255,5 +256,72 @@ func TestExcluded(t *testing.T) {
 	}
 	if Default().Excluded(home, "github.com/acme/x") {
 		t.Error("an empty exclude list must exclude nothing")
+	}
+}
+
+func TestLoadRecordsUnknownKeysAndKeepsZeroCap(t *testing.T) {
+	isolate(t)
+	file := filepath.Join(t.TempDir(), "config.toml")
+	body := "daily_cap = 0\nexcludes = [\"~/secret\"]\n[effort]\ncodex = \"high\"\n[extra]\nkey = 1\n"
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.DailyCap != 0 {
+		t.Errorf("daily_cap = %d, want an explicit 0 kept", c.DailyCap)
+	}
+	if want := []string{"excludes", "extra", "extra.key"}; !reflect.DeepEqual(c.Unknown, want) {
+		t.Errorf("Unknown = %q, want %q", c.Unknown, want)
+	}
+	if err := Save(file, c); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(saved)), "unknown") || strings.Contains(string(saved), "excludes") {
+		t.Fatalf("unknown keys were saved:\n%s", saved)
+	}
+}
+
+func TestReadErrorNamesFileOnce(t *testing.T) {
+	isolate(t)
+	file := filepath.Join(t.TempDir(), "config.toml")
+	_, err := Load(file)
+	if err == nil || strings.Count(err.Error(), file) != 1 || strings.Count(err.Error(), "config:") != 1 {
+		t.Fatalf("error = %v", err)
+	}
+	if err := syscall.Mkfifo(file, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Load(file)
+	if err == nil || strings.Count(err.Error(), file) != 1 || strings.Count(err.Error(), "config:") != 1 {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRemoteExclusionForms(t *testing.T) {
+	isolate(t)
+	for _, entry := range []string{
+		"remote: github.com/acme/*",
+		"remote:github.com/acme/widgets.git",
+		"remote:https://github.com/acme/*",
+		"remote:git@github.com:acme/widgets.git",
+		"remote:ssh://git@github.com/Acme/*.git",
+	} {
+		c := Config{Notice: NoticeStart, Exclude: []string{entry}}
+		if err := c.Validate(); err != nil {
+			t.Errorf("%q: %v", entry, err)
+		}
+		if !c.Excluded("", "github.com/acme/widgets") {
+			t.Errorf("%q did not exclude github.com/acme/widgets", entry)
+		}
+		if c.Excluded("", "github.com/other/widgets") {
+			t.Errorf("%q excluded github.com/other/widgets", entry)
+		}
 	}
 }

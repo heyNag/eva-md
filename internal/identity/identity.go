@@ -97,13 +97,15 @@ func Resolve(ctx context.Context, cwd string) (Project, error) {
 	}
 	p := Project{Root: root}
 
-	branch, err := git(ctx, root, "rev-parse", "--abbrev-ref", "HEAD")
+	// The full ref name, because --abbrev-ref answers heads/<name> when a tag
+	// or another ref shares the branch's name.
+	branch, err := git(ctx, root, "rev-parse", "--symbolic-full-name", "HEAD")
 	var ee *exitError
 	switch {
 	case err == nil && branch == "HEAD":
 		p.Detached = true
 	case err == nil && branch != "":
-		p.Branch = branch
+		p.Branch = strings.TrimPrefix(branch, "refs/heads/")
 	case err == nil:
 		return General(), errors.New("identity: git returned an empty branch")
 	case errors.As(err, &ee):
@@ -280,7 +282,7 @@ func gitEnv() []string {
 }
 
 // git runs one read-only git command in dir with fsmonitor and hooks off and
-// no optional locks, and returns its trimmed stdout.
+// no optional locks, and returns its stdout without the final newline.
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	full := append([]string{
 		"-c", "core.fsmonitor=false",
@@ -310,7 +312,8 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	if out.truncated {
 		return "", errors.New("git output exceeds identity limit")
 	}
-	return strings.TrimSpace(out.String()), nil
+	// Trim only the newline: a top level folder name can end in a space.
+	return strings.TrimSuffix(out.String(), "\n"), nil
 }
 
 type cappedOutput struct {

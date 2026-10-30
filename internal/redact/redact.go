@@ -15,7 +15,7 @@ import (
 )
 
 // Version identifies the rule set. Raise it whenever a rule changes.
-const Version = 2
+const Version = 3
 
 // marker starts every replacement. Only a complete marker (markerRe) counts
 // as earlier redaction, so text that merely starts like one shields nothing.
@@ -180,35 +180,39 @@ var rules = []rule{
 		re:    regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.\-]*://[^/\s:@'"]*:([^/\s@'"]+)@`),
 		group: 1,
 		hints: []string{"://"},
-		check: func(s string) bool { return !keep(s) },
+		check: func(s string) bool { return !opRef(s) },
 	},
 	{
 		kind:  "auth_header",
 		re:    regexp.MustCompile(`(?i)\bauthorization["']?[ \t]*[:=][ \t]*["']?(?:bearer|basic|token|digest|negotiate)[ \t]+([^\s"'\x60,;]+)`),
 		group: 1,
 		hints: []string{"authorization"},
-		check: func(s string) bool { return !keep(s) },
+		check: func(s string) bool { return !opRef(s) },
 	},
 	{
 		kind:  "secret_value",
 		re:    regexp.MustCompile(`[A-Za-z0-9_.\-]*(?i:password|passwd|passphrase|secret|private[_\-]?key|token|api[_\-]?key|apikey|access[_\-]?key)` + keyTail + `["']?[ \t]*[:=][=>]?[ \t]*"((?:\\.|[^"\\\r\n])+)"`),
 		group: 1,
 		hints: []string{"passw", "passphrase", "secret", "token", "key"},
-		check: func(s string) bool { return len(s) >= minValueLen && !keep(s) },
+		check: func(s string) bool { return len(s) >= minValueLen && !opRef(s) },
 	},
 	{
 		kind:  "secret_value",
 		re:    regexp.MustCompile(`[A-Za-z0-9_.\-]*(?i:password|passwd|passphrase|secret|private[_\-]?key|token|api[_\-]?key|apikey|access[_\-]?key)` + keyTail + `["']?[ \t]*[:=][=>]?[ \t]*'((?:\\.|[^'\\\r\n])+)'`),
 		group: 1,
 		hints: []string{"passw", "passphrase", "secret", "token", "key"},
-		check: func(s string) bool { return len(s) >= minValueLen && !keep(s) },
+		check: func(s string) bool { return len(s) >= minValueLen && !opRef(s) },
 	},
 	{
 		kind:  "auth_header",
 		re:    regexp.MustCompile(`(?i)\bbearer[ \t]+([A-Za-z0-9._~+/\-]{16,}=*)`),
 		group: 1,
 		hints: []string{"bearer"},
-		check: func(s string) bool { return hasDigit(s) && hasLetter(s) && looksSecret(s) },
+		// A bearer token is not the value of a secret-looking key, so a SHA or
+		// UUID is kept here as in ordinary text. Taking it would also leave a
+		// marker inside a passphrase line such as PASSWORD=... Bearer <uuid>
+		// ..., and the passphrase rule would then keep the other words.
+		check: func(s string) bool { return hasDigit(s) && hasLetter(s) && !keep(s) && looksSecret(s) },
 	},
 	{
 		kind:   "secret_value",
@@ -340,6 +344,22 @@ func redact(text string, m mode) (string, int) {
 // apart, as thread keys must. Cleaning a cleaned identifier changes nothing,
 // so a stored thread key still matches the branch it came from.
 func Identifier(s string, limit int) (string, int) {
+	out, n := identifier(s, limit)
+	// The cut that makes room for the hash can complete a match, as when
+	// token=getToken(user) becomes token=getToken, so clean the result again
+	// until it is stable. Where one cleaning was stable, nothing changes.
+	for i := 0; i < maxPasses; i++ {
+		again, k := identifier(out, limit)
+		if again == out {
+			break
+		}
+		out, n = again, n+k
+	}
+	return out, n
+}
+
+// identifier cleans an identifier once, as Identifier describes.
+func identifier(s string, limit int) (string, int) {
 	s = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1
@@ -622,9 +642,10 @@ func replace(text string, spans []span, kind string) string {
 //
 // Code and references are kept, such as getToken(user), os.environ["X"],
 // ${TOKEN}, $(cmd) and {{ .Values.token }}, and so are placeholders, op://
-// references, SHAs, UUIDs and values under 8 characters. A key written as in
-// a shell or .env assignment, KEY=value, is not code, so a value there that
-// starts like a reference (&x, *x), a regular expression (/x/) or a Ruby
+// references and values under 8 characters. A SHA or UUID here is taken: as
+// the value of a secret-looking key it may well be the secret. A key written
+// as in a shell or .env assignment, KEY=value, is not code, so a value there
+// that starts like a reference (&x, *x), a regular expression (/x/) or a Ruby
 // literal is judged as a value.
 func secretValue(text string, m []int, marks []span) (span, bool) {
 	start, end := m[4], m[5]
@@ -1602,16 +1623,21 @@ func entropy(s string) float64 {
 	return h
 }
 
-// keep reports values that must survive redaction: git SHAs, UUIDs and
-// 1Password op:// references.
+// keep reports values that must survive redaction in ordinary text: git
+// SHAs, UUIDs and 1Password op:// references.
 func keep(v string) bool {
-	return strings.HasPrefix(v, "op://") || uuidRe.MatchString(v) || shaRe.MatchString(v)
+	return opRef(v) || uuidRe.MatchString(v) || shaRe.MatchString(v)
 }
+
+// opRef reports a 1Password op:// reference. It is the only value kept after
+// a secret-looking key: a SHA or UUID there, as in password=<uuid>, may well
+// be the secret.
+func opRef(v string) bool { return strings.HasPrefix(v, "op://") }
 
 // looksSecret reports whether the value after a secret-looking key is a
 // plausible secret, rather than a placeholder, a variable or a code reference.
 func looksSecret(v string) bool {
-	return !keep(v) && !looksLikePlaceholder(v)
+	return !opRef(v) && !looksLikePlaceholder(v)
 }
 
 // looksLikePlaceholder reports an empty value, a variable such as $TOKEN or

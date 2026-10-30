@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l cmd internal)
+          test -z "$unformatted" || { echo "$unformatted"; exit 1; }
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go test -race ./...
+      - run: go build -mod=readonly -o bin/eva-md ./cmd/eva-md

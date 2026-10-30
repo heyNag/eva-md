@@ -317,6 +317,8 @@ func TestGitReadDeadlineAndHardening(t *testing.T) {
 	}
 }
 
+// git status starts an fsmonitor hook, unlike the rev-parse calls Resolve
+// makes, so it shows whether the hardening flags of git keep the hook off.
 func TestGitDoesNotRunFSMonitor(t *testing.T) {
 	home := gitEnvForTest(t)
 	repo := newRepo(t, filepath.Join(home, "repo"), true)
@@ -326,11 +328,43 @@ func TestGitDoesNotRunFSMonitor(t *testing.T) {
 		t.Fatal(err)
 	}
 	runGit(t, repo, "config", "core.fsmonitor", script)
-	if _, err := Resolve(context.Background(), repo); err != nil {
+	if _, err := git(context.Background(), repo, "status", "--porcelain"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("fsmonitor ran: %v", err)
+	}
+	// Without the flags the same command runs the hook.
+	cmd := exec.Command("git", "-C", repo, "status", "--porcelain")
+	cmd.Env = gitEnv()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git status: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("fsmonitor hook never runs, so this test can't fail: %v", err)
+	}
+}
+
+// A tag that shares the branch's name makes git rev-parse --abbrev-ref
+// answer heads/main.
+func TestResolveBranchSharedWithTag(t *testing.T) {
+	home := gitEnvForTest(t)
+	repo := newRepo(t, filepath.Join(home, "repo"), true)
+	runGit(t, repo, "tag", "main")
+	got, err := Resolve(context.Background(), repo)
+	if err != nil || got.Branch != "main" || got.Detached {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestResolveTopLevelEndingInSpace(t *testing.T) {
+	home := gitEnvForTest(t)
+	repo := newRepo(t, filepath.Join(home, "app "), true)
+	got, err := Resolve(context.Background(), repo)
+	h := hash6(repo)
+	want := Project{Kind: KindLocal, Key: "local-app-" + h, Slug: "app-" + h, Root: repo, Branch: "main"}
+	if err != nil || got != want {
+		t.Fatalf("got %+v, %v\nwant %+v", got, err, want)
 	}
 }
 

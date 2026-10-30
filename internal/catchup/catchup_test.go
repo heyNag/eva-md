@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -361,5 +362,110 @@ func TestLaterChunkPrivacyStopsCurrentCaptureUntilRecovered(t *testing.T) {
 	}
 	if len(readInbox(t, dirs, e)) != 0 {
 		t.Fatal("private rows recovered")
+	}
+}
+
+// Recovered rows are the main thread's: they never take the agent id of the
+// subagent event that last registered the chat.
+func TestRecoveredRowsCarryNoSubagentID(t *testing.T) {
+	dirs, file, e := fixture(t, "claude-code")
+	ctx := context.Background()
+	sub := e
+	sub.Agent = "subagent-7"
+	if err := Register(ctx, dirs, os.Getenv("HOME"), file, filepath.Join(os.Getenv("HOME"), e.Cwd), sub, false, time.Date(2026, 10, 29, 10, 0, 30, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	appendJSON(t, file, claudeRow(e, "user", "main prompt", "turn1"))
+	appendJSON(t, file, claudeRow(e, "assistant", "main reply", "turn1"))
+	if n, err := Recover(ctx, dirs, e.Host, e.Session); err != nil || n != 2 {
+		t.Fatalf("recover=%d %v", n, err)
+	}
+	rows := readInbox(t, dirs, e)
+	if len(rows) != 2 {
+		t.Fatalf("rows=%#v", rows)
+	}
+	for _, r := range rows {
+		if r.Agent != "" {
+			t.Fatalf("main-thread row has agent %q", r.Agent)
+		}
+	}
+}
+
+// Start-of-chat catch-up reads the newest recovery records first, so a recent
+// chat is found even when it comes last in directory order among many old
+// records.
+func TestRecoverProjectReadsNewestRecords(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dirs, err := paths.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	cwd := filepath.Join(home, "project")
+	if err := os.MkdirAll(cwd, 0700); err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(dirs.State, "catchup", "claude-code")
+	if err := os.MkdirAll(store, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 400; i++ {
+		id := fmt.Sprintf("old-%03d", i)
+		data, err := json.Marshal(Source{V: 1, Home: home, Host: "claude-code", Session: id, Cwd: cwd, Entry: inbox.Entry{Project: "other"}, Updated: "2026-10-29T09:00:00Z"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(store, id+".json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := os.Open(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := d.ReadDir(-1)
+	d.Close()
+	if err != nil || len(items) != 400 {
+		t.Fatalf("records=%d %v", len(items), err)
+	}
+	old := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	for _, item := range items {
+		if err := os.Chtimes(filepath.Join(store, item.Name()), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The record last in directory order becomes this project's chat. It is
+	// rewritten in place, so it keeps its place in that order.
+	id := strings.TrimSuffix(items[len(items)-1].Name(), ".json")
+	file := filepath.Join(home, ".claude", "projects", "project", id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	e := inbox.Entry{V: 1, Host: "claude-code", Session: id, Project: "project", Branch: "main", Cwd: "project", Model: "test"}
+	other := dirs
+	other.State = t.TempDir()
+	if err := Register(ctx, other, home, file, cwd, e, false, time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(other.State, "catchup", "claude-code", id+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, id+".json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	appendJSON(t, file, claudeRow(e, "assistant", "abandoned reply", "turn1"))
+	n, err := RecoverProject(ctx, dirs, "project", "claude-code", "current", time.Date(2026, 10, 29, 10, 10, 0, 0, time.UTC))
+	if err != nil || n != 1 {
+		t.Fatalf("recovered=%d %v", n, err)
+	}
+	if rows := readInbox(t, dirs, e); len(rows) != 1 || rows[0].Text != "abandoned reply" {
+		t.Fatalf("rows=%#v", rows)
 	}
 }

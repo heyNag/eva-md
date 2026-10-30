@@ -81,10 +81,10 @@ Rules that hold it together:
 | **eva-md binary** | One Go executable: CLI and hook handler, plus the updater and maintenance job once wiki updates are built. It gets an MCP mode later. Installed at `~/.local/share/eva-md/bin/eva-md` with an atomic replace. Non-standard dependencies: `github.com/okf-memory/okf-agent-memory/pkg/okf` (pinned v0.7.2) and a TOML parser. Only `internal/okfadapter` imports okf. Init, validate, the doctor and the brief's page reads go through it; capture never does. |
 | **Static plugins** (one per host) | Connect the hook events to the binary through an absolute path generated once per machine. The plugin folders are byte-identical across binary-only releases. Generated from embedded templates into two separate local marketplace folders. |
 | **Hook dispatcher** | Reads the payload and applies the guards (see Capture). Resolves the project from the payload's `cwd`, then redacts, appends, builds briefs and writes heartbeats; spawning jobs is planned. Internal deadlines: 1.5 s for SessionStart and 300 ms for every other event. Never exits 2. Prints nothing except a brief, a notice, an off-the-record confirmation, or `{}` on Codex Stop. |
-| **Identity resolver** | Hardened git reads (`-c core.fsmonitor=false -c core.hooksPath=/dev/null --no-optional-locks`, 800 ms timeout). Finds the worktree root, the branch and the normalized origin: credentials stripped, host lowercased, `.git` removed. A repo without a remote is identified by its folder. Anything outside a repo goes to general. Results are cached per worktree in `~/.local/state/eva-md/cache/identity/`, one 0600 entry per worktree (or per folder outside a repo). A hook reuses an entry, with no git process, only while a fresh look at what git reads is unchanged: the folders' identity and owner, the `.git` file, HEAD, every config file git reads (system, global, the repo's, `config.worktree` and their includes), packed-refs and the branch's loose ref. Anything unusual, such as a symlinked path, `core.worktree` or a ref that makes the branch name ambiguous, resolves live. |
-| **Redactor** | Versioned rules (`redact.Version` 2). The text removed is the union of what the baseline rules (the frozen original rules in `internal/redact/baseline`) and the current rules remove, so no rule change can keep a secret the baseline rules remove. Identity fields (project keys, branch names) get format-only checks without the entropy rule. Used at capture, on model output and on the staged diff before each commit. Fails closed: an entry is stored without its text rather than unredacted. Logs keep counts only. |
+| **Identity resolver** | Hardened git reads (`-c core.fsmonitor=false -c core.hooksPath=/dev/null --no-optional-locks`, 800 ms timeout). Finds the worktree root, the branch (from its full ref name, so a tag of the same name changes nothing) and the normalized origin as configured in `remote.origin.url`, without `insteadOf` rewrites: credentials stripped, host lowercased, `.git` removed. A repo without a remote is identified by its folder. Anything outside a repo goes to general. Results are cached per worktree in `~/.local/state/eva-md/cache/identity/`, one 0600 entry per worktree (or per folder outside a repo). A hook reuses an entry, with no git process, only while a fresh look at what git reads is unchanged: the folders' identity and owner, the `.git` file, HEAD, every config file git reads (system, global, the repo's, `config.worktree` and their includes), packed-refs and the branch's loose ref. Anything unusual, such as a symlinked path, `core.worktree` or another ref named HEAD, resolves live. |
+| **Redactor** | Versioned rules (`redact.Version` 3). The text removed is the union of what the baseline rules (the frozen original rules in `internal/redact/baseline`) and the current rules remove, so no rule change can keep a secret the baseline rules remove. Identity fields (project keys, branch names) get format-only checks without the entropy rule. Used at capture, on model output and on the staged diff before each commit. Fails closed: an entry is stored without its text rather than unredacted. Logs keep counts only. |
 | **Inbox store** | Append-only JSONL, one file per (project, host, session). Written under flock with O_APPEND, with fsync on user and assistant entries. A byte-offset watermark per file. Per-session marker files: off the record, briefed, model, thread. |
-| **Catch-up reader** | Reads a known transcript forward from a saved cursor, one 1 MiB window per pass, saving the cursor after every row, so a pass that runs out of time resumes where it stopped. A longer row is scanned in bounded chunks, honours a record control and leaves a gap event. A row of 256 KiB or more records an attempt before it is decoded. Claude user rows count as prompts only when they carry a promptId and no host wrapper; meta rows, compaction summaries, sidechains and synthetic loader rows are skipped. Codex is best-effort, because its transcript format is not a stable interface. Entries are marked `origin=catchup` and deduplicated by turn id or a text hash. |
+| **Catch-up reader** | Reads a known transcript forward from a saved cursor, one 1 MiB window per pass, saving the cursor after every row, so a pass that runs out of time resumes where it stopped. A longer row is scanned in bounded chunks, honours a record control and leaves a gap event. A row of 256 KiB or more records an attempt before it is decoded. Claude user rows count as prompts only when they carry a promptId and no host wrapper; meta rows, compaction summaries, sidechains and synthetic loader rows are skipped. Codex is best-effort, because its transcript format is not a stable interface. Entries are marked `origin=catchup` and deduplicated by turn id or a text hash. Recovered rows are the main thread's and carry no agent id. |
 | **Brief builder** | Picks the previous chat, builds the startup, compact, resume and refresh variants within fixed budgets, adds live git and freshness lines, and computes the data fence. |
 | **Updater** (planned) | Per-session lock with a dirty flag. At most 2 jobs at once and 40 runs per host per day. Resolves the chat's model, builds the prompt from numbered entries, runs the host CLI headless with a JSON schema, and reads the result. |
 | **Validator** (planned) | Deterministic checks before writing: strict schema, refs, speaker tags, sourced dates, item accounting, idempotency, out-of-order guard, locked pages, caps, escaping, and redaction again. |
@@ -192,7 +192,7 @@ log.md                          append-only at the end, '## YYYY-MM-DD' local-da
 .eva-md/schema.toml             schema_version = 1, okf_spec = "0.2", okf_module = "v0.7.2",
                                 instance = "<machine>-<8 hex>", created   (hidden: okf ignores it)
 .gitattributes                  log.md merge=union ; *.md text eol=lf
-.gitignore                      *.jsonl  inbox/  .eva-md/tmp/  .tmp-okf-*  .tmp-eva-*  .DS_Store
+.gitignore                      *.jsonl  /inbox/  .eva-md/tmp/  .tmp-okf-*  .tmp-eva-*  .DS_Store
 projects/index.md               sub-index of project folders (no frontmatter)
 projects/<slug>/index.md        lists now.md
 projects/<slug>/now.md          project overview, built by code
@@ -347,7 +347,7 @@ Kinds:
 
 Prompts you didn't type are stored as events, never as your words. On Claude these are scheduled tasks, /loop runs, background subagent reports and messages from other sessions. Codex prompts that carry `agent_id` are also stored as events. Built-in slash commands are not stored.
 
-An entry is referred to as `s:<sid8>#<line>`, and `eva-md show` resolves those refs. Because entries are JSON-escaped, pasted text can never forge a speaker or an entry boundary.
+An entry is referred to as `s:<sid8>#<line>`, and `eva-md show` resolves those refs. It also accepts the full session id in place of the first 8 characters, which settles a ref that two sessions share. Because entries are JSON-escaped, pasted text can never forge a speaker or an entry boundary.
 
 **Redaction.** Applied in the hook before any byte reaches disk, again on model output, and on the staged diff before each commit. Rules:
 - private key blocks
@@ -359,7 +359,7 @@ An entry is referred to as `s:<sid8>#<line>`, and `eva-md show` resolves those r
 - the value in `key=value` or `key: value` when the key looks like password, secret, token, api_key, access_key or client_secret and the value is 8 characters or more
 - high-entropy strings next to such words
 
-Matches become `[REDACTED:<kind>]`. Git SHAs, UUIDs and `op://` references are kept. If redaction fails, nothing is stored (fail closed).
+Matches become `[REDACTED:<kind>]`. Git SHAs and UUIDs are kept in ordinary text, but not as the value of a secret-looking key, a URL password or an Authorization header, where they may be the secret. `op://` references are kept. If redaction fails, nothing is stored (fail closed).
 
 A `key=value` or `key: value` on a line of its own (dotenv, YAML, INI, properties) takes the value to the end of the line, across `& ; , ( ) < > { } [ ]`, while code shapes such as calls and `$VAR` references are kept. The text removed is the union of what the baseline rules (`internal/redact/baseline`) and the current rules remove, judged on the same cleaned text, so a rule change can only remove more. Identity fields get only the format rules, not the entropy rule, so names like `token-refresh-worker` stay intact.
 
@@ -407,16 +407,16 @@ A `key=value` or `key: value` on a line of its own (dotenv, YAML, INI, propertie
 
 ### Resume: new chat or /clear
 
-1. SessionStart(startup|clear) passes the guards, runs catch-up for this project's idle sessions (at most 150 ms) and appends a session_start event with its source and model. In a spare folder, store only the model marker and exit; with no briefed marker, the first prompt from a real folder gets the brief.
+1. SessionStart(startup|clear) passes the guards, runs catch-up for this project's idle sessions (at most 150 ms; it looks at the 256 most recently updated of at most 4,096 recovery records per host) and appends a session_start event with its source and model. In a spare folder, store only the model marker and exit; with no briefed marker, the first prompt from a real folder gets the brief.
 2. **Pick the previous chat.** This is the newest session in this project and branch, on either host, that did real work (more than 2 exchanges, or any tool or plan activity), excluding this session.
    - If there is none, and this is a startup or clear on a branch with no Now page of its own, use the lineage fallback: the project's most recently active thread, labelled "continuing from <branch>", and its Now labelled with that branch. Resumed and forked chats never use lineage.
    - The general area only counts a chat less than 12 hours old.
-3. Load the thread's Now section. Mark it stale if `as_of` is older than the previous chat's last entry.
-4. **Read live git** (800 ms limit, otherwise "unknown"):
+3. Load the thread's Now section. Mark it stale if `as_of` is older than the previous chat's last prompt, reply, tool or plan entry. Events, such as the session_start written just before the brief, don't count.
+4. **Read live git** (800 ms limit, and never so long that the brief misses the hook's deadline; otherwise "unknown"):
    - branch, and ahead/behind from local refs
    - whether HEAD moved since the page's `head` (the count and the last 3 subjects)
    - up to 15 changed paths
-   - any rebase, merge, cherry-pick or bisect in progress
+   - any rebase, merge, cherry-pick or bisect in progress, or "unknown" when git can't tell
    - stash count
 5. **Assemble at most 7,000 characters** in this order:
    1. header
@@ -426,7 +426,7 @@ A `key=value` or `key: value` on a line of its own (dotenv, YAML, INI, propertie
    5. last test or build command with its exit code, plus files touched (300)
    6. last exchanges verbatim, newest last (2,700, or 4,000 if stale or there is no page). Long messages are cut in the middle with an `eva-md show` ref.
    7. footer with paths (200)
-6. Fence the brief and return it as `additionalContext`. Claude also gets a one-line `systemMessage` when history was found. Both hosts get a one-line notice only when the quick health checks find a problem. Write the per-session briefed marker. It records the hash of the Now section used, the brief variant, and whether the one first-prompt refresh has been sent.
+6. Fence the brief and return it as `additionalContext`. Claude also gets a one-line `systemMessage` when history was found. Both hosts get a one-line notice only when the quick health checks find a problem. Write the per-session briefed marker last, and only with 20 ms to spare before the deadline, so a brief that was not delivered is retried by the first-prompt fallback. It records the hash of the Now section used, the brief variant, and whether the one first-prompt refresh has been sent.
 7. Planned: spawn maintain (catch-up updates for this project, and the daily commit if due).
 
 Host differences:
@@ -498,9 +498,9 @@ Plain git only. On a work machine whose self-hosted GitLab is unreachable off th
 1. You create an empty private repo (named eva-wiki by convention), for example on GitHub for a personal machine or on a self-hosted GitLab for a work machine.
 2. `eva-md init --remote <url> --dir <folder>` (setup passes your answers) clones it, or adopts an existing eva wiki. Both are required: there is no default folder. It refuses a non-empty folder that isn't a clone, a non-empty repo without `.eva-md/schema.toml`, your home folder itself, Documents, Desktop, iCloud Drive and eva-md's own folders.
 3. It resolves the real path, writes eva-md's own log.md, calls `okf.InitBundle`, then creates README.md, general/now.md and general/threads/default.md through the adapter. It also writes `.eva-md/schema.toml` (new instance id, okf_spec, okf_module), `.gitattributes`, `.gitignore` and the index files.
-4. It runs okf Validate with Drift on and requires no findings at all: no errors, warnings, orphans or broken links. This applies to an adopted wiki too.
-5. It makes the first signed commit and pushes with an upstream set.
-6. It writes `~/.config/eva-md/config.toml`: wiki path, expected remote, instance id, machine label, excludes, notice mode, effort, daily cap, `codex_ignore_user_config`.
+4. It runs okf Validate with Drift on. A fresh scaffold must have no findings at all. An adopted wiki is held to what `eva-md validate` refuses: errors, orphans, broken links, and warnings about an invalid actor or a parent index.
+5. It makes the first signed commit and pushes with an upstream set. Running init again after a failed commit is safe: it accepts the scaffold it wrote, ignores Finder's `.DS_Store` files and names any other unexpected file.
+6. It writes `~/.config/eva-md/config.toml`: wiki path, expected remote, instance id, machine label (the sanitized host name), excludes, notice mode, effort, daily cap, `codex_ignore_user_config`.
 
 ### Install and uninstall
 
@@ -511,9 +511,9 @@ Plain git only. On a work machine whose self-hosted GitLab is unreachable off th
 - Managed settings are not read. Hook heartbeats show whether a policy blocks hooks.
 - Read `codex features list` and refuse when the hooks feature is off. Recording the feature names for the update command is planned.
 
-**Binary.** Copy it atomically to `~/.local/share/eva-md/bin/eva-md`.
+**Binary.** Copy it atomically to `~/.local/share/eva-md/bin/eva-md`, reading a symlinked executable from its real file. If the installed binary is missing under eva-md's own install marker, install restores it. It leaves the hosts alone unless a plugin folder differs, which it renders again as in any upgrade.
 
-**Marketplaces.** Render both marketplace folders from the embedded templates. A folder is rewritten only if its bytes would change. Write it into a sibling folder and swap with two renames, and never delete it while the plugin is installed. If neither folder changed and both hosts already show the plugin enabled, stop: this was a binary-only update.
+**Marketplaces.** Render both marketplace folders from the embedded templates. A folder is rewritten only if its bytes would change. Write it into a sibling folder and swap with two renames, and never delete it while the plugin is installed. If neither folder changed and both hosts already show the plugin enabled, stop: this was a binary-only update. Finder's metadata files (`.DS_Store`, `._*`) in a managed folder are ignored, and removed in a real run; any other unexpected file stops install, which names it.
 
 **Claude.**
 1. Run `claude plugin validate --strict --json` on both the marketplace root and the plugin folder.
@@ -527,15 +527,16 @@ Plain git only. On a work machine whose self-hosted GitLab is unreachable off th
 3. Verify with `codex plugin list --json`.
 4. If the plugin folder changed, write a needs-trust flag.
 
-**Manual step printed.** Review eva-md's hooks once in Codex /hooks, then start new chats; open chats are not restarted. If anything fails, roll back only the steps this run took.
+**Manual step printed.** Review eva-md's hooks once in Codex /hooks, then start new chats; open chats are not restarted. If anything fails, roll back only the steps this run took. A rollback re-adds a plugin that a failed upgrade removed, after the old files are back. Ctrl-C or SIGTERM lets a host command that has started finish, starts no new one, and rolls back. The output says whether the actions were a preview, done, or failed. A failed install's error says whether its changes were rolled back, or that none of the planned actions ran.
 
 **Uninstall.** `eva-md uninstall` previews. `--apply` runs in this order:
 1. `claude plugin uninstall eva-md@eva-md --scope user` and `codex plugin remove eva-md@eva-md`
 2. remove both marketplace entries
 3. delete the marketplace folders
 4. delete the binary
+5. remove the folders install created, if they are empty
 
-It keeps the inbox, the wiki and the config.
+It keeps the inbox, the wiki and the config. Without the install folder, or with the folder but none of eva-md's files in it, uninstall still asks both hosts and removes only the `eva-md@eva-md` plugin and the `eva-md` marketplace, and deletes no files. With eva-md's files but no marker, it refuses.
 
 ### Health check
 
@@ -547,13 +548,14 @@ The checks about background updates, budget, commits and pushes are planned. Unt
 - planned: a commit pending more than 2 days, or a push failing more than 3 days
 - the wiki schema newer than the binary
 - the wiki instance differing from the config's
-- the needs-trust flag
+- the needs-trust flag, except in the Codex chat whose hook is running, since that hook has been trusted
 - a missing root index.md
+- unknown config keys, since a misspelled key can be a missing exclusion
 
 Any problem becomes one line.
 
 **`eva-md doctor [--json]`** reports PASS, FAIL or UNKNOWN, with a one-line fix, for:
-- the binary and config
+- the binary and config, including unknown config keys
 - the wiki:
   - the repo and remote
   - the instance
@@ -564,9 +566,9 @@ Any problem becomes one line.
   - leftover `.tmp-okf-*` files
   - `okf_module` against the binary's okf version
 - inbox permissions and size
-- the plugins on each host, through the host CLIs (Claude: `readFromFolder`, `folderVersion`, `errors`)
+- the plugins on each host, through the host CLIs (Claude: `readFromFolder`, `folderVersion`, `errors`); a conflicting eva-md registration is a FAIL
 - hooks firing, per host and per event
-- Codex trust: asked through `codex app-server` hooks/list where that works (pattern from ai-memory), otherwise inferred from firing, so UNKNOWN until proven
+- Codex trust: asked through `codex app-server` hooks/list where that works (pattern from ai-memory), otherwise inferred from firing, so UNKNOWN until proven. Codex loading no eva-md hooks for an installed, enabled plugin is a FAIL
 - managed policy: the Codex hooks feature state; Claude policy (`disableAllHooks` or `allowManagedHooksOnly`) is UNKNOWN and judged by heartbeats
 - planned: update health per host, with failure reasons
 - planned: budget use
@@ -814,11 +816,12 @@ Plugin `eva-md` in a separate marketplace folder, `~/.local/share/eva-md/marketp
 - Plugin templates are embedded in the binary. Each plugin also carries an icon, `plugins/eva-md/assets/icon.png`.
 - Per-machine config at `~/.config/eva-md/config.toml`:
   - wiki path, expected remote, instance id, machine label
-  - `exclude` (path globs and remote patterns)
+  - `exclude` (path globs and remote patterns; a remote can be written as a URL, in scp form or with `.git`, and is normalized like the origin)
   - `notice` (start or problems)
-  - effort per host and per model (default `highest`) and the daily cap
+  - effort per host and per model (default `highest`) and the daily cap (default 40; an explicit 0 is kept)
   - `codex_ignore_user_config` (default false)
   - planned: optional per-host flag overrides
+  - unknown keys are ignored, never saved back, and reported by the doctor, status and the chat-start notice
 - State at `~/.local/state/eva-md`.
 - No host settings files are written, nothing is added to CLAUDE.md or AGENTS.md, and there is no telemetry and no auto-update.
 - PATH placement and how the binary is distributed to other machines are not decided yet.

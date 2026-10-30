@@ -145,6 +145,7 @@ func TestMissedOffRecordKeepsOnlyEventNames(t *testing.T) {
 // gets for that. The event is stored, not dropped.
 func TestRecoveryFinishedLateStillCaptures(t *testing.T) {
 	env, p := setup(t)
+	env.slack = busySlack
 	env.recoverTranscript = func(ctx context.Context, _ paths.Dirs, _, _ string) (int, error) {
 		<-ctx.Done()
 		return 0, nil

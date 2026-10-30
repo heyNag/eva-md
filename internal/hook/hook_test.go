@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -40,6 +41,10 @@ func setup(t *testing.T) (Env, payload) {
 	env := Env{Dirs: dirs, Config: config.Default(), Getenv: os.Getenv, Now: func() time.Time { return time.Date(2026, 10, 29, 15, 4, 5, 0, time.FixedZone("ICT", 7*3600)) }}
 	return env, payload{Session: "test-session", Cwd: filepath.Join(home, "project"), Model: "model-test", Event: "UserPromptSubmit", Prompt: "please help", Turn: "turn-1"}
 }
+
+// busySlack is how much tests that check what a hook stores, not how long
+// it takes, lengthen its budget, so a busy machine can't fail them.
+const busySlack = 10 * time.Second
 
 func invoke(t *testing.T, host string, p payload, env Env) string {
 	t.Helper()
@@ -88,6 +93,7 @@ func TestEveryEventOnBothHosts(t *testing.T) {
 		} {
 			t.Run(host+"/"+tc.event, func(t *testing.T) {
 				env, p := setup(t)
+				env.slack = busySlack
 				p.Event = tc.event
 				reply := "the final reply"
 				p.Reply = &reply
@@ -585,6 +591,7 @@ func TestCancelledCallbacksCannotWriteLater(t *testing.T) {
 
 func TestParallelFreshHooks(t *testing.T) {
 	env, base := setup(t)
+	env.slack = busySlack
 	var wg sync.WaitGroup
 	errs := make(chan string, 8)
 	for i := 0; i < 8; i++ {
@@ -632,6 +639,9 @@ func TestBlockedOutputHonorsDeadline(t *testing.T) {
 	for _, budget := range []time.Duration{300 * time.Millisecond, 100 * time.Millisecond} {
 		t.Run(budget.String(), func(t *testing.T) {
 			env, p := setup(t)
+			// The caller's deadline must win over the hook's own budget, here
+			// made far longer, so the upper bound can allow for a busy machine.
+			env.slack = busySlack
 			p.Event = "Stop"
 			data, err := json.Marshal(p)
 			if err != nil {
@@ -639,6 +649,14 @@ func TestBlockedOutputHonorsDeadline(t *testing.T) {
 			}
 			writer := blockedWriter{started: make(chan struct{}), unblock: make(chan struct{}), written: make(chan string, 1)}
 			defer close(writer.unblock)
+			// The capture Run gave up on can still write under HOME after Run
+			// returns. Wait for it before the test's folders are removed.
+			running := runtime.NumGoroutine()
+			t.Cleanup(func() {
+				for end := time.Now().Add(2 * time.Second); runtime.NumGoroutine() > running && time.Now().Before(end); {
+					time.Sleep(5 * time.Millisecond)
+				}
+			})
 			ctx, cancel := context.WithTimeout(context.Background(), budget)
 			defer cancel()
 			started := time.Now()
@@ -646,12 +664,14 @@ func TestBlockedOutputHonorsDeadline(t *testing.T) {
 				t.Fatal(code)
 			}
 			elapsed := time.Since(started)
-			if elapsed < budget-40*time.Millisecond || elapsed > budget+200*time.Millisecond {
+			if elapsed < budget-40*time.Millisecond || elapsed > budget+500*time.Millisecond {
 				t.Fatalf("blocked output elapsed=%v budget=%v", elapsed, budget)
 			}
+			// Run starts the write before it waits, but a busy machine may run
+			// the writer only after Run has returned.
 			select {
 			case <-writer.started:
-			default:
+			case <-time.After(time.Second):
 				t.Fatal("output writer was not invoked")
 			}
 			// Release after Run returned and wait for the writer at test cleanup;

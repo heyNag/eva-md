@@ -18,6 +18,7 @@ import (
 )
 
 func inspectHosts(ctx context.Context, r *Report, d paths.Dirs) {
+	codexEnabled := false
 	for _, host := range []string{"claude", "codex"} {
 		// Inventory may contact an unrelated remote marketplace. Give each
 		// host its own budget so a stalled listing cannot consume doctor's
@@ -28,14 +29,21 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs) {
 		cancel()
 		if timedOut {
 			r.add(host+" plugin", "UNKNOWN", "native plugin inventory timed out", "inspect the native host plugin inventory")
+		} else if err != nil && status.Available && strings.Contains(err.Error(), "eva-md") {
+			// Only install's conflict errors name eva-md; command and parse
+			// failures do not.
+			r.add(host+" plugin", "FAIL", strings.TrimPrefix(err.Error(), "install: "), "remove the conflicting eva-md registration with the host's plugin commands, then run eva-md install --host "+host)
 		} else if err != nil || !status.Available {
-			r.add(host+" plugin", "UNKNOWN", "native plugin inventory is unavailable or conflicts with eva-md", "inspect the native host plugin inventory")
+			r.add(host+" plugin", "UNKNOWN", "native plugin inventory is unavailable", "inspect the native host plugin inventory")
 		} else if !status.Installed {
 			r.add(host+" plugin", "FAIL", "eva-md is not installed", "run eva-md install --host "+host)
 		} else if !status.Valid {
 			r.add(host+" plugin", "FAIL", status.Reason, "inspect native plugin list before reinstalling")
 		} else {
 			r.add(host+" plugin", "PASS", "one enabled plugin at the expected path", "")
+		}
+		if host == "codex" && !timedOut && err == nil && status.Installed && status.Enabled {
+			codexEnabled = true
 		}
 	}
 	if data, e := hostCommand(ctx, "codex", "features", "list"); e == nil {
@@ -59,6 +67,8 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs) {
 	count, trusted, err := probeTrust(ctx, cwd)
 	if err != nil {
 		r.add("codex hook trust", "UNKNOWN", "read-only hooks/list is unavailable", "review /hooks in Codex")
+	} else if count == 0 && codexEnabled {
+		r.add("codex hook trust", "FAIL", "Codex loads no eva-md hooks for the enabled plugin", "check the Codex hooks feature, then run eva-md install --host codex")
 	} else if count == 0 {
 		r.add("codex hook trust", "UNKNOWN", "no eva-md hooks loaded", "install eva-md before reviewing /hooks")
 	} else if count != 7 || trusted != count {
