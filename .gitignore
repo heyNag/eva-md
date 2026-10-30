@@ -1,0 +1,6 @@
+/bin/
+/eva-md
+/scratch/
+__pycache__/
+*.test
+.DS_Store

@@ -1,0 +1,17 @@
+{
+  "name": "eva-md",
+  "version": "1.0.0",
+  "description": "Resume your project from locally captured chats using your private eva.md wiki.",
+  "author": {"name": "eva-md"},
+  "interface": {
+    "displayName": "eva.md",
+    "shortDescription": "Automatic private markdown memory",
+    "longDescription": "Resume your project from locally captured chats using your private eva.md wiki.",
+    "developerName": "eva-md",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": [],
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
+  }
+}
