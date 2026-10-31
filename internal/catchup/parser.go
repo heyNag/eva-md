@@ -20,6 +20,11 @@ type parser struct {
 	blocked   bool
 	offRecord bool
 	control   string // the record control the last row gave, if any
+	// recognized says the last row was one of the chat's prompt or reply
+	// rows: a Claude user or assistant message (tool results and calls
+	// included) or a Codex message, whether or not it was then stored. The
+	// drift check counts the rows that were not.
+	recognized bool
 }
 
 func newParser(s Source) *parser { return &parser{source: s} }
@@ -35,6 +40,7 @@ func boolValue(m map[string]json.RawMessage, key string) bool {
 }
 func (p *parser) read(line []byte) (inbox.Entry, bool) {
 	p.control = ""
+	p.recognized = false
 	var row map[string]json.RawMessage
 	if json.Unmarshal(line, &row) != nil {
 		return inbox.Entry{}, false
@@ -53,7 +59,19 @@ func (p *parser) read(line []byte) (inbox.Entry, bool) {
 	// control; typed says whether the row reads as a prompt the user typed.
 	control, typed := "", false
 	if p.source.Host == "claude-code" {
-		if stringValue(row, "sessionId") != p.source.Session || !sameCwd(stringValue(row, "cwd"), p.source.Cwd) || boolValue(row, "isMeta") || boolValue(row, "isSidechain") {
+		cwd := stringValue(row, "cwd")
+		if stringValue(row, "sessionId") != p.source.Session || !filepath.IsAbs(cwd) {
+			return e, false
+		}
+		var message map[string]json.RawMessage
+		if json.Unmarshal(row["message"], &message) != nil {
+			return e, false
+		}
+		// Recognized before the checks below, which pass over rows of the
+		// chat that are not to be stored.
+		rowType := stringValue(row, "type")
+		p.recognized = (rowType == "user" || rowType == "assistant") && stringValue(message, "role") == rowType
+		if !sameCwd(cwd, p.source.Cwd) || boolValue(row, "isMeta") || boolValue(row, "isSidechain") {
 			return e, false
 		}
 		if stringValue(row, "agentId") != "" || stringValue(row, "agent_id") != "" {
@@ -68,15 +86,11 @@ func (p *parser) read(line []byte) (inbox.Entry, bool) {
 				return e, false
 			}
 		}
-		var message map[string]json.RawMessage
-		if json.Unmarshal(row["message"], &message) != nil {
-			return e, false
-		}
 		e.Turn = stringValue(row, "promptId")
 		if e.Turn == "" {
 			e.Turn = stringValue(row, "prompt_id")
 		}
-		switch stringValue(row, "type") {
+		switch rowType {
 		case "user":
 			if stringValue(message, "role") != "user" {
 				return e, false
@@ -141,11 +155,13 @@ func (p *parser) read(line []byte) (inbox.Entry, bool) {
 				p.turn = stringValue(value, "turn_id")
 				return e, false
 			case "user_message":
+				p.recognized = true
 				e.Role = "user"
 				e.Kind = "prompt"
 				e.Text = stringValue(value, "message")
 				control, typed = e.Text, true
 			case "agent_message":
+				p.recognized = true
 				if stringValue(value, "phase") != "final" {
 					return e, false
 				}
@@ -153,6 +169,7 @@ func (p *parser) read(line []byte) (inbox.Entry, bool) {
 				e.Kind = "reply"
 				e.Text = stringValue(value, "message")
 			case "task_complete":
+				p.recognized = true
 				e.Role = "assistant"
 				e.Kind = "reply"
 				e.Text = stringValue(value, "last_agent_message")
@@ -164,6 +181,7 @@ func (p *parser) read(line []byte) (inbox.Entry, bool) {
 				e.Turn = p.turn
 			}
 		case "response_item":
+			p.recognized = stringValue(value, "type") == "message"
 			if stringValue(value, "type") != "message" || stringValue(value, "role") != "assistant" || stringValue(value, "phase") != "final" {
 				return e, false
 			}
@@ -193,7 +211,9 @@ func (p *parser) read(line []byte) (inbox.Entry, bool) {
 			p.control = "on_record"
 			return e, false
 		}
-		if !typed {
+		// A chat a program runs holds the program's prompts, never the
+		// user's, though a record control in one is still honoured.
+		if !typed || p.source.Headless {
 			return e, false
 		}
 	}

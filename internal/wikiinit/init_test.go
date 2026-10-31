@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/threadpage"
 )
 
 func fixture(t *testing.T) Options {
@@ -115,6 +117,61 @@ func TestInitPushAndAdopt(t *testing.T) {
 	c2, _ := config.Load(o.Dirs.ConfigFile())
 	if len(c2.Exclude) != 1 || c2.EffortFor("codex", "") != "high" {
 		t.Fatal("adoption dropped settings")
+	}
+}
+
+// A wiki the config names, whose folder is gone and whose repo is empty, as
+// when it was never pushed or the repo was made again, is not replaced by a
+// new wiki: the config and the empty repo stay as they are.
+func TestInitKeepsTheConfiguredWikiOfAnEmptyRepo(t *testing.T) {
+	o := fixture(t)
+	o.NoPush = true
+	r, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(o.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "the config names an existing wiki") {
+		t.Fatalf("init again from the empty repo = %v", err)
+	}
+	if c, err := config.Load(o.Dirs.ConfigFile()); err != nil || c.Instance != r.Instance {
+		t.Fatalf("the config changed: %+v %v", c, err)
+	}
+	if heads := testGit(t, o.Remote, "for-each-ref", "refs/heads"); heads != "" {
+		t.Fatalf("the empty repo got %q", heads)
+	}
+}
+
+// The default thread page setup writes is built by threadpage, so it parses
+// as a page whose Now is the placeholder and renders back byte for byte; it
+// is the same file setup wrote before threadpage built it.
+func TestDefaultThreadPageParses(t *testing.T) {
+	o := fixture(t)
+	o.NoPush = true
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	w, err := okfadapter.Open(o.Dir, o.Dirs.Locks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pg, err := w.Read("general/threads/default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := pg.Concept.Body
+	got, err := threadpage.Parse(body)
+	want := threadpage.Page{Title: "General · default", Now: threadpage.Now{Summary: threadpage.Placeholder}}
+	if err != nil || !reflect.DeepEqual(got, want) || threadpage.Render(got) != body {
+		t.Fatalf("Parse(%q) = %#v, %v", body, got, err)
+	}
+	if body != "\n# General · default\n\n## Now\n<!-- eva:now:start -->\nNo chats captured yet.\n<!-- eva:now:end -->\n\n## Timeline\n" {
+		t.Fatalf("the scaffold's page changed: %q", body)
+	}
+	if now, err := w.Read("general/now"); err != nil || !strings.Contains(now.Concept.Body, "](threads/default.md) — "+threadpage.Placeholder+"\n") {
+		t.Fatalf("general/now: %v", err)
 	}
 }
 
@@ -402,6 +459,36 @@ func TestAdoptedWikiSanitizesMachineLabel(t *testing.T) {
 	}
 }
 
+// Setup tells a wiki made on another Mac by the label its instance starts
+// with, so MadeOn must give back the label Run made the instance from.
+func TestMadeOnGivesTheLabelAWikiWasMadeWith(t *testing.T) {
+	for _, name := range []string{"old-laptop", "Eva's Mac"} {
+		o := fixture(t)
+		o.NoPush = true
+		hostname = func() (string, error) { return name, nil }
+		t.Cleanup(func() { hostname = os.Hostname })
+		r, err := Run(context.Background(), o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		label, err := MachineLabel()
+		if err != nil || MadeOn(r.Instance) != label {
+			t.Fatalf("MadeOn(%q) = %q, MachineLabel() = %q, %v", r.Instance, MadeOn(r.Instance), label, err)
+		}
+	}
+	for instance, want := range map[string]string{
+		"old-laptop-1a2b3c4d": "old-laptop",
+		"mac-00ff00ff":        "mac",
+		"hand-made":           "hand-made",
+		"old-laptop-1a2b3c4g": "old-laptop-1a2b3c4g",
+		"-1a2b3c4d":           "-1a2b3c4d",
+	} {
+		if got := MadeOn(instance); got != want {
+			t.Errorf("MadeOn(%q) = %q, want %q", instance, got, want)
+		}
+	}
+}
+
 func TestGitignoreAnchorsInbox(t *testing.T) {
 	o := fixture(t)
 	if _, err := Run(context.Background(), o); err != nil {
@@ -416,6 +503,27 @@ func TestGitignoreAnchorsInbox(t *testing.T) {
 	cmd.Env = gitEnvironment()
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("the root inbox folder is not ignored: %v", err)
+	}
+}
+
+// A folder Finder showed holds a .DS_Store file and nothing else: it is
+// still an empty folder for the wiki, which is cloned into it.
+func TestAFolderWithOnlyDSStoreIsEmpty(t *testing.T) {
+	o := fixture(t)
+	if err := os.MkdirAll(o.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(o.Dir, ".DS_Store"), []byte("finder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := CheckFolder(o.Dir, o.Dirs); err != nil || got != o.Dir {
+		t.Fatalf("CheckFolder = %q, %v", got, err)
+	}
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("init into the folder: %v", err)
+	}
+	if status := testGit(t, o.Dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("dirty: %s", status)
 	}
 }
 

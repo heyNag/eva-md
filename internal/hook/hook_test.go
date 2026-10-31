@@ -31,6 +31,8 @@ func setup(t *testing.T) (Env, payload) {
 	t.Setenv("TMPDIR", filepath.Join(home, "tmp"))
 	t.Setenv("EVA_MD_INNER", "")
 	t.Setenv("CLAUDE_CODE_REMOTE", "")
+	// A test run from a headless Claude Code chat inherits its entrypoint.
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "")
 	if err := os.MkdirAll(filepath.Join(home, "project"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +40,11 @@ func setup(t *testing.T) (Env, payload) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := Env{Dirs: dirs, Config: config.Default(), Getenv: os.Getenv, Now: func() time.Time { return time.Date(2026, 10, 29, 15, 4, 5, 0, time.FixedZone("ICT", 7*3600)) }}
+	// Hooks start nothing in tests unless a test asks: spawn records nothing.
+	// Nor do prompts get the memory reminder.
+	c := config.Default()
+	c.ReminderEvery = 0
+	env := Env{Dirs: dirs, Config: c, Getenv: os.Getenv, Now: func() time.Time { return time.Date(2026, 10, 29, 15, 4, 5, 0, time.FixedZone("ICT", 7*3600)) }, spawn: func(...string) {}}
 	return env, payload{Session: "test-session", Cwd: filepath.Join(home, "project"), Model: "model-test", Event: "UserPromptSubmit", Prompt: "please help", Turn: "turn-1"}
 }
 
@@ -111,7 +117,12 @@ func TestEveryEventOnBothHosts(t *testing.T) {
 				if host == "codex" && tc.event == "Stop" {
 					wantOut = "{}"
 				}
-				if out != wantOut {
+				// The brief of a first chat is the footer alone.
+				if tc.event == "SessionStart" || tc.event == "UserPromptSubmit" {
+					if context := contextFrom(t, out); !strings.HasPrefix(context, "No earlier chats here;") || !strings.Contains(context, " search --all ") || strings.Contains(out, "systemMessage") {
+						t.Fatalf("first chat stdout=%q", out)
+					}
+				} else if out != wantOut {
 					t.Fatalf("stdout=%q want=%q", out, wantOut)
 				}
 				rows := records(t, env)
@@ -335,6 +346,24 @@ func TestToolLines(t *testing.T) {
 		{"todo", "claude-code", "TodoWrite", `{"todos":[{"content":"Test it","status":"pending"}]}`, `null`, "", "TodoWrite [ ] Test it (exit 0)", "plan"},
 		{"task-create", "claude-code", "TaskCreate", `{"subject":"Add tests","description":"PRIVATE DETAILS"}`, `null`, "", "TaskCreate [?] Add tests (exit 0)", "plan"},
 		{"task-update", "claude-code", "TaskUpdate", `{"taskId":"12","status":"completed"}`, `null`, "", "TaskUpdate [x] task 12 (exit 0)", "plan"},
+		{"read", "claude-code", "Read", `{"file_path":"/work/notes.md","offset":10,"limit":50}`, `"PRIVATE FILE"`, "", "Read /work/notes.md (exit 0)", "tool"},
+		{"grep", "claude-code", "Grep", `{"pattern":"func (main|init)","path":"internal/hook","output_mode":"content"}`, `"PRIVATE MATCHES"`, "", `Grep "func (main|init)" internal/hook (exit 0)`, "tool"},
+		{"glob", "claude-code", "Glob", `{"pattern":"**/*.go"}`, `"PRIVATE LIST"`, "", `Glob "**/*.go" (exit 0)`, "tool"},
+		{"web-fetch", "claude-code", "WebFetch", `{"url":"https://docs.example.com/guide?page=2","prompt":"PRIVATE QUESTION"}`, `"PRIVATE PAGE"`, "", "WebFetch https://docs.example.com/guide?page=2 (exit 0)", "tool"},
+		// What can carry a credential is left out: the user part, the
+		// fragment and each query parameter named so.
+		{"web-fetch-signed", "claude-code", "WebFetch", `{"url":"https://me:PRIVATE@files.example.com/report.pdf?sig=PRIVATE&page=2&X-Amz-Signature=PRIVATE&code=PRIVATE#access_token=PRIVATE"}`, `"PRIVATE PAGE"`, "", "WebFetch https://files.example.com/report.pdf?page=2 (exit 0)", "tool"},
+		// Scalar arguments, shortest first: no object, boolean or value over 1 KiB.
+		{"mcp", "claude-code", "mcp__wiki__getPage", `{"cloudId": "c0ffee00-0000-4000-8000-000000000000", "title":"Release  plan","pageId":4242,"body":"` + strings.Repeat("PRIVATE ", 130) + `","withBody":true,"filter":{"PRIVATE":"x"}}`, `{"content":[{"type":"text","text":"PRIVATE PAGE"}]}`, "", "mcp__wiki__getPage pageId=4242 title=Release plan cloudId=c0ffee00-0000-4000-8000-000000000000 (exit 0)", "tool"},
+		{"mcp-codex", "codex", "mcp__tracker__get_issue", `{"issue_key":"OPS-12"}`, `"Exit code: 0\nPRIVATE ISSUE"`, "", "mcp__tracker__get_issue issue_key=OPS-12 (exit 0)", "tool"},
+		{"mcp-no-args", "claude-code", "mcp__tracker__list", `{}`, `"PRIVATE LIST"`, "", "mcp__tracker__list (exit 0)", "tool"},
+		{"mcp-credential-args", "claude-code", "mcp__vault__read", `{"path":"team/app","auth":"PRIVATE","sessionId":"PRIVATE","apiKey":"PRIVATE","X-Cookie":"PRIVATE","pass":"PRIVATE","authentication":"PRIVATE","app_key":"PRIVATE","passcode":"PRIVATE","passkey":"PRIVATE","sessionid":"PRIVATE","PHPSESSID":"PRIVATE","author":"jane"}`, `"PRIVATE VALUE"`, "", "mcp__vault__read author=jane path=team/app (exit 0)", "tool"},
+		// A URL argument is cleaned as WebFetch's is.
+		{"mcp-url-signed", "claude-code", "mcp__fetch__fetch", `{"url":"https://me:PRIVATE@files.example.com/report.pdf?sig=PRIVATE&page=2&X-Amz-Signature=PRIVATE&code=PRIVATE&sessionid=PRIVATE#access_token=PRIVATE"}`, `"PRIVATE PAGE"`, "", "mcp__fetch__fetch url=https://files.example.com/report.pdf?page=2 (exit 0)", "tool"},
+		// One named as an address is cleaned, even with a space in its path.
+		{"mcp-url-with-space", "claude-code", "mcp__fetch__fetch", `{"url":"https://me:PRIVATE@files.example.com/my report.pdf?X-Amz-Signature=PRIVATE&page=2"}`, `"PRIVATE PAGE"`, "", "mcp__fetch__fetch url=https://files.example.com/my%20report.pdf?page=2 (exit 0)", "tool"},
+		// Text that only starts with an address is kept as it is.
+		{"mcp-text-with-url", "claude-code", "mcp__browser__ask", `{"text":"https://example.com/a?b=1 summarize the page"}`, `"PRIVATE ANSWER"`, "", "mcp__browser__ask text=https://example.com/a?b=1 summarize the page (exit 0)", "tool"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env, p := setup(t)
@@ -374,6 +403,26 @@ func TestToolLines(t *testing.T) {
 		command := strings.TrimSuffix(strings.TrimPrefix(text, "Bash (subagent) "), " (exit 0)")
 		if len([]rune(command)) > 200 {
 			t.Fatalf("command head=%d characters", len([]rune(command)))
+		}
+	})
+	// An MCP tool's arguments are redacted before the line is cut at 200
+	// characters: the token crosses the cut, and its start alone matches no
+	// rule.
+	t.Run("mcp-redact-before-cut", func(t *testing.T) {
+		env, p := setup(t)
+		p.Event = "PostToolUse"
+		p.Tool = "mcp__tracker__search"
+		token := "ghp_" + strings.Repeat("ab12", 9)
+		input, _ := json.Marshal(map[string]any{"query": strings.Repeat("q", 165) + " " + token, "limit": 5})
+		p.ToolInput = input
+		invoke(t, "claude-code", p, env)
+		rows := records(t, env)
+		if len(rows) != 1 {
+			t.Fatal(rows)
+		}
+		args := strings.TrimSuffix(strings.TrimPrefix(rows[0].Text, "mcp__tracker__search "), " (exit 0)")
+		if strings.Contains(args, token[:12]) || !strings.HasPrefix(args, "limit=5 query=qqq") || len([]rune(args)) > 200 {
+			t.Fatalf("unsafe arguments=%q", args)
 		}
 	})
 }

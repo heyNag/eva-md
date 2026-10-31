@@ -57,6 +57,61 @@ func TestBriefAndShowCLIResumeAcrossHosts(t *testing.T) {
 	}
 }
 
+func TestSearchCLIFindsWhatShowResolves(t *testing.T) {
+	d := isolated(t)
+	cwd, _ := os.Getwd()
+	p, err := identity.Resolve(context.Background(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := inbox.Store{Root: d.Inbox()}
+	for i, text := range []string{"Remember the tangerine protocol.", "Run go test -race before merging."} {
+		e := inbox.Entry{V: 1, TS: time.Now().Add(-time.Minute).Format(time.RFC3339), Host: "codex", Session: "searchcli-session", Turn: fmt.Sprint(i), Role: "user", Kind: "prompt", Text: text, Project: p.Key, Branch: p.Branch, Cwd: cwd, Origin: "hook"}
+		if err := s.Append(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		// Flags may follow the terms, and "--" lets a term start with a dash.
+		{[]string{"search", "tangerine", "--limit", "5", "protocol", "--cwd", cwd}, "s:searchcl#1 · Remember the tangerine protocol."},
+		{[]string{"search", "--cwd", cwd, "--", "-race"}, "s:searchcl#2 · Run go test -race before merging."},
+		{[]string{"search", "--inbox", "tangerine", "--cwd", cwd}, "s:searchcl#1 · Remember the tangerine protocol."},
+	} {
+		var out, errOut bytes.Buffer
+		if code := run(context.Background(), tc.args, strings.NewReader(""), &out, &errOut); code != 0 {
+			t.Fatalf("%v: %d %s", tc.args, code, errOut.String())
+		}
+		// No wiki is set up, so only the inbox is named.
+		if !strings.HasPrefix(out.String(), "eva.md search: ") || !strings.Contains(out.String(), tc.want) || !strings.Contains(out.String(), "\nScanned 1 file (") || strings.Contains(out.String(), "thread page") {
+			t.Fatalf("%v: %q", tc.args, out.String())
+		}
+	}
+	var out, errOut bytes.Buffer
+	if code := run(context.Background(), []string{"show", "s:searchcl#1"}, strings.NewReader(""), &out, &errOut); code != 0 || !strings.Contains(out.String(), "tangerine protocol") {
+		t.Fatalf("show %d %q %s", code, out.String(), errOut.String())
+	}
+	// --pages without a wiki says so rather than finding nothing.
+	out.Reset()
+	errOut.Reset()
+	if code := run(context.Background(), []string{"search", "--pages", "tangerine", "--cwd", cwd}, strings.NewReader(""), &out, &errOut); code != 0 || !strings.HasPrefix(out.String(), "No matches.\nScanned 0 thread pages (") || !strings.HasSuffix(out.String(), "; no wiki is set up, so no wiki pages were searched.\n") {
+		t.Fatalf("--pages: %d %q %s", code, out.String(), errOut.String())
+	}
+	// An excluded folder gets nothing, as the brief does.
+	c := config.Default()
+	c.Exclude = []string{cwd}
+	if err := config.Save(d.ConfigFile(), c); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run(context.Background(), []string{"search", "--all", "tangerine"}, strings.NewReader(""), &out, &errOut); code != 0 || out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("excluded folder searched: %d %q %q", code, out.String(), errOut.String())
+	}
+}
+
 func TestDoctorJSONAndStatusNeverNeedModels(t *testing.T) {
 	isolated(t)
 	var out, errOut bytes.Buffer
@@ -69,9 +124,17 @@ func TestDoctorJSONAndStatusNeverNeedModels(t *testing.T) {
 	if json.Unmarshal(out.Bytes(), &r) != nil || len(r.Checks) == 0 {
 		t.Fatal(out.String())
 	}
+	// No live check runs, and without a wiki the background rows can't pass.
+	rows := map[string]string{}
 	for _, c := range r.Checks {
-		if c.Name == "background updates" && c.Status == "PASS" {
-			t.Fatal("unbuilt background updates reported as ready")
+		if strings.HasSuffix(c.Name, " live update") {
+			t.Fatalf("status ran a live check: %+v", c)
+		}
+		rows[c.Name] = c.Status
+	}
+	for _, name := range []string{"claude-code updates", "codex updates", "daily commit"} {
+		if status, ok := rows[name]; !ok || status == "PASS" {
+			t.Fatalf("%s: %q, present %v", name, status, ok)
 		}
 	}
 }

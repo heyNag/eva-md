@@ -26,6 +26,7 @@ type fakeHost struct {
 	failAfter          bool
 	foreign            string
 	disabled           bool
+	refuseReadd        bool // adding a plugin the host has fails
 }
 
 func (f *fakeHost) run(_ context.Context, host string, args ...string) ([]byte, error) {
@@ -83,6 +84,9 @@ func (f *fakeHost) run(_ context.Context, host string, args ...string) ([]byte, 
 				delete(f.markets, host)
 			}
 		} else if len(args) >= 2 && args[0] == "plugin" {
+			if (args[1] == "add" || args[1] == "install") && f.refuseReadd && f.installed[host] {
+				return nil, errors.New("synthetic refusal: already installed")
+			}
 			if args[1] == "add" || args[1] == "install" {
 				f.installed[host] = true
 			}
@@ -227,6 +231,101 @@ func TestInstallBinaryOnlyAndUninstall(t *testing.T) {
 	}
 }
 
+// Install records the absolute path of each host CLI it found, for the
+// update job, whose PATH may lack them; a dry run records nothing, a
+// reinstall of one host keeps the other's path, a folder on PATH that is a
+// symlink, as a version manager's for one shell, is recorded as the folder
+// it links to, with the CLI's own name, and uninstall removes the record.
+func TestInstallRecordsTheCLIPaths(t *testing.T) {
+	opts, f := setup(t)
+	ctx := context.Background()
+	file := filepath.Join(opts.Dirs.State, cliPathsFile)
+	recorded := func() map[string]string {
+		t.Helper()
+		data, err := os.ReadFile(file)
+		var got map[string]string
+		if err == nil {
+			err = json.Unmarshal(data, &got)
+		}
+		if info, e := os.Stat(file); err != nil || e != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("record: %v %v", err, e)
+		}
+		return got
+	}
+	// The temporary home may itself sit under a symlink, as on macOS.
+	resolved := func(dir string) string {
+		t.Helper()
+		dir, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	dry := opts
+	dry.DryRun = true
+	if _, err := runInstall(ctx, dry, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a dry run recorded the CLIs: %v", err)
+	}
+	if _, err := runInstall(ctx, opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	bin := resolved(filepath.Join(os.Getenv("HOME"), "fake-bin"))
+	want := map[string]string{"claude": filepath.Join(bin, "claude"), "codex": filepath.Join(bin, "codex")}
+	if got := recorded(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("recorded %v, want %v", got, want)
+	}
+	moved := filepath.Join(os.Getenv("HOME"), "moved-bin")
+	if err := os.Mkdir(moved, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(moved, "claude"), []byte("#!/bin/sh\nexit 99\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", moved+string(filepath.ListSeparator)+bin)
+	one := opts
+	one.Host = "claude"
+	if _, err := runInstall(ctx, one, f.run); err != nil {
+		t.Fatal(err)
+	}
+	want["claude"] = filepath.Join(resolved(moved), "claude")
+	if got := recorded(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("after a reinstall of claude: %v, want %v", got, want)
+	}
+	// The shell's folder links to the version's, where claude links to the
+	// script it runs, as an npm install leaves it.
+	version := filepath.Join(os.Getenv("HOME"), "versions", "v1", "bin")
+	shell := filepath.Join(os.Getenv("HOME"), "shell-4242-bin")
+	if err := os.MkdirAll(version, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(version, "cli.js"), []byte("#!/bin/sh\nexit 99\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("cli.js", filepath.Join(version, "claude")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(version, shell); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shell+string(filepath.ListSeparator)+bin)
+	if _, err := runInstall(ctx, one, f.run); err != nil {
+		t.Fatal(err)
+	}
+	want["claude"] = filepath.Join(resolved(version), "claude")
+	if got := recorded(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("from a symlinked folder: %v, want %v", got, want)
+	}
+	if _, err := uninstall(ctx, opts.Dirs, true, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("uninstall kept the record: %v", err)
+	}
+}
+
 func TestDryRunHasNoFilesystemOrHostEffects(t *testing.T) {
 	opts, f := setup(t)
 	opts.DryRun = true
@@ -317,6 +416,47 @@ func TestFailedUpgradeRestoresOldPluginBytes(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	if !bytes.Equal(old, got) || !f.installed["claude"] {
 		t.Fatal("old enabled plugin was not restored")
+	}
+}
+
+// A host that refuses to add a plugin it has still loads the new files of
+// its folder in place, so an upgrade, and the rollback of a failed one,
+// verify the registration rather than fail on the refusal.
+func TestUpgradeWhenTheHostRefusesToAddAnInstalledPlugin(t *testing.T) {
+	opts, f := setup(t)
+	opts.Host = "claude"
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(pluginPath(opts.Dirs.Share, "claude"), ".claude-plugin", "plugin.json")
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	older := bytes.Replace(current, []byte("Resume your project"), []byte("Older plugin: resume your project"), 1)
+	if err = os.WriteFile(path, older, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.refuseReadd = true
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if got, _ := os.ReadFile(path); !bytes.Equal(got, current) || !f.installed["claude"] {
+		t.Fatal("the upgrade didn't write the new plugin files")
+	}
+	// A failed upgrade of both hosts rolls the Claude plugin back without
+	// stopping at the refusal.
+	if err = os.WriteFile(path, older, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts.Host = "all"
+	f.fail = "codex plugin add "
+	_, err = runInstall(context.Background(), opts, f.run)
+	if err == nil || strings.Contains(err.Error(), "rollback incomplete") {
+		t.Fatalf("a failed upgrade = %v", err)
+	}
+	if got, _ := os.ReadFile(path); !bytes.Equal(got, older) || !f.installed["claude"] {
+		t.Fatal("the rollback didn't restore the old plugin")
 	}
 }
 

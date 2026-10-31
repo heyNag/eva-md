@@ -56,8 +56,8 @@ func (d Dirs) Sessions() string { return filepath.Join(d.State, "sessions") }
 // Locks holds eva-md's lock files.
 func (d Dirs) Locks() string { return filepath.Join(d.State, "locks") }
 
-// Logs is for the logs of detached jobs. Nothing writes there yet: the
-// background wiki updates that will use it are planned.
+// Logs holds the logs of detached jobs, such as the background update's
+// update-<YYYY-MM-DD>.log.
 func (d Dirs) Logs() string { return filepath.Join(d.State, "logs") }
 
 // Cache holds caches that are rebuilt when missing, such as the identity

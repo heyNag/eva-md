@@ -146,7 +146,7 @@ func TestStartupKeepsOwnBranchNow(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(r.Text, "Now (as of "+asOf.Format(time.RFC3339)+"):\nFEATURE_NOW_TEXT") || !strings.Contains(r.Text, "Thread: projects/resume/threads/feature-x.md") {
+			if !strings.Contains(r.Text, "Now (as of "+asOf.Format(time.RFC3339)+"):\nFEATURE_NOW_TEXT") || !strings.Contains(r.Text, " show <ref>, projects/resume/threads/feature-x#Now or #Timeline --last 10.") {
 				t.Fatalf("own Now dropped:\n%s", r.Text)
 			}
 			for _, unwanted := range []string{"MAIN_NOW_TEXT", "MAIN_EXCHANGE", "Continuing from", "lineage"} {
@@ -173,7 +173,7 @@ func TestStartupLineageNowNamesItsBranch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{"Continuing from main", "Now from main (lineage, as of " + asOf.Format(time.RFC3339) + "):\nMAIN_NOW_TEXT", "MAIN_EXCHANGE", "Thread: projects/resume/threads/main.md"} {
+			for _, want := range []string{"Continuing from main", "Now from main (lineage, as of " + asOf.Format(time.RFC3339) + "):\nMAIN_NOW_TEXT", "MAIN_EXCHANGE", " show <ref>, projects/resume/threads/main#Now or #Timeline --last 10."} {
 				if !strings.Contains(r.Text, want) {
 					t.Fatalf("missing %q:\n%s", want, r.Text)
 				}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
+	"github.com/heyNag/eva-md/internal/threadpage"
 )
 
 func TestInitialGeneralScaffoldIsNotMemory(t *testing.T) {
@@ -20,11 +21,11 @@ func TestInitialGeneralScaffoldIsNotMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Match the Now region emitted by wikiinit, including its absent as_of.
+	// The page wikiinit writes, rendered by threadpage, with no as_of.
 	placeholder := &okfadapter.Concept{
 		Type: "thread", Title: "General · default", Status: "stable",
 		Extra: map[string]any{"branch": "default", "state": "active", "project": "general"},
-		Body:  "# General · default\n\n## Now\n<!-- eva:now:start -->\nNo chats captured yet.\n<!-- eva:now:end -->\n\n## Timeline\n",
+		Body:  threadpage.Render(threadpage.Page{Title: "General · default", Now: threadpage.Now{Summary: threadpage.Placeholder}}),
 	}
 	if err := w.Create("general/threads/default", placeholder, "eva-md/test"); err != nil {
 		t.Fatal(err)
@@ -32,7 +33,9 @@ func TestInitialGeneralScaffoldIsNotMemory(t *testing.T) {
 	for _, variant := range []string{"startup", "clear", "compact", "resume", "fork", "refresh"} {
 		o.Variant = variant
 		r, err := Build(context.Background(), o)
-		if err != nil || r.Found || r.Text != "" || r.NowHash != "" {
+		// A new chat gets the footer alone, which is not memory.
+		footerOnly := variant == "startup" || variant == "clear"
+		if err != nil || r.Found || r.NowHash != "" || (r.Text != "") != footerOnly || strings.Contains(r.Text, "No chats captured yet") {
 			t.Fatalf("%s treated scaffold as memory: %+v, %v", variant, r, err)
 		}
 	}

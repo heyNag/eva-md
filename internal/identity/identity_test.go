@@ -47,7 +47,7 @@ func TestNormalizeRemote(t *testing.T) {
 		{"git@gitlab.corp.example:team/sub/repo.git", "gitlab.corp.example/team/sub/repo", true},
 		{"https://gitlab.corp.example:8443/team/sub/repo.git", "gitlab.corp.example/team/sub/repo", true},
 		{"ssh://git@gitlab.corp.example:2222/team/repo.git", "gitlab.corp.example/team/repo", true},
-		{"ssh://git@github.com/~nag/repo.git", "github.com/~nag/repo", true},
+		{"ssh://git@github.com/~user/repo.git", "github.com/~user/repo", true},
 		{"", "", false},
 		{"   ", "", false},
 		{"/Users/me/repos/eva-md", "", false},

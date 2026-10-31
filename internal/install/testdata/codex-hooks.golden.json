@@ -1,0 +1,87 @@
+{
+  "hooks": {
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/test/it'\"'\"'s a space/.local/share/eva-md/bin/eva-md' hook --host codex || echo '{}'",
+            "timeout": 1,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "'/Users/test/it'\"'\"'s a space/.local/share/eva-md/bin/eva-md' hook --host codex || echo '{}'",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "^(Bash|apply_patch|update_plan|mcp__.*)$"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/test/it'\"'\"'s a space/.local/share/eva-md/bin/eva-md' hook --host codex || echo '{}'",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "manual|auto"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/test/it'\"'\"'s a space/.local/share/eva-md/bin/eva-md' hook --host codex || echo '{}'",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "additionalContextLimit": 3000,
+            "command": "'/Users/test/it'\"'\"'s a space/.local/share/eva-md/bin/eva-md' hook --host codex || echo '{}'",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "startup|resume|clear|compact|fork"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/test/it'\"'\"'s a space/.local/share/eva-md/bin/eva-md' hook --host codex || echo '{}'",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "additionalContextLimit": 3000,
+            "command": "'/Users/test/it'\"'\"'s a space/.local/share/eva-md/bin/eva-md' hook --host codex || echo '{}'",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

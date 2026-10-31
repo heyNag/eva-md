@@ -163,6 +163,77 @@ func TestPartialLinesAndWatermark(t *testing.T) {
 	}
 }
 
+// A watermark set inside a group keeps "more" beside its offset, and one
+// whose rest waits for more entries the file's size then; Watermark still
+// reads the offset alone.
+func TestMarkKeepsMoreWithTheOffset(t *testing.T) {
+	s := fixture(t)
+	e := entry()
+	if err := s.Append(e); err != nil {
+		t.Fatal(err)
+	}
+	file := s.Path(e.Project, e.Host, e.Session)
+	if m, err := s.Mark(file); err != nil || m != (Mark{}) {
+		t.Fatalf("missing mark: %+v %v", m, err)
+	}
+	for _, want := range []Mark{{Offset: 7, More: true}, {Offset: 9}, {Offset: 9, Wait: 40}, {Offset: 7, More: true, Wait: 52}} {
+		if err := s.SetMark(file, want); err != nil {
+			t.Fatal(err)
+		}
+		if m, err := s.Mark(file); err != nil || m != want {
+			t.Fatalf("mark %+v, want %+v (%v)", m, want, err)
+		}
+		if wm, err := s.Watermark(file); err != nil || wm != want.Offset {
+			t.Fatalf("watermark %d, want %d (%v)", wm, want.Offset, err)
+		}
+	}
+	wm := filepath.Join(filepath.Dir(file), ".state", filepath.Base(file)+".wm")
+	for _, bad := range []string{"7 less\n", "7 more more\n", "\n", "-3\n", "7 wait\n", "7 wait x\n", "7 wait 0\n", "7 wait 9 more\n", "7 wait 9 9\n"} {
+		if err := os.WriteFile(wm, []byte(bad), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Mark(file); err == nil {
+			t.Fatalf("accepted %q", bad)
+		}
+	}
+	f, err := s.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	link := filepath.Join(filepath.Dir(file), "codex-linked.jsonl")
+	if err := os.Symlink(file, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{link, wm, filepath.Join(t.TempDir(), "outside.jsonl")} {
+		if f, err := s.Open(bad); err == nil {
+			f.Close()
+			t.Fatalf("opened %s", bad)
+		}
+	}
+}
+
+// A backlog is the bytes past the offset, unless the update found them all
+// too small to process at the file's present size.
+func TestPendingSkipsAWaitingBacklog(t *testing.T) {
+	for _, tc := range []struct {
+		m    Mark
+		size int64
+		want int64
+	}{
+		{Mark{}, 0, 0},
+		{Mark{}, 600, 600},
+		{Mark{Offset: 600}, 600, 0},
+		{Mark{Offset: 100}, 700, 600},
+		{Mark{Offset: 100, Wait: 700}, 700, 0},
+		{Mark{Offset: 100, More: true, Wait: 700}, 701, 601},
+	} {
+		if got := tc.m.Pending(tc.size); got != tc.want {
+			t.Errorf("%+v at %d bytes: %d pending, want %d", tc.m, tc.size, got, tc.want)
+		}
+	}
+}
+
 func TestPermissionsAndRefs(t *testing.T) {
 	s := fixture(t)
 	e := entry()

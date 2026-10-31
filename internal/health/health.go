@@ -1,9 +1,12 @@
-// Package health reports observable local state without model calls or repairs.
+// Package health reports observable local state without model calls. Its
+// one repair writes the names index of the system pages again (see
+// inspectNames).
 package health
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -13,10 +16,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/systempage"
 )
 
 type Check struct {
@@ -98,7 +103,17 @@ func QuickNotice(ctx context.Context, d paths.Dirs, c config.Config, activeHost 
 			return "eva.md: recent " + other + " activity has no matching capture heartbeat; run eva-md doctor."
 		}
 	}
-	return ""
+	for _, host := range []string{"claude-code", "codex"} {
+		if failed, runs := hookRuns(d, host, now); hooksFailing(failed, runs) {
+			return fmt.Sprintf("eva.md: %d of the last %d %s hook runs failed; run eva-md doctor.", failed, runs, host)
+		}
+	}
+	for _, host := range []string{"claude-code", "codex"} {
+		if _, found, _ := catchup.ReadDrift(d, host); found {
+			return "eva.md: transcript recovery no longer recognizes " + host + "'s transcripts, so missed replies are not recovered; run eva-md doctor."
+		}
+	}
+	return backgroundNotice(d, c, now)
 }
 
 type beat struct {
@@ -107,11 +122,29 @@ type beat struct {
 	Event               string    `json:"event"`
 	TranscriptAvailable bool      `json:"transcript_available"`
 	DurationMS          float64   `json:"duration_ms"`
+	Runs                []hookRun `json:"runs"` // the event's last runs, oldest first
+	// Entrypoint is the Claude Code entrypoint the last run inherited, and
+	// Headless whether the hook took it for a program's chat.
+	Entrypoint string `json:"entrypoint"`
+	Headless   bool   `json:"headless"`
 }
 
-// Inspect checks disk state and optionally queries native hosts. It never
-// authenticates, starts a model, changes trust or writes host settings.
+// hookRun is one run in a heartbeat's history.
+type hookRun struct {
+	At     time.Time `json:"at"`
+	Failed bool      `json:"failed"`
+}
+
+// Inspect checks disk state and optionally queries native hosts, as eva-md
+// doctor does. It never authenticates, starts a model, changes trust or
+// writes host settings; its one repair is the names index (see
+// inspectNames).
 func Inspect(ctx context.Context, d paths.Dirs, module string, hosts bool) Report {
+	return inspect(ctx, d, module, hosts, true)
+}
+
+// inspect is Inspect, and without repair, as eva-md status, writes nothing.
+func inspect(ctx context.Context, d paths.Dirs, module string, hosts, repair bool) Report {
 	r := Report{}
 	if info, err := os.Lstat(filepath.Join(d.Share, "bin", "eva-md")); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
 		r.add("binary", "PASS", "stable hook binary is installed", "")
@@ -129,7 +162,7 @@ func Inspect(ctx context.Context, d paths.Dirs, module string, hosts bool) Repor
 		if info, e := os.Lstat(d.ConfigFile()); e != nil || info.Mode().Perm()&0077 != 0 {
 			r.add("config permissions", "FAIL", "config must be private", "set config mode to 0600")
 		}
-		inspectWiki(ctx, &r, d, c, module)
+		inspectWiki(ctx, &r, d, c, module, repair)
 	}
 	inspectInbox(ctx, &r, d)
 	now := time.Now()
@@ -144,6 +177,12 @@ func Inspect(ctx context.Context, d paths.Dirs, module string, hosts bool) Repor
 			if !b.TranscriptAvailable {
 				detail += "; transcript unavailable for catch-up"
 			}
+			if b.Entrypoint != "" {
+				detail += "; entrypoint " + b.Entrypoint
+				if b.Headless {
+					detail += ", a program's chat: its prompts are stored as host prompts"
+				}
+			}
 			status := "PASS"
 			if now.Sub(b.At) > 24*time.Hour {
 				status = "UNKNOWN"
@@ -151,17 +190,16 @@ func Inspect(ctx context.Context, d paths.Dirs, module string, hosts bool) Repor
 			}
 			r.add(host+" "+event, status, detail, "")
 		}
-		r.Checks = append(r.Checks, captureFreshness(ctx, d, host, now))
+		r.Checks = append(r.Checks, captureFreshness(ctx, d, host, now), hookCheck(d, host, now), driftCheck(d, host))
 	}
 	if hosts {
 		inspectHosts(ctx, &r, d)
 	}
-	r.add("background updates", "UNKNOWN", "background wiki updates are not built yet; resume uses the captured chats", "")
-	r.add("daily commit and push", "UNKNOWN", "daily commits are not built yet; capture and resume never change the wiki", "")
+	inspectBackground(&r, d, c, now)
 	return r
 }
 
-func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, module string) {
+func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, module string, repair bool) {
 	if c.WikiPath == "" {
 		r.add("wiki", "FAIL", "wiki path is missing", "run eva-md setup")
 		return
@@ -174,6 +212,9 @@ func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, 
 	root.Close()
 	r.add("wiki location", "PASS", "wiki is a real, accessible directory", "")
 	s, err := config.LoadSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"))
+	// eva-md writes the names index only to a wiki of its schema and the
+	// config's instance.
+	writable := err == nil && s.SchemaVersion == 1 && c.Instance != "" && s.Instance == c.Instance
 	if err != nil {
 		r.add("wiki schema", "FAIL", "schema is missing or invalid", "restore .eva-md/schema.toml")
 	} else {
@@ -248,6 +289,45 @@ func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, 
 	} else {
 		r.add("wiki temporary files", "PASS", "none found", "")
 	}
+	if writable {
+		inspectNames(ctx, r, d, c, repair)
+	}
+}
+
+// refreshNames is a variable so tests can make the wiki's lock busy.
+var refreshNames = systempage.RefreshNames
+
+// inspectNames checks the names index the prompt hook reads. With repair it
+// writes the index again from the system pages when it is missing,
+// unreadable or out of date, the doctor's one repair, waiting for the wiki's
+// lock as any write does; without, it only says so. A wiki without system
+// pages has nothing to check.
+func inspectNames(ctx context.Context, r *Report, d paths.Dirs, c config.Config, repair bool) {
+	n, err := refreshNames(ctx, systempage.Options{Config: c, Dirs: d}, repair)
+	switch {
+	case errors.Is(err, okfadapter.ErrLockBusy):
+		r.add("system names", "UNKNOWN", "the names index of the system pages is missing, unreadable or out of date, and the wiki stayed busy, so it was not written again", "run eva-md doctor again")
+		return
+	case err != nil:
+		r.add("system names", "FAIL", "the names index of the system pages can't be checked or written again", "check that "+systempage.NamesFile+" in the wiki is a regular file eva-md can write, or remove it, then run eva-md doctor again")
+		return
+	case n.Stale:
+		r.add("system names", "FAIL", fmt.Sprintf("the names index of the %d system %s is missing, unreadable or out of date, so prompts may miss pointers to them", n.Pages, plural(n.Pages, "page", "pages")), "run eva-md doctor, which writes it again")
+		return
+	case n.Pages == 0 && !n.Rebuilt:
+		return
+	}
+	detail := fmt.Sprintf("%d %s for %d system %s", n.Names, plural(n.Names, "name", "names"), n.Pages, plural(n.Pages, "page", "pages"))
+	if n.Rebuilt {
+		detail = "written again from the system pages: " + detail
+	}
+	if n.NoAliases > 0 {
+		detail += fmt.Sprintf("; past %d names or %d KB, the aliases of the %d oldest %s are left out", systempage.MaxNames, systempage.MaxNamesSize>>10, n.NoAliases, plural(n.NoAliases, "page", "pages"))
+	}
+	if n.LeftOut > 0 {
+		detail += fmt.Sprintf(", and %d oldest %s altogether", n.LeftOut, plural(n.LeftOut, "page", "pages"))
+	}
+	r.add("system names", "PASS", detail, "")
 }
 
 func inspectInbox(ctx context.Context, r *Report, d paths.Dirs) {

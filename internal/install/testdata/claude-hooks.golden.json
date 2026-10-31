@@ -1,0 +1,167 @@
+{
+  "hooks": {
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "timeout": 3,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "async": true,
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|mcp__.*"
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "async": true,
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|mcp__.*"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "manual|auto"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "startup|resume|clear|compact|fork"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "timeout": 3,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "--host",
+              "claude-code"
+            ],
+            "command": "/Users/test/it's a space/.local/share/eva-md/bin/eva-md",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -26,6 +26,7 @@ var (
 	ErrExists   = errors.New("okfadapter: page already exists")
 	ErrConflict = errors.New("okfadapter: page changed since it was read")
 	ErrNoRoot   = errors.New("okfadapter: wiki root index.md missing")
+	ErrLockBusy = errors.New("okfadapter: wiki lock still busy")
 )
 
 const (
@@ -73,21 +74,20 @@ type Wiki struct {
 	root     string // symlink-resolved absolute path
 	lockDir  string
 	lockPath string
+	held     bool // the wiki lock is held for this Wiki (see Locked)
 }
 
-// Open opens the wiki at root. It resolves symlinks, requires a root
-// index.md (without one okf would silently treat knowledge/ as the wiki),
-// loads the bundle and checks that okf loaded root itself. Locks are taken in
-// lockDir, which must be an absolute path.
+// Open opens the wiki at root. It resolves symlinks and requires a root
+// index.md (without one okf would silently treat knowledge/ as the wiki). It
+// reads no pages, so a hook that opens the wiki pays the same at any wiki
+// size and a stray file elsewhere can't fail it; Validate loads the whole
+// wiki. Locks are taken in lockDir, which must be an absolute path.
 func Open(root, lockDir string) (*Wiki, error) {
 	if !filepath.IsAbs(lockDir) {
 		return nil, fmt.Errorf("okfadapter: lock folder %q is not an absolute path", lockDir)
 	}
 	real, err := resolveRoot(root)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := loadBundle(real); err != nil {
 		return nil, err
 	}
 	lockDir = filepath.Clean(lockDir)
@@ -97,13 +97,35 @@ func Open(root, lockDir string) (*Wiki, error) {
 // Root returns the wiki's absolute, symlink-resolved path.
 func (w *Wiki) Root() string { return w.root }
 
+// Locked runs fn under the wiki lock, so several writes land together. The
+// Wiki fn gets writes without taking the lock again; it must not be used
+// once fn returns.
+func (w *Wiki) Locked(fn func(*Wiki) error) error {
+	unlock, err := w.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	held := *w
+	held.held = true
+	return fn(&held)
+}
+
 // Read reads and parses the page with the given concept ID.
-func (w *Wiki) Read(id string) (*Page, error) {
+func (w *Wiki) Read(id string) (*Page, error) { return w.ReadMax(id, 0) }
+
+// ErrTooLarge reports a page over the size a bounded read allows.
+var ErrTooLarge = errors.New("okfadapter: page is over the read limit")
+
+// ReadMax reads and parses a page as Read does, but refuses one over max
+// bytes (ErrTooLarge) without reading it, so a hook reads bounded data. A
+// max of 0 sets no limit.
+func (w *Wiki) ReadMax(id string, max int64) (*Page, error) {
 	id, rel, full, err := w.locate(id)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := readNoFollow(full)
+	raw, err := readNoFollow(full, max)
 	if err != nil {
 		return nil, fmt.Errorf("okfadapter: read %s: %w", rel, err)
 	}
@@ -172,7 +194,7 @@ func (w *Wiki) Update(id, expectHash string, render func(*okf.Concept) error, ac
 	if err != nil {
 		return false, err
 	}
-	raw, err := readNoFollow(full)
+	raw, err := readNoFollow(full, 0)
 	if err != nil {
 		return false, fmt.Errorf("okfadapter: update %s: %w", rel, err)
 	}
@@ -500,7 +522,7 @@ func writeAtomic(target string, data []byte, mode os.FileMode) (err error) {
 	return os.Rename(tmp, target)
 }
 
-func readNoFollow(full string) ([]byte, error) {
+func readNoFollow(full string, max int64) ([]byte, error) {
 	f, err := os.OpenFile(full, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
@@ -513,12 +535,42 @@ func readNoFollow(full string) ([]byte, error) {
 	if !fi.Mode().IsRegular() {
 		return nil, errors.New("not a regular file")
 	}
-	return io.ReadAll(f)
+	if max <= 0 {
+		return io.ReadAll(f)
+	}
+	if fi.Size() > max {
+		return nil, ErrTooLarge
+	}
+	// The page may grow between the size check and the read.
+	raw, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err == nil && int64(len(raw)) > max {
+		return nil, ErrTooLarge
+	}
+	return raw, err
 }
 
 func hashOf(raw []byte) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+// Serialize returns the text Create and Update save for c, with the
+// generated line c holds, so a writer can check a page as it will be saved.
+func Serialize(c *Concept) string { return serializeAsSaved(c) }
+
+// IsLocked reports a page a person locked: its frontmatter sets locked to
+// true, yes or on, in any case, as YAML reads true.
+func IsLocked(c *Concept) bool {
+	switch v := c.Extra["locked"].(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true", "yes", "on":
+			return true
+		}
+	}
+	return false
 }
 
 // serializeAsSaved serializes c the way SaveConcept would, apart from the
@@ -558,8 +610,12 @@ func withoutGenerated(s string) string {
 	return b.String()
 }
 
-// lock takes the exclusive wiki lock, waiting at most lockTimeout.
+// lock takes the exclusive wiki lock, waiting at most lockTimeout. Under
+// Locked the lock is already held, so it takes nothing.
 func (w *Wiki) lock() (unlock func(), err error) {
+	if w.held {
+		return func() {}, nil
+	}
 	if err := os.MkdirAll(w.lockDir, 0o700); err != nil {
 		return nil, fmt.Errorf("okfadapter: lock folder: %w", err)
 	}
@@ -591,7 +647,7 @@ func (w *Wiki) lock() (unlock func(), err error) {
 		}
 		if time.Now().After(deadline) {
 			_ = f.Close()
-			return nil, fmt.Errorf("okfadapter: wiki lock still busy after %s", lockTimeout)
+			return nil, fmt.Errorf("%w after %s", ErrLockBusy, lockTimeout)
 		}
 		time.Sleep(lockPoll)
 	}

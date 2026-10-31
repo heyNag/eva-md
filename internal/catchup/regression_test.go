@@ -305,6 +305,29 @@ func TestLongRowsDoNotWedgeRecovery(t *testing.T) {
 	}
 }
 
+// A row whose decoding used up the pass before the stored entries were
+// loaded is marked slow, so the next pass loads them before decoding it.
+// Unmarked, every pass would decode it and stop at the same place.
+func TestRowDecodedTooLateIsMarkedSlow(t *testing.T) {
+	dirs, _, e := fixture(t, "claude-code")
+	stored := e
+	stored.Role, stored.Kind, stored.Text, stored.Turn, stored.Origin = "user", "prompt", "HOOK-COPY of the paste", "turn-1", "hook"
+	if err := (inbox.Store{Root: dirs.Inbox()}).Append(stored); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the pass's time ran out while the row was decoded
+	r := &recovery{ctx: ctx, dirs: dirs, s: Source{Entry: e}, redact: redactText}
+	row := stored
+	row.Text, row.Origin = "the long paste", "catchup"
+	if err := r.store(row, 4096); !errors.Is(err, errPaused) {
+		t.Fatalf("store = %v, want a paused pass", err)
+	}
+	if r.s.Slow == nil || r.s.Slow.Offset != 4096 || !r.dirty {
+		t.Fatalf("row not marked slow: %+v dirty=%v", r.s.Slow, r.dirty)
+	}
+}
+
 // Claude writes user rows that the user did not type as prompts. None
 // of them may become a [user] prompt, and command output is never stored.
 func TestHostRowsAreNeverUserPrompts(t *testing.T) {

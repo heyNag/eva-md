@@ -32,7 +32,7 @@ func TestWikiRemoteAcceptsInitializedCanonicalIdentity(t *testing.T) {
 		c.ExpectedRemote = expected
 		c.Instance = "test"
 		var report Report
-		inspectWiki(context.Background(), &report, d, c, "v0.7.2")
+		inspectWiki(context.Background(), &report, d, c, "v0.7.2", true)
 		found := false
 		for _, check := range report.Checks {
 			if check.Name == "wiki remote" {

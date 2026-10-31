@@ -189,3 +189,30 @@ func TestBrokenInventoryStaysUnknown(t *testing.T) {
 		t.Fatalf("unreadable inventory: %+v", c)
 	}
 }
+
+// A Mac without Codex gets no Codex trust row and no fix to install eva-md
+// for it, and keeps the Claude rows.
+func TestHostRowsOnAMacWithoutCodex(t *testing.T) {
+	d := isolated(t)
+	bin := filepath.Join(d.Share, "test-bin")
+	if e := paths.EnsureDir(bin); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexit 3\n"), 0o700); e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("PATH", bin)
+	checks := hostStatuses(t, d)
+	if c := checks["codex plugin"]; c.Status != "UNKNOWN" || c.Detail != "Codex isn't installed on this Mac" || c.Fix != "" {
+		t.Fatalf("codex plugin: %+v", c)
+	}
+	if c, ok := checks["codex hook trust"]; ok {
+		t.Fatalf("a trust row for a Codex that isn't there: %+v", c)
+	}
+	if _, ok := checks["claude managed hook policy"]; !ok {
+		t.Fatal("the Claude policy row is missing")
+	}
+	if c := checks["claude plugin"]; strings.Contains(c.Detail, "isn't installed") {
+		t.Fatalf("claude plugin: %+v", c)
+	}
+}

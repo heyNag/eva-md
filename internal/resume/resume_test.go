@@ -58,6 +58,36 @@ func wiki(t *testing.T, o Options, asOf time.Time, now string) {
 	}
 }
 
+// The brief reads only the pages it needs, so a stray file elsewhere in the
+// wiki, which makes a whole-wiki load fail, never costs it the Now.
+func TestStrayWikiFileKeepsTheNow(t *testing.T) {
+	o := fixture(t)
+	o.Variant = "startup"
+	capture(t, o, "codex", "source-123", "main", o.Now.Add(-time.Hour), "Codename Saffron.")
+	wiki(t, o, o.Now.Add(-30*time.Minute), "STRAY_SAFE_NOW")
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("# Outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(o.Config.WikiPath, "projects", "stray.md")); err != nil {
+		t.Fatal(err)
+	}
+	w, err := okfadapter.Open(o.Config.WikiPath, o.Dirs.Locks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Validate(); err == nil {
+		t.Fatal("the stray symlink no longer fails a whole-wiki load, so this test proves nothing")
+	}
+	r, err := Build(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.Text, "STRAY_SAFE_NOW") {
+		t.Fatalf("a stray file elsewhere in the wiki removed the Now:\n%s", r.Text)
+	}
+}
+
 func TestCrossHostStartupClearAndLineage(t *testing.T) {
 	for _, variant := range []string{"startup", "clear"} {
 		t.Run(variant, func(t *testing.T) {
@@ -109,9 +139,10 @@ func TestVariantsFreshStaleMissingAndRefresh(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				cap := 7000
+				// The caps of the hosts these variants run on (see budgets).
+				cap := 8000
 				if variant == "compact" {
-					cap = 4000
+					cap = 4500
 				}
 				if variant == "resume" || variant == "fork" {
 					cap = 1500
@@ -157,7 +188,9 @@ func TestCompactKeepsCurrentBranchAndLastTwoExchanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(r.Text, "wrong branch") || strings.Contains(r.Text, "too old") || !strings.Contains(r.Text, "latest") || !strings.Contains(r.Text, "second last") {
+	// The chat's first prompt on this branch is its opening request, not one
+	// of the exchanges.
+	if strings.Contains(r.Text, "wrong branch") || strings.Contains(r.Text, "  too old") || !strings.Contains(r.Text, "\nOpening request (s:source-c#4): too old\n") || !strings.Contains(r.Text, "latest") || !strings.Contains(r.Text, "second last") {
 		t.Fatal(r.Text)
 	}
 }
@@ -197,7 +230,7 @@ func TestHostileFencesUnicodeAndLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !utf8.ValidString(r.Text) || len([]rune(r.Text)) > 7000 {
+	if !utf8.ValidString(r.Text) || len([]rune(r.Text)) > 8000 {
 		t.Fatal("invalid cap/unicode")
 	}
 	if strings.Count(r.Text, "\neva.md notes:") != 0 {
@@ -345,7 +378,7 @@ func TestBudgetRetainsNewestReplyAndFooter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len([]rune(r.Text)) > 7000 || !strings.Contains(r.Text, "FINAL_TAIL") || !strings.Contains(r.Text, "Thread: projects/resume/threads/main.md") {
+	if len([]rune(r.Text)) > 8000 || !strings.Contains(r.Text, "FINAL_TAIL") || !strings.Contains(r.Text, " show <ref>, projects/resume/threads/main#Now or #Timeline --last 10.") {
 		t.Fatalf("lost newest tail/footer: %s", r.Text)
 	}
 }

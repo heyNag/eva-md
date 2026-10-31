@@ -15,8 +15,116 @@ import (
 func TestDefault(t *testing.T) {
 	isolate(t)
 	c := Default()
-	if c.Notice != NoticeStart || c.DailyCap != DefaultDailyCap || c.CodexIgnoreUserConfig {
+	if c.Notice != NoticeStart || !c.Updates || !c.Commits || c.DailyCap != DefaultDailyCap || c.CodexIgnoreUserConfig || c.ReminderEvery != DefaultReminderEvery {
 		t.Fatalf("Default() = %+v", c)
+	}
+}
+
+// commits = false stops the daily commit and push on its own: absent it is
+// true, updates = false leaves it on, and a misspelled key is reported as
+// unknown rather than read as the switch.
+func TestCommitsSwitch(t *testing.T) {
+	isolate(t)
+	file := filepath.Join(t.TempDir(), "config.toml")
+	for _, tc := range []struct {
+		body             string
+		updates, commits bool
+		unknown          []string
+	}{
+		{"notice = \"start\"\n", true, true, nil},
+		{"commits = false\n", true, false, nil},
+		{"updates = false\n", false, true, nil},
+		{"updates = false\ncommits = true\n", false, true, nil},
+		{"commit = false\n", true, true, []string{"commit"}},
+	} {
+		if err := os.WriteFile(file, []byte(tc.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(file)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.body, err)
+		}
+		if c.Updates != tc.updates || c.Commits != tc.commits || !reflect.DeepEqual(c.Unknown, tc.unknown) {
+			t.Errorf("%q: updates %v, commits %v, unknown %q", tc.body, c.Updates, c.Commits, c.Unknown)
+		}
+	}
+	if err := os.WriteFile(file, []byte("commits = \"no\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(file); err == nil {
+		t.Error("a string for commits was accepted")
+	}
+}
+
+// reminder_every spaces the prompt's memory reminder: absent it is 5, an
+// explicit 0 turns it off and stays 0 through a save, and a negative number
+// or a string is refused.
+func TestReminderEvery(t *testing.T) {
+	isolate(t)
+	file := filepath.Join(t.TempDir(), "config.toml")
+	for _, tc := range []struct {
+		body string
+		want int
+	}{
+		{"notice = \"start\"\n", DefaultReminderEvery},
+		{"reminder_every = 0\n", 0},
+		{"reminder_every = 3\n", 3},
+	} {
+		if err := os.WriteFile(file, []byte(tc.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(file)
+		if err != nil || c.ReminderEvery != tc.want || c.Unknown != nil {
+			t.Fatalf("%q: reminder_every %d, unknown %q, %v; want %d", tc.body, c.ReminderEvery, c.Unknown, err, tc.want)
+		}
+		if err := Save(file, c); err != nil {
+			t.Fatal(err)
+		}
+		if again, err := Load(file); err != nil || again.ReminderEvery != tc.want {
+			t.Fatalf("%q saved and read back: %d, %v", tc.body, again.ReminderEvery, err)
+		}
+	}
+	for _, body := range []string{"reminder_every = -1\n", "reminder_every = \"5\"\n"} {
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(file); err == nil {
+			t.Errorf("%q was accepted", body)
+		}
+	}
+}
+
+// updates = false is the kill switch: absent it is true, and a misspelled
+// key is reported as unknown rather than read as the switch.
+func TestUpdatesKillSwitch(t *testing.T) {
+	isolate(t)
+	file := filepath.Join(t.TempDir(), "config.toml")
+	for _, tc := range []struct {
+		body    string
+		updates bool
+		unknown []string
+	}{
+		{"notice = \"start\"\n", true, nil},
+		{"updates = false\n", false, nil},
+		{"updates = true\n", true, nil},
+		{"update = false\n", true, []string{"update"}},
+	} {
+		if err := os.WriteFile(file, []byte(tc.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(file)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.body, err)
+		}
+		if c.Updates != tc.updates || !reflect.DeepEqual(c.Unknown, tc.unknown) {
+			t.Errorf("%q: updates %v, unknown %q", tc.body, c.Updates, c.Unknown)
+		}
+	}
+	if err := os.WriteFile(file, []byte("updates = \"no\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(file); err == nil {
+		t.Error("a string for updates was accepted")
 	}
 }
 
@@ -109,7 +217,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	file := filepath.Join(dir, "eva-md", "config.toml")
 	want := Config{
 		WikiPath:              "/Users/x/eva-wiki",
-		ExpectedRemote:        "github.com/heynag/eva-wiki",
+		ExpectedRemote:        "github.com/you/eva-wiki",
 		Instance:              "mac-1a2b3c4d",
 		MachineLabel:          "mac",
 		Exclude:               []string{"~/secret", "remote:github.com/acme/*"},

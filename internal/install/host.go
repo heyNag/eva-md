@@ -168,6 +168,25 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 	return s, nil
 }
 
+// cliPath is the host's CLI as PATH finds it, by absolute path, or "". Its
+// folder's symlinks are resolved, since a folder a version manager puts on
+// PATH for one shell, as fnm does, is gone once that shell exits; the CLI
+// keeps its own name, which the job checks, in the folder that holds what
+// its #! line names.
+func cliPath(host string) string {
+	path, err := exec.LookPath(host)
+	if err != nil {
+		return ""
+	}
+	if path, err = filepath.Abs(path); err != nil {
+		return ""
+	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		path = filepath.Join(dir, filepath.Base(path))
+	}
+	return path
+}
+
 func objects(data []byte, key string) ([]map[string]any, error) {
 	var raw any
 	if err := json.Unmarshal(data, &raw); err != nil {

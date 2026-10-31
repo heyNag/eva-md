@@ -44,7 +44,7 @@ func fixture(t *testing.T, host string) (paths.Dirs, string, inbox.Entry) {
 	if host == "codex" {
 		appendJSON(t, path, map[string]any{"type": "session_meta", "payload": map[string]any{"id": id, "cwd": cwd}})
 	}
-	if err := Register(context.Background(), dirs, home, path, cwd, entry, false, time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)); err != nil {
+	if err := Register(context.Background(), dirs, home, path, cwd, entry, false, false, time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	return dirs, path, entry
@@ -372,7 +372,7 @@ func TestRecoveredRowsCarryNoSubagentID(t *testing.T) {
 	ctx := context.Background()
 	sub := e
 	sub.Agent = "subagent-7"
-	if err := Register(ctx, dirs, os.Getenv("HOME"), file, filepath.Join(os.Getenv("HOME"), e.Cwd), sub, false, time.Date(2026, 10, 29, 10, 0, 30, 0, time.UTC)); err != nil {
+	if err := Register(ctx, dirs, os.Getenv("HOME"), file, filepath.Join(os.Getenv("HOME"), e.Cwd), sub, false, false, time.Date(2026, 10, 29, 10, 0, 30, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	appendJSON(t, file, claudeRow(e, "user", "main prompt", "turn1"))
@@ -450,7 +450,7 @@ func TestRecoverProjectReadsNewestRecords(t *testing.T) {
 	e := inbox.Entry{V: 1, Host: "claude-code", Session: id, Project: "project", Branch: "main", Cwd: "project", Model: "test"}
 	other := dirs
 	other.State = t.TempDir()
-	if err := Register(ctx, other, home, file, cwd, e, false, time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)); err != nil {
+	if err := Register(ctx, other, home, file, cwd, e, false, false, time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(other.State, "catchup", "claude-code", id+".json"))
@@ -461,9 +461,9 @@ func TestRecoverProjectReadsNewestRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	appendJSON(t, file, claudeRow(e, "assistant", "abandoned reply", "turn1"))
-	n, err := RecoverProject(ctx, dirs, "project", "claude-code", "current", time.Date(2026, 10, 29, 10, 10, 0, 0, time.UTC))
-	if err != nil || n != 1 {
-		t.Fatalf("recovered=%d %v", n, err)
+	n, touched, err := RecoverProject(ctx, dirs, "project", "claude-code", "current", time.Date(2026, 10, 29, 10, 10, 0, 0, time.UTC))
+	if err != nil || n != 1 || len(touched) != 1 || touched[0] != (Recovered{Host: "claude-code", Session: id}) {
+		t.Fatalf("recovered=%d in %+v %v", n, touched, err)
 	}
 	if rows := readInbox(t, dirs, e); len(rows) != 1 || rows[0].Text != "abandoned reply" {
 		t.Fatalf("rows=%#v", rows)

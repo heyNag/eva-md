@@ -79,6 +79,19 @@ type Source struct {
 	// Slow marks a row whose redaction outran a pass, and how tightly the
 	// next pass bounds it.
 	Slow *slowRow `json:"slow,omitempty"`
+	// Headless marks a chat a program runs, whose prompts are never stored
+	// as the user's words.
+	Headless bool `json:"headless,omitempty"`
+	// Blind is what recovery has read since it last recognized a row of the
+	// chat, for the drift check.
+	Blind *blindSpan `json:"blind,omitempty"`
+}
+
+// blindSpan counts the bytes of rows recovery could not recognize, and the
+// turns that ended with a reply meanwhile.
+type blindSpan struct {
+	Bytes int64 `json:"bytes"`
+	Turns int   `json:"turns,omitempty"`
 }
 
 type slowRow struct {
@@ -101,7 +114,9 @@ const bigRow = 256 << 10
 
 // Register records only hook-supplied paths. The caller holds session.Lock.
 // Changing paths or branches starts a new baseline; it cannot import old data.
-func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e inbox.Entry, blocked bool, now time.Time) error {
+// headless says the hook runs in a chat a program started, so recovery never
+// stores its prompts as the user's.
+func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e inbox.Entry, blocked, headless bool, now time.Time) error {
 	home = systemAliases(home)
 	path = systemAliases(path)
 	cwd = systemAliases(cwd)
@@ -109,7 +124,7 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 	if err != nil {
 		return err
 	}
-	s := Source{V: 1, Home: home, Host: e.Host, Session: e.Session, Path: path, Cwd: cwd, Entry: e, Blocked: blocked, Updated: now.Format(time.RFC3339)}
+	s := Source{V: 1, Home: home, Host: e.Host, Session: e.Session, Path: path, Cwd: cwd, Entry: e, Blocked: blocked, Headless: headless, Updated: now.Format(time.RFC3339)}
 	s.Entry.Turn = ""
 	s.Entry.Text = ""
 	s.Entry.Role = ""
@@ -120,12 +135,13 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 		s.Inode = old.Inode
 		s.Skip = old.Skip
 		s.Slow = old.Slow
+		s.Blind = old.Blind
 		s.Blocked = old.Blocked || blocked
 		if s.Blocked {
 			s.Reason = old.Reason
 		}
 	}
-	if found && old.Path == path && old.Cwd == cwd && old.Entry.Project == e.Project && old.Entry.Branch == e.Branch && old.Entry.Model == e.Model && old.Blocked == s.Blocked {
+	if found && old.Path == path && old.Cwd == cwd && old.Entry.Project == e.Project && old.Entry.Branch == e.Branch && old.Entry.Model == e.Model && old.Blocked == s.Blocked && old.Headless == headless {
 		at, _ := time.Parse(time.RFC3339, old.Updated)
 		if now.Sub(at) >= 0 && now.Sub(at) < 10*time.Second {
 			return nil
@@ -157,7 +173,7 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 	dev, ino := fileID(info)
 	if !found || old.Path != path || old.Entry.Project != e.Project || old.Cwd != cwd || old.Entry.Branch != e.Branch || s.Blocked || old.Device != dev || old.Inode != ino {
 		s.Offset = info.Size()
-		s.Skip, s.Slow = nil, nil
+		s.Skip, s.Slow, s.Blind = nil, nil, nil
 	}
 	s.Device = dev
 	s.Inode = ino
@@ -216,6 +232,18 @@ func SetOffRecord(ctx context.Context, dirs paths.Dirs, host, id string, off boo
 // finished. Only a record control the user gave ever takes the chat off the
 // record; a size limit records a gap event instead.
 func Recover(ctx context.Context, dirs paths.Dirs, host, id string) (int, error) {
+	return recoverPass(ctx, dirs, host, id, false)
+}
+
+// RecoverAfterReply is Recover for a hook event that ended a turn with a
+// reply. Such a turn wrote rows recovery should recognize, so a pass that
+// reads to the end without recognizing any row since the last it did counts
+// toward the host's drift signal (see Drift).
+func RecoverAfterReply(ctx context.Context, dirs paths.Dirs, host, id string) (int, error) {
+	return recoverPass(ctx, dirs, host, id, true)
+}
+
+func recoverPass(ctx context.Context, dirs paths.Dirs, host, id string, replied bool) (int, error) {
 	s, found, err := load(ctx, dirs, host, id)
 	if err != nil || !found {
 		return 0, err
@@ -266,7 +294,7 @@ func Recover(ctx context.Context, dirs paths.Dirs, host, id string) (int, error)
 			return 0, errors.New("catchup: transcript identity mismatch")
 		}
 	}
-	r := &recovery{ctx: ctx, dirs: dirs, markers: markers, s: s, f: f, redact: redactText}
+	r := &recovery{ctx: ctx, dirs: dirs, markers: markers, s: s, f: f, redact: redactText, replied: replied}
 	if deadline, ok := ctx.Deadline(); ok {
 		r.deadline = deadline
 	}
@@ -275,19 +303,21 @@ func Recover(ctx context.Context, dirs paths.Dirs, host, id string) (int, error)
 
 // recovery is one Recover pass.
 type recovery struct {
-	ctx      context.Context
-	dirs     paths.Dirs
-	markers  session.Markers
-	s        Source
-	f        *os.File
-	known    map[string]bool
-	n        int
-	dirty    bool          // s differs from the saved state
-	limited  bool          // the scan stopped at scanPerPass
-	deadline time.Time     // zero without one
-	budget   time.Duration // the time left when the window's rows began
-	fresh    bool          // the current row began with most of budget left
-	redact   func(string) (string, int)
+	ctx        context.Context
+	dirs       paths.Dirs
+	markers    session.Markers
+	s          Source
+	f          *os.File
+	known      map[string]bool
+	n          int
+	dirty      bool          // s differs from the saved state
+	limited    bool          // the scan stopped at scanPerPass
+	deadline   time.Time     // zero without one
+	budget     time.Duration // the time left when the window's rows began
+	fresh      bool          // the current row began with most of budget left
+	redact     func(string) (string, int)
+	replied    bool // the hook event ended a turn with a reply
+	recognized bool // the pass recognized a row of the chat
 }
 
 // Bounds on one pass's reading of an oversized row. With a deadline, ctx
@@ -314,13 +344,13 @@ func (r *recovery) run() (int, error) {
 				}
 				// The row is still being written. Wait for its end, as for any
 				// partial last row, without holding up capture.
-				return r.n, r.saveIfDirty()
+				return r.done()
 			}
 			if err := r.finishScan(); err != nil {
 				return r.fail(err)
 			}
 			if r.s.Blocked {
-				return r.n, r.saveIfDirty()
+				return r.done()
 			}
 			continue
 		}
@@ -342,7 +372,7 @@ func (r *recovery) run() (int, error) {
 		}
 		if len(data) == 0 {
 			if !more {
-				return r.n, r.saveIfDirty()
+				return r.done()
 			}
 			// No row ends within the window: scan past this one in chunks.
 			// The reason is only a note; nothing here blocks capture.
@@ -360,9 +390,58 @@ func (r *recovery) run() (int, error) {
 			return r.fail(err)
 		}
 		if r.s.Blocked || !more {
-			return r.n, r.saveIfDirty()
+			return r.done()
 		}
 	}
+}
+
+// done ends a pass that read to the end of the transcript or stopped at a
+// privacy boundary, saving its state. For a turn that ended with a reply it
+// first counts the turn toward the drift check, recording the host's drift
+// signal from driftTurns on; a pass that recognized a row clears the signal.
+func (r *recovery) done() (int, error) {
+	drifted := r.replied && !r.s.Blocked && r.blindTurn()
+	if err := r.saveIfDirty(); err != nil {
+		return r.n, err
+	}
+	if drifted {
+		ctx, cancel := r.grace()
+		_ = saveDrift(ctx, r.dirs, Drift{V: 1, Host: r.s.Host, Session: r.s.Session, At: time.Now().Format(time.RFC3339), Bytes: r.s.Blind.Bytes, Turns: r.s.Blind.Turns})
+		cancel()
+	} else if r.recognized {
+		clearDrift(r.dirs, r.s.Host)
+	}
+	return r.n, nil
+}
+
+// note keeps the drift count for a row: one the parser recognized as the
+// chat's (see parser.recognized) ends the stretch recovery could not read,
+// and any other adds its bytes to it.
+func (r *recovery) note(recognized bool, n int) {
+	if recognized {
+		r.recognized = true
+		r.s.Blind = nil
+		return
+	}
+	if r.s.Blind == nil {
+		r.s.Blind = &blindSpan{}
+	}
+	r.s.Blind.Bytes += int64(n)
+}
+
+// blindTurn counts a turn that ended with a reply while recovery had read
+// rows and recognized none of them since the last it did, and reports
+// whether that makes driftTurns or more such turns in a row. Every one from
+// the driftTurns-th on records the signal, so a record deleted while the
+// drift goes on is written again.
+func (r *recovery) blindTurn() bool {
+	b := r.s.Blind
+	if r.recognized || b == nil || b.Bytes == 0 {
+		return false
+	}
+	b.Turns++
+	r.dirty = true
+	return b.Turns >= driftTurns
 }
 
 // fail ends a pass on err, keeping its progress. A pass that ran out of time
@@ -411,6 +490,7 @@ func (r *recovery) rows(data []byte, start int64) error {
 			}
 		}
 		e, ok := p.read(line)
+		r.note(p.recognized, len(line))
 		if p.offRecord {
 			p.offRecord = false
 			if err := r.block(); err != nil {
@@ -482,6 +562,11 @@ func (r *recovery) clearSlow() {
 // bound becomes a gap event. One long row can never stall recovery.
 func (r *recovery) store(e inbox.Entry, at int64) error {
 	known, err := r.knownEntries()
+	if errors.Is(err, errPaused) && (r.s.Slow == nil || r.s.Slow.Offset != at) {
+		// Decoding the row used up the pass. As a slow row, it has the
+		// stored entries loaded before it is decoded next time.
+		r.slowed(at, 0, false)
+	}
 	if err != nil {
 		return err
 	}
@@ -930,15 +1015,19 @@ func replacePrivateKeys(s string) (string, int) {
 	return s, n
 }
 
+// Recovered names a session RecoverProject appended rows to.
+type Recovered struct{ Host, Session string }
+
 // RecoverProject visits only previously registered idle sessions in this
 // project, at most five per call. It never scans the host's transcript stores.
-func RecoverProject(ctx context.Context, dirs paths.Dirs, project, excludeHost, excludeID string, now time.Time) (int, error) {
+// It returns how many rows it appended, and the sessions it appended them to.
+func RecoverProject(ctx context.Context, dirs paths.Dirs, project, excludeHost, excludeID string, now time.Time) (int, []Recovered, error) {
 	root, err := paths.OpenRoot(filepath.Join(dirs.State, "catchup"), false)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return 0, nil, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer root.Close()
 	var sources []Source
@@ -983,25 +1072,29 @@ func RecoverProject(ctx context.Context, dirs paths.Dirs, project, excludeHost, 
 	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Updated > sources[j].Updated })
 	total := 0
+	var touched []Recovered
 	for i, s := range sources {
 		if i >= 5 {
 			break
 		}
 		if err := ctx.Err(); err != nil {
-			return total, err
+			return total, touched, err
 		}
 		release, err := session.Lock(ctx, dirs.Locks(), s.Host, s.Session)
 		if err != nil {
-			return total, err
+			return total, touched, err
 		}
 		n, err := Recover(ctx, dirs, s.Host, s.Session)
 		release()
 		total += n
+		if n > 0 {
+			touched = append(touched, Recovered{Host: s.Host, Session: s.Session})
+		}
 		if err != nil && ctx.Err() != nil {
-			return total, ctx.Err()
+			return total, touched, ctx.Err()
 		}
 	}
-	return total, nil
+	return total, touched, nil
 }
 
 func stateFile(host, id string) (string, error) {

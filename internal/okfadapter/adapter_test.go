@@ -162,6 +162,19 @@ func TestCreateUpdateAndNoOp(t *testing.T) {
 	}
 }
 
+// A bounded read refuses a page over its limit, so a hook's read of a page
+// that grew without bound stays bounded.
+func TestReadMaxRefusesAPageOverItsLimit(t *testing.T) {
+	w := testWiki(t)
+	p := mustCreate(t, w, "general/threads/default", concept("Title", "# First\n\n"+strings.Repeat("Content. ", 100)))
+	if got, err := w.ReadMax(p.ID, int64(len(p.Raw))); err != nil || !bytes.Equal(got.Raw, p.Raw) {
+		t.Fatalf("a page at the limit: %v", err)
+	}
+	if _, err := w.ReadMax(p.ID, int64(len(p.Raw))-1); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("a page over the limit = %v", err)
+	}
+}
+
 func TestCreateUpdateFailures(t *testing.T) {
 	w := testWiki(t)
 	p := mustCreate(t, w, "page", concept("Page", "Body"))

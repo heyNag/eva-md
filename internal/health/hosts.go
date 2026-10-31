@@ -15,7 +15,20 @@ import (
 
 	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/update"
 )
+
+// Absent reports whether a host's command isn't on PATH, as on a Mac
+// without that app, and names the app for a doctor row. host is a plugin
+// host (claude, codex) or an update host (claude-code, codex).
+func Absent(host string) (app string, absent bool) {
+	cli, app := "codex", "Codex"
+	if host == "claude" || host == update.HostClaude {
+		cli, app = "claude", "Claude Code"
+	}
+	_, err := exec.LookPath(cli)
+	return app, err != nil
+}
 
 func inspectHosts(ctx context.Context, r *Report, d paths.Dirs) {
 	codexEnabled := false
@@ -33,6 +46,8 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs) {
 			// Only install's conflict errors name eva-md; command and parse
 			// failures do not.
 			r.add(host+" plugin", "FAIL", strings.TrimPrefix(err.Error(), "install: "), "remove the conflicting eva-md registration with the host's plugin commands, then run eva-md install --host "+host)
+		} else if app, absent := Absent(host); absent {
+			r.add(host+" plugin", "UNKNOWN", app+" isn't installed on this Mac", "")
 		} else if err != nil || !status.Available {
 			r.add(host+" plugin", "UNKNOWN", "native plugin inventory is unavailable", "inspect the native host plugin inventory")
 		} else if !status.Installed {
@@ -63,6 +78,14 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs) {
 			r.add("codex hooks feature", "UNKNOWN", "not reported by this version", "")
 		}
 	}
+	if _, absent := Absent("codex"); !absent {
+		inspectTrust(ctx, r, codexEnabled)
+	}
+	r.add("claude managed hook policy", "UNKNOWN", "policy is judged by hook heartbeats, not settings-file guesses", "confirm SessionStart fires in an enabled session")
+}
+
+// inspectTrust adds the Codex hook trust row, on a Mac that has Codex.
+func inspectTrust(ctx context.Context, r *Report, codexEnabled bool) {
 	cwd, _ := os.Getwd()
 	count, trusted, err := probeTrust(ctx, cwd)
 	if err != nil {
@@ -76,7 +99,6 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs) {
 	} else {
 		r.add("codex hook trust", "PASS", fmt.Sprintf("%d hooks trusted and enabled", count), "")
 	}
-	r.add("claude managed hook policy", "UNKNOWN", "policy is judged by hook heartbeats, not settings-file guesses", "confirm SessionStart fires in an enabled session")
 }
 
 type cappedBuffer struct {

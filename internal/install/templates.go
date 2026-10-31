@@ -11,13 +11,18 @@ import (
 // Plugin bytes intentionally contain no binary version or timestamp. Codex
 // trusts the plugin's contents, while binary-only updates keep that trust.
 //
-//go:embed templates/*.json templates/icon.png
+//go:embed templates/*.json templates/icon.png templates/digest-skill.md
 var templates embed.FS
 
 // iconPath is where both plugins keep their icon, the 🧠 emoji. Codex shows
 // it (interface.composerIcon and logo); Claude Code reads plugin.json's icon
 // only for Anthropic's public directory.
 const iconPath = "plugins/eva-md/assets/icon.png"
+
+// skillPath is the digest skill, where both hosts look for a plugin's
+// skills: Claude Code scans skills/ by default, and the Codex manifest names
+// it in its skills field.
+const skillPath = "plugins/eva-md/skills/eva-md-digest/SKILL.md"
 
 const managed = ".eva-md-managed"
 const managedContents = "eva-md marketplace v1\n"
@@ -40,6 +45,17 @@ func render(host, binary string) (map[string][]byte, error) {
 		return nil, err
 	}
 	files[iconPath] = icon
+	skill, err := templates.ReadFile("templates/digest-skill.md")
+	if err != nil {
+		return nil, err
+	}
+	// The skill runs the binary by the same path as the hooks, and says
+	// which host writes the page.
+	author := "claude-code"
+	if host == "codex" {
+		author = "codex"
+	}
+	files[skillPath] = []byte(strings.NewReplacer("{{bin}}", shellQuote(binary), "{{host}}", author).Replace(string(skill)))
 	type event struct {
 		name, matcher string
 		timeout       int
@@ -48,8 +64,8 @@ func render(host, binary string) (map[string][]byte, error) {
 	events := []event{
 		{"SessionStart", "startup|resume|clear|compact|fork", 10, false},
 		{"UserPromptSubmit", "", 5, false},
-		{"PostToolUse", "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite", 0, true},
-		{"PostToolUseFailure", "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite", 0, true},
+		{"PostToolUse", "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|mcp__.*", 0, true},
+		{"PostToolUseFailure", "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|mcp__.*", 0, true},
 		{"Stop", "", 5, false}, {"StopFailure", "", 3, false},
 		{"PreCompact", "manual|auto", 10, false}, {"PostCompact", "", 5, false},
 		{"PostModelSwitch", "", 3, false}, {"SessionEnd", "", 0, false},
@@ -58,7 +74,7 @@ func render(host, binary string) (map[string][]byte, error) {
 		events = []event{
 			{"SessionStart", "startup|resume|clear|compact|fork", 10, false},
 			{"UserPromptSubmit", "", 5, false},
-			{"PostToolUse", "^(Bash|apply_patch|update_plan)$", 5, true},
+			{"PostToolUse", "^(Bash|apply_patch|update_plan|mcp__.*)$", 5, true},
 			{"Stop", "", 5, false}, {"PreCompact", "manual|auto", 10, false},
 			{"Interrupt", "", 1, false}, {"SessionEnd", "", 2, false},
 		}

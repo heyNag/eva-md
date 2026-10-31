@@ -20,6 +20,8 @@ var (
 	glTok   = j("glp", "at-", "Ab3dEf6hIj9lMn2pQr5t")
 	slack   = j("xo", "xb-", "1234567890-0987654321-", "AbCdEfGhIjKlMnOp")
 	hook    = j("https://hooks.", "slack.com/services/", "T0A1B2C3D/B0A1B2C3D/", "aBcDeFgHiJkLmNoPqRsTuVwX")
+	tgBot   = j("api.telegram.org/bot", "123456789:", "AAE9f3Kx2mQ7vLp0ZrT8wYbN4cHs6uJdGq1")
+	discord = j("discord.com/api/webhooks/", "1234567890123456789/", "Qx7Lm2PvTn8sRb3Yc6Ud1Ef0Gh5IjKl9MnOpQrStUvWxYz0AbCdEfGhIj")
 	oai     = j("sk-", "proj-", "Ab3dEf6hIj9lMn2pQr5tUv8x")
 	ant     = j("sk-", "ant-", "api03-", "Ab3dEf6hIj9lMn2pQr5tUv8x")
 	goog    = j("AI", "za", "Sy", strings.Repeat("Ab3dE", 6), "f6h")
@@ -46,6 +48,8 @@ func TestPositives(t *testing.T) {
 		{"gitlab", "GL " + glTok, "gitlab_token", glTok},
 		{"slack token", "bot " + slack, "slack_token", slack},
 		{"slack webhook", "post to " + hook + " please", "slack_webhook", hook},
+		{"telegram bot token", "WebFetch https://" + tgBot + "/getMe (exit 0)", "telegram_token", "AAE9f3Kx2mQ7vLp0ZrT8wYbN4cHs6uJdGq1"},
+		{"discord webhook", "post to https://" + discord + " now", "discord_webhook", "Qx7Lm2PvTn8sRb3Yc6Ud1Ef0Gh5IjKl9MnOpQrStUvWxYz0AbCdEfGhIj"},
 		{"openai", "OPENAI " + oai, "openai_key", oai},
 		{"anthropic", "the key " + ant, "anthropic_key", ant},
 		{"google", "maps " + goog, "google_key", goog},
@@ -55,7 +59,7 @@ func TestPositives(t *testing.T) {
 		{"bearer header", "Authorization: Bearer " + random, "auth_header", random},
 		{"basic header", "authorization: Basic " + j("dXNlcjpw", "YXNzd29yZA=="), "auth_header", "dXNlcjpw"},
 		{"bare bearer", "curl -H 'X: bearer " + random + "'", "auth_header", random},
-		{"url credentials", "clone https://nag:" + j("hunter2", "Pass9") + "@git.acme.dev/r.git", "url_credentials", "hunter2Pass9"},
+		{"url credentials", "clone https://alice:" + j("hunter2", "Pass9") + "@git.acme.dev/r.git", "url_credentials", "hunter2Pass9"},
 		{"password env", "DB_PASSWORD=" + j("Tr0ub4", "dor3x"), "secret_value", "Tr0ub4dor3x"},
 		{"password yaml", "password: " + j("s3cret", "Value!"), "secret_value", "s3cretValue!"},
 		{"api key quoted", `api_key = "` + j("abcd1234", "efgh") + `"`, "secret_value", "abcd1234efgh"},

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/session"
@@ -137,6 +138,35 @@ func TestMissedOffRecordKeepsOnlyEventNames(t *testing.T) {
 		if strings.Contains(r.Text, "PRIVATE") {
 			t.Fatalf("private text stored: %#v", r)
 		}
+	}
+}
+
+// Only a Stop that brings the turn's reply counts toward the drift signal:
+// three Stops without one over rows recovery can't recognize, as after a
+// host update renames the session field, record nothing, and three with one
+// record it.
+func TestOnlyStopsWithAReplyCountTowardDrift(t *testing.T) {
+	env, p := setup(t)
+	env.slack = busySlack
+	file := registeredTranscript(t, env, &p)
+	stop := func(reply *string) {
+		t.Helper()
+		appendRows(t, file, map[string]any{"type": "assistant", "session_id": p.Session, "cwd": p.Cwd, "timestamp": env.Now().Format(time.RFC3339), "message": map[string]any{"role": "assistant", "stop_reason": "end_turn", "content": []any{map[string]any{"type": "text", "text": "a step"}}}})
+		p.Event, p.Reply = "Stop", reply
+		invoke(t, "claude-code", p, env)
+	}
+	empty, reply := "", "the final reply"
+	for _, r := range []*string{nil, &empty, nil} {
+		stop(r)
+	}
+	if _, found, err := catchup.ReadDrift(env.Dirs, "claude-code"); err != nil || found {
+		t.Fatalf("found=%v err=%v after Stops without a reply", found, err)
+	}
+	for _, r := range []*string{&reply, &reply, &reply} {
+		stop(r)
+	}
+	if _, found, err := catchup.ReadDrift(env.Dirs, "claude-code"); err != nil || !found {
+		t.Fatalf("found=%v err=%v after Stops with a reply", found, err)
 	}
 }
 

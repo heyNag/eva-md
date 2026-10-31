@@ -1,6 +1,6 @@
 # eva.md decisions
 
-These are the decisions behind eva.md. They come from evaluating ten reference memory repos, a heavier memory system built on self-hosted Mem0 (called eva below), and the Claude Code and Codex documentation. [design.md](design.md) turns them into a design, and its "Changes to decisions" section lists where the design refines them. What is built and checked is in [verification.md](verification.md), and known gaps are in [known-limitations.md](known-limitations.md).
+These are the decisions behind eva.md. They come from evaluating ten reference memory repos, heavier memory systems that run a model on every write, and the Claude Code and Codex documentation. [design.md](design.md) turns them into a design, and its "Changes to decisions" section lists where the design refines them. What is built and checked is in [verification.md](verification.md), and known gaps are in [known-limitations.md](known-limitations.md).
 
 ## Goal
 
@@ -8,30 +8,26 @@ Memory you can depend on while working in Claude Code and Codex. It saves what h
 
 ## Why a lighter option
 
-eva, the Mem0-based alternative, runs a local 12B model on every write, and its own measurements show the cost:
-
-- Gemma 12B took about 11 GB of weights and 15.7 to 17.9 GiB of RAM. A write took 14 s warm and about 56 s cold, and a search took 28 s after the model went to sleep.
-- A second model server for embeddings (2.2 GiB), two database VMs with relays, and about 197 pinned packages.
-- Seven incidents in one week of testing.
+Memory that runs a model on every write pays for it: a local model needs gigabytes of RAM and seconds per write, embedding servers and databases must keep running, and every moving part is another way to fail.
 
 Lessons that carry over:
 
-- Model work on the write path was the root cause in all three engines tried (Hindsight, Cognee, Mem0).
-- Word-for-word writes with no model stored 72 of 72 records.
+- Model work on the write path is the usual root cause of slow, fragile memory.
+- Word-for-word writes with no model lose nothing: 72 of 72 records in testing.
 - When the agent ran follow-up searches it found everything 10 times out of 10. A single automatic search was complete only 4 times out of 10.
 - LLM extraction got speakers and dates wrong (an assistant suggestion stored as the user's decision; a weakened event date).
 
 ## Decisions
 
-Some decisions cover parts that are not built yet, such as the background update and the daily commit (wiki updates). [design.md](design.md) marks those parts as planned.
+Some decisions cover parts that are not built yet, such as the MCP server and knowledge pages. [design.md](design.md) marks those parts as planned or as the next phase.
 
 1. **Platform separate from the wiki.**
    - eva.md is only the platform: tools, plugins and schema.
    - The memory lives in a separate private git repo of markdown that the platform is pointed at by a per-machine config.
    - For example, a personal machine uses a private GitHub repo and a work machine a private repo on a self-hosted GitLab.
    - The same code runs on every machine; personal and work memory never mix.
-   - You create the empty repo; `init` adds the structure and the first commit.
-   - The platform uses only the plain git command line, never GitHub or GitLab APIs.
+   - You create the empty repo, or `eva-md setup` creates it for you; `init` adds the structure and the first commit.
+   - The platform uses only the plain git command line, never GitHub or GitLab APIs. The one exception is `eva-md setup`: when the gh or glab CLI is installed and signed in, setup may run it to create the wiki's private repo, to check that a repo is private, and to read back a repo's address. The wiki, init's git steps, the hooks, the update job and the daily commit stay plain git.
 2. **Zero-touch.** Capture, organizing and recall all happen automatically. Everything stays inspectable as plain markdown and git history.
 3. **Hosts in scope:**
    - Claude Code: the desktop app's Code tab and the CLI.
@@ -57,12 +53,12 @@ Some decisions cover parts that are not built yet, such as the background update
    - The agent searches further on its own when it needs to.
 7. **Commits.**
    - Pages are written as soon as the update runs.
-   - One commit a day, at the start of the first chat that day (one signing approval, for example a 1Password prompt), with the push right after.
-   - Signing stays as configured. A failed push, for example to a self-hosted GitLab that is unreachable off the work network, retries later and never blocks a hook.
+   - One commit a day, at the start of the first chat that day (one signing approval, for example from a password manager), with the push right after.
+   - Signing stays as configured. A failed push, for example to a self-hosted GitLab that is unreachable from where you are, retries later and never blocks a hook.
 8. **Built-in memories.** Claude Code's auto memory and Codex's memories are left as they are for now.
 9. **Language.**
    - One Go binary serves as the CLI, the hook handler and the MCP server.
-   - eva's packaging approach (plugin layout, marketplace, verify, rollback) is rebuilt inside it.
+   - The plugin packaging (plugin layout, marketplace, verify, rollback) is built inside it.
    - Standard-library Python is the fallback.
 10. **Project identity.**
     - A project is identified by the repo's remote URL, so all checkouts and worktrees share memory. Without a remote, the folder identifies it.
@@ -77,13 +73,10 @@ Some decisions cover parts that are not built yet, such as the background update
     - Hooks always finish fast and never block.
     - Unknowns are reported as unknown.
     - A health check confirms the hooks are installed, approved and firing. Codex needs re-approval after each update.
-    - A resume test, plus eva's Conflict24 and scope suites, check dates, speakers, corrections and project scope.
-13. **Independent of eva.**
-    - eva and eva.md are separate options, evaluated independently.
-    - They are not meant to run at the same time and don't share memory.
-    - eva.md uses its own names (plugin, command, MCP server, state folders), so installing it never interferes with eva.
+    - A resume test, plus an accuracy suite and a scope suite, check dates, speakers, corrections and project scope.
+13. **Its own names.** eva.md uses its own names (plugin, command, MCP server, state folders), so installing it never interferes with other memory tools.
 14. **Name.**
-    - The product is eva.md, said aloud as "Eva dot M D": the markdown edition of Eva.
+    - The product is eva.md, said aloud as "Eva dot M D".
     - The technical name is `eva-md`, used for the plugin, the command, the MCP server and the state folder. Both Claude Code and Codex ask for kebab-case plugin names.
     - By convention the wiki repo is named `eva-wiki`, on any git host.
 15. **okf at the core.**
@@ -103,7 +96,7 @@ Some decisions cover parts that are not built yet, such as the background update
       - a summary of the last chat, what's done, next steps, and open decisions and questions
       - the current git branch and uncommitted changes, read live
       - open PRs and failing tests come later
-    - **Tool activity:** the conversation plus a short record of files changed and commands run, without their full output.
+    - **Tool activity:** the conversation plus a one-line record of the tool calls that change or read things, such as files changed, commands run and what was read or fetched, without their output.
     - **Visibility:** one line at the start of a chat, plus a notice only when something is wrong.
     - **Off switch:** saying "off the record" stops saving for that chat.
     - **Work machines:** eva-md assumes plugins, hooks and background headless runs are allowed there. The health check still reports managed settings that switch hooks off, where it can see them.
@@ -137,7 +130,6 @@ Some decisions cover parts that are not built yet, such as the background update
 | markdown-agent-memory | Provenance tags (stated, observed, inferred, suggested), dated strikethrough supersession |
 | memsearch | Links from entries back to the source conversation; recall in a sub-agent |
 | obsidian-second-brain | A per-prompt recall hook that stays silent on weak matches; validation after writes |
-| eva (the Mem0 option) | Plugin packaging for both hosts, hook guards (desktop spare sessions, headless runs), transcript filter rules, the Conflict24 and scope suites, privacy conventions (0600 files, logs with counts only) |
 
 ## For the design
 
@@ -148,4 +140,4 @@ Some decisions cover parts that are not built yet, such as the background update
 - Recall: sizes, data fencing, the strong-match rule
 - Plugin packaging for both hosts, plus install, uninstall and the health check
 - Daily commit and push mechanics
-- Tests: the resume test and a Conflict24 port
+- Tests: the resume test and an accuracy suite

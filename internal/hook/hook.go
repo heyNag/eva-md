@@ -2,14 +2,17 @@
 package hook
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +42,9 @@ type Env struct {
 	// slack lengthens the hook's own budget in tests, so a busy machine can't
 	// fail a test that checks what is stored rather than how long it took.
 	slack time.Duration
+	// spawn replaces detach, which starts the installed binary with args as
+	// a detached job, so tests see exactly which events spawn what.
+	spawn func(args ...string)
 }
 
 type payload struct {
@@ -59,6 +65,11 @@ type payload struct {
 	Source       string          `json:"source"`
 	ToModel      string          `json:"to_model"`
 	Summary      string          `json:"compact_summary"`
+	// entrypoint and headless are set from the environment, never the
+	// payload: Claude Code's entrypoint, cleaned for the heartbeat, and
+	// whether the hook runs in a chat a program started (see entrypoint).
+	entrypoint string
+	headless   bool
 }
 
 var stopEvent = regexp.MustCompile(`"hook_event_name"\s*:\s*"Stop"`)
@@ -66,6 +77,7 @@ var stopEvent = regexp.MustCompile(`"hook_event_name"\s*:\s*"Stop"`)
 // Run handles one hook within 300 ms (1.5 seconds for SessionStart). It always
 // returns zero, contains panics, and never writes a block decision. Codex Stop
 // receives exactly {} even when guards or capture failures skip the record.
+// The detached jobs a capture asks for start after the output is written.
 func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env) (code int) {
 	started := time.Now()
 	if ctx == nil {
@@ -73,6 +85,10 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	}
 	deadline := invocationDeadline(ctx, started.Add(300*time.Millisecond+env.slack))
 	var event, output string
+	var spawns [][]string
+	// late is the payload of a capture that ran out of time: a failed run,
+	// recorded once the output is written.
+	var late *payload
 	defer func() {
 		_ = recover()
 		code = 0
@@ -80,6 +96,10 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 			output = "{}"
 		}
 		writeOutput(out, output, deadline)
+		launch(env, spawns)
+		if late != nil {
+			lateBeat(ctx, env.Dirs, host, *late)
+		}
 	}()
 	if host != "claude-code" && host != "codex" {
 		return 0
@@ -126,22 +146,37 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	case <-readCtx.Done():
 		return 0
 	}
+	p.entrypoint, p.headless = entrypoint(host, env.Getenv)
+	// The brief gets longer. So do tool events, which the plugins mark async,
+	// so Claude Code doesn't wait for them: a burst of parallel tool calls
+	// waits its turn for the session lock, and that wait is no failure. On a
+	// host that did wait, a contended lock would cost it the longer wait
+	// where it used to cost the captured line.
 	budget := 300 * time.Millisecond
-	if event == "SessionStart" {
+	switch event {
+	case "SessionStart", "PostToolUse", "PostToolUseFailure":
 		budget = 1500 * time.Millisecond
 	}
 	deadline = invocationDeadline(ctx, started.Add(budget+env.slack))
 	workCtx, cancel := context.WithDeadline(ctx, deadline.Add(-10*time.Millisecond))
 	defer cancel()
-	done := make(chan string, 1)
+	// A capture that misses the deadline delivers nothing, its spawns
+	// included.
+	type captured struct {
+		output string
+		spawns [][]string
+	}
+	done := make(chan captured, 1)
 	go func() {
-		var response string
-		defer func() { _ = recover(); done <- response }()
-		response = capture(workCtx, host, p, env)
+		var c captured
+		defer func() { _ = recover(); done <- c }()
+		c.output = capture(workCtx, host, p, env, &c.spawns)
 	}()
 	select {
-	case output = <-done:
+	case c := <-done:
+		output, spawns = c.output, c.spawns
 	case <-workCtx.Done():
+		late = &p
 	}
 	return 0
 }
@@ -174,7 +209,10 @@ func writeOutput(out io.Writer, output string, deadline time.Time) {
 	}
 }
 
-func capture(ctx context.Context, host string, p payload, env Env) string {
+// capture stores the event and returns the hook's output. The update
+// triggers add the detached jobs they ask for to spawns, which Run starts
+// once the output is written.
+func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]string) string {
 	if env.Getenv == nil {
 		env.Getenv = os.Getenv
 	}
@@ -183,6 +221,9 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 	}
 	if env.recoverTranscript == nil {
 		env.recoverTranscript = catchup.Recover
+		if p.Event == "Stop" && p.Reply != nil && *p.Reply != "" {
+			env.recoverTranscript = catchup.RecoverAfterReply
+		}
 	}
 	if env.Getenv("EVA_MD_INNER") == "1" {
 		return ""
@@ -216,7 +257,12 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 	}
 	// Remote exclusion must also precede marker writes, including spare sessions.
 	project, err := identity.Cache{Dir: filepath.Join(env.Dirs.Cache(), "identity")}.Resolve(ctx, cwd)
-	if err != nil || ctx.Err() != nil || env.Config.Excluded(cwd, project.Remote) {
+	if err != nil || ctx.Err() != nil {
+		// The event is lost: a failed run, which the doctor counts.
+		heartbeat(ctx, env.Dirs, host, p, true, env.Now())
+		return ""
+	}
+	if env.Config.Excluded(cwd, project.Remote) {
 		return ""
 	}
 	markers := session.Markers{Root: env.Dirs.Sessions()}
@@ -230,37 +276,62 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 		}
 		return ""
 	}
+	var touched []catchup.Recovered
 	if p.Event == "SessionStart" {
 		catchCtx, cancelCatch := context.WithTimeout(ctx, 150*time.Millisecond)
-		_, _ = catchup.RecoverProject(catchCtx, env.Dirs, project.Key, host, p.Session, env.Now())
+		_, touched, _ = catchup.RecoverProject(catchCtx, env.Dirs, project.Key, host, p.Session, env.Now())
 		cancelCatch()
 	}
-	defer func() { heartbeat(ctx, env.Dirs, host, p.Event, p.Transcript != "", env.Now()) }()
+	// A run that panics, or that an error stops before its event is stored,
+	// failed; the doctor counts them. Run records a run out of time.
+	failed := false
+	fail := func() string { failed = true; return "" }
+	defer func() {
+		if recover() != nil {
+			failed = true
+		}
+		heartbeat(ctx, env.Dirs, host, p, failed, env.Now())
+	}()
+	// The day's maintain and, at a chat start, a push retry: launch decides
+	// whether each is due.
+	queueMaintain(spawns, env, p.Event == "SessionStart")
 	release, err := sessionLock(ctx, env.Dirs.Locks(), host, p.Session)
 	if err != nil {
-		return ""
+		return fail()
 	}
 	defer release()
+	store := inbox.Store{Root: env.Dirs.Inbox()}
+	file := store.Path(project.Key, host, p.Session)
+	// The prompt trigger and the SessionStart catch-up need the session's
+	// file as it was before this hook appended anything, transcript recovery
+	// included: one stat.
+	var before os.FileInfo
+	if updatesOn(env.Config) && (p.Event == "UserPromptSubmit" || p.Event == "SessionStart") {
+		if info, err := os.Lstat(file); err == nil {
+			before = info
+		}
+	}
+	start := startState{before: before, recovered: touched}
 	if model != "" {
 		if err := remember(ctx, markers, host, p.Session, session.Model, model); err != nil {
-			return ""
+			return fail()
 		}
 	} else {
 		value, _, err := markers.GetContext(ctx, host, p.Session, session.Model)
 		if err != nil {
-			return ""
+			return fail()
 		}
 		model = cleanField(value, 256)
 	}
 	_, off, err := markers.GetContext(ctx, host, p.Session, session.OffRecord)
 	if err != nil {
-		return ""
+		return fail()
 	}
 	thread, _ := redact.Identifier(project.Branch, 1024)
 	if project.Detached {
 		value, _, err := markers.GetContext(ctx, host, p.Session, session.Thread)
 		if err != nil {
-			return ""
+			return fail()
 		}
 		thread, _ = redact.Identifier(value, 1024)
 		if thread == "" {
@@ -268,7 +339,7 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 		}
 	} else if thread != "" {
 		if err := remember(ctx, markers, host, p.Session, session.Thread, thread); err != nil {
-			return ""
+			return fail()
 		}
 	}
 	project.Branch = thread
@@ -282,12 +353,11 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 	}
 	now := env.Now()
 	if ctx.Err() != nil {
-		return ""
+		return fail()
 	}
 	e := inbox.Entry{V: 1, TS: now.Format(time.RFC3339), Host: host, Session: p.Session, Turn: cleanField(turn, 256), Agent: cleanField(p.Agent, 256), Project: project.Key, Branch: thread, Cwd: cleanField(rel, 4096), Model: model, Origin: "hook"}
-	store := inbox.Store{Root: env.Dirs.Inbox()}
 	// Registration never imports pre-install history; a known transcript starts at its current end.
-	_ = catchup.Register(ctx, env.Dirs, home, p.Transcript, cwd, e, off, now)
+	_ = catchup.Register(ctx, env.Dirs, home, p.Transcript, cwd, e, off, p.headless, now)
 	recovered := 0
 	// caughtUp runs transcript recovery and reports whether it read to the
 	// end of the transcript, so the current event may be stored after what
@@ -309,7 +379,11 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 		e.Role = "event"
 		e.Kind = "event"
 		e.Text = text
-		return store.AppendContext(ctx, e) == nil
+		if store.AppendContext(ctx, e) != nil {
+			failed = true
+			return false
+		}
+		return true
 	}
 	// markersOnly keeps what a chat that is off the record keeps: the event's
 	// fixed name, if it has one, and nothing the user or the model wrote.
@@ -319,11 +393,12 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 		}
 		return ""
 	}
+	// A record control is honoured in a headless chat too: only less is kept.
 	if p.Event == "UserPromptSubmit" && !synthetic(p) {
 		control := recordControl(p.Prompt)
 		if control == "off_record" {
 			if err := markers.SetContext(ctx, host, p.Session, session.OffRecord, catchup.OffRecordAsked); err != nil {
-				return ""
+				return fail()
 			}
 			_ = catchup.SetOffRecord(ctx, env.Dirs, host, p.Session, true)
 			appendEvent(control)
@@ -331,10 +406,10 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 		}
 		if control == "on_record" {
 			if err := catchup.SetOffRecord(ctx, env.Dirs, host, p.Session, false); err != nil {
-				return ""
+				return fail()
 			}
 			if err := markers.ClearContext(ctx, host, p.Session, session.OffRecord); err != nil {
-				return ""
+				return fail()
 			}
 			appendEvent(control)
 			return confirmation(host, true)
@@ -354,7 +429,7 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 	}
 	_, paused, err := markers.GetContext(ctx, host, p.Session, session.OffRecord)
 	if err != nil {
-		return ""
+		return fail()
 	}
 	if paused {
 		return markersOnly()
@@ -364,9 +439,12 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 		if p.Prompt == "" || builtinCommand(p.Prompt) {
 			return ""
 		}
-		if synthetic(p) {
+		if synthetic(p) || p.headless {
 			appendEvent("host_prompt")
 			return ""
+		}
+		if gapBacklogged(store, file, before, now) {
+			queueUpdate(spawns, env, host+":"+p.Session)
 		}
 		e.Role = "user"
 		e.Kind = "prompt"
@@ -395,19 +473,24 @@ func capture(ctx context.Context, host string, p payload, env Env) string {
 			}
 			appendEvent(event)
 		}
-
-		return resumeContext(ctx, host, p, env, project, now)
+		if p.Event == "SessionEnd" || p.Event == "PreCompact" {
+			queueUpdate(spawns, env, host+":"+p.Session)
+		}
+		return resumeContext(ctx, host, p, env, project, now, start, spawns)
 	}
 	if e.Text != "" {
 		duplicate := false
 		if recovered > 0 && (e.Role == "user" || e.Role == "assistant") {
 			duplicate, _ = catchup.Contains(ctx, env.Dirs, e)
 		}
-		if !duplicate {
-			_ = store.AppendContext(ctx, e)
+		if !duplicate && store.AppendContext(ctx, e) != nil {
+			failed = true
 		}
 	}
-	return resumeContext(ctx, host, p, env, project, now)
+	if p.Event == "Stop" && updatesOn(env.Config) && stopBacklogged(store, file) {
+		queueUpdate(spawns, env, host+":"+p.Session)
+	}
+	return resumeContext(ctx, host, p, env, project, now, start, spawns)
 }
 
 // Ordinary captures hold the session lock here. Keeping identical markers in
@@ -518,6 +601,34 @@ func synthetic(p payload) bool {
 	return false
 }
 
+// entrypoint returns Claude Code's entrypoint, which its hooks inherit as
+// CLAUDE_CODE_ENTRYPOINT, cleaned for the heartbeat, where the doctor shows
+// it, and whether it is a program's (see headless). A Codex chat has none.
+func entrypoint(host string, getenv func(string) string) (string, bool) {
+	if host != "claude-code" {
+		return "", false
+	}
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	value := getenv("CLAUDE_CODE_ENTRYPOINT")
+	return cleanField(value, 32), headless(value)
+}
+
+// headless reports whether Claude Code's entrypoint is a program's: print
+// mode (claude -p) or the Agent SDK in TypeScript or Python. Such a chat's
+// prompts are the program's, so they are stored as host prompts. Any other
+// value, unknown ones included, is taken for a person's chat. The desktop
+// app (claude-desktop) and the VS Code extension (claude-vscode) set their
+// own value before the Agent SDK they embed falls back to sdk-ts.
+func headless(entrypoint string) bool {
+	switch entrypoint {
+	case "sdk-cli", "sdk-ts", "sdk-py":
+		return true
+	}
+	return false
+}
+
 func builtinCommand(prompt string) bool {
 	fields := strings.Fields(strings.TrimSpace(prompt))
 	if len(fields) == 0 {
@@ -587,7 +698,7 @@ func toolLine(host string, p payload) (role, kind, text string) {
 		if head := cleanField(command, 200); head != "" {
 			text += " " + head
 		}
-	case "Edit", "Write", "NotebookEdit":
+	case "Edit", "Write", "NotebookEdit", "Read":
 		file := get("file_path")
 		if file == "" {
 			file = get("notebook_path")
@@ -617,10 +728,27 @@ func toolLine(host string, p payload) (role, kind, text string) {
 		if len(files) > 0 {
 			text += " " + strings.Join(files, ", ")
 		}
+	case "Grep", "Glob":
+		if pattern := cleanField(get("pattern"), 200); pattern != "" {
+			text += " " + strconv.Quote(pattern)
+		}
+		if path := get("path"); path != "" {
+			text += " " + cleanField(path, 1024)
+		}
+	case "WebFetch":
+		if address := fetchedURL(get("url")); address != "" {
+			text += " " + cleanField(address, 1024)
+		}
 	case "TaskCreate", "TaskUpdate", "TodoWrite", "update_plan":
 		role, kind = "plan", "plan"
 		if summary := planText(p.Tool, input); summary != "" {
 			text += " " + summary
+		}
+	default:
+		if strings.HasPrefix(p.Tool, "mcp__") {
+			if args := mcpArgs(input); args != "" {
+				text += " " + args
+			}
 		}
 	}
 	exit := "unknown"
@@ -642,6 +770,113 @@ func toolLine(host string, p payload) (role, kind, text string) {
 	}
 	text += " (exit " + exit + ")"
 	return role, kind, text
+}
+
+// fetchedURL is a fetched URL without what can carry a credential: its user
+// part, its fragment, and each query parameter secretName names, as a
+// signed link's sig= or an OAuth code= does. One that doesn't parse as an
+// address is left out.
+func fetchedURL(s string) string {
+	u, err := url.Parse(strings.TrimSpace(s))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	q := u.Query()
+	for name := range q {
+		if secretName(name, true) {
+			q.Del(name)
+		}
+	}
+	u.User, u.Fragment, u.RawFragment, u.RawQuery = nil, "", "", q.Encode()
+	return u.String()
+}
+
+// secretNames name a tool argument or a URL's query parameter that carries
+// a credential, as the whole name or one part of it, or two parts joined:
+// auth, accessToken, X-Amz-Signature, api_key.
+var secretNames = map[string]bool{"auth": true, "authentication": true, "authorization": true, "bearer": true, "cookie": true, "cookies": true,
+	"credential": true, "credentials": true, "jwt": true, "otp": true, "passphrase": true, "passwd": true, "password": true,
+	"pass": true, "passcode": true, "passkey": true, "pwd": true, "secret": true, "session": true, "sessionid": true,
+	"jsessionid": true, "phpsessid": true, "sig": true, "signature": true, "token": true, "apikey": true,
+	"accesskey": true, "appkey": true, "privatekey": true}
+
+// secretName reports whether name is one secretNames holds, by its parts
+// (see nameParts). In a URL's query, a key or code part counts too, as an
+// API key's or an OAuth code's does.
+func secretName(name string, query bool) bool {
+	parts := nameParts(name)
+	for i, p := range parts {
+		if secretNames[p] || query && (p == "key" || p == "code") || i > 0 && secretNames[parts[i-1]+p] {
+			return true
+		}
+	}
+	return false
+}
+
+// addressName reports whether an argument's name says it holds an address:
+// url, uri, href, link or address, alone or as one of its parts.
+func addressName(name string) bool {
+	return slices.ContainsFunc(nameParts(name), func(p string) bool {
+		return p == "url" || p == "uri" || p == "href" || p == "link" || p == "address"
+	})
+}
+
+// nameParts splits a name at '-', '_', '.' and a lower case letter followed
+// by a capital, lowercased: X-Amz-Signature gives x, amz, signature.
+func nameParts(name string) []string {
+	var parts []string
+	part, lower := []rune{}, false
+	for _, r := range name + "." {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) || unicode.IsUpper(r) && lower {
+			if len(part) > 0 {
+				parts = append(parts, string(part))
+			}
+			part = part[:0]
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			part = append(part, unicode.ToLower(r))
+		}
+		lower = unicode.IsLower(r) || unicode.IsDigit(r)
+	}
+	return parts
+}
+
+// mcpArgs renders an MCP tool's string and number arguments, which name
+// what it read (ids, titles, keys, URLs, queries), as key=value pairs,
+// shortest first so a long text argument comes last. A value over 1 KiB is
+// left out whole, never cut, and so is one whose name says it carries a
+// credential; an absolute URL is cleaned as fetchedURL cleans one; and
+// cleanField redacts the line before it cuts it to 200 characters, as a Bash
+// command is.
+func mcpArgs(input map[string]json.RawMessage) string {
+	var pairs []string
+	for key, raw := range input {
+		if len(raw) == 0 || len(raw) > 1<<10 || secretName(key, false) {
+			continue
+		}
+		var value string
+		switch c := raw[0]; {
+		case c == '"':
+			if json.Unmarshal(raw, &value) != nil {
+				continue
+			}
+			value = strings.Join(strings.Fields(value), " ")
+			// An address, as a fetch or browser tool takes, is kept as a
+			// fetched URL is, without what can carry a credential: one named
+			// as an address, even with a space in its path, or one alone in
+			// its argument. Text that only starts with one is kept as it is.
+			if u, err := url.Parse(value); err == nil && u.Scheme != "" && u.Host != "" && (addressName(key) || !strings.Contains(value, " ")) {
+				value = fetchedURL(value)
+			}
+		case c == '-' || c >= '0' && c <= '9':
+			value = string(raw)
+		}
+		if value != "" {
+			pairs = append(pairs, key+"="+value)
+		}
+	}
+	slices.SortFunc(pairs, func(a, b string) int { return cmp.Or(cmp.Compare(len(a), len(b)), strings.Compare(a, b)) })
+	return cleanField(strings.Join(pairs[:min(len(pairs), 16)], " "), 200)
 }
 
 func responseText(raw json.RawMessage) string {

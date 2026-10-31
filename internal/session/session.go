@@ -18,7 +18,7 @@ import (
 // Marker names.
 const (
 	OffRecord = "off_record" // set while the chat is off the record: "asked" or "1" (see catchup)
-	Briefed   = "briefed"    // JSON: the brief's Now hash, its variant and whether the refresh was sent
+	Briefed   = "briefed"    // JSON: the Now hash the chat last saw, the brief's variant, how many refreshes were sent and the project's wiki folder
 	Model     = "model"      // the chat's model, when the host reported it
 	Thread    = "thread"     // the thread the session last wrote to
 )

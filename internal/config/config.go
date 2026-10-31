@@ -29,9 +29,13 @@ const (
 // EffortHighest asks for the highest effort the chat's model supports.
 const EffortHighest = "highest"
 
-// DefaultDailyCap is the default number of background update runs per host
-// per day. Background updates are planned; for now the cap is only stored.
+// DefaultDailyCap is the default number of model calls the background
+// update makes per host per day.
 const DefaultDailyCap = 40
+
+// DefaultReminderEvery is how many prompts apart the memory reminder rides
+// with a prompt by default.
+const DefaultReminderEvery = 5
 
 // RemotePrefix marks an Exclude entry that matches the normalized remote.
 const RemotePrefix = "remote:"
@@ -39,9 +43,9 @@ const RemotePrefix = "remote:"
 // foldCase makes path matching ignore case, as the default macOS file system does.
 var foldCase = runtime.GOOS == "darwin"
 
-// Config is the per-machine config at ~/.config/eva-md/config.toml. DailyCap,
-// Effort and CodexIgnoreUserConfig configure the planned background update;
-// they are validated and saved, but nothing uses them yet.
+// Config is the per-machine config at ~/.config/eva-md/config.toml. Updates,
+// DailyCap, Effort and CodexIgnoreUserConfig configure the background update;
+// Commits, the daily commit and push; ReminderEvery, the prompt's reminder.
 type Config struct {
 	WikiPath       string `toml:"wiki_path"`
 	ExpectedRemote string `toml:"expected_remote"`
@@ -57,9 +61,15 @@ type Config struct {
 	// and on macOS paths are too.
 	Exclude               []string          `toml:"exclude"`
 	Notice                string            `toml:"notice"`                   // "start" (default) or "problems"
-	DailyCap              int               `toml:"daily_cap"`                // default 40
+	Updates               bool              `toml:"updates"`                  // default true; false stops every update and trigger at once
+	Commits               bool              `toml:"commits"`                  // default true; false stops the daily commit and push, which updates = false leaves on
+	DailyCap              int               `toml:"daily_cap"`                // model calls per host per day, default 40
 	Effort                map[string]string `toml:"effort"`                   // keys "claude-code", "codex" or "<host>/<model>"; value an effort level or "highest"
 	CodexIgnoreUserConfig bool              `toml:"codex_ignore_user_config"` // default false
+	// ReminderEvery spaces the one-line memory reminder the prompt hook adds:
+	// on a chat's first prompt, then every ReminderEvery prompts. Default 5;
+	// 0 turns it off.
+	ReminderEvery int `toml:"reminder_every"`
 	// Unknown lists keys in the file that eva-md does not know, such as a
 	// misspelled one. They are reported, not saved.
 	Unknown []string `toml:"-"`
@@ -67,7 +77,7 @@ type Config struct {
 
 // Default returns the config used when no file exists.
 func Default() Config {
-	return Config{Notice: NoticeStart, DailyCap: DefaultDailyCap}
+	return Config{Notice: NoticeStart, Updates: true, Commits: true, DailyCap: DefaultDailyCap, ReminderEvery: DefaultReminderEvery}
 }
 
 // Load reads the config file. A missing file gives Default() and an error
@@ -85,7 +95,8 @@ func LoadContext(ctx context.Context, file string) (Config, error) {
 		return Default(), fmt.Errorf("config: %w", err)
 	}
 	// Decoding into Default() keeps the defaults of absent keys, so an
-	// explicit daily_cap = 0 stays 0.
+	// explicit daily_cap = 0 or reminder_every = 0 stays 0 and an absent
+	// updates or commits stays true.
 	c := Default()
 	md, err := toml.Decode(string(data), &c)
 	if err != nil {
@@ -128,6 +139,9 @@ func (c Config) Validate() error {
 	if c.DailyCap < 0 {
 		return fmt.Errorf("daily_cap %d must not be negative", c.DailyCap)
 	}
+	if c.ReminderEvery < 0 {
+		return fmt.Errorf("reminder_every %d must not be negative", c.ReminderEvery)
+	}
 	for _, e := range c.Exclude {
 		if err := checkExclude(e); err != nil {
 			return err
@@ -165,7 +179,7 @@ func checkExclude(e string) error {
 	return nil
 }
 
-// EffortFor returns the effort for a background update (planned): the
+// EffortFor returns the effort for a background update: the
 // "<host>/<model>" entry, then the "<host>" entry, then "highest".
 func (c Config) EffortFor(host, model string) string {
 	if model != "" {

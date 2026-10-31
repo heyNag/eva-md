@@ -143,7 +143,7 @@ func TestUnknownModuleAndIncompleteTemporaryScan(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var r Report
-	inspectWiki(ctx, &r, d, c, "unknown")
+	inspectWiki(ctx, &r, d, c, "unknown", true)
 	foundPin, foundScan := false, false
 	for _, check := range r.Checks {
 		if check.Name == "okf module" {

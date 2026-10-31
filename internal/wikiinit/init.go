@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,9 +16,9 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
-	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/threadpage"
 )
 
 // Options describes an explicitly requested wiki initialization.
@@ -74,9 +73,15 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		return result, errors.New("wikiinit: config already points to a different wiki; left unchanged")
 	}
 	entries, err := os.ReadDir(root)
-	if errors.Is(err, fs.ErrNotExist) || (err == nil && len(entries) == 0) {
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && Empty(entries)) {
 		if err := paths.EnsureDir(filepath.Dir(root)); err != nil {
 			return result, err
+		}
+		// git clones only into an empty folder; Finder's file is safe to go.
+		if len(entries) > 0 {
+			if err := os.Remove(filepath.Join(root, ".DS_Store")); err != nil {
+				return result, err
+			}
 		}
 		if _, err := git(ctx, filepath.Dir(root), "clone", "--no-local", "--", remote, root); err != nil {
 			return result, err
@@ -138,6 +143,10 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		hasHead = true
 	}
 	if !adopt {
+		// A new wiki here would take the place of the one the config names.
+		if previous.Instance != "" {
+			return result, errors.New("wikiinit: the repo is empty, but the config names an existing wiki; push that wiki there, or move the config aside to start over")
+		}
 		items, err := os.ReadDir(root)
 		if err != nil {
 			return result, err
@@ -145,7 +154,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		if len(items) != 1 || items[0].Name() != ".git" || hasHead {
 			return result, errors.New("wikiinit: non-empty repository has no eva-md schema; refusing to modify it")
 		}
-		label, err := machineLabel()
+		label, err := MachineLabel()
 		if err != nil {
 			return result, err
 		}
@@ -219,7 +228,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	previous.WikiPath, previous.ExpectedRemote, previous.Instance = root, expected, schema.Instance
 	if previous.MachineLabel == "" {
-		if previous.MachineLabel, err = machineLabel(); err != nil {
+		if previous.MachineLabel, err = MachineLabel(); err != nil {
 			return result, err
 		}
 	}
@@ -238,10 +247,13 @@ func scaffold(root string, o Options, schema config.WikiSchema) error {
 		return err
 	}
 	actor := okfadapter.Actor("eva-md", o.Version)
+	// The default thread is a page whose Now is the placeholder, as
+	// threadpage renders it.
+	thread := threadpage.Page{Title: "General · default", Now: threadpage.Now{Summary: threadpage.Placeholder}}
 	pages := []struct{ id, typ, title, desc, body string }{
 		{"README", "guide", "Eva dot MD", "How to read this private memory wiki", "# Eva dot MD\n\nMemory maintained by eva-md. Start with [General memory](general/now.md).\n\nTo protect a page from automated updates, set `locked: true` in its frontmatter. Human-verified pages are also left alone. Source references resolve through the local inbox; raw chats are never committed here.\n"},
-		{"general/now", "now", "General memory", "Overview of general conversations", "# General memory\n\n## Threads\n\n* [Default thread](threads/default.md) — No chats captured yet.\n"},
-		{"general/threads/default", "thread", "General · default", "General conversations outside a project", "# General · default\n\n## Now\n<!-- eva:now:start -->\nNo chats captured yet.\n<!-- eva:now:end -->\n\n## Timeline\n"},
+		{"general/now", "now", "General memory", "Overview of general conversations", "# General memory\n\n## Threads\n\n* [Default thread](threads/default.md) — " + threadpage.Placeholder + "\n"},
+		{"general/threads/default", "thread", thread.Title, "General conversations outside a project", threadpage.Render(thread)},
 	}
 	for _, p := range pages {
 		c := &okfadapter.Concept{Type: p.typ, Title: p.title, Description: p.desc, Status: "stable", Body: p.body, Extra: map[string]any{"locked": false, "writer": actor}}
@@ -272,13 +284,26 @@ func scaffold(root string, o Options, schema config.WikiSchema) error {
 // hostname is a variable so tests can set the machine's name.
 var hostname = os.Hostname
 
-// machineLabel is the sanitized hostname, or "mac" without one.
-func machineLabel() (string, error) {
+// MachineLabel is this Mac's label: the sanitized hostname, or "mac" without
+// one. The instance of a wiki made here starts with it.
+func MachineLabel() (string, error) {
 	label, err := hostname()
 	if err != nil || label == "" {
 		label = "mac"
 	}
 	return paths.SafeName(label)
+}
+
+// MadeOn is the label of the Mac a wiki's instance was made on: the instance
+// without the random part Run adds after the label. An instance not shaped
+// that way is returned whole.
+func MadeOn(instance string) string {
+	if i := strings.LastIndexByte(instance, '-'); i > 0 && len(instance)-i-1 == 8 {
+		if _, err := hex.DecodeString(instance[i+1:]); err == nil {
+			return instance[:i]
+		}
+	}
+	return instance
 }
 
 // BlockingWarning reports a warning that eva-md validate and adopting a wiki
@@ -360,13 +385,25 @@ func CheckFolder(dir string, dirs paths.Dirs) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("wikiinit: inspect folder: %w", err)
 	}
-	if len(entries) == 0 {
+	if Empty(entries) {
 		return root, nil
 	}
 	if git, err := os.Lstat(filepath.Join(root, ".git")); err == nil && git.IsDir() {
 		return root, nil
 	}
 	return "", errors.New("wikiinit: the folder is not empty; choose a new or empty folder")
+}
+
+// Empty reports whether a folder's entries leave it empty for the wiki: it
+// holds nothing, or only the .DS_Store file Finder leaves in a folder it
+// showed.
+func Empty(entries []os.DirEntry) bool {
+	for _, e := range entries {
+		if e.Name() != ".DS_Store" || !e.Type().IsRegular() {
+			return false
+		}
+	}
+	return true
 }
 
 // CheckRemote reports whether remote can be the wiki's remote, and returns
@@ -443,42 +480,6 @@ func equalPath(a, b string) bool {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
-}
-
-// remoteIdentity deliberately does not echo an untrusted URL in any error.
-func remoteIdentity(raw string) (string, string, error) {
-	if raw == "" || strings.TrimSpace(raw) != raw || strings.HasPrefix(raw, "-") || strings.ContainsAny(raw, "\x00\r\n") {
-		return "", "", errors.New("wikiinit: missing or invalid remote")
-	}
-	if !strings.Contains(raw, "://") && strings.Contains(raw, "::") {
-		return "", "", errors.New("wikiinit: Git remote helpers are not supported")
-	}
-	if filepath.IsAbs(raw) {
-		real, err := filepath.EvalSymlinks(raw)
-		if err != nil {
-			return "", "", errors.New("wikiinit: local remote does not exist")
-		}
-		return real, "file://" + filepath.ToSlash(real), nil
-	}
-	if strings.Contains(raw, "://") {
-		u, err := url.Parse(raw)
-		if err != nil {
-			return "", "", errors.New("wikiinit: invalid remote")
-		}
-		if u.RawQuery != "" || u.Fragment != "" {
-			return "", "", errors.New("wikiinit: remote must not contain a query or fragment")
-		}
-		if u.User != nil {
-			if _, has := u.User.Password(); has || (u.Scheme != "ssh" && u.Scheme != "git+ssh" && u.Scheme != "ssh+git") {
-				return "", "", errors.New("wikiinit: use credential-free remote URLs and the configured credential agent")
-			}
-		}
-	}
-	id, ok := identity.NormalizeRemote(raw)
-	if !ok {
-		return "", "", errors.New("wikiinit: unsupported remote; use an SSH/HTTPS URL or an absolute local path")
-	}
-	return raw, id, nil
 }
 
 func initLock(dir string) (func(), error) {

@@ -434,45 +434,105 @@ func (s Store) watermarkName(file string) (string, error) {
 	return filepath.Join(filepath.Dir(rel), ".state", filepath.Base(rel)+".wm"), nil
 }
 
+// Mark is a session file's watermark: the byte offset the background update
+// has processed up to, and whether the pass that set it stopped inside a
+// group of entries, so the next pass continues that group rather than
+// judging its rest as a group of its own. Wait is the file's size when the
+// update last found the rest too small to process yet, waiting for more
+// entries; zero when it hasn't.
+type Mark struct {
+	Offset int64
+	More   bool
+	Wait   int64
+}
+
+// Pending is how many bytes of a session file size bytes long the update
+// has yet to process: those past the offset, unless the update found them
+// all too small to process yet and nothing was appended since.
+func (m Mark) Pending(size int64) int64 {
+	if size <= m.Offset || size <= m.Wait {
+		return 0
+	}
+	return size - m.Offset
+}
+
 // Watermark returns the stored byte offset, or zero when no watermark exists.
 func (s Store) Watermark(file string) (int64, error) {
+	m, err := s.Mark(file)
+	return m.Offset, err
+}
+
+// Mark returns the stored watermark, or the zero Mark when none exists. The
+// file holds the offset, followed by " more" when More is set and by
+// " wait <size>" when Wait is.
+func (s Store) Mark(file string) (Mark, error) {
 	name, err := s.watermarkName(file)
 	if err != nil {
-		return 0, err
+		return Mark{}, err
 	}
 	root, err := paths.OpenRoot(s.Root, false)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return Mark{}, nil
 	}
 	if err != nil {
-		return 0, err
+		return Mark{}, err
 	}
 	defer root.Close()
 	f, err := openRegular(root, name, os.O_RDONLY, false)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return Mark{}, nil
 	}
 	if err != nil {
-		return 0, err
+		return Mark{}, err
 	}
 	defer f.Close()
 	if err := regular(f); err != nil {
-		return 0, err
+		return Mark{}, err
 	}
 	data, err := io.ReadAll(io.LimitReader(f, 64))
 	if err != nil {
-		return 0, err
+		return Mark{}, err
 	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	m, ok := parseMark(strings.Fields(string(data)))
+	if !ok {
+		return Mark{}, errors.New("inbox: invalid watermark")
+	}
+	return m, nil
+}
+
+// parseMark reads a watermark's fields: the offset, then "more" when More
+// is set, then "wait" and the size when Wait is.
+func parseMark(fields []string) (Mark, bool) {
+	var m Mark
+	if len(fields) == 0 {
+		return m, false
+	}
+	n, err := strconv.ParseInt(fields[0], 10, 64)
 	if err != nil || n < 0 {
-		return 0, errors.New("inbox: invalid watermark")
+		return m, false
 	}
-	return n, nil
+	m.Offset, fields = n, fields[1:]
+	if len(fields) > 0 && fields[0] == "more" {
+		m.More, fields = true, fields[1:]
+	}
+	if len(fields) == 2 && fields[0] == "wait" {
+		w, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil || w <= 0 {
+			return m, false
+		}
+		m.Wait, fields = w, nil
+	}
+	return m, len(fields) == 0
 }
 
 // SetWatermark atomically replaces the watermark with a nonnegative offset.
 func (s Store) SetWatermark(file string, offset int64) error {
-	if offset < 0 {
+	return s.SetMark(file, Mark{Offset: offset})
+}
+
+// SetMark atomically replaces the watermark.
+func (s Store) SetMark(file string, m Mark) error {
+	if m.Offset < 0 || m.Wait < 0 {
 		return errors.New("inbox: negative watermark")
 	}
 	name, err := s.watermarkName(file)
@@ -487,7 +547,38 @@ func (s Store) SetWatermark(file string, offset int64) error {
 	if err := root.MkdirAll(filepath.Dir(name), 0o700); err != nil {
 		return err
 	}
-	return paths.WriteFileAtomicAt(context.Background(), root, name, []byte(strconv.FormatInt(offset, 10)+"\n"), 0o600)
+	data := strconv.FormatInt(m.Offset, 10)
+	if m.More {
+		data += " more"
+	}
+	if m.Wait > 0 {
+		data += " wait " + strconv.FormatInt(m.Wait, 10)
+	}
+	return paths.WriteFileAtomicAt(context.Background(), root, name, []byte(data+"\n"), 0o600)
+}
+
+// Open opens a session file for reading. It refuses a path outside Root or
+// in a .state folder, a symlink, a multiply linked file and anything but a
+// regular file.
+func (s Store) Open(file string) (*os.File, error) {
+	name, err := s.relative(file)
+	if err != nil {
+		return nil, err
+	}
+	root, err := paths.OpenRoot(s.Root, false)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, err := openRegular(root, name, os.O_RDONLY, false)
+	if err != nil {
+		return nil, fmt.Errorf("inbox: open: %w", err)
+	}
+	if err := regular(f); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 // Ref formats a short session-and-line reference.

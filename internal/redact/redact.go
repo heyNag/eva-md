@@ -15,7 +15,7 @@ import (
 )
 
 // Version identifies the rule set. Raise it whenever a rule changes.
-const Version = 3
+const Version = 4
 
 // marker starts every replacement. Only a complete marker (markerRe) counts
 // as earlier redaction, so text that merely starts like one shields nothing.
@@ -138,6 +138,17 @@ var rules = []rule{
 		kind:  "slack_webhook",
 		re:    regexp.MustCompile(`(?i)https://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9_/\-]+`),
 		hints: []string{"hooks.slack.com"},
+	},
+	{
+		// A bot token in the path of a Telegram Bot API call.
+		kind:  "telegram_token",
+		re:    regexp.MustCompile(`(?i)api\.telegram\.org/(?:file/)?bot\d+:[A-Za-z0-9_\-]{30,}`),
+		hints: []string{"api.telegram.org"},
+	},
+	{
+		kind:  "discord_webhook",
+		re:    regexp.MustCompile(`(?i)discord(?:app)?\.com/api/(?:v\d+/)?webhooks/\d+/[A-Za-z0-9_\-]{50,}`),
+		hints: []string{"discord"},
 	},
 	{
 		kind:   "slack_token",

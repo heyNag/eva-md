@@ -2,7 +2,7 @@
 
 eva-md is the platform for eva.md ("Eva dot M D"), a Markdown, git-based memory for Claude Code and Codex. Hooks capture chats into a redacted local inbox and give new chats a resume brief. The long-term memory lives in a separate private wiki repository that `eva-md setup` creates in a folder the user chooses. This repo is the platform only; it never contains wiki content.
 
-Capture and resume are built. Wiki updates (summarizing chats into wiki pages, the daily signed commit and push, `doctor --live`) and support for work machines on self-hosted git are planned, not built yet.
+Capture, resume and wiki updates are built: the background update job and its triggers, which summarize chats into thread pages, the daily signed commit and push, `doctor --live`, system pages, standing rules and per-prompt pointers. Support for work machines whose wiki lives on a self-hosted git server, such as GitLab, is built too. All of it is checked offline with fake host CLIs. The live checks on real hosts, the first live updates and a run against a wiki on a self-hosted GitLab are still pending.
 
 ## Read first
 
@@ -14,8 +14,8 @@ Capture and resume are built. Wiki updates (summarizing chats into wiki pages, t
 
 ## Layout
 
-- `cmd/eva-md`: the CLI. `main.go` dispatches commands, `commands.go` holds brief, show, install, uninstall, doctor and status, and `setup.go` holds the guided setup.
-- `internal/`: one package per concern, such as `hook`, `inbox`, `catchup` (transcript recovery), `resume`, `redact`, `install`, `health`, `config`, `paths`, `identity`, `session`, `wikiinit` and `okfadapter`.
+- `cmd/eva-md`: the CLI. `main.go` dispatches commands, `commands.go` holds brief, show, search, install, uninstall, doctor and status, `setup.go` and `setup_repo.go` hold the guided setup, `update.go` the background update, `commit.go` the daily commit, `maintain.go` the daily job and `system.go` system page writes.
+- `internal/`: one package per concern, such as `hook`, `inbox`, `catchup` (transcript recovery), `resume`, `redact`, `install`, `health`, `config`, `paths`, `identity`, `session`, `wikiinit`, `okfadapter`, `threadpage` (the thread and rules page model), `freetext` (the anti-forgery cleaning the brief and the update input share), `update` (wiki updates), `systempage` (system pages, the system map and the names index), `wikigit` (the git runner, the daily commit and the push) and `lint` (the daily wiki lint).
 - `scripts/benchmark.py`: the offline latency benchmark.
 
 ## Rules

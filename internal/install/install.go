@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -47,8 +48,15 @@ type Feature struct {
 const installMarker = ".eva-md-install"
 const installMarkerValue = "eva-md installation v1\n"
 
+// cliPathsFile, in the state folder, holds the absolute path of each host CLI
+// install found, by command name, which the update job starts in preference
+// to a PATH lookup: a job a hook spawns gets the host app's PATH, which may
+// lack the CLI.
+const cliPathsFile = "cli-paths.json"
+
 type hostPlan struct {
 	host                  string
+	cli                   string // the CLI's absolute path, as PATH found it
 	before                Status
 	files                 map[string][]byte
 	changed               bool
@@ -75,7 +83,10 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		}
 	}()
 	if _, err = config.LoadContext(ctx, opts.Dirs.ConfigFile()); err != nil {
-		return result, fmt.Errorf("install: run eva-md setup first: %w", err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return result, errors.New("install: no wiki is set up; run eva-md setup first")
+		}
+		return result, errors.New("install: the eva-md config can't be read; run eva-md doctor")
 	}
 	hosts, err := selectedHosts(opts.Host)
 	if err != nil {
@@ -101,7 +112,7 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		if err != nil {
 			return result, err
 		}
-		plans = append(plans, &hostPlan{host: host, before: status, files: files})
+		plans = append(plans, &hostPlan{host: host, cli: cliPath(host), before: status, files: files})
 		result.Hosts = append(result.Hosts, host)
 		if host == "codex" {
 			features, err := run(ctx, host, "features", "list")
@@ -196,7 +207,6 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 	if !bytes.Equal(binary, previousBinary) {
 		result.Actions = append(result.Actions, "replace stable binary")
 	}
-	result.Actions = append(result.Actions, "managed hook policy is verified by host behavior and hook heartbeats")
 	if opts.DryRun {
 		return result, nil
 	}
@@ -295,7 +305,11 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 				return result, err
 			}
 		}
-		if _, err = run(ctx, p.host, addArgs(p.host)...); err != nil {
+		// A host may refuse to add a plugin it has. It loads the plugin's
+		// folder in place, so a registration that still verifies is enough.
+		_, addErr := run(ctx, p.host, addArgs(p.host)...)
+		if addErr != nil && !p.before.Installed {
+			err = addErr
 			return result, err
 		}
 		status, e := inspect(ctx, opts.Dirs, p.host, run)
@@ -305,6 +319,9 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		}
 		if !status.Valid {
 			err = fmt.Errorf("install: %s verification failed: %s", p.host, status.Reason)
+			if addErr != nil {
+				err = addErr
+			}
 			return result, err
 		}
 	}
@@ -320,7 +337,34 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			return result, err
 		}
 	}
+	recordCLIs(ctx, opts.Dirs, plans)
 	return result, nil
+}
+
+// recordCLIs saves the CLI paths of the hosts this run installed in
+// <state>/cli-paths.json, keeping another host's. It fails nothing: a path
+// that isn't saved leaves the update job to look the CLI up on PATH.
+func recordCLIs(ctx context.Context, dirs paths.Dirs, plans []*hostPlan) {
+	state, err := paths.OpenRoot(dirs.State, true)
+	if err != nil {
+		return
+	}
+	defer state.Close()
+	var clis map[string]string
+	if data, err := readAt(state, cliPathsFile, 64<<10); err == nil {
+		_ = json.Unmarshal(data, &clis)
+	}
+	if clis == nil {
+		clis = map[string]string{}
+	}
+	for _, p := range plans {
+		if p.cli != "" {
+			clis[p.host] = p.cli
+		}
+	}
+	if data, err := json.Marshal(clis); err == nil {
+		_ = paths.WriteFileAtomicAt(ctx, state, cliPathsFile, append(data, '\n'), 0o600)
+	}
 }
 
 func selectedHosts(host string) ([]string, error) {
@@ -413,14 +457,15 @@ func rollback(ctx context.Context, dirs paths.Dirs, root *os.Root, plans []*host
 	}
 	for _, p := range plans {
 		if p.before.Installed && p.registrationAttempted {
-			if _, err := run(ctx, p.host, addArgs(p.host)...); err != nil {
-				return err
-			}
+			_, addErr := run(ctx, p.host, addArgs(p.host)...)
 			reconciled, err := inspect(ctx, dirs, p.host, run)
 			if err != nil {
 				return err
 			}
 			if !reconciled.Valid {
+				if addErr != nil {
+					return addErr
+				}
 				return errors.New("previous plugin could not be verified after rollback")
 			}
 		}
@@ -825,6 +870,7 @@ func uninstall(ctx context.Context, dirs paths.Dirs, apply bool, run runner) (re
 	state, e := paths.OpenRoot(dirs.State, false)
 	if e == nil {
 		_ = state.Remove("needs-trust.json")
+		_ = state.Remove(cliPathsFile)
 		state.Close()
 	}
 	return result, nil
