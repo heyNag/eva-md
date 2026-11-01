@@ -811,7 +811,9 @@ func (r *recovery) saveIfDirty() error {
 // pass's deadline, or past the moment the pass noticed it was out of time,
 // whichever is later, so the progress of a pass that ran out of time is kept
 // even when a single step, such as decoding a long row, overran the deadline.
-const grace = 50 * time.Millisecond
+// Tests raise it before any test runs, so saving a cursor never depends on
+// how fast the machine's disk syncs.
+var grace = 50 * time.Millisecond
 
 func (r *recovery) grace() (context.Context, context.CancelFunc) {
 	if r.deadline.IsZero() {

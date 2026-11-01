@@ -30,13 +30,26 @@ func Absent(host string) (app string, absent bool) {
 	return app, err != nil
 }
 
-func inspectHosts(ctx context.Context, r *Report, d paths.Dirs) {
+// Time limits on the hosts' own commands: each host's native plugin
+// inventory, a command such as codex features list, and the read-only hooks
+// RPC. Tests raise them before any test runs, so a slow machine can't fail a
+// test of what the doctor reports.
+var (
+	inventoryTimeout = 5 * time.Second
+	commandTimeout   = 5 * time.Second
+	trustTimeout     = 8 * time.Second
+)
+
+// inspectHosts adds the rows the hosts' own commands give. inventory is the
+// budget of each host's plugin inventory: inventoryTimeout, or a short one in
+// the test of a listing that stalls.
+func inspectHosts(ctx context.Context, r *Report, d paths.Dirs, inventory time.Duration) {
 	codexEnabled := false
 	for _, host := range []string{"claude", "codex"} {
 		// Inventory may contact an unrelated remote marketplace. Give each
 		// host its own budget so a stalled listing cannot consume doctor's
 		// whole deadline and conceal independent local hook-trust evidence.
-		inventoryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		inventoryCtx, cancel := context.WithTimeout(ctx, inventory)
 		status, err := install.Inspect(inventoryCtx, d, host)
 		timedOut := errors.Is(inventoryCtx.Err(), context.DeadlineExceeded)
 		cancel()
@@ -113,7 +126,7 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 func hostCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = time.Second
@@ -128,7 +141,7 @@ func hostCommand(ctx context.Context, name string, args ...string) ([]byte, erro
 
 // probeTrust sends only read-only methods, never a thread/turn or approval.
 func probeTrust(parent context.Context, cwd string) (count, trusted int, err error) {
-	ctx, cancel := context.WithTimeout(parent, 8*time.Second)
+	ctx, cancel := context.WithTimeout(parent, trustTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "codex", "--no-daemon", "app-server", "--stdio")
 	cmd.Stderr = io.Discard

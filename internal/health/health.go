@@ -193,7 +193,7 @@ func inspect(ctx context.Context, d paths.Dirs, module string, hosts, repair boo
 		r.Checks = append(r.Checks, captureFreshness(ctx, d, host, now), hookCheck(d, host, now), driftCheck(d, host))
 	}
 	if hosts {
-		inspectHosts(ctx, &r, d)
+		inspectHosts(ctx, &r, d, inventoryTimeout)
 	}
 	inspectBackground(&r, d, c, now)
 	return r

@@ -29,8 +29,18 @@ import (
 const defaultRepoName = "eva-wiki"
 
 // repoCLITimeout bounds each gh or glab command; repo create gets three
-// times as long. Tests shorten it.
-var repoCLITimeout = 10 * time.Second
+// times as long. repoCLIWaitDelay bounds the wait for a command's output
+// once it has exited or run out of time. Tests raise both before any test
+// runs.
+var (
+	repoCLITimeout   = 10 * time.Second
+	repoCLIWaitDelay = time.Second
+)
+
+// cliTimer starts the time limit of one gh or glab command. Tests replace it
+// before any test runs, so a test can end a command's time at an exact
+// point.
+var cliTimer = context.WithTimeout
 
 var (
 	errCLIMissing  = errors.New("not installed")
@@ -530,6 +540,10 @@ func confirmReadable(ask func(string) (string, bool), out io.Writer) error {
 	return nil
 }
 
+// probeTimeout bounds the read anyoneCanRead runs. Tests raise it before
+// any test runs.
+var probeTimeout = 10 * time.Second
+
 // anyoneCanRead reports whether git reads the repo with this identity over
 // HTTPS with no sign-in, as anyone can read a public repo. A repo it can't
 // read, for any reason, isn't known to be public.
@@ -542,7 +556,7 @@ var anyoneCanRead = func(ctx context.Context, id string) bool {
 		return false
 	}
 	defer os.RemoveAll(home)
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	return probe(ctx, id, home).Run() == nil
 }
@@ -587,12 +601,12 @@ func (c repoCLI) run(ctx context.Context, timeout time.Duration, args ...string)
 	if err != nil {
 		return nil, errCLIMissing
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := cliTimer(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = "/"
 	cmd.Env = repoCLIEnv(c)
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = repoCLIWaitDelay
 	var out cliOutput
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {

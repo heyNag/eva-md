@@ -18,6 +18,30 @@ import (
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
+// installContext is the key of a value a test may put in the context it
+// gives runInstall: a *context.Context, which gets the context an interrupt
+// of that install cancels.
+type installContext struct{}
+
+// Tests check what install does, not how fast the machine starts the host
+// commands or syncs its disk: the time limits that protect a host are raised
+// for every test, before any test runs. A test can also see the context an
+// interrupt of its install cancels.
+func TestMain(m *testing.M) {
+	HostTimeout = 10 * time.Minute
+	HostWaitDelay = 10 * time.Minute
+	RollbackTimeout = 10 * time.Minute
+	notify := notifyInterrupt
+	notifyInterrupt = func(parent context.Context, signals ...os.Signal) (context.Context, context.CancelFunc) {
+		ctx, stop := notify(parent, signals...)
+		if seen, ok := parent.Value(installContext{}).(*context.Context); ok {
+			*seen = ctx
+		}
+		return ctx, stop
+	}
+	os.Exit(m.Run())
+}
+
 type fakeHost struct {
 	dirs               paths.Dirs
 	installed, markets map[string]bool
@@ -709,20 +733,21 @@ func TestInterruptRollsBackInstall(t *testing.T) {
 	caught := make(chan os.Signal, 1)
 	signal.Notify(caught, syscall.SIGTERM)
 	defer signal.Stop(caught)
+	var install context.Context
 	run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		if strings.HasPrefix(host+" "+strings.Join(args, " "), "codex plugin add ") {
-			// The command that has started still finishes; the signal fails
-			// the next step.
+			// The command that has started still finishes, once install has
+			// noticed the signal; the signal then fails the next step.
 			_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
-			<-caught
-			time.Sleep(50 * time.Millisecond)
+			select {
+			case <-install.Done():
+			case <-time.After(time.Minute):
+				t.Error("install still hasn't noticed the SIGTERM a minute after it")
+			}
 		}
 		return f.run(ctx, host, args...)
 	}
-	_, err := runInstall(context.Background(), opts, run)
+	_, err := runInstall(context.WithValue(context.Background(), installContext{}, &install), opts, run)
 	if err == nil || strings.Contains(err.Error(), "rollback incomplete") {
 		t.Fatalf("expected interrupted install to roll back: %v", err)
 	}
@@ -738,16 +763,15 @@ func TestInterruptRollsBackInstall(t *testing.T) {
 // interrupted, and no command starts after that.
 func TestFinishStartedLetsARunningCommandFinish(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	started := make(chan struct{})
+	defer cancel()
 	run := finishStarted(func(ctx context.Context, host string, args ...string) ([]byte, error) {
-		close(started)
-		time.Sleep(50 * time.Millisecond)
+		// The interrupt comes while the command runs.
+		cancel()
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		return []byte("done"), nil
 	})
-	go func() { <-started; cancel() }()
 	if out, err := run(ctx, "codex", "plugin", "add", "eva-md@eva-md"); err != nil || string(out) != "done" {
 		t.Fatalf("running command: %q %v", out, err)
 	}

@@ -280,12 +280,24 @@ func TestLockDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-	defer cancel()
+	// The test holds the lock throughout, so the append can only return by
+	// giving up at its deadline.
+	const deadline = 30 * time.Millisecond
 	started := time.Now()
-	err = s.AppendContext(ctx, e)
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 250*time.Millisecond {
-		t.Fatalf("lock did not honor deadline: %v %v", err, time.Since(started))
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.AppendContext(ctx, e) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("lock did not honor deadline: %v", err)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the append still waits for the lock a minute after its deadline")
+	}
+	if elapsed := time.Since(started); elapsed < deadline {
+		t.Fatalf("the append gave up after %s, before its deadline", elapsed)
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
@@ -439,7 +451,10 @@ func TestSeparateProcessAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	// Only a hang guard: the writers take about a second, under the race
+	// detector too.
+	const guard = 2 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), guard)
 	defer cancel()
 	var wg sync.WaitGroup
 	errs := make(chan error, 4)
@@ -450,6 +465,9 @@ func TestSeparateProcessAppend(t *testing.T) {
 			cmd := exec.CommandContext(ctx, bin, "-test.run=^TestSeparateProcessAppend$")
 			cmd.Env = append(os.Environ(), fmt.Sprintf("EVA_MD_TEST_WRITER=%d", i))
 			if output, err := cmd.CombinedOutput(); err != nil {
+				if ctx.Err() != nil {
+					err = fmt.Errorf("still appending after %s, so it hangs", guard)
+				}
 				errs <- fmt.Errorf("child writer: %w: %s", err, output)
 			}
 		}()

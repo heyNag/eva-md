@@ -33,11 +33,19 @@ func Inspect(ctx context.Context, dirs paths.Dirs, host string) (Status, error) 
 	return inspect(ctx, dirs, host, native)
 }
 
+// HostTimeout bounds one host command, and HostWaitDelay the wait for its
+// output once it has exited or run out of time. Tests raise them before any
+// test runs.
+var (
+	HostTimeout   = 30 * time.Second
+	HostWaitDelay = time.Second
+)
+
 func native(ctx context.Context, host string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, HostTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, host, args...)
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = HostWaitDelay
 	var stdout limitedBuffer
 	cmd.Stdout = &stdout
 	// Native commands can include paths or credentials in diagnostics. Keep

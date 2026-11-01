@@ -42,11 +42,12 @@ const (
 const ReasonPushOnly = "push_only"
 
 // Time limits. A commit may wait minutes for a signing approval, such as
-// a password manager's, and git must not be killed under it.
-const (
-	gitTimeout    = 120 * time.Second
-	commitTimeout = 300 * time.Second
-	pushTimeout   = 60 * time.Second
+// a password manager's, and git must not be killed under it. Tests raise
+// them before any test runs.
+var (
+	GitTimeout    = 120 * time.Second
+	CommitTimeout = 300 * time.Second
+	PushTimeout   = 60 * time.Second
 )
 
 // wikiLockWait bounds the wait for a running page write to finish.
@@ -155,7 +156,7 @@ func commit(ctx context.Context, o Options, r *Result, now time.Time) {
 		return
 	}
 	msg := fmt.Sprintf("eva-md daily %s: %s", now.Format("2006-01-02"), pagesText(r.Pages))
-	if _, err := Run(ctx, commitTimeout, wiki, "commit", "--quiet", "-m", msg); err != nil {
+	if _, err := Run(ctx, CommitTimeout, wiki, "commit", "--quiet", "-m", msg); err != nil {
 		r.Outcome, r.Reason = Failed, "commit"
 		if e := (*Error)(nil); errors.As(err, &e) && e.Class != "" {
 			r.Reason = "commit_" + e.Class
@@ -182,7 +183,7 @@ func stage(ctx context.Context, o Options, r *Result, now time.Time) ([]string, 
 		}
 	}
 	if len(args) > 2 {
-		if _, err := Run(ctx, gitTimeout, wiki, args...); err != nil {
+		if _, err := Run(ctx, GitTimeout, wiki, args...); err != nil {
 			return fail("add")
 		}
 	}
@@ -266,7 +267,7 @@ func guard(ctx context.Context, o Options, r *Result, now time.Time, committing 
 			}
 		}
 	}
-	if _, err := Run(ctx, gitTimeout, wiki, "symbolic-ref", "--quiet", "HEAD"); err != nil {
+	if _, err := Run(ctx, GitTimeout, wiki, "symbolic-ref", "--quiet", "HEAD"); err != nil {
 		return refuse("detached")
 	}
 	return true
@@ -278,11 +279,11 @@ func sameRemote(ctx context.Context, wiki, expected string) bool {
 	if expected == "" {
 		return false
 	}
-	origin, err := Run(ctx, gitTimeout, wiki, "config", "--get", "remote.origin.url")
+	origin, err := Run(ctx, GitTimeout, wiki, "config", "--get", "remote.origin.url")
 	if err != nil {
 		return false
 	}
-	pushURLs, err := Run(ctx, gitTimeout, wiki, "remote", "get-url", "--push", "--all", "origin")
+	pushURLs, err := Run(ctx, GitTimeout, wiki, "remote", "get-url", "--push", "--all", "origin")
 	if err != nil {
 		return false
 	}
@@ -316,7 +317,7 @@ type stagedFile struct{ path, mode string }
 // stagedFiles lists the paths whose staged content differs from HEAD.
 func stagedFiles(ctx context.Context, wiki string) ([]stagedFile, error) {
 	var out limitedBuffer
-	if err := run(ctx, gitTimeout, wiki, &out, "diff", "--cached", "--raw", "--no-renames", "-z"); err != nil {
+	if err := run(ctx, GitTimeout, wiki, &out, "diff", "--cached", "--raw", "--no-renames", "-z"); err != nil {
 		return nil, err
 	}
 	// Each entry is ":<old mode> <new mode> <old id> <new id> <status>",
@@ -355,7 +356,7 @@ func unstage(ctx context.Context, wiki string, files []string) error {
 		for _, f := range files[:n] {
 			args = append(args, literal(f))
 		}
-		if _, err := Run(ctx, gitTimeout, wiki, args...); err != nil {
+		if _, err := Run(ctx, GitTimeout, wiki, args...); err != nil {
 			return err
 		}
 		files = files[n:]
@@ -403,7 +404,7 @@ func pagesText(n int) string {
 // as this clone knows: a commit whose push is pending, or one a run made
 // before it was stopped. It reads local refs only.
 func ahead(ctx context.Context, wiki string) bool {
-	n, err := Run(ctx, gitTimeout, wiki, "rev-list", "--count", "@{upstream}..HEAD")
+	n, err := Run(ctx, GitTimeout, wiki, "rev-list", "--count", "@{upstream}..HEAD")
 	return err == nil && n != "0"
 }
 
@@ -411,7 +412,7 @@ func ahead(ctx context.Context, wiki string) bool {
 // of the ref.
 func push(ctx context.Context, wiki string) string {
 	var out limitedBuffer
-	err := run(ctx, pushTimeout, wiki, &out, "push", "--porcelain", "origin", "HEAD")
+	err := run(ctx, PushTimeout, wiki, &out, "push", "--porcelain", "origin", "HEAD")
 	return pushStatus(out.String(), err)
 }
 
@@ -466,11 +467,16 @@ func commitLock(dir string) (unlock func(), busy bool, err error) {
 // <locks>/wiki.lock, waiting up to wikiLockWait for a running write; busy
 // reports that it was still held.
 func wikiLock(ctx context.Context, dir string) (unlock func(), busy bool, err error) {
+	return wikiLockWithin(ctx, dir, wikiLockWait)
+}
+
+// wikiLockWithin is wikiLock waiting up to wait instead of wikiLockWait.
+func wikiLockWithin(ctx context.Context, dir string, wait time.Duration) (unlock func(), busy bool, err error) {
 	f, err := lockFile(dir, "wiki.lock")
 	if err != nil {
 		return nil, false, err
 	}
-	deadline := time.Now().Add(wikiLockWait)
+	deadline := time.Now().Add(wait)
 	for {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {

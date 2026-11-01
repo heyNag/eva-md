@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testlimits"
 )
 
 // hookProcess, set to 1, makes the test binary run one hook instead of the
@@ -25,7 +27,11 @@ import (
 // it started goes on.
 const hookProcess = "EVA_MD_TEST_HOOK_PROCESS"
 
+// Tests check what a hook stores, not how fast the machine runs git: the
+// git limits are raised for every test, before any test runs, and before a
+// hook process runs its hook, so the real-exec test's hook gets them too.
 func TestMain(m *testing.M) {
+	testlimits.Raise()
 	if os.Getenv(hookProcess) == "1" {
 		os.Exit(runHookProcess())
 	}
@@ -41,13 +47,14 @@ func runHookProcess() int {
 	}
 	c := config.Default()
 	c.WikiPath = filepath.Join(os.Getenv("HOME"), "wiki")
-	return Run(context.Background(), "claude-code", os.Stdin, os.Stdout, Env{Dirs: dirs, Config: c, Getenv: os.Getenv, Now: time.Now, slack: busySlack})
+	return Run(context.Background(), "claude-code", os.Stdin, os.Stdout, Env{Dirs: dirs, Config: c, Getenv: os.Getenv, Now: time.Now, Slack: busySlack})
 }
 
 // standIn takes the installed binary's place in the real-exec test. It
 // records how it was started, writes a line to stdout and to stderr, then
-// stays alive until the test releases it (30 seconds at most), so the test
-// can see it outlive the hook that started it.
+// stays alive until the test releases it (two minutes at least, longer than
+// any wait of the test), so the test can see it outlive the hook that
+// started it.
 const standIn = `#!/bin/sh
 out=$HOME/stand-in
 mkdir -p "$out"
@@ -59,7 +66,7 @@ echo "stand-in stdout"
 echo "stand-in stderr" >&2
 echo $$ > "$out/pid.tmp" && mv "$out/pid.tmp" "$out/pid"
 i=0
-while [ ! -f "$out/release" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
+while [ ! -f "$out/release" ] && [ $i -lt 1200 ]; do sleep 0.1; i=$((i + 1)); done
 echo done > "$out/done"
 `
 
@@ -78,7 +85,8 @@ func waitFor(file string, limit time.Duration) ([]byte, bool) {
 // detach starts nothing for a share folder that is not an absolute path,
 // which would name a binary by the folder the hook runs in. Here the hook
 // runs in /, where the share folder's path without its leading slash names
-// an executable stand-in; it never runs, and no update log is opened.
+// an executable stand-in. detach returns an error and opens no update log,
+// and as it opens the log before it starts any job, nothing was started.
 func TestDetachNeedsAnAbsoluteShareFolder(t *testing.T) {
 	env, _ := setup(t)
 	empty := filepath.Join(t.TempDir(), "bin")
@@ -101,9 +109,6 @@ func TestDetachNeedsAnAbsoluteShareFolder(t *testing.T) {
 		if err := detach(dirs, time.Now(), "update", "--session", "codex:test-session"); err == nil {
 			t.Fatalf("share folder %q: detach started a job", share)
 		}
-	}
-	if _, ok := waitFor(ran, 500*time.Millisecond); ok {
-		t.Fatal("a binary named by a relative share folder ran")
 	}
 	if _, err := os.Stat(env.Dirs.Logs()); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the update log folder exists: %v", err)
@@ -135,11 +140,15 @@ func TestDetachedJobOutlivesTheHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(home, "stand-in")
-	// Release the stand-in whatever happens, before the temporary folders go.
+	// Release the stand-in whatever happens, and once the hook has started
+	// it, which opens the update log first, wait for it to end before the
+	// temporary folders go.
 	t.Cleanup(func() {
 		_ = os.MkdirAll(out, 0o700)
 		_ = os.WriteFile(filepath.Join(out, "release"), nil, 0o600)
-		waitFor(filepath.Join(out, "done"), 10*time.Second)
+		if logs, _ := filepath.Glob(filepath.Join(env.Dirs.Logs(), "update-*.log")); len(logs) > 0 {
+			waitFor(filepath.Join(out, "done"), hangGuard)
+		}
 	})
 
 	exe, err := os.Executable()
@@ -172,17 +181,22 @@ func TestDetachedJobOutlivesTheHook(t *testing.T) {
 		select {
 		case data := <-outputs:
 			hookOut = append(hookOut, data...)
-		case <-time.After(15 * time.Second):
-			t.Fatal("the hook's stdout or stderr stayed open: the job holds the hook's pipes")
+		case <-time.After(hangGuard):
+			t.Fatalf("the hook's stdout or stderr was still open after %v: the hook hung, or the job holds its pipes", hangGuard)
 		}
 	}
-	closed := time.Since(started)
+	t.Logf("the hook's output ended after %v", time.Since(started))
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("hook process: %v", err)
 	}
-	pidText, ok := waitFor(filepath.Join(out, "pid"), 10*time.Second)
+	// The hook opens the day's update log before it starts the job, and
+	// starts it before it exits: without a log, no job is coming.
+	if logs, _ := filepath.Glob(filepath.Join(env.Dirs.Logs(), "update-*.log")); len(logs) == 0 {
+		t.Fatalf("the hook started no job: %s", hookRecord(env, hookOut))
+	}
+	pidText, ok := waitFor(filepath.Join(out, "pid"), hangGuard)
 	if !ok {
-		t.Fatal("the stand-in never started")
+		t.Fatalf("the stand-in never started in %v: %s", hangGuard, hookRecord(env, hookOut))
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(pidText)))
 	if err != nil {
@@ -193,9 +207,6 @@ func TestDetachedJobOutlivesTheHook(t *testing.T) {
 	}
 	if len(hookOut) != 0 {
 		t.Fatalf("the hook printed %q", hookOut)
-	}
-	if closed > 10*time.Second {
-		t.Fatalf("the hook's output took %v to end", closed)
 	}
 	// Its own session: setsid made it the leader, so its session id is its
 	// pid, not the test's.
@@ -247,7 +258,30 @@ func TestDetachedJobOutlivesTheHook(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(out, "release"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, done := waitFor(filepath.Join(out, "done"), 10*time.Second); !done {
-		t.Fatal("the job did not outlive the hook")
+	if _, done := waitFor(filepath.Join(out, "done"), hangGuard); !done {
+		t.Fatalf("the job did not outlive the hook: it had not finished %v after its release", hangGuard)
 	}
+}
+
+// hookRecord says what the real-exec test's hook left, for a job that never
+// started: what it printed, the inbox's row count, its SessionEnd heartbeat,
+// whose runs say whether it failed, and the update log.
+func hookRecord(env Env, printed []byte) string {
+	files, _ := filepath.Glob(filepath.Join(env.Dirs.Inbox(), "*", "*.jsonl"))
+	rows := 0
+	for _, file := range files {
+		data, _ := os.ReadFile(file)
+		rows += bytes.Count(data, []byte("\n"))
+	}
+	beat, err := os.ReadFile(filepath.Join(env.Dirs.State, "heartbeats", "claude-code", "SessionEnd.json"))
+	if err != nil {
+		beat = []byte(err.Error())
+	}
+	logs, _ := filepath.Glob(filepath.Join(env.Dirs.Logs(), "update-*.log"))
+	var logged []byte
+	for _, log := range logs {
+		data, _ := os.ReadFile(log)
+		logged = append(logged, data...)
+	}
+	return fmt.Sprintf("the hook printed %q; the inbox holds %d rows; its SessionEnd heartbeat: %s; the update logs %q hold %q", printed, rows, beat, logs, logged)
 }

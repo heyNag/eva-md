@@ -15,6 +15,18 @@ import (
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
+// TestMain raises, before any test runs, the grace a pass gets past its
+// deadline to finish a row and save its cursor, to the 10 minutes every
+// other limit is raised to. On a slow disk the atomic save alone can outlast
+// the real 50 ms, and a pass that can't save keeps none of its progress, so
+// no test could tell a slow disk from a wedge. After a long row, a save that
+// outlasts the grace leaves the row marked slow, and the next pass records a
+// gap for a row already stored.
+func TestMain(m *testing.M) {
+	grace = 10 * time.Minute
+	os.Exit(m.Run())
+}
+
 func fixture(t *testing.T, host string) (paths.Dirs, string, inbox.Entry) {
 	t.Helper()
 	home := t.TempDir()
@@ -49,7 +61,10 @@ func fixture(t *testing.T, host string) (paths.Dirs, string, inbox.Entry) {
 	}
 	return dirs, path, entry
 }
-func appendJSON(t *testing.T, path string, row any) {
+
+// appendJSON appends row to the transcript at path and returns the row's
+// length in bytes.
+func appendJSON(t *testing.T, path string, row any) int {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
@@ -60,9 +75,11 @@ func appendJSON(t *testing.T, path string, row any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Write(append(data, '\n')); err != nil {
+	data = append(data, '\n')
+	if _, err := f.Write(data); err != nil {
 		t.Fatal(err)
 	}
+	return len(data)
 }
 func claudeRow(e inbox.Entry, role, text, turn string) map[string]any {
 	return map[string]any{"type": role, "sessionId": e.Session, "cwd": filepath.Join(os.Getenv("HOME"), e.Cwd), "timestamp": "2026-10-29T10:01:00Z", "promptId": turn, "message": map[string]any{"role": role, "content": []any{map[string]any{"type": "text", "text": text}}, "stop_reason": "end_turn"}}

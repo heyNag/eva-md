@@ -38,8 +38,13 @@ const GeneralKey = "general"
 // DefaultBranch is the branch of the general area and of a repo with no commits.
 const DefaultBranch = "default"
 
-// Timeout bounds all git calls of one Resolve.
-const Timeout = 800 * time.Millisecond
+// Timeout bounds all git calls of one Resolve. Tests raise it before any
+// test runs, so a slow machine can't fail a test of what Resolve finds.
+var Timeout = 800 * time.Millisecond
+
+// WaitDelay bounds the wait for a git call's output once git has exited or
+// been stopped. Tests raise it before any test runs, as they raise Timeout.
+var WaitDelay = 100 * time.Millisecond
 
 const maxFolderLen = 40
 
@@ -293,7 +298,7 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", full...)
 	cmd.Env = gitEnv()
 	cmd.Dir = "/"
-	cmd.WaitDelay = 100 * time.Millisecond
+	cmd.WaitDelay = WaitDelay
 	out := cappedOutput{limit: 64 << 10}
 	stderr := cappedOutput{limit: 4096}
 	cmd.Stdout = &out

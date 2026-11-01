@@ -18,6 +18,14 @@ import (
 	"github.com/okf-memory/okf-agent-memory/pkg/okf"
 )
 
+// Tests check what the adapter writes, not how fast the machine syncs its
+// disk: the wait for the wiki lock, which concurrent writes in a test hold
+// while they save, is raised for every test, before any test runs.
+func TestMain(m *testing.M) {
+	LockTimeout = 10 * time.Minute
+	os.Exit(m.Run())
+}
+
 func isolated(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -560,7 +568,10 @@ func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	deadline := time.Now().Add(20 * time.Second)
+	// Wait for a save in progress. The deadline is only a hang guard: the
+	// helper is caught saving within a second, under the race detector too.
+	const guard = 2 * time.Minute
+	deadline := time.Now().Add(guard)
 	var leftover string
 	for time.Now().Before(deadline) {
 		matches, err := filepath.Glob(filepath.Join(w.root, ".tmp-okf-*"))
@@ -568,6 +579,7 @@ func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(matches) == 0 {
+			// The pause only paces the polling.
 			time.Sleep(100 * time.Microsecond)
 			continue
 		}
@@ -600,7 +612,7 @@ func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 		}
 	}
 	if leftover == "" {
-		t.Fatal("did not observe an in-progress okf temporary save")
+		t.Fatalf("did not observe an in-progress okf temporary save in %s: the helper hangs or never saves", guard)
 	}
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatal(err)

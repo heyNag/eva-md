@@ -88,7 +88,6 @@ func TestPromptPointsAtTheSystemsItNames(t *testing.T) {
 	for _, host := range []string{"claude-code", "codex"} {
 		t.Run(host, func(t *testing.T) {
 			env, p := setup(t)
-			env.slack = busySlack
 			systemsWiki(t, &env, fourSystems)
 			prompt := chat(t, host, p, env)
 			if got := prompt("Please check the error in the build, then update the tests and the service config."); got != nil {
@@ -116,7 +115,6 @@ func TestPromptPointsAtTheSystemsItNames(t *testing.T) {
 // A chat's prompts get at most 12 pointers in all.
 func TestPointersPerChat(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	pages := map[string]string{}
 	var names []string
 	for i := range 14 {
@@ -143,7 +141,6 @@ func TestPointersPerChat(t *testing.T) {
 // pointer from a prompt.
 func TestPointersSkipTheBriefsPages(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	git(t, p.Cwd, "init", "--quiet", "-b", "main")
 	git(t, p.Cwd, "remote", "add", "origin", "https://github.com/team/proj.git")
 	git(t, p.Cwd, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "--quiet", "-m", "fixture")
@@ -164,7 +161,6 @@ func TestPointersSkipTheBriefsPages(t *testing.T) {
 // pointed at the page, so a prompt that names the system still gets one.
 func TestQuotedCommandIsNoPointer(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	systemsWiki(t, &env, fourSystems)
 	store := inbox.Store{Root: env.Dirs.Inbox()}
 	for i, text := range []string{"Look at the payments flow.", "It retries twice.", "Run eva-md show systems/payments to read about it."} {
@@ -218,7 +214,6 @@ func TestLostRefreshRecordsNoPointer(t *testing.T) {
 // compact brief continues the chat, and its state.
 func TestClearStartsTheStateOver(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	env.Config.ReminderEvery = 5
 	systemsWiki(t, &env, fourSystems)
 	again := [][]string{
@@ -250,7 +245,6 @@ func TestClearStartsTheStateOver(t *testing.T) {
 func TestPointersNeedTheIndex(t *testing.T) {
 	const names = "Is LedgerSync behind payments-api?"
 	env, p := setup(t)
-	env.slack = busySlack
 	if got := chat(t, "codex", p, env)(names); got != nil {
 		t.Fatalf("no wiki: %q", got)
 	}
@@ -306,7 +300,6 @@ func TestReminder(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env, p := setup(t)
-			env.slack = busySlack
 			env.Config.ReminderEvery = tc.every
 			if tc.wiki {
 				systemsWiki(t, &env, fourSystems)
@@ -337,7 +330,6 @@ func TestReminder(t *testing.T) {
 	// start, gets no reminder, which the brief's footer would repeat; the
 	// next prompt does.
 	env, p := setup(t)
-	env.slack = busySlack
 	env.Config.ReminderEvery = 1
 	env.Dirs.Share = filepath.Dir(filepath.Dir(bin))
 	if context := contextFrom(t, invoke(t, "codex", p, env)); !strings.HasPrefix(context, "No earlier chats here;") || strings.Contains(context, "eva.md: earlier chats:") {

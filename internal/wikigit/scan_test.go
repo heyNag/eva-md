@@ -3,8 +3,10 @@ package wikigit
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -123,7 +125,11 @@ func TestPushStatus(t *testing.T) {
 }
 
 // The commit's wiki lock is the lock okfadapter takes around every write: a
-// write waits while a commit holds it.
+// write waits while a commit holds it, and a commit finds it busy while a
+// write holds it. Once the write is seen sleeping between tries of the busy
+// lock in the adapter, it can't go on until the commit lets the lock go, so
+// its file is not there yet; a write that skips the lock, or takes another,
+// returns without ever sleeping there.
 func TestWikiLockIsTheAdapterLock(t *testing.T) {
 	home := isolate(t)
 	root, locks := filepath.Join(home, "wiki"), filepath.Join(home, "locks")
@@ -143,10 +149,10 @@ func TestWikiLockIsTheAdapterLock(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- w.WriteFile("general/index.md", []byte("# General\n")) }()
-	select {
-	case err := <-done:
-		t.Fatalf("a write ran while the commit held the wiki lock: %v", err)
-	case <-time.After(300 * time.Millisecond):
+	waitingForLock(t, done)
+	file := filepath.Join(w.Root(), "general", "index.md")
+	if _, err := os.Lstat(file); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the write saved its file while the commit held the wiki lock: %v", err)
 	}
 	unlock()
 	select {
@@ -154,7 +160,99 @@ func TestWikiLockIsTheAdapterLock(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the write never got the lock")
+	case <-time.After(hangGuard):
+		t.Fatalf("the write still waits for the lock %s after the commit let it go", hangGuard)
+	}
+	if _, err := os.Lstat(file); err != nil {
+		t.Fatal(err)
+	}
+	// A commit whose wait has ended tries the lock once.
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = w.Locked(func(*okfadapter.Wiki) error {
+		unlock, busy, err := wikiLock(ended, locks)
+		if err == nil {
+			unlock()
+		}
+		if !busy {
+			t.Errorf("a commit found the wiki lock free while a write held it: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hangGuard bounds a wait that only a hang outlasts.
+const hangGuard = time.Minute
+
+// waitingForLock returns once a goroutine that the test's own goroutine
+// started, running a page write, sleeps between tries of the busy wiki lock
+// in the adapter, as the goroutines' stacks show. It fails if the write
+// returns first. The adapter sleeps there only after a try found the lock
+// busy. A write that an earlier run of the test left waiting was started by
+// another goroutine, so it never matches. The pause between looks only
+// paces them.
+func waitingForLock(t *testing.T, done <-chan error) {
+	t.Helper()
+	buf := make([]byte, 64<<10)
+	self, _, _ := strings.Cut(string(buf[:runtime.Stack(buf, false)]), " [")
+	guard := time.After(hangGuard)
+	for {
+		n := runtime.Stack(buf, true)
+		if n == len(buf) {
+			buf = make([]byte, 2*len(buf))
+			continue
+		}
+		for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+			if strings.Contains(g, "\ntime.Sleep(") && strings.Contains(g, "/okfadapter.(*Wiki).lockWithin(") &&
+				strings.Contains(g, "/okfadapter.(*Wiki).WriteFile(") && strings.Contains(g, " in "+self+"\n") {
+				return
+			}
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("a write returned while the commit held the wiki lock, never seen waiting for it: %v", err)
+		case <-guard:
+			t.Fatalf("the write was not seen waiting for the wiki lock in %s: it hangs before the lock", hangGuard)
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+// A commit waits for the wiki lock up to its limit, then finds it busy: at
+// the limit, not before, though the write holding it goes on.
+func TestWikiLockWaitEndsBusy(t *testing.T) {
+	locks := filepath.Join(isolate(t), "locks")
+	unlock, _, err := wikiLock(context.Background(), locks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	const wait = 100 * time.Millisecond
+	type result struct {
+		busy bool
+		err  error
+	}
+	done := make(chan result, 1)
+	started := time.Now()
+	go func() {
+		release, busy, err := wikiLockWithin(context.Background(), locks, wait)
+		if err == nil {
+			release()
+		}
+		done <- result{busy, err}
+	}()
+	select {
+	case r := <-done:
+		if !r.busy || r.err == nil {
+			t.Fatalf("busy %v, %v; want busy", r.busy, r.err)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the commit still waits for the wiki lock a minute past its limit")
+	}
+	if elapsed := time.Since(started); elapsed < wait {
+		t.Fatalf("gave up after %s, before its limit", elapsed)
 	}
 }

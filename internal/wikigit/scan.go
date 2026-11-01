@@ -29,7 +29,7 @@ var (
 // to judge, or git failing.
 func leaks(ctx context.Context, wiki, file string) bool {
 	d := &diffScan{}
-	err := run(ctx, gitTimeout, wiki, d, "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "-U0", "--", literal(file))
+	err := run(ctx, GitTimeout, wiki, d, "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "-U0", "--", literal(file))
 	if len(d.line) > 0 {
 		d.judge()
 	}

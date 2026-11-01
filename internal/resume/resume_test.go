@@ -18,6 +18,19 @@ import (
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
+// Tests check what the brief says, not how fast the machine runs git: the
+// time limits that protect a hook from slow git are raised for every test,
+// before any test runs. The raised gitReserve leaves the rest of a brief
+// with a deadline half a minute after live git is cut off; it stays below
+// GitTimeout, so TestSlowGitLeavesTimeToDeliverBrief can tell the two cuts
+// apart.
+func TestMain(m *testing.M) {
+	identity.Timeout, identity.WaitDelay = time.Minute, time.Minute
+	GitTimeout, GitWaitDelay = time.Minute, time.Minute
+	gitReserve = 30 * time.Second
+	os.Exit(m.Run())
+}
+
 func fixture(t *testing.T) Options {
 	t.Helper()
 	home := t.TempDir()

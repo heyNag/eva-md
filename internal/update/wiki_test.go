@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
@@ -81,6 +80,14 @@ func TestProjectsLineKeepsAConcurrentIndexLine(t *testing.T) {
 	saved := beforeLinkWrite
 	t.Cleanup(func() { beforeLinkWrite = saved })
 	beforeLinkWrite = func() {
+		// Between the read and the write the wiki lock is held, so another
+		// taker finds it busy and the other write waits.
+		if unlock, busy, err := TryLock(e.dirs.Locks(), "wiki.lock"); err != nil || !busy {
+			if unlock != nil {
+				unlock()
+			}
+			t.Errorf("the wiki lock is free between the read and the write of the root index: %v", err)
+		}
 		go func() {
 			done <- w.Locked(func(lw *okfadapter.Wiki) error {
 				data, err := readWikiFile(lw, "index.md")
@@ -90,8 +97,6 @@ func TestProjectsLineKeepsAConcurrentIndexLine(t *testing.T) {
 				return lw.WriteFile("index.md", []byte(data+systems+"\n"))
 			})
 		}()
-		// Time for the other write to take the lock, were it free.
-		time.Sleep(100 * time.Millisecond)
 	}
 	c := newChat("3f2a91c0-link", start)
 	talk(c, 2, "amber")

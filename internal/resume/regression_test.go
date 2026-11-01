@@ -22,14 +22,22 @@ func fakeGit(t *testing.T, script string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// A slow git must not use up the prompt hook's budget: the brief still
-// arrives in time, with live git marked unknown.
+// A slow git must not use up the prompt hook's budget: live git is cut off
+// gitReserve before the brief's deadline, so the brief still arrives in
+// time, with live git marked unknown. The fake git outlasts the deadline and
+// gets what is left of 300 ms; the rest of the brief gets the reserve, which
+// tests raise to half a minute, so a slow machine can't miss it. Without the
+// cut, git would run until the deadline itself.
 func TestSlowGitLeavesTimeToDeliverBrief(t *testing.T) {
+	budget := gitReserve + 300*time.Millisecond
+	if GitTimeout <= budget {
+		t.Fatalf("GitTimeout %s cuts git off by the brief's deadline of %s anyway, so this test proves nothing", GitTimeout, budget)
+	}
 	o := fixture(t)
 	capture(t, o, "codex", "slow-git", "main", o.Now.Add(-time.Hour), "Keep the slow-git brief")
 	o.Project.Root = t.TempDir()
-	fakeGit(t, "exec sleep 5")
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	fakeGit(t, "exec sleep 120")
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	r, err := Build(ctx, o)
 	if err != nil || ctx.Err() != nil {

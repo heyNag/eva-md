@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -504,16 +505,43 @@ func TestHelperUpdateJob(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(os.Getenv("HOME"), "called"), nil, 0o600)
 		return Result{Output: reply(t, r, "amber"), Attempts: 1}, nil
 	}}
+	// The job marks the moment its save is waiting for the wiki lock the
+	// test holds, where the test kills it. The save starts the watch as it
+	// goes to take the lock.
+	saved := beforeSaveLock
+	t.Cleanup(func() { beforeSaveLock = saved })
+	beforeSaveLock = func() { go markWhenWaitingForLock(filepath.Join(os.Getenv("HOME"), "saving")) }
 	j := Job{Dirs: dirs, Config: cfg, Version: "0.1.0-test", Runner: func(string) Runner { return fake }}
 	_, _ = j.Session(context.Background(), HostClaude, os.Getenv("EVA_MD_UPDATE_SESSION"))
 }
 
-// A job killed in the middle of its save, while it waits for the wiki
-// lock, leaves no page, the watermark where it was, no record and the
-// update lock free. A save killed between okf's temporary file and its
-// rename leaves only an orphaned temporary file, which the next run's page,
-// overview and index leave out and the wiki's .gitignore keeps from ever
-// being staged.
+// markWhenWaitingForLock writes the file mark once a goroutine running
+// saveThread sleeps between tries of the busy wiki lock in the adapter, as
+// the goroutines' stacks show. The adapter sleeps there only after a try
+// found the lock busy. The pause between looks only paces them.
+func markWhenWaitingForLock(mark string) {
+	buf := make([]byte, 64<<10)
+	for {
+		n := runtime.Stack(buf, true)
+		if n == len(buf) {
+			buf = make([]byte, 2*len(buf))
+			continue
+		}
+		for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+			if strings.Contains(g, "\ntime.Sleep(") && strings.Contains(g, "/okfadapter.(*Wiki).lockWithin(") && strings.Contains(g, "/update.saveThread(") {
+				_ = os.WriteFile(mark, nil, 0o600)
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// A job killed while it waits for the wiki lock, in the middle of its save,
+// leaves no page, the watermark where it was, no record and the update lock
+// free. A save killed between okf's temporary file and its rename leaves
+// only an orphaned temporary file, which the next run's page, overview and
+// index leave out and the wiki's .gitignore keeps from ever being staged.
 func TestKillMidSave(t *testing.T) {
 	e := newEnv(t)
 	c := newChat("3f2a91c0-dddd", start)
@@ -538,9 +566,16 @@ func TestKillMidSave(t *testing.T) {
 	}
 	if !waitFile(os.Getenv("HOME"), "called") {
 		_ = cmd.Process.Kill()
-		t.Fatal("the child never called the model")
+		t.Fatalf("the child hadn't called the model after %s", hangGuard)
 	}
-	time.Sleep(200 * time.Millisecond) // into the save, waiting for the wiki lock
+	// The child marks the moment its save is waiting for the wiki lock,
+	// which the test holds, so the kill always lands in that wait, before
+	// the save has written anything. The save would give up on the lock
+	// only after a minute, long after the kill.
+	if !waitFile(os.Getenv("HOME"), "saving") {
+		_ = cmd.Process.Kill()
+		t.Fatalf("the child's save wasn't seen waiting for the wiki lock after %s", hangGuard)
+	}
 	_ = cmd.Process.Signal(syscall.SIGKILL)
 	// The child was still running when the kill came: it neither failed at
 	// startup nor finished, which would have recorded the pass.
@@ -596,7 +631,9 @@ func TestKillMidSave(t *testing.T) {
 }
 
 // Two jobs never run at once: the second exits as soon as it finds the lock
-// held, and the first goes on.
+// held, and the first goes on. The first holds the lock until the test
+// releases it, which it does only once the second has returned, so a second
+// job that waited for the lock would never return.
 func TestSecondJobExitsAtOnce(t *testing.T) {
 	e := newEnv(t)
 	c := newChat("3f2a91c0-eeee", start)
@@ -608,18 +645,31 @@ func TestSecondJobExitsAtOnce(t *testing.T) {
 		<-release
 		return Result{Output: reply(t, r, "amber"), Attempts: 1}, nil
 	}
-	done := make(chan Summary)
+	done := make(chan Summary, 1)
 	go func() {
 		s, _ := e.job().Session(context.Background(), c.host, c.session)
 		done <- s
 	}()
 	<-entered
-	began := time.Now()
-	second, err := e.job().Pending(context.Background())
-	if err != nil || !second.Stopped(StopBusy) || len(second.Records) != 0 || time.Since(began) > 2*time.Second {
-		t.Fatalf("second job: %+v %v after %s", second, err, time.Since(began))
+	type ended struct {
+		s   Summary
+		err error
 	}
-	close(release)
+	second := make(chan ended, 1)
+	go func() {
+		s, err := e.job().Pending(context.Background())
+		second <- ended{s, err}
+	}()
+	select {
+	case got := <-second:
+		close(release)
+		if got.err != nil || !got.s.Stopped(StopBusy) || len(got.s.Records) != 0 {
+			t.Fatalf("second job: %+v %v", got.s, got.err)
+		}
+	case <-time.After(hangGuard):
+		close(release)
+		t.Fatalf("the second job still waits for the lock after %s", hangGuard)
+	}
 	if first := <-done; outcomes(first) != "ok" || e.mark(file).Offset != size(t, file) {
 		t.Fatalf("first job: %q", outcomes(first))
 	}

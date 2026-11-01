@@ -24,8 +24,18 @@ type gitInfo struct {
 var objectID = regexp.MustCompile(`^[a-fA-F0-9]{7,64}$`)
 
 // gitReserve is the time left after live git for the rest of the brief, the
-// briefed marker and the hook's output.
-const gitReserve = 50 * time.Millisecond
+// briefed marker and the hook's output. Tests raise it before any test runs,
+// so a slow machine can't fail a test of a brief that must beat its deadline.
+var gitReserve = 50 * time.Millisecond
+
+// GitTimeout bounds live git for one brief. Tests raise it before any test
+// runs, so a slow machine can't fail a test of what the brief says.
+var GitTimeout = 800 * time.Millisecond
+
+// GitWaitDelay bounds the wait for a git call's output once git has exited
+// or been stopped. Tests raise it before any test runs, as they raise
+// GitTimeout.
+var GitWaitDelay = 100 * time.Millisecond
 
 func gitSummary(parent context.Context, p identity.Project, head string) gitInfo {
 	if p.Root == "" {
@@ -33,7 +43,7 @@ func gitSummary(parent context.Context, p identity.Project, head string) gitInfo
 	}
 	// Slow git is reported as unknown. It must not use up the time the hook
 	// needs to deliver the brief.
-	timeout := 800 * time.Millisecond
+	timeout := GitTimeout
 	if deadline, ok := parent.Deadline(); ok && time.Until(deadline)-gitReserve < timeout {
 		timeout = time.Until(deadline) - gitReserve
 	}
@@ -126,7 +136,7 @@ func gitSummary(parent context.Context, p identity.Project, head string) gitInfo
 func git(ctx context.Context, root string, args ...string) (string, error) {
 	argv := append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks", "-C", root}, args...)
 	cmd := exec.CommandContext(ctx, "git", argv...)
-	cmd.WaitDelay = 100 * time.Millisecond
+	cmd.WaitDelay = GitWaitDelay
 	for _, e := range os.Environ() {
 		key := strings.SplitN(e, "=", 2)[0]
 		if strings.HasPrefix(key, "GIT_") && key != "GIT_CONFIG_GLOBAL" && key != "GIT_CONFIG_NOSYSTEM" {

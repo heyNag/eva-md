@@ -9,12 +9,23 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/threadpage"
+	"github.com/heyNag/eva-md/internal/wikigit"
 )
+
+// Tests check what init sets up, not how fast the machine runs git: the time
+// limits of its git commands are raised for every test, before any test
+// runs.
+func TestMain(m *testing.M) {
+	GitTimeout = 10 * time.Minute
+	wikigit.WaitDelay = 10 * time.Minute
+	os.Exit(m.Run())
+}
 
 func fixture(t *testing.T) Options {
 	t.Helper()

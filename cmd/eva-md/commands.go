@@ -24,6 +24,15 @@ import (
 	"github.com/heyNag/eva-md/internal/update"
 )
 
+// resumeTimeout bounds eva-md brief, show and search, installTimeout eva-md
+// install and uninstall, and checkTimeout the checks of eva-md doctor and
+// status. Tests raise them before any test runs.
+var (
+	resumeTimeout  = 5 * time.Second
+	installTimeout = 2 * time.Minute
+	checkTimeout   = 30 * time.Second
+)
+
 func runResume(ctx context.Context, args []string, out, errOut io.Writer) int {
 	d, err := paths.Default()
 	if err != nil {
@@ -35,7 +44,7 @@ func runResume(ctx context.Context, args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "eva-md: configuration is invalid")
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, resumeTimeout)
 	defer cancel()
 	if args[0] == "show" {
 		return runShow(ctx, d, c, args[1:], out, errOut)
@@ -213,7 +222,7 @@ func runInstall(ctx context.Context, args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "eva-md: home folder is unavailable")
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 	var r install.Result
 	if args[0] == "install" {
@@ -304,7 +313,7 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "eva-md: home folder is unavailable")
 		return 1
 	}
-	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 	var r health.Report
 	if args[0] == "doctor" {

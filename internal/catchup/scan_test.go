@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/inbox"
+	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/redact"
 	"github.com/heyNag/eva-md/internal/session"
 )
@@ -287,14 +288,18 @@ func TestCodexOversizedRows(t *testing.T) {
 	for _, message := range []string{"compare these screenshots", "off the record"} {
 		t.Run(message, func(t *testing.T) {
 			dirs, file, e := fixture(t, "codex")
-			emit := func(payload any) {
-				appendJSON(t, file, map[string]any{"type": "event_msg", "timestamp": "2026-10-29T10:01:00Z", "payload": payload})
+			emit := func(payload any) int {
+				return appendJSON(t, file, map[string]any{"type": "event_msg", "timestamp": "2026-10-29T10:01:00Z", "payload": payload})
 			}
 			image := "data:image/png;base64," + strings.Repeat("QUJD", 330<<10)
 			emit(map[string]any{"type": "task_started", "turn_id": "turn1"})
-			emit(map[string]any{"type": "user_message", "message": message, "images": []any{image}})
+			n := emit(map[string]any{"type": "user_message", "message": message, "images": []any{image}})
 			emit(map[string]any{"type": "agent_message", "phase": "final", "message": "REPLY-AFTER-IMAGES"})
-			hookPasses(t, dirs, e, 5)
+			scan := scanPasses(n)
+			if message == "off the record" {
+				scan = controlScanPasses(n)
+			}
+			hookPasses(t, dirs, e, readPasses+scan+shortPasses)
 			rows := readInbox(t, dirs, e)
 			if message == "off the record" {
 				if !offMarker(t, dirs, e) || len(rows) != 0 {
@@ -487,27 +492,54 @@ func withRedactor(t *testing.T, fn func(string) (string, int)) {
 	t.Cleanup(func() { redactText = old })
 }
 
+// passPastBlock runs one pass whose redaction blocks until the test lets it
+// go, and fails if the pass has not returned in 30 s: out of time, a pass
+// must leave a blocked redaction behind, never wait for it.
+func passPastBlock(t *testing.T, ctx context.Context, dirs paths.Dirs, e inbox.Entry) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := Recover(ctx, dirs, e.Host, e.Session)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(30 * time.Second):
+		t.Fatal("the pass hung: it waited for the blocked redaction instead of leaving it behind")
+		return nil
+	}
+}
+
 // A row whose redaction outruns every pass is bounded more tightly,
 // then recorded as a gap, and recovery moves on to the rows after it.
 func TestSlowRowEscalatesToGap(t *testing.T) {
 	dirs, file, e := fixture(t, "claude-code")
+	// A long redaction ends its pass the moment it begins, then blocks until
+	// the test is over, so it outruns every pass however fast the machine.
+	// The pass's deadline is far off, so every try begins with most of its
+	// budget left, and the save after the try keeps its grace.
+	over := t.Context().Done()
+	var endPass context.CancelFunc
 	withRedactor(t, func(s string) (string, int) {
 		if len(s) > syncRedact {
-			time.Sleep(400 * time.Millisecond)
+			endPass()
+			<-over
 		}
 		return redact.Redact(s)
 	})
 	appendJSON(t, file, claudeRow(e, "user", "PROMPT-ONE", "turn-1"))
 	appendJSON(t, file, claudeRow(e, "assistant", strings.Repeat("a slow reply line\n", 2500), "turn-1"))
 	appendJSON(t, file, claudeRow(e, "user", "PROMPT-TWO", "turn-2"))
-	var levels []int
-	for pass := 0; pass < 10; pass++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		_, err := Recover(ctx, dirs, e.Host, e.Session)
+	var tried []int
+	for pass := 1; ; pass++ {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+		endPass = cancel
+		err := passPastBlock(t, ctx, dirs, e)
 		cancel()
 		s, _, _ := load(context.Background(), dirs, e.Host, e.Session)
 		if s.Slow != nil {
-			levels = append(levels, s.Slow.Level)
+			tried = append(tried, s.Slow.Level)
 		}
 		if err == nil {
 			break
@@ -515,17 +547,39 @@ func TestSlowRowEscalatesToGap(t *testing.T) {
 		if !errors.Is(err, ErrPending) {
 			t.Fatal(err)
 		}
+		if pass > len(levels) {
+			t.Fatalf("still pending after %d passes, levels %v", pass, tried)
+		}
 	}
 	rows := readInbox(t, dirs, e)
 	if len(rows) != 3 || rows[0].Text != "PROMPT-ONE" || rows[1].Text != gapTooLong || rows[2].Text != "PROMPT-TWO" {
 		t.Fatalf("rows=%#v", rows)
 	}
-	// Normally [1 2 3]; a try that began late in its pass keeps its level.
-	if got := fmt.Sprint(levels); !strings.HasSuffix(got, "1 2 3]") {
-		t.Fatalf("levels=%v", levels)
+	// Each try began fresh, so each raised the row's level.
+	if got := fmt.Sprint(tried); got != "[1 2 3]" {
+		t.Fatalf("levels=%v", tried)
 	}
 	if offMarker(t, dirs, e) {
 		t.Fatal("slow row turned the chat off the record")
+	}
+}
+
+// A try that began late in its pass keeps the row's level unless it is the
+// third at that level, and one that began with most of its budget left
+// raises the level at once, so a row gets at most three tries at each level.
+func TestSlowRowTriesPerLevel(t *testing.T) {
+	r := &recovery{}
+	var got []string
+	for _, fresh := range []bool{false, false, false, true, false, false, true} {
+		level := 0
+		if r.s.Slow != nil {
+			level = r.s.Slow.Level
+		}
+		r.slowed(4096, level, fresh)
+		got = append(got, fmt.Sprintf("%d/%d", r.s.Slow.Level, r.s.Slow.Tries))
+	}
+	if want := "[0/1 0/2 1/0 2/0 2/1 2/2 3/0]"; fmt.Sprint(got) != want {
+		t.Fatalf("level/tries=%v, want %s", got, want)
 	}
 }
 
@@ -581,18 +635,23 @@ func TestStoredTurnSkipsRedaction(t *testing.T) {
 // time, so the next pass resumes after the rows it stored.
 func TestPauseKeepsFinishedRows(t *testing.T) {
 	dirs, file, e := fixture(t, "claude-code")
+	// The pass runs out of time when the slow row's redaction begins, and
+	// not before; the redaction then blocks until released. The pass has a
+	// deadline, far off, because without one its cursor's save would end
+	// with it.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
 	release := make(chan struct{})
 	withRedactor(t, func(s string) (string, int) {
 		if strings.Contains(s, "SLOW") {
+			cancel()
 			<-release
 		}
 		return redact.Redact(s)
 	})
 	appendJSON(t, file, claudeRow(e, "user", "FIRST", "turn-1"))
 	appendJSON(t, file, claudeRow(e, "assistant", "SLOW "+strings.Repeat("x", syncRedact), "turn-1"))
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	_, err := Recover(ctx, dirs, e.Host, e.Session)
-	cancel()
+	err := passPastBlock(t, ctx, dirs, e)
 	close(release)
 	if !errors.Is(err, ErrPending) {
 		t.Fatalf("err=%v", err)

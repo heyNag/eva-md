@@ -39,9 +39,15 @@ type Env struct {
 	// in a package variable, because a test's abandoned capture can still be
 	// running when the next test starts.
 	recoverTranscript func(ctx context.Context, dirs paths.Dirs, host, id string) (int, error)
-	// slack lengthens the hook's own budget in tests, so a busy machine can't
-	// fail a test that checks what is stored rather than how long it took.
-	slack time.Duration
+	// Slack lengthens every time limit of the hook: its budget, transcript
+	// recovery's and the late run's record. Tests set it, so a busy machine
+	// can't fail a test that checks what is stored rather than how long it
+	// took. It is zero in production.
+	Slack time.Duration
+	// withDeadline replaces context.WithDeadline for Run's waits, for the
+	// payload, the capture and the output, so a test can end each at an
+	// exact point rather than race a real clock. nil means real timers.
+	withDeadline func(parent context.Context, d time.Time) (context.Context, context.CancelFunc)
 	// spawn replaces detach, which starts the installed binary with args as
 	// a detached job, so tests see exactly which events spawn what.
 	spawn func(args ...string)
@@ -83,7 +89,11 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	deadline := invocationDeadline(ctx, started.Add(300*time.Millisecond+env.slack))
+	if env.withDeadline == nil {
+		env.withDeadline = context.WithDeadline
+	}
+	// Until the payload names its event, the hook has the shortest budget.
+	deadline := invocationDeadline(ctx, started.Add(budget("")+env.Slack))
 	var event, output string
 	var spawns [][]string
 	// late is the payload of a capture that ran out of time: a failed run,
@@ -95,10 +105,10 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 		if host == "codex" && event == "Stop" {
 			output = "{}"
 		}
-		writeOutput(out, output, deadline)
+		writeOutput(out, output, deadline, env.withDeadline)
 		launch(env, spawns)
 		if late != nil {
-			lateBeat(ctx, env.Dirs, host, *late)
+			lateBeat(ctx, env.Dirs, host, *late, env.Slack)
 		}
 	}()
 	if host != "claude-code" && host != "codex" {
@@ -106,7 +116,7 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	}
 	// Reserve a short output phase so even an expired capture can emit the
 	// host's required response without exceeding the invocation budget.
-	readCtx, cancelRead := context.WithDeadline(ctx, deadline.Add(-10*time.Millisecond))
+	readCtx, cancelRead := env.withDeadline(ctx, deadline.Add(-10*time.Millisecond))
 	defer cancelRead()
 	type result struct {
 		p     payload
@@ -147,18 +157,8 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 		return 0
 	}
 	p.entrypoint, p.headless = entrypoint(host, env.Getenv)
-	// The brief gets longer. So do tool events, which the plugins mark async,
-	// so Claude Code doesn't wait for them: a burst of parallel tool calls
-	// waits its turn for the session lock, and that wait is no failure. On a
-	// host that did wait, a contended lock would cost it the longer wait
-	// where it used to cost the captured line.
-	budget := 300 * time.Millisecond
-	switch event {
-	case "SessionStart", "PostToolUse", "PostToolUseFailure":
-		budget = 1500 * time.Millisecond
-	}
-	deadline = invocationDeadline(ctx, started.Add(budget+env.slack))
-	workCtx, cancel := context.WithDeadline(ctx, deadline.Add(-10*time.Millisecond))
+	deadline = invocationDeadline(ctx, started.Add(budget(event)+env.Slack))
+	workCtx, cancel := env.withDeadline(ctx, deadline.Add(-10*time.Millisecond))
 	defer cancel()
 	// A capture that misses the deadline delivers nothing, its spawns
 	// included.
@@ -181,6 +181,20 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	return 0
 }
 
+// budget is how long the hook may take for event: 300 ms, and 1.5 seconds
+// at SessionStart, whose brief gets longer. So do tool events, which the
+// plugins mark async, so Claude Code doesn't wait for them: a burst of
+// parallel tool calls waits its turn for the session lock, and that wait is
+// no failure. On a host that did wait, a contended lock would cost it the
+// longer wait where it used to cost the captured line.
+func budget(event string) time.Duration {
+	switch event {
+	case "SessionStart", "PostToolUse", "PostToolUseFailure":
+		return 1500 * time.Millisecond
+	}
+	return 300 * time.Millisecond
+}
+
 func invocationDeadline(ctx context.Context, deadline time.Time) time.Time {
 	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
 		return parent
@@ -188,24 +202,24 @@ func invocationDeadline(ctx context.Context, deadline time.Time) time.Time {
 	return deadline
 }
 
-// A caller-supplied io.Writer cannot be forcibly interrupted. Bound our wait,
-// contain its panic, and let the CLI process exit end a permanently stalled
-// write. Output to a stalled destination can consequently be lost.
-func writeOutput(out io.Writer, output string, deadline time.Time) {
+// A caller-supplied io.Writer cannot be forcibly interrupted. Bound our wait
+// by the deadline, through withDeadline, contain its panic, and let the CLI
+// process exit end a permanently stalled write. Output to a stalled
+// destination can consequently be lost.
+func writeOutput(out io.Writer, output string, deadline time.Time, withDeadline func(context.Context, time.Time) (context.Context, context.CancelFunc)) {
 	if out == nil || output == "" {
 		return
 	}
-	remaining := time.Until(deadline)
-	if remaining <= 0 {
+	ctx, cancel := withDeadline(context.Background(), deadline)
+	defer cancel()
+	if ctx.Err() != nil {
 		return
 	}
 	done := make(chan struct{})
 	go func() { defer close(done); defer func() { _ = recover() }(); _, _ = io.WriteString(out, output) }()
-	timer := time.NewTimer(remaining)
-	defer timer.Stop()
 	select {
 	case <-done:
-	case <-timer.C:
+	case <-ctx.Done():
 	}
 }
 
@@ -278,7 +292,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	}
 	var touched []catchup.Recovered
 	if p.Event == "SessionStart" {
-		catchCtx, cancelCatch := context.WithTimeout(ctx, 150*time.Millisecond)
+		catchCtx, cancelCatch := context.WithTimeout(ctx, 150*time.Millisecond+env.Slack)
 		_, touched, _ = catchup.RecoverProject(catchCtx, env.Dirs, project.Key, host, p.Session, env.Now())
 		cancelCatch()
 	}
@@ -366,7 +380,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	// A pass that returns no error has read to the end, even when it finished
 	// in the grace recovery gets past its deadline to save the cursor.
 	caughtUp := func() bool {
-		catchCtx, cancelCatch := context.WithTimeout(ctx, 100*time.Millisecond)
+		catchCtx, cancelCatch := context.WithTimeout(ctx, 100*time.Millisecond+env.Slack)
 		defer cancelCatch()
 		n, err := env.recoverTranscript(catchCtx, env.Dirs, host, p.Session)
 		recovered += n

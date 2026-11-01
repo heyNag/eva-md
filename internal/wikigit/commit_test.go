@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/redact"
 	"github.com/heyNag/eva-md/internal/wikigit"
@@ -25,6 +26,23 @@ import (
 
 // day is the run's local date in every test, 2026-10-31.
 var day = time.Date(2026, 10, 31, 9, 30, 0, 0, time.Local)
+
+// testLimit is a time limit no git command in a test reaches, however slow
+// the machine.
+const testLimit = 10 * time.Minute
+
+// Tests check what a commit does, not how fast the machine runs git: the
+// time limits of the commit's git commands, and of those init runs to make
+// each test's wiki, are raised for every test, before any test runs.
+func TestMain(m *testing.M) {
+	wikigit.GitTimeout = testLimit
+	wikigit.CommitTimeout = testLimit
+	wikigit.PushTimeout = testLimit
+	wikigit.WaitDelay = testLimit
+	wikiinit.GitTimeout = testLimit
+	okfadapter.LockTimeout = testLimit
+	os.Exit(m.Run())
+}
 
 type fixture struct {
 	home, wiki, remote string
@@ -67,7 +85,7 @@ func newFixture(t *testing.T) *fixture {
 
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := wikigit.Run(context.Background(), time.Minute, dir, args...)
+	out, err := wikigit.Run(context.Background(), testLimit, dir, args...)
 	if err != nil {
 		t.Fatalf("git %s: %v", args[0], err)
 	}
@@ -507,15 +525,22 @@ func TestBusyWhileAnotherProcessHoldsTheLock(t *testing.T) {
 	}
 }
 
-// A run that finds a page write holding the wiki lock past the wait is busy,
-// with reason wiki_lock, and stages and commits nothing.
+// A run that finds a page write holding the wiki lock until its wait ends is
+// busy, with reason wiki_lock, and stages and commits nothing. The run's
+// context ends the wait here; TestWikiLockWaitEndsBusy checks the wait's own
+// limit.
 func TestBusyWhileAPageWriteHoldsTheWikiLock(t *testing.T) {
 	f := newFixture(t)
-	defer wikigit.SetWikiLockWait(100 * time.Millisecond)()
 	holdLock(t, filepath.Join(f.o.Dirs.Locks(), "wiki.lock"))
 	head := git(t, f.wiki, "rev-parse", "HEAD")
 	f.edit(t, "done [stated]: Waited for a page write")
-	if r := f.commit(t); r.Outcome != wikigit.Busy || r.Reason != "wiki_lock" || r.Push != wikigit.PushSkipped {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	r, err := wikigit.Commit(ctx, f.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Outcome != wikigit.Busy || r.Reason != "wiki_lock" || r.Push != wikigit.PushSkipped {
 		t.Fatalf("result %+v", r)
 	}
 	if git(t, f.wiki, "rev-parse", "HEAD") != head {

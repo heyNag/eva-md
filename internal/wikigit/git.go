@@ -30,6 +30,10 @@ func Run(ctx context.Context, timeout time.Duration, dir string, args ...string)
 	return strings.TrimSpace(out.String()), nil
 }
 
+// WaitDelay bounds the wait for a git command's output once git has exited
+// or run out of time. Tests raise it before any test runs.
+var WaitDelay = 200 * time.Millisecond
+
 // The classes of a failed git command that a record can name.
 const (
 	ClassTimeout       = "timeout"        // it ran out of time or was canceled
@@ -54,7 +58,7 @@ func run(ctx context.Context, timeout time.Duration, dir string, out io.Writer, 
 	full := append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks", "-C", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
 	cmd.Env = Environment()
-	cmd.WaitDelay = 200 * time.Millisecond
+	cmd.WaitDelay = WaitDelay
 	cmd.Stdout = out
 	var diagnostics limitedBuffer
 	cmd.Stderr = &diagnostics

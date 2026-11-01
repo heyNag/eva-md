@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -22,6 +23,17 @@ import (
 	"github.com/heyNag/eva-md/internal/wikigit"
 	"github.com/heyNag/eva-md/internal/wikiinit"
 )
+
+// Tests check what a write does, not how fast the machine runs git: the time
+// limit on identity's git calls, which protects a hook from slow git, is
+// raised for every test, before any test runs.
+func TestMain(m *testing.M) {
+	identity.Timeout, identity.WaitDelay = time.Minute, time.Minute
+	wikigit.GitTimeout, wikigit.CommitTimeout, wikigit.PushTimeout, wikigit.WaitDelay = 10*time.Minute, 10*time.Minute, 10*time.Minute, 10*time.Minute
+	wikiinit.GitTimeout = 10 * time.Minute
+	okfadapter.LockTimeout = 10 * time.Minute
+	os.Exit(m.Run())
+}
 
 // isolate gives the test a temporary home whose git config is a temporary
 // file, and clears the variables that would point git elsewhere.
@@ -345,27 +357,63 @@ func TestWriteChecksTheWiki(t *testing.T) {
 }
 
 // The write waits for the wiki lock another process holds, and writes once
-// it is released.
+// it is released. Once it is seen sleeping between tries of the busy lock in
+// the adapter, it can't go on until the other process lets the lock go, so
+// the page is not there yet; a write that skips the lock, or takes another,
+// returns without ever sleeping there.
 func TestWriteWaitsForTheWikiLock(t *testing.T) {
 	o := fixture(t)
 	release := holdLock(t, filepath.Join(o.Dirs.Locks(), "wiki.lock"))
 	done := make(chan error, 1)
 	go func() { _, err := write(o, "orders", valid, false); done <- err }()
-	select {
-	case err := <-done:
-		t.Fatalf("the write did not wait for the lock: %v", err)
-	case <-time.After(300 * time.Millisecond):
-	}
+	waitingForLock(t, done)
 	page := filepath.Join(o.Config.WikiPath, "systems", "orders.md")
 	if _, err := os.Stat(page); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatal("the page was written while another process held the lock")
+		t.Fatal("the page was written before the write took the lock")
 	}
 	release()
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(hangGuard):
+		t.Fatalf("the write still waits for the lock %s after the other process let it go", hangGuard)
 	}
 	if _, err := os.Stat(page); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// hangGuard bounds a wait that only a hang outlasts.
+const hangGuard = 2 * time.Minute
+
+// waitingForLock returns once a goroutine running Write sleeps between tries
+// of the busy wiki lock in the adapter, as the goroutines' stacks show, and
+// fails if the write returns first. The adapter sleeps there only after a
+// try found the lock busy. The pause between looks only paces them.
+func waitingForLock(t *testing.T, done <-chan error) {
+	t.Helper()
+	guard := time.After(hangGuard)
+	buf := make([]byte, 64<<10)
+	for {
+		n := runtime.Stack(buf, true)
+		if n == len(buf) {
+			buf = make([]byte, 2*len(buf))
+			continue
+		}
+		for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+			if strings.Contains(g, "\ntime.Sleep(") && strings.Contains(g, "/okfadapter.(*Wiki).lockWithin(") && strings.Contains(g, "/systempage.Write(") {
+				return
+			}
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("the write returned without being seen waiting for the wiki lock: %v", err)
+		case <-guard:
+			t.Fatalf("the write was not seen waiting for the wiki lock in %s: it hangs before the lock", hangGuard)
+		case <-time.After(time.Millisecond):
+		}
 	}
 }
 

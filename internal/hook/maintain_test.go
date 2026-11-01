@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -236,29 +235,38 @@ func TestPushRetrySpacing(t *testing.T) {
 
 // A capture that misses its deadline delivers nothing, its spawns included:
 // the day's first event, run out of time, creates no attempt marker and
-// starts nothing, so the next event is still the day's first.
+// starts nothing, so the next event is still the day's first. Recovery holds
+// the capture up and ends the hook's time at that exact point, by cancelling
+// its context, as the deadline would.
 func TestLateCaptureStartsNoMaintain(t *testing.T) {
 	env, p, spawned := maintainSetup(t)
-	env.slack = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	release := make(chan struct{})
-	env.recoverTranscript = func(context.Context, paths.Dirs, string, string) (int, error) {
+	held := env
+	held.recoverTranscript = func(context.Context, paths.Dirs, string, string) (int, error) {
+		cancel()
 		<-release
 		return 0, nil
 	}
 	p.Event = "PostToolUse"
-	running := runtime.NumGoroutine()
-	invoke(t, "codex", p, env)
-	// Let the capture Run gave up on finish before looking: even then it
-	// leaves no marker.
+	invokeContext(t, ctx, "codex", p, held)
 	close(release)
-	for end := time.Now().Add(2 * time.Second); runtime.NumGoroutine() > running && time.Now().Before(end); {
-		time.Sleep(5 * time.Millisecond)
-	}
 	if got, names := spawned(), commitFolder(t, env); got != nil || names != nil {
 		t.Fatalf("a capture past its deadline spawned %q and left %q", got, names)
 	}
-	env.slack = busySlack
-	env.recoverTranscript = nil
+	// Let the capture Run gave up on go on until it lets go of the session's
+	// lock, past all it could ask for: even then it leaves no marker.
+	lockCtx, cancelLock := context.WithTimeout(context.Background(), hangGuard)
+	defer cancelLock()
+	unlock, err := sessionLock(lockCtx, env.Dirs.Locks(), "codex", p.Session)
+	if err != nil {
+		t.Fatalf("the capture Run gave up on still held the session's lock after %v: %v", hangGuard, err)
+	}
+	unlock()
+	if got, names := spawned(), commitFolder(t, env); got != nil || names != nil {
+		t.Fatalf("a capture past its deadline spawned %q and left %q once it ended", got, names)
+	}
 	invoke(t, "codex", p, env)
 	if got := maintainSpawns(spawned()); !reflect.DeepEqual(got, daily) {
 		t.Fatalf("the next event started %q", got)

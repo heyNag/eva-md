@@ -26,9 +26,14 @@ const (
 	maxDiag   = 64 << 10 // error text kept to name a failure
 )
 
-// waitDelay bounds the wait for output pipes after the CLI exits, in case a
-// process that left the group still holds them.
-const waitDelay = 2 * time.Second
+// WaitDelay bounds the wait for output pipes after the CLI exits, in case a
+// process that left the group still holds them. Tests raise it before any
+// test runs.
+var WaitDelay = 2 * time.Second
+
+// runTimer starts the timeout of one CLI run. Tests replace it before any
+// test runs, so a test can end a run's time at an exact point.
+var runTimer = context.WithTimeout
 
 // keepEnv lists the variables a child inherits. Every LC_* is kept too. The
 // proxy variables are kept in both letter cases, as tools read either.
@@ -112,7 +117,7 @@ func spawn(ctx context.Context, cli string, args []string, dir string, stdin []b
 	if err != nil {
 		return child{missing: true}, nil
 	}
-	tctx, cancel := context.WithTimeout(ctx, timeout)
+	tctx, cancel := runTimer(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(tctx, path, args...)
 	cmd.Dir = dir
@@ -126,7 +131,7 @@ func spawn(ctx context.Context, cli string, args []string, dir string, stdin []b
 	cmd.Stderr = stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
-	cmd.WaitDelay = waitDelay
+	cmd.WaitDelay = WaitDelay
 	if err := cmd.Start(); err != nil {
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
 			return child{missing: true}, nil

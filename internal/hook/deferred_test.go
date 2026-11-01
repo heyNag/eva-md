@@ -69,7 +69,9 @@ func countRecords(rows []inbox.Entry, role, text string) int {
 // one window, and one that runs out of time stops where it is. Either way
 // the rows after the cursor may hold an off-the-record control a hook
 // missed, so the event is kept only as an off-the-record chat would keep it:
-// its fixed name, never its text, and no brief.
+// its fixed name, never its text, and no brief. Here each pass stops after
+// its window, never at its deadline, which busySlack puts out of reach; a
+// pass out of time ends with the same ErrPending.
 func TestDeferredRecoveryKeepsOnlyEventNames(t *testing.T) {
 	env, p := setup(t)
 	plant(t, env, "claude-code", p.Session)
@@ -147,7 +149,6 @@ func TestMissedOffRecordKeepsOnlyEventNames(t *testing.T) {
 // record it.
 func TestOnlyStopsWithAReplyCountTowardDrift(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	file := registeredTranscript(t, env, &p)
 	stop := func(reply *string) {
 		t.Helper()
@@ -172,19 +173,21 @@ func TestOnlyStopsWithAReplyCountTowardDrift(t *testing.T) {
 
 // A pass that read to the end of the transcript has caught up, even if
 // saving its cursor took it past its own deadline, into the grace recovery
-// gets for that. The event is stored, not dropped.
+// gets for that. The event is stored, not dropped. Only recovery's own
+// 100 ms runs out: the capture runs without the hook's deadline, so the rest
+// of it has all the time a slow machine needs.
 func TestRecoveryFinishedLateStillCaptures(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
+	env.Slack = 0
 	env.recoverTranscript = func(ctx context.Context, _ paths.Dirs, _, _ string) (int, error) {
 		<-ctx.Done()
 		return 0, nil
 	}
-	invoke(t, "claude-code", p, env)
+	capture(context.Background(), "claude-code", p, env, new([][]string))
 	p.Event = "PostToolUse"
 	p.Tool = "Bash"
 	p.ToolInput = json.RawMessage(`{"command":"go test ./..."}`)
-	invoke(t, "claude-code", p, env)
+	capture(context.Background(), "claude-code", p, env, new([][]string))
 	rows := records(t, env)
 	if countRecords(rows, "user", "please help") != 1 || countRecords(rows, "tool", "Bash go test ./... (exit 0)") != 1 {
 		t.Fatalf("records=%#v", rows)

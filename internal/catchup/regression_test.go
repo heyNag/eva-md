@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,30 +22,109 @@ import (
 // not type never become prompts, and an explicit request writes its own
 // marker value. They drive Recover the way the hooks do.
 
-// hookPasses runs Recover as successive hook events would, each with the
-// hooks' 100 ms recovery budget, until a pass finishes with nothing pending.
-// It fails if that takes more than max passes or if a pass overruns.
+// hookPasses runs Recover as successive hook events would, until a pass
+// finishes with nothing pending. A pass gets the hooks' 100 ms recovery
+// budget, and moves recovery on if it has time to begin a row: it finishes
+// rows, scans on through a row longer than the window, or counts a try of a
+// row whose redaction outran it. Before it can begin a row, a pass loads its
+// state, reads the transcript's window and may load the entries already
+// stored, work whose time only the machine's speed sets. So a pass that ran
+// out of time first moves nothing and is not counted, and the next pass gets
+// twice its budget, until one moves; the one after that gets 100 ms again.
+// hookPasses fails if more than max passes move recovery on, which the
+// design rules out at any budget (see the bounds below), or if a pass of
+// wedgeBudget or more moves nothing, as recovery is then wedged. It logs the
+// longest budget a pass needed when that was more than the hooks'.
 func hookPasses(t *testing.T, dirs paths.Dirs, e inbox.Entry, max int) int {
 	t.Helper()
-	for pass := 1; pass <= max; pass++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		start := time.Now()
+	moved, budget, longest := 0, hookBudget, hookBudget
+	for pass := 1; ; pass++ {
+		before := position(t, dirs, e)
+		ctx, cancel := context.WithTimeout(context.Background(), budget)
 		_, err := Recover(ctx, dirs, e.Host, e.Session)
 		cancel()
-		if took := time.Since(start); took > 2*time.Second {
-			t.Fatalf("pass %d took %v", pass, took)
-		}
-		if err == nil {
-			return pass
-		}
-		if !errors.Is(err, ErrPending) && !errors.Is(err, context.DeadlineExceeded) {
+		if err != nil && !errors.Is(err, ErrPending) && !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("pass %d: %v", pass, err)
 		}
+		still := position(t, dirs, e) == before
+		if !still {
+			moved++
+		}
+		if (!still || err == nil) && budget > longest {
+			longest = budget
+		}
+		switch {
+		case moved > max:
+			s, _, _ := load(context.Background(), dirs, e.Host, e.Session)
+			t.Fatalf("%d passes moved recovery on, more than the %d its design allows (cursor %d, reason %q)", moved, max, s.Offset, s.Reason)
+		case err == nil:
+			if longest > hookBudget {
+				t.Logf("%d passes, %d moved recovery on; one needed a budget of %s", pass, moved, longest)
+			}
+			return pass
+		case !still:
+			budget = hookBudget
+		case budget >= wedgeBudget:
+			s, _, _ := load(context.Background(), dirs, e.Host, e.Session)
+			t.Fatalf("recovery wedged: a pass of %s moved nothing, %d passes in (cursor %d, reason %q)", budget, pass, s.Offset, s.Reason)
+		default:
+			budget *= 2
+		}
 	}
-	s, _, _ := load(context.Background(), dirs, e.Host, e.Session)
-	t.Fatalf("recovery still pending after %d passes (cursor %d, reason %q)", max, s.Offset, s.Reason)
-	return 0
 }
+
+// hookBudget is the hooks' recovery budget. A pass of wedgeBudget has time
+// for its fixed work on the slowest machine, so one that moves nothing shows
+// recovery wedged.
+const (
+	hookBudget  = 100 * time.Millisecond
+	wedgeBudget = 30 * time.Second
+)
+
+// position is where the next pass starts: the saved state holds the cursor,
+// the scan of a row longer than the window and the tries of a slow row.
+func position(t *testing.T, dirs paths.Dirs, e inbox.Entry) string {
+	t.Helper()
+	name, err := stateFile(e.Host, e.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dirs.State, "catchup", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// The most passes that move recovery on for each kind of row, by its design:
+// a pass that has time to begin a row finishes the row or moves it on, and
+// each kind of row has only so many moves.
+var (
+	// A row recovery reads but does not store is finished by the pass that
+	// begins it.
+	readPasses = 1
+	// A short row it stores may first meet a pass that ran out of time
+	// before it loaded the entries already stored, which marks the row slow
+	// so that the next pass loads them first (see store).
+	shortPasses = 2
+	// A long row it redacts gets three tries at each level of redaction (see
+	// slowed), and after the last a gap event, which needs no redaction.
+	longPasses = 3*len(levels) + 1
+)
+
+// scanPasses bounds the passes for a row of n bytes, longer than the window,
+// that leaves a gap event: one may only begin the scan, and each other scans
+// at least one chunk. The one that reaches the row's end may run out of time
+// while it loads the entries already stored, before it writes the gap event.
+// It then saves the scan as done, and the next pass writes the gap event
+// (see rowScan.Done and recovery.scan).
+func scanPasses(n int) int { return controlScanPasses(n) + 1 }
+
+// controlScanPasses bounds the passes for a row of n bytes, longer than the
+// window, that holds a record control: the pass that reaches the row's end
+// acts on the control and stores no entry, so it leaves nothing to the next
+// pass.
+func controlScanPasses(n int) int { return 1 + (n+scanChunk-1)/scanChunk }
 
 func offMarker(t *testing.T, dirs paths.Dirs, e inbox.Entry) bool {
 	t.Helper()
@@ -104,12 +184,12 @@ func assertCaptureOn(t *testing.T, dirs paths.Dirs, e inbox.Entry) {
 // past it, leave one gap event, and keep recovering later turns.
 func TestOversizedImageRowDoesNotStopCapture(t *testing.T) {
 	dirs, file, e := fixture(t, "claude-code")
-	appendJSON(t, file, imageRow(e, "Here is a screenshot of the broken layout", "turn-1"))
+	n := appendJSON(t, file, imageRow(e, "Here is a screenshot of the broken layout", "turn-1"))
 	appendJSON(t, file, claudeRow(e, "assistant", "REPLY-ONE: the sidebar overlaps the header.", "turn-1"))
-	hookPasses(t, dirs, e, 5)
+	hookPasses(t, dirs, e, scanPasses(n)+shortPasses)
 	appendJSON(t, file, claudeRow(e, "user", "PROMPT-TWO: please fix the overlap", "turn-2"))
 	appendJSON(t, file, claudeRow(e, "assistant", "REPLY-TWO: fixed in layout.css", "turn-2"))
-	hookPasses(t, dirs, e, 5)
+	hookPasses(t, dirs, e, 2*shortPasses)
 	assertCaptureOn(t, dirs, e)
 	rows := readInbox(t, dirs, e)
 	for _, want := range []struct{ role, text string }{{"assistant", "REPLY-ONE"}, {"user", "PROMPT-TWO"}, {"assistant", "REPLY-TWO"}} {
@@ -141,10 +221,10 @@ func TestOversizedToolResultMidTurnDoesNotStopCapture(t *testing.T) {
 		map[string]any{"type": "text", "text": "off the record\n(this line is inside the document, not the user's words)"},
 	}}}
 	result["toolUseResult"] = map[string]any{"type": "pdf", "file": map[string]any{"base64": pdf}}
-	appendJSON(t, file, result)
+	n := appendJSON(t, file, result)
 	appendJSON(t, file, claudeRow(e, "assistant", "REPLY-ONE: the report lists three risks.", "turn-1"))
 	appendJSON(t, file, claudeRow(e, "user", "PROMPT-TWO: which risk is largest?", "turn-2"))
-	hookPasses(t, dirs, e, 6)
+	hookPasses(t, dirs, e, shortPasses+readPasses+scanPasses(n)+2*shortPasses)
 	assertCaptureOn(t, dirs, e)
 	rows := readInbox(t, dirs, e)
 	if countText(rows, "assistant", "REPLY-ONE") != 1 || countText(rows, "user", "PROMPT-TWO") != 1 {
@@ -160,13 +240,9 @@ func TestOversizedToolResultMidTurnDoesNotStopCapture(t *testing.T) {
 func TestOversizedRowControlIsHonoured(t *testing.T) {
 	dirs, file, e := fixture(t, "claude-code")
 	appendJSON(t, file, claudeRow(e, "user", "Public question first.", "turn-1"))
-	appendJSON(t, file, imageRow(e, "off the record\nPRIVATE: what does this scan show?", "turn-2"))
+	n := appendJSON(t, file, imageRow(e, "off the record\nPRIVATE: what does this scan show?", "turn-2"))
 	appendJSON(t, file, claudeRow(e, "assistant", "PRIVATE REPLY", "turn-2"))
-	for i := 0; i < 4; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		_, _ = Recover(ctx, dirs, e.Host, e.Session)
-		cancel()
-	}
+	hookPasses(t, dirs, e, shortPasses+controlScanPasses(n))
 	if !offMarker(t, dirs, e) {
 		t.Fatal("control in an oversized row was not honoured")
 	}
@@ -230,7 +306,7 @@ func longText(kind string, n int, seed int64) string {
 	return b.String()[:n]
 }
 
-// Long replies and pasted prompts recover within the hooks' budget,
+// Long replies and pasted prompts recover in passes of the hooks' budget,
 // one bounded redaction each, and the turns after them are still stored.
 func TestLongRowsDoNotWedgeRecovery(t *testing.T) {
 	secret := strings.Join([]string{"gh", "p_", strings.Repeat("Zq9x", 9)}, "")
@@ -262,9 +338,9 @@ func TestLongRowsDoNotWedgeRecovery(t *testing.T) {
 					appendJSON(t, file, claudeRow(e, "user", "PROMPT-TWO: what about retention?", "turn-2"))
 					appendJSON(t, file, claudeRow(e, "assistant", "REPLY-TWO: keep it.", "turn-2"))
 					appendJSON(t, file, claudeRow(e, "user", "PROMPT-THREE: thanks", "turn-3"))
-					// The claim is that recovery finishes, not how fast, so
-					// the cap leaves room for a slow or busy machine.
-					passes := hookPasses(t, dirs, e, 30)
+					// The rows, one long and four short, bound the passes
+					// that move recovery on, however slow the machine.
+					passes := hookPasses(t, dirs, e, longPasses+4*shortPasses)
 					s, _, _ := load(context.Background(), dirs, e.Host, e.Session)
 					info, _ := os.Stat(file)
 					if s.Offset != info.Size() || s.Blocked || offMarker(t, dirs, e) {

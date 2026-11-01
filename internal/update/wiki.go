@@ -316,6 +316,11 @@ func stamp(c *okfadapter.Concept, f facts, branch string) {
 	c.Sources = sources[max(len(sources)-maxSources, 0):]
 }
 
+// beforeSaveLock runs as saveThread goes to save the page, before the save
+// takes the wiki lock; a test watches the save's wait for the lock from
+// there, to kill the job in it.
+var beforeSaveLock = func() {}
+
 // saveThread applies u to the thread page and saves it through the
 // adapter's compare-and-swap. On a conflict it reads the page again and
 // applies u to it again, at most twice. A page whose rendered body equals
@@ -332,6 +337,7 @@ func saveThread(w *okfadapter.Wiki, a area, t thread, u threadpage.Update, f fac
 		if same && !t.moves(f) || !t.exists && body == threadpage.Render(threadpage.Page{Title: t.title}) {
 			return false, false, "", nil
 		}
+		beforeSaveLock()
 		if t.exists {
 			wrote, err = w.Update(t.id, t.hash, func(c *okfadapter.Concept) error {
 				c.Body = body

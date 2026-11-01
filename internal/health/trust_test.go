@@ -59,7 +59,7 @@ func TestPartialTrustIsNotSevenEvents(t *testing.T) {
 		t.Fatalf("%d %d %v", n, trusted, e)
 	}
 	var r Report
-	inspectHosts(context.Background(), &r, d)
+	inspectHosts(context.Background(), &r, d, inventoryTimeout)
 	for _, check := range r.Checks {
 		if check.Name == "codex hook trust" && check.Status != "FAIL" {
 			t.Fatalf("partial hooks reported healthy: %+v", check)
@@ -83,10 +83,13 @@ func TestStalledInventoryDoesNotHideTrust(t *testing.T) {
 	if err := os.WriteFile(file, []byte(prefix+strings.TrimPrefix(string(script), "#!/bin/sh\n")), 0700); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	// The stalled listing outlasts the inventory's own budget, short here to
+	// keep the test quick, so the inventory always runs out of it; the shared
+	// deadline only guards against a hang.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	var report Report
-	inspectHosts(ctx, &report, d)
+	inspectHosts(ctx, &report, d, 100*time.Millisecond)
 	if ctx.Err() != nil {
 		t.Fatal("inventory exhausted the shared doctor deadline")
 	}
@@ -144,7 +147,7 @@ func withInventory(t *testing.T, d paths.Dirs, installed, markets string) {
 func hostStatuses(t *testing.T, d paths.Dirs) map[string]Check {
 	t.Helper()
 	var r Report
-	inspectHosts(context.Background(), &r, d)
+	inspectHosts(context.Background(), &r, d, inventoryTimeout)
 	checks := map[string]Check{}
 	for _, c := range r.Checks {
 		checks[c.Name] = c

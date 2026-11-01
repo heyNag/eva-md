@@ -75,7 +75,7 @@ func TestLongPromptRowNeverWedgesRecovery(t *testing.T) {
 					}
 				}()
 			}
-			hookPasses(t, dirs, e, 6)
+			hookPasses(t, dirs, e, longPasses+2*shortPasses)
 			assertCaptureOn(t, dirs, e)
 			s, _, _ := load(context.Background(), dirs, e.Host, e.Session)
 			info, _ := os.Stat(file)

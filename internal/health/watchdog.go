@@ -108,6 +108,11 @@ func readBeat(d paths.Dirs, host, event string, now time.Time) (beat, bool) {
 	return b, true
 }
 
+// activityTimeout bounds the scan of a host's chat folders, which runs in a
+// hook's notice. Tests raise it before any test runs, so a slow machine
+// can't fail a test of what the scan finds.
+var activityTimeout = 35 * time.Millisecond
+
 // captureFreshness uses directory timestamps only. It never opens host
 // transcripts and does not infer a gap from an idle host or a long active chat.
 // New activity must postdate the latest hook of ANY event by over five minutes.
@@ -139,7 +144,7 @@ func captureFreshness(parent context.Context, d paths.Dirs, host string, now tim
 	if host == "codex" {
 		hostDir = filepath.Join(home, ".codex", "sessions")
 	}
-	ctx, cancel := context.WithTimeout(parent, 35*time.Millisecond)
+	ctx, cancel := context.WithTimeout(parent, activityTimeout)
 	defer cancel()
 	activity, complete := newestChatDirectory(ctx, hostDir, now)
 	if !complete {

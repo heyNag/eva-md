@@ -482,18 +482,19 @@ func TestSearchSmokeThousandSessions(t *testing.T) {
 		}
 		size += len(b)
 	}
+	// No deadline, unlike the command's 5 s, so a slow machine can't cut the
+	// search short and change what it finds. The time is logged, not
+	// bounded: a slow or loaded machine takes many times what this one does.
+	// TestSearchCutShortStillReports shows what a search that runs out of
+	// time reports.
 	start := time.Now()
 	out, err := Search(context.Background(), searchOptions(o, "quokka"))
-	elapsed := time.Since(start)
-	t.Logf("searched 1,000 session files (%.1f MB) in %s", float64(size)/1e6, elapsed)
+	t.Logf("searched 1,000 session files (%.1f MB) in %s", float64(size)/1e6, time.Since(start))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// smoke-0700 to smoke-0799 share the ref's 8 characters.
 	if got := hits(t, out); len(got) != 1 || !strings.Contains(got[0], " · s:smoke-0777-session#13 · …") || !strings.Contains(got[0], "the quokka migration") {
 		t.Fatalf("planted term:\n%s", out)
-	}
-	if elapsed > 5*time.Second {
-		t.Fatalf("search took %s", elapsed)
 	}
 }

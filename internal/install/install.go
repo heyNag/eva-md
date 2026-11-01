@@ -68,9 +68,17 @@ type hostPlan struct {
 // A failed native command is reconciled through inventories before rollback.
 func Run(ctx context.Context, opts Options) (Result, error) { return runInstall(ctx, opts, native) }
 
+// notifyInterrupt is signal.NotifyContext. Tests wrap it before any test
+// runs, so a test can wait until an install has noticed an interrupt.
+var notifyInterrupt = signal.NotifyContext
+
+// RollbackTimeout bounds the rollback of a failed install. Tests raise it
+// before any test runs.
+var RollbackTimeout = 90 * time.Second
+
 func runInstall(ctx context.Context, opts Options, run runner) (result Result, err error) {
 	// Ctrl-C or SIGTERM fails the next step, so the rollback below still runs.
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	ctx, stop := notifyInterrupt(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	run = finishStarted(run)
 	result.Binary = filepath.Join(opts.Dirs.Share, "bin", "eva-md")
@@ -268,7 +276,7 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		if !mutated {
 			return
 		}
-		rollbackCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), RollbackTimeout)
 		defer cancel()
 		if rollbackErr := rollback(rollbackCtx, opts.Dirs, share, plans, previousBinary, owned, run); rollbackErr != nil {
 			err = fmt.Errorf("%w; rollback incomplete: %v; generated files were kept for recovery", err, rollbackErr)

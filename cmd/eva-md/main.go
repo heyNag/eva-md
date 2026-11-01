@@ -65,6 +65,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 
 func usage(w io.Writer, msg string) int { fmt.Fprintln(w, "eva-md: "+msg); return 2 }
 
+// hookSlack lengthens every time limit of the hook. Tests set it, before any
+// test runs, so a busy machine can't fail a test of what a hook stores. It
+// is zero in production.
+var hookSlack time.Duration
+
 // Hook failures are always silent, fail closed and return success to the host.
 func runHook(ctx context.Context, args []string, in io.Reader, out io.Writer) (code int) {
 	defer func() {
@@ -78,11 +83,11 @@ func runHook(ctx context.Context, args []string, in io.Reader, out io.Writer) (c
 	if err := f.Parse(args); err != nil || f.NArg() != 0 || (*host != "codex" && *host != "claude-code") {
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond+hookSlack)
 	defer cancel()
 	dirs, err := paths.Default()
 	if err != nil {
-		return hook.Run(ctx, *host, in, out, hook.Env{Getenv: func(string) string { return "1" }})
+		return hook.Run(ctx, *host, in, out, hook.Env{Getenv: func(string) string { return "1" }, Slack: hookSlack})
 	}
 	c, err := config.LoadContext(ctx, dirs.ConfigFile())
 	getenv := os.Getenv
@@ -96,7 +101,7 @@ func runHook(ctx context.Context, args []string, in io.Reader, out io.Writer) (c
 			return os.Getenv(key)
 		}
 	}
-	return hook.Run(ctx, *host, in, out, hook.Env{Dirs: dirs, Config: c, Getenv: getenv, Now: time.Now})
+	return hook.Run(ctx, *host, in, out, hook.Env{Dirs: dirs, Config: c, Getenv: getenv, Now: time.Now, Slack: hookSlack})
 }
 
 func runWiki(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {

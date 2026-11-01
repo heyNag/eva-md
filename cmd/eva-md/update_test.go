@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,8 +20,9 @@ import (
 )
 
 // updateFixture readies a home for eva-md update: a wiki and a config that
-// names it, a PATH holding only stand-ins for claude and codex that fail if
-// anything starts them, and a fake runner answering with output.
+// names it; a PATH whose first folder holds a link to git, as isolated's
+// does, and stand-ins for claude and codex that fail if anything starts
+// them; and a fake runner answering with output.
 func updateFixture(t *testing.T, output string) (paths.Dirs, *update.Fake) {
 	t.Helper()
 	d := isolated(t)
@@ -31,6 +33,11 @@ func updateFixture(t *testing.T, output string) (paths.Dirs, *update.Fake) {
 	for _, cli := range []string{"claude", "codex"} {
 		script := "#!/bin/sh\necho 'a stand-in ran: no test may start a host CLI' >&2\nexit 97\n"
 		if err := os.WriteFile(filepath.Join(bin, cli), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if git, err := exec.LookPath("git"); err == nil {
+		if err := os.Symlink(git, filepath.Join(bin, "git")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -86,10 +93,7 @@ const tangerine = `{"summary":"The tangerine migration is planned.","last_chat":
 // the day's log, not to the terminal.
 func TestUpdateGivesTheBriefAFreshNow(t *testing.T) {
 	d, fake := updateFixture(t, tangerine)
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cwd := project(t)
 	sid := "update-e2e-session"
 	for _, word := range []string{"first", "second", "third"} {
 		hookTurn(t, cwd, sid, "Plan the tangerine migration, the "+word+" part, with the switch kept behind a flag until the dry run looks right. "+strings.Repeat("Context. ", 30),

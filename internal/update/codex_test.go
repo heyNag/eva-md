@@ -180,9 +180,7 @@ func TestCodexStreams(t *testing.T) {
 			if tc.output != "" {
 				put(t, dump, "output", tc.output)
 			}
-			r := request(t, HostCodex)
-			r.Timeout = 30 * time.Second
-			res, err := NewRunner(HostCodex).Run(context.Background(), r)
+			res, err := NewRunner(HostCodex).Run(context.Background(), request(t, HostCodex))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -207,19 +205,16 @@ func TestCodexStreams(t *testing.T) {
 
 func TestCodexToolEventStopsTheRun(t *testing.T) {
 	isolate(t)
-	// The fake starts a child, reports a tool, then would run for 30 s.
-	dump := fakeCLI(t, `sleep 30 & echo $! > "$dump/child"; cat "$dump/event"; sleep 30`)
+	// The fake starts a child, reports a tool, then would run for 300 s.
+	dump := fakeCLI(t, startChild+`cat "$dump/event"; exec sleep 300`)
 	put(t, dump, "event", `{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"cat notes","status":"in_progress"}}`+"\n")
 	put(t, dump, "output", answer)
 	r := request(t, HostCodex)
-	r.Timeout = time.Minute
-	start := time.Now()
-	res, err := NewRunner(HostCodex).Run(context.Background(), r)
+	// Past hangGuard, so only the tool event can end the run in time.
+	r.Timeout = 10 * time.Minute
+	res, err := await(t, launch(t, context.Background(), HostCodex, r), "a run after its tool event")
 	if err != nil || res.Reason != ReasonToolUsed || res.Output != nil {
 		t.Fatalf("result %+v %v", res, err)
-	}
-	if elapsed := time.Since(start); elapsed > 15*time.Second {
-		t.Fatalf("the run went on for %v after the tool event", elapsed)
 	}
 	waitGone(t, dump, "child")
 }

@@ -15,8 +15,13 @@ import (
 	"github.com/heyNag/eva-md/internal/session"
 )
 
-// gitTimeout bounds the git call for a branch's commit subjects.
-const gitTimeout = 2 * time.Second
+// GitTimeout bounds the git call for a branch's commit subjects. Tests raise
+// it before any test runs.
+var GitTimeout = 2 * time.Second
+
+// GitWaitDelay bounds the wait for git's output after git exits or its time
+// runs out. Tests raise it before any test runs.
+var GitWaitDelay = 100 * time.Millisecond
 
 // objectID is a commit's object id as git prints it.
 var objectID = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
@@ -80,7 +85,7 @@ func commitsOf(ctx context.Context, root, branch string) (subjects []string, hea
 	if root == "" || branch == "" {
 		return unknown, ""
 	}
-	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	ctx, cancel := context.WithTimeout(ctx, GitTimeout)
 	defer cancel()
 	out, err := gitRead(ctx, root, "log", "-5", "--format=%H%x09%s", "refs/heads/"+branch, "--")
 	if err != nil {
@@ -109,7 +114,7 @@ func gitRead(ctx context.Context, dir string, args ...string) (string, error) {
 	argv := append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks", "-C", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", argv...)
 	cmd.Dir = "/"
-	cmd.WaitDelay = 100 * time.Millisecond
+	cmd.WaitDelay = GitWaitDelay
 	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(key, "GIT_") && key != "GIT_CONFIG_GLOBAL" && key != "GIT_CONFIG_NOSYSTEM" || key == "LC_ALL" {

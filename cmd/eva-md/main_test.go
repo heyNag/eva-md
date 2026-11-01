@@ -9,10 +9,33 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testlimits"
 )
+
+// Tests check what eva-md does, not how fast the machine runs git, gh or
+// glab or syncs its disk: the time limits that protect a host from either
+// are raised for every test, before any test runs, and the hook's limits are
+// lengthened. A test of a gh or glab command that hangs ends the command's
+// time itself (see holdCLITimers).
+func TestMain(m *testing.M) {
+	testlimits.Raise()
+	hookSlack = 30 * time.Second
+	resumeTimeout, installTimeout, checkTimeout = testlimits.Long, testlimits.Long, testlimits.Long
+	setupGitTimeout, peekCloneTimeout = testlimits.Long, testlimits.Long
+	repoCLITimeout, repoCLIWaitDelay, probeTimeout = testlimits.Long, testlimits.Long, testlimits.Long
+	cliTimer = heldCLITimer
+	os.Exit(m.Run())
+}
+
+// hangGuard is how long a test waits for what must happen however slow the
+// machine, such as setup moving on once a command's time has run out,
+// before it fails naming what hung. A fake that only a kill should end
+// sleeps 300 s, past it.
+const hangGuard = time.Minute
 
 // isolated gives a test its own home and git config, and a PATH of one new
 // folder holding only a link to git, so no test can reach a real gh, glab,
@@ -51,6 +74,34 @@ func isolated(t *testing.T) paths.Dirs {
 // pathFolder is the PATH folder isolated made.
 func pathFolder() string { return os.Getenv("PATH") }
 
+// project makes the folder a test's chats happen in, under the test's home:
+// a git repo on main with a remote and one commit. The hook captures nothing
+// in a temporary folder, and t.TempDir's folders sit under TMPDIR, so TMPDIR
+// moves to a folder of its own beside the project.
+func project(t *testing.T) string {
+	t.Helper()
+	home := os.Getenv("HOME")
+	tmp := filepath.Join(home, "tmp")
+	if err := os.MkdirAll(tmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", tmp)
+	dir := filepath.Join(home, "code", "project")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"remote", "add", "origin", "git@github.com:example/project.git"},
+		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "Start the project"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	return dir
+}
+
 func TestCommands(t *testing.T) {
 	isolated(t)
 	for _, tc := range []struct {
@@ -84,10 +135,7 @@ func TestCommands(t *testing.T) {
 
 func TestHookBinaryBoundary(t *testing.T) {
 	d := isolated(t)
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cwd := project(t)
 	for _, host := range []string{"codex", "claude-code"} {
 		payload, _ := json.Marshal(map[string]any{"hook_event_name": "Stop", "session_id": "cli-smoke", "cwd": cwd, "last_assistant_message": "Finished the fixture."})
 		var out, errOut bytes.Buffer
@@ -114,7 +162,7 @@ func TestHookBinaryBoundary(t *testing.T) {
 
 func TestHookBadConfigFailsClosed(t *testing.T) {
 	d := isolated(t)
-	cwd, _ := os.Getwd()
+	cwd := project(t)
 	if err := paths.EnsureDir(d.Config); err != nil {
 		t.Fatal(err)
 	}

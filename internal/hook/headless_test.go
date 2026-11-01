@@ -1,15 +1,15 @@
 package hook
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
-	"github.com/heyNag/eva-md/internal/inbox"
+	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/session"
 )
 
@@ -38,7 +38,6 @@ func TestHeadlessChatPromptsAreHostPrompts(t *testing.T) {
 	} {
 		t.Run(tc.host+"/"+tc.entrypoint, func(t *testing.T) {
 			env, p := setup(t)
-			env.slack = busySlack
 			t.Setenv("CLAUDE_CODE_ENTRYPOINT", tc.entrypoint)
 			p.Prompt = "Summarize the release checklist."
 			invoke(t, tc.host, p, env)
@@ -75,7 +74,6 @@ func TestHeadlessChatPromptsAreHostPrompts(t *testing.T) {
 // less.
 func TestHeadlessChatHonoursRecordControls(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
 	p.Prompt = "off the record: PRIVATE PLAN"
 	checkConfirmation(t, "claude-code", invoke(t, "claude-code", p, env), false)
@@ -97,7 +95,6 @@ func TestHeadlessChatHonoursRecordControls(t *testing.T) {
 // user's, while it still recovers a reply the hooks missed.
 func TestHeadlessChatTranscriptPromptsAreNotRecovered(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-ts")
 	file := registeredTranscript(t, env, &p)
 	p.Event = "UserPromptSubmit"
@@ -145,7 +142,6 @@ func beatRuns(t *testing.T, env Env, host, event string) []beatRun {
 // a host's failed runs.
 func TestHeartbeatsKeepTheLastRuns(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	p.Event = "Stop"
 	reply := "a reply"
 	p.Reply = &reply
@@ -168,7 +164,6 @@ func TestHeartbeatsKeepTheLastRuns(t *testing.T) {
 // because git can't be found.
 func TestRunsStoppedByAnErrorAreMarkedFailed(t *testing.T) {
 	env, p := setup(t)
-	env.slack = busySlack
 	invoke(t, "codex", p, env)
 	marker := filepath.Join(env.Dirs.Sessions(), "codex", p.Session, session.OffRecord)
 	if err := os.Symlink(filepath.Join(os.Getenv("HOME"), "missing"), marker); err != nil {
@@ -193,42 +188,37 @@ func TestRunsStoppedByAnErrorAreMarkedFailed(t *testing.T) {
 	}
 }
 
-// holdInbox locks the session's inbox file, so no capture can store an event
-// until the returned release.
-func holdInbox(t *testing.T, env Env, host, id string) func() {
-	t.Helper()
-	file := (inbox.Store{Root: env.Dirs.Inbox()}).Path("general", host, id)
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.OpenFile(file, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
-	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }
-}
-
 // A run whose capture runs out of time is marked failed too, by Run, once
-// the output is written.
+// the output is written, which still gives Codex its {}. Recovery holds the
+// capture up and ends the hook's time at that exact point, by cancelling its
+// context, as the deadline would; busySlack leaves the late run's record
+// time to spare.
 func TestRunOutOfTimeIsMarkedFailed(t *testing.T) {
 	env, p := setup(t)
 	p.Event = "Stop"
 	reply := "held up"
 	p.Reply = &reply
-	release := holdInbox(t, env, "codex", p.Session)
-	if out := invoke(t, "codex", p, env); out != "{}" {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	release := make(chan struct{})
+	held := env
+	held.recoverTranscript = func(context.Context, paths.Dirs, string, string) (int, error) {
+		cancel()
+		<-release
+		return 0, nil
+	}
+	out := invokeContext(t, ctx, "codex", p, held)
+	close(release)
+	if out != "{}" {
 		t.Fatal(out)
 	}
-	release()
+	// Both counts are read once the capture Run gave up on has returned, after
+	// every heartbeat it could write, so a late run counted twice is caught.
+	awaitNoCapture(t, "the capture Run gave up on")
 	if runs := beatRuns(t, env, "codex", "Stop"); len(runs) != 1 || !runs[0].Failed {
 		t.Fatalf("runs=%#v", runs)
 	}
-	// The next run waits for the abandoned capture's session lock, with time
-	// to spare, and is not marked failed.
-	env.slack = busySlack
+	// The next run, with time to spare, is not marked failed.
 	invoke(t, "codex", p, env)
 	if runs := beatRuns(t, env, "codex", "Stop"); len(runs) != 2 || runs[1].Failed {
 		t.Fatalf("runs=%#v", runs)

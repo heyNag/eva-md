@@ -1,15 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ import (
 type fakeCLI struct {
 	name     string
 	auth     int    // auth status's exit status
-	hang     string // a command, such as "auth status", that never answers
+	hang     string // a command, such as "auth status", that sleeps past hangGuard until killed
 	host     string // glab's default host
 	protocol string // the git protocol
 	exists   string // a shell pattern for the names repo view finds
@@ -50,7 +51,7 @@ func (c fakeCLI) write(t *testing.T, bin string) {
 	created := q(filepath.Join(bin, c.name+".created"))
 	script := fmt.Sprintf(`#!/bin/sh
 echo "$* %s" >> %s
-if [ "$1 $2" = %s ]; then exec /bin/sleep 30; fi
+if [ "$1 $2" = %s ]; then exec /bin/sleep 300; fi
 case "$1 $2" in
 "auth status") echo "Logged in to the host as fake-account-7f3a"; echo "Token: fake-token-7f3a" >&2; exit %d ;;
 "config get") if [ "$3" = host ]; then echo %s; else echo %s; fi ;;
@@ -100,14 +101,145 @@ func noCLIText(t *testing.T, printed string) {
 	}
 }
 
-// warm runs the fake name once and clears its log. macOS checks a new script
-// on its first run, which can take longer than the short timeouts the tests
-// that use this set.
-func (f *fakeSetup) warm(t *testing.T, name string) {
+// holdCLITimers returns a context under which a gh or glab command's time
+// ends only when the test calls expire, as if it had run out, so a test of
+// a command that hangs never races the machine's speed. A command under any
+// other context gets its real time limit. The context ends with the test,
+// which stops a command that a failing test leaves running.
+func holdCLITimers(t *testing.T) (context.Context, *cliTimers) {
 	t.Helper()
-	_ = exec.Command(filepath.Join(f.bin, name), "warm", "up").Run()
-	if err := os.Remove(filepath.Join(f.bin, name+".log")); err != nil {
-		t.Fatal(err)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	h := &cliTimers{running: map[*heldCLIContext]time.Duration{}}
+	return context.WithValue(ctx, cliTimersKey{}, h), h
+}
+
+// cliTimers holds the time limits of the commands running under one
+// context.
+type cliTimers struct {
+	mu      sync.Mutex
+	running map[*heldCLIContext]time.Duration // each running command's time limit
+}
+
+type cliTimersKey struct{}
+
+// expire ends the time of every command running now, as if it had run out,
+// and returns their time limits. A command that starts later gets its own.
+func (h *cliTimers) expire() []time.Duration {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var limits []time.Duration
+	for c, d := range h.running {
+		c.end(context.DeadlineExceeded)
+		limits = append(limits, d)
+	}
+	clear(h.running)
+	return limits
+}
+
+// heldCLITimer is cliTimer in the tests: under holdCLITimers' context a
+// command's time ends when the test expires it, and elsewhere when it
+// passes.
+func heldCLITimer(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	h, ok := ctx.Value(cliTimersKey{}).(*cliTimers)
+	if !ok {
+		return context.WithTimeout(ctx, d)
+	}
+	c := &heldCLIContext{Context: ctx, done: make(chan struct{})}
+	h.mu.Lock()
+	h.running[c] = d
+	h.mu.Unlock()
+	stop := context.AfterFunc(ctx, func() { c.end(ctx.Err()) })
+	return c, func() {
+		stop()
+		h.mu.Lock()
+		delete(h.running, c)
+		h.mu.Unlock()
+		c.end(context.Canceled)
+	}
+}
+
+// heldCLIContext is a command's time limit that a test holds. Expired, it
+// ends with the error a timeout gives.
+type heldCLIContext struct {
+	context.Context
+	done chan struct{}
+	mu   sync.Mutex
+	err  error
+}
+
+func (c *heldCLIContext) Done() <-chan struct{} { return c.done }
+
+func (c *heldCLIContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+func (c *heldCLIContext) end(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err == nil {
+		c.err = err
+		close(c.done)
+	}
+}
+
+// setupResult is what a setup started with begin returned.
+type setupResult struct {
+	code        int
+	out, errOut string
+}
+
+// begin starts setup in the background under ctx, with a terminal,
+// answering the folder question and then with lines, as answers does.
+func (f *fakeSetup) begin(ctx context.Context, lines ...string) <-chan setupResult {
+	input := strings.Join(append([]string{"~/projects/wiki"}, lines...), "\n") + "\n"
+	env := f.env
+	done := make(chan setupResult, 1)
+	go func() {
+		var out, errOut bytes.Buffer
+		code := runSetup(ctx, nil, strings.NewReader(input), &out, &errOut, env)
+		done <- setupResult{code, out.String(), errOut.String()}
+	}()
+	return done
+}
+
+// waitCall waits until the fake name has logged a whole line for a call of
+// command, such as "repo create", while the setup begin started runs. It
+// fails when setup ends first, or names the hang when no such call has come
+// after hangGuard.
+func (f *fakeSetup) waitCall(t *testing.T, done <-chan setupResult, name, command string) {
+	t.Helper()
+	deadline := time.Now().Add(hangGuard)
+	for {
+		for _, line := range strings.SplitAfter(f.log(t, name), "\n") {
+			if strings.HasPrefix(line, command+" ") && strings.HasSuffix(line, "\n") {
+				return
+			}
+		}
+		select {
+		case r := <-done:
+			t.Fatalf("setup ended before %s ran %s: code %d\nstdout:\n%s\nstderr:\n%s", name, command, r.code, r.out, r.errOut)
+		case <-time.After(10 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("setup hung: it had not run %s %s after %s", name, command, hangGuard)
+		}
+	}
+}
+
+// wait waits for the setup begin started to return, and names what it
+// still waits for when it has not returned after hangGuard.
+func (f *fakeSetup) wait(t *testing.T, done <-chan setupResult, what string) (int, string, string) {
+	t.Helper()
+	select {
+	case r := <-done:
+		noCLIText(t, r.out+r.errOut)
+		return r.code, r.out, r.errOut
+	case <-time.After(hangGuard):
+		t.Fatalf("setup hung: it still waited for %s %s after its time ran out", what, hangGuard)
+		return 0, "", ""
 	}
 }
 
@@ -376,9 +508,10 @@ func TestSetupFallsBackWhenTheNewRepoCantBeRead(t *testing.T) {
 	wantNotIn(t, "stdout", out, "Create an empty private repository first")
 }
 
+// A CLI that doesn't answer in time is given up on: once the time of the
+// command that hangs runs out, setup says so and asks for an address, as it
+// does with no CLI.
 func TestSetupFallsBackWhenACLIHangs(t *testing.T) {
-	defer func(d time.Duration) { repoCLITimeout = d }(repoCLITimeout)
-	repoCLITimeout = time.Second
 	for _, tc := range []struct {
 		cli    fakeCLI
 		remote string
@@ -387,15 +520,18 @@ func TestSetupFallsBackWhenACLIHangs(t *testing.T) {
 		{fakeCLI{name: "glab", hang: "config get"}, "git@gitlab.example.com:me/eva-wiki.git"},
 	} {
 		f := newFakeSetup(t, true).fakes(t, tc.cli)
-		f.warm(t, tc.cli.name)
-		start := time.Now()
-		code, out, errOut := f.answers(t, tc.remote, "y")
+		ctx, timers := holdCLITimers(t)
+		done := f.begin(ctx, tc.remote, "y")
+		f.waitCall(t, done, tc.cli.name, tc.cli.hang)
+		// The command that hangs is the only one running, under the time
+		// every command but repo create gets.
+		if limits := timers.expire(); !slices.Equal(limits, []time.Duration{repoCLITimeout}) {
+			t.Fatalf("expired the time limits %v, want only the %s of %s %s", limits, repoCLITimeout, tc.cli.name, tc.cli.hang)
+		}
+		code, out, errOut := f.wait(t, done, tc.cli.name+" "+tc.cli.hang)
 		f.wantRemote(t, code, out, errOut, tc.remote)
 		if !strings.Contains(out, "   "+tc.cli.name+" didn't answer in time, so setup can't create the repository.\n   Create an empty private repository first") {
 			t.Fatalf("%s's timeout not reported:\n%s", tc.cli.name, out)
-		}
-		if waited := time.Since(start); waited > 10*time.Second {
-			t.Fatalf("setup waited %s for a CLI that hangs", waited)
 		}
 		// It isn't asked again about the pasted remote.
 		if log := f.log(t, tc.cli.name); strings.Count(log, "\n") != 1 || !strings.HasPrefix(log, tc.cli.hang+" ") {
@@ -407,11 +543,15 @@ func TestSetupFallsBackWhenACLIHangs(t *testing.T) {
 func TestSetupCreateThatHangsMayHaveMadeTheRepo(t *testing.T) {
 	// repo create doesn't answer in time, though the host may have made the
 	// repo: setup says so, and doesn't claim it changed nothing.
-	defer func(d time.Duration) { repoCLITimeout = d }(repoCLITimeout)
-	repoCLITimeout = time.Second
 	f := newFakeSetup(t, true).fakes(t, fakeCLI{name: "gh", hang: "repo create"})
-	f.warm(t, "gh")
-	code, out, _ := f.answers(t, "", "git@github.com:me/eva-wiki.git", "n")
+	ctx, timers := holdCLITimers(t)
+	done := f.begin(ctx, "", "git@github.com:me/eva-wiki.git", "n")
+	f.waitCall(t, done, "gh", "repo create")
+	// repo create, the only command running, gets three times as long.
+	if limits := timers.expire(); !slices.Equal(limits, []time.Duration{3 * repoCLITimeout}) {
+		t.Fatalf("expired the time limits %v, want only the %s of gh repo create", limits, 3*repoCLITimeout)
+	}
+	code, out, _ := f.wait(t, done, "gh repo create")
 	if code != 1 || len(f.inits) != 0 || len(f.installs) != 0 {
 		t.Fatalf("code %d inits %d installs %d\n%s", code, len(f.inits), len(f.installs), out)
 	}

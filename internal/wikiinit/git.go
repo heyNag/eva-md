@@ -7,10 +7,14 @@ import (
 	"github.com/heyNag/eva-md/internal/wikigit"
 )
 
-// git runs a Git command in dir through wikigit's hardened runner, with a
-// two-minute limit.
+// GitTimeout bounds each Git command init runs. Tests raise it before any
+// test runs.
+var GitTimeout = 120 * time.Second
+
+// git runs a Git command in dir through wikigit's hardened runner, within
+// GitTimeout.
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	return wikigit.Run(ctx, 120*time.Second, dir, args...)
+	return wikigit.Run(ctx, GitTimeout, dir, args...)
 }
 
 // gitEnvironment is the environment the runner gives git.

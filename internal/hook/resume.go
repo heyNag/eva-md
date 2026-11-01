@@ -260,14 +260,15 @@ func previousRuns(root *os.Root, name string) []beatRun {
 }
 
 // lateBeat records a run whose capture ran out of time as failed. It has a
-// moment of its own, as the run's time is up, and reads the system clock,
-// since env.Now may be what held the capture up.
-func lateBeat(ctx context.Context, dirs paths.Dirs, host string, p payload) {
+// moment of its own, as the run's time is up, lengthened by the hook's
+// slack, and reads the system clock, since env.Now may be what held the
+// capture up.
+func lateBeat(ctx context.Context, dirs paths.Dirs, host string, p payload, slack time.Duration) {
 	defer func() { _ = recover() }()
 	if !filepath.IsAbs(dirs.State) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond+slack)
 	defer cancel()
 	heartbeat(ctx, dirs, host, p, true, time.Now())
 }

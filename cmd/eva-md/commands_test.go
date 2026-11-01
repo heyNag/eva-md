@@ -18,7 +18,7 @@ import (
 
 func TestBriefAndShowCLIResumeAcrossHosts(t *testing.T) {
 	d := isolated(t)
-	cwd, _ := os.Getwd()
+	cwd := project(t)
 	p, err := identity.Resolve(context.Background(), cwd)
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ func TestBriefAndShowCLIResumeAcrossHosts(t *testing.T) {
 
 func TestSearchCLIFindsWhatShowResolves(t *testing.T) {
 	d := isolated(t)
-	cwd, _ := os.Getwd()
+	cwd := project(t)
 	p, err := identity.Resolve(context.Background(), cwd)
 	if err != nil {
 		t.Fatal(err)
@@ -105,6 +105,7 @@ func TestSearchCLIFindsWhatShowResolves(t *testing.T) {
 	if err := config.Save(d.ConfigFile(), c); err != nil {
 		t.Fatal(err)
 	}
+	t.Chdir(cwd)
 	out.Reset()
 	errOut.Reset()
 	if code := run(context.Background(), []string{"search", "--all", "tangerine"}, strings.NewReader(""), &out, &errOut); code != 0 || out.Len() != 0 || errOut.Len() != 0 {

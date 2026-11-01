@@ -41,25 +41,53 @@ func setup(t *testing.T) (Env, payload) {
 		t.Fatal(err)
 	}
 	// Hooks start nothing in tests unless a test asks: spawn records nothing.
-	// Nor do prompts get the memory reminder.
+	// Nor do prompts get the memory reminder. Every time limit of the hook is
+	// lengthened by busySlack; a test of the hook's own limits sets Slack to 0.
 	c := config.Default()
 	c.ReminderEvery = 0
-	env := Env{Dirs: dirs, Config: c, Getenv: os.Getenv, Now: func() time.Time { return time.Date(2026, 10, 29, 15, 4, 5, 0, time.FixedZone("ICT", 7*3600)) }, spawn: func(...string) {}}
+	env := Env{Dirs: dirs, Config: c, Getenv: os.Getenv, Now: func() time.Time { return time.Date(2026, 10, 29, 15, 4, 5, 0, time.FixedZone("ICT", 7*3600)) }, Slack: busySlack, spawn: func(...string) {}}
 	return env, payload{Session: "test-session", Cwd: filepath.Join(home, "project"), Model: "model-test", Event: "UserPromptSubmit", Prompt: "please help", Turn: "turn-1"}
 }
 
-// busySlack is how much tests that check what a hook stores, not how long
-// it takes, lengthen its budget, so a busy machine can't fail them.
-const busySlack = 10 * time.Second
+// busySlack lengthens every time limit of a test's hooks, so a busy machine
+// can't fail a test that checks what a hook stores, not how long it takes.
+// It is over 30 times what the slowest such test, eight hooks taking turns
+// for one session's lock, takes here under the race detector.
+const busySlack = 30 * time.Second
+
+// hangGuard is how long a test waits for what must happen however slow the
+// machine, such as a hook returning at its deadline, before it reports a
+// hang. It is longer than a hook's budget lengthened by busySlack.
+const hangGuard = time.Minute
+
+// mustReturn runs f, which must return however slow the machine, and fails
+// the test, naming what hung, if f has not returned after hangGuard.
+func mustReturn(t *testing.T, what string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { defer close(done); f() }()
+	select {
+	case <-done:
+	case <-time.After(hangGuard):
+		t.Fatalf("%s hung: it had not returned after %v", what, hangGuard)
+	}
+}
 
 func invoke(t *testing.T, host string, p payload, env Env) string {
+	t.Helper()
+	return invokeContext(t, context.Background(), host, p, env)
+}
+
+// invokeContext is invoke under ctx: cancelling ctx ends the hook's time,
+// as its deadline would.
+func invokeContext(t *testing.T, ctx context.Context, host string, p payload, env Env) string {
 	t.Helper()
 	data, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if code := Run(context.Background(), host, bytes.NewReader(data), &out, env); code != 0 {
+	if code := Run(ctx, host, bytes.NewReader(data), &out, env); code != 0 {
 		t.Fatalf("hook exit=%d", code)
 	}
 	return out.String()
@@ -99,7 +127,6 @@ func TestEveryEventOnBothHosts(t *testing.T) {
 		} {
 			t.Run(host+"/"+tc.event, func(t *testing.T) {
 				env, p := setup(t)
-				env.slack = busySlack
 				p.Event = tc.event
 				reply := "the final reply"
 				p.Reply = &reply
@@ -475,13 +502,35 @@ type blockedReader struct{ unblock <-chan struct{} }
 
 func (b blockedReader) Read([]byte) (int, error) { <-b.unblock; return 0, io.EOF }
 
-func TestDeadlinesAndNoLateCapture(t *testing.T) {
-	env, p := setup(t)
-	p.Event = "Stop"
-	reply := "must not arrive late"
-	p.Reply = &reply
-	store := inbox.Store{Root: env.Dirs.Inbox()}
-	file := store.Path("general", "codex", p.Session)
+// The hook's budget is 300 ms, before the payload names its event too, and
+// 1.5 seconds for SessionStart and the tool events. The tests below show Run
+// keeps to it, returning at its deadline and not before.
+func TestBudget(t *testing.T) {
+	for event, want := range map[string]time.Duration{
+		"":                   300 * time.Millisecond,
+		"UserPromptSubmit":   300 * time.Millisecond,
+		"Stop":               300 * time.Millisecond,
+		"StopFailure":        300 * time.Millisecond,
+		"SessionEnd":         300 * time.Millisecond,
+		"PreCompact":         300 * time.Millisecond,
+		"PostCompact":        300 * time.Millisecond,
+		"PostModelSwitch":    300 * time.Millisecond,
+		"Interrupt":          300 * time.Millisecond,
+		"SessionStart":       1500 * time.Millisecond,
+		"PostToolUse":        1500 * time.Millisecond,
+		"PostToolUseFailure": 1500 * time.Millisecond,
+	} {
+		if got := budget(event); got != want {
+			t.Errorf("budget(%q) = %v, want %v", event, got, want)
+		}
+	}
+}
+
+// holdInbox locks the session's inbox file, so no capture can store an event
+// until the returned release.
+func holdInbox(t *testing.T, env Env, host, id string) func() {
+	t.Helper()
+	file := (inbox.Store{Root: env.Dirs.Inbox()}).Path("general", host, id)
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -489,52 +538,311 @@ func TestDeadlinesAndNoLateCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
-	out := invoke(t, "codex", p, env)
-	elapsed := time.Since(started)
-	if out != "{}" || elapsed > 650*time.Millisecond || elapsed < 200*time.Millisecond {
-		t.Fatalf("deadline output=%q elapsed=%v", out, elapsed)
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }
+}
+
+// A capture the inbox's lock holds up delivers nothing, and Codex still
+// gets its {}. Run waits for it until its deadline, 300 ms from its start,
+// and then returns without waiting for the lock; the capture it gave up on
+// never stores its event, even once the lock is free. The test ends the
+// capture's time itself, at an exact point, once the capture is seen
+// waiting for the lock, so no clock decides the outcome, or what the test
+// can catch, however slow the machine. A payload that never arrives holds
+// Run no longer than its deadline either.
+func TestDeadlinesAndNoLateCapture(t *testing.T) {
+	env, p := setup(t)
+	p.Event = "Stop"
+	reply := "must not arrive late"
+	p.Reply = &reply
+	data, err := json.Marshal(p)
+	if err != nil {
 		t.Fatal(err)
 	}
-	// A second invocation serializes with any finishing worker. Only its reply
-	// may appear after the held inbox lock is released.
+	release := holdInbox(t, env, "codex", p.Session)
+	defer release()
+	// Recovery has caught up at once, so only the inbox's lock holds the
+	// capture up, and only the end of its time, which the test passes, ends
+	// it.
+	held := env
+	held.Slack = 0
+	held.recoverTranscript = func(context.Context, paths.Dirs, string, string) (int, error) { return 0, nil }
+	waits := make(chan heldWait, 3)
+	held.withDeadline = holdWaits(waits)
+	var out bytes.Buffer
+	before := time.Now()
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		Run(context.Background(), "codex", bytes.NewReader(data), &out, held)
+	}()
+	read := nextWait(t, waits, "its wait for the payload")
+	work := nextWait(t, waits, "its wait for the capture")
+	asked := time.Now()
+	// Run takes its start between before and asked. A Stop keeps the 300 ms
+	// every payload gets, and Run ends the capture's time 10 ms before it,
+	// keeping those for its output.
+	if !work.deadline.Equal(read.deadline) {
+		t.Fatalf("a Stop moved the deadline by %v", work.deadline.Sub(read.deadline))
+	}
+	if deadline := work.deadline.Add(10 * time.Millisecond); deadline.Before(before.Add(budget("Stop"))) || deadline.After(asked.Add(budget("Stop"))) {
+		t.Fatalf("a Stop's deadline is %v after the test started it, want %v after Run's start", deadline.Sub(before), budget("Stop"))
+	}
+	early := "a Stop held up by the inbox's lock returned before its deadline"
+	awaitParked(t, returned, inboxWait, "/internal/hook.capture(", "the capture was not seen waiting for the inbox's lock", early)
+	awaitParked(t, returned, runWait, "/hook."+t.Name()+".", "Run was not seen waiting for the capture", early)
+	work.end()
+	mustReturn(t, "a Stop held up by the inbox's lock, past its deadline,", func() { <-returned })
+	if out.String() != "{}" {
+		t.Fatalf("a Stop past its deadline wrote %q, want {}", out.String())
+	}
+	release()
+	// A second invocation waits for the session lock, which the capture Run
+	// gave up on holds until it fails. Only its reply may appear once the
+	// inbox's lock is free.
 	reply = "new reply"
-	p.Reply = &reply
 	invoke(t, "codex", p, env)
 	rows := records(t, env)
 	if len(rows) != 1 || rows[0].Text != "new reply" {
 		t.Fatalf("late capture=%#v", rows)
 	}
+	// The start is taken before Run computes its deadline, on a real clock,
+	// and Run ends a read's time 10 ms before it, keeping those for its
+	// output: it can't return sooner.
+	never := env
+	never.Slack = 0
 	unblock := make(chan struct{})
 	defer close(unblock)
-	started = time.Now()
-	Run(context.Background(), "codex", blockedReader{unblock}, io.Discard, env)
-	if time.Since(started) > 600*time.Millisecond {
-		t.Fatal("input read ignored deadline")
+	started := time.Now()
+	mustReturn(t, "a hook whose payload never arrives", func() {
+		Run(context.Background(), "codex", blockedReader{unblock}, io.Discard, never)
+	})
+	if elapsed := time.Since(started); elapsed < budget("")-10*time.Millisecond {
+		t.Fatalf("a hook whose payload never arrives returned after %v, before its deadline", elapsed)
 	}
 }
 
+// heldWait is one of Run's waits, for the payload, the capture or the
+// output, which ends only when the test ends it.
+type heldWait struct {
+	deadline time.Time          // when a real timer would have ended it
+	ctx      context.Context    // the wait's context
+	end      context.CancelFunc // ends the wait
+}
+
+// holdWaits replaces Run's real timers: it hands the test each wait Run
+// asks for, in the order asked, on waits, which has room for them all.
+func holdWaits(waits chan<- heldWait) func(context.Context, time.Time) (context.Context, context.CancelFunc) {
+	return func(parent context.Context, deadline time.Time) (context.Context, context.CancelFunc) {
+		ctx, end := context.WithCancel(parent)
+		waits <- heldWait{deadline, ctx, end}
+		return ctx, end
+	}
+}
+
+// nextWait returns the next wait Run asks for, and fails the test, naming
+// the wait by what, if Run has not asked for it after hangGuard.
+func nextWait(t *testing.T, waits <-chan heldWait, what string) heldWait {
+	t.Helper()
+	select {
+	case w := <-waits:
+		return w
+	case <-time.After(hangGuard):
+	}
+	t.Fatalf("Run had not asked for %s after %v", what, hangGuard)
+	return heldWait{}
+}
+
+// The functions whose waits a test sees in the goroutines' stacks: Run's
+// for the payload and the capture, writeOutput's for the output, and the
+// inbox's and the session's between tries of a busy lock.
+const (
+	runWait     = "github.com/heyNag/eva-md/internal/hook.Run"
+	outputWait  = "github.com/heyNag/eva-md/internal/hook.writeOutput"
+	inboxWait   = "github.com/heyNag/eva-md/internal/inbox.lock"
+	sessionWait = "github.com/heyNag/eva-md/internal/session.Lock"
+)
+
+// awaitParked returns once a goroutine whose stack holds within is parked
+// in a select in fn itself, as the goroutines' stacks show. A goroutine
+// parks in a select only when none of its cases is ready, so whatever would
+// end that wait has not happened. It fails the test with early if returned
+// closes first, and with what, naming the hang, if hangGuard passes first.
+// The pause between looks only paces them.
+func awaitParked(t *testing.T, returned <-chan struct{}, fn, within, what, early string) {
+	t.Helper()
+	guard := time.After(hangGuard)
+	for !parkedIn(fn, within) {
+		select {
+		case <-returned:
+			t.Fatal(early)
+		case <-guard:
+			t.Fatalf("%s in %v: it hangs, or waits somewhere else", what, hangGuard)
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+// parkedIn reports whether a goroutine whose stack holds within is parked
+// in a select in fn itself: fn is its innermost frame outside the runtime,
+// whose own frames a dump may or may not show.
+func parkedIn(fn, within string) bool {
+	for _, g := range strings.Split(stacks(), "\n\n") {
+		header, frames, _ := strings.Cut(g, "\n")
+		if !strings.Contains(header, " [select") || !strings.Contains(frames, within) {
+			continue
+		}
+		for _, line := range strings.Split(frames, "\n") {
+			if line == "" || strings.HasPrefix(line, "\t") || strings.HasPrefix(line, "runtime.") {
+				continue
+			}
+			if strings.HasPrefix(line, fn+"(") {
+				return true
+			}
+			break
+		}
+	}
+	return false
+}
+
+// captureFrame is how capture's own frame begins in a goroutine's stack.
+const captureFrame = "github.com/heyNag/eva-md/internal/hook.capture("
+
+// awaitNoCapture returns once no goroutine's stack holds capture, so every
+// write a capture Run gave up on could make has been made, the heartbeat it
+// writes after letting go of the session's lock included. It fails the test
+// with what, naming the hang, if hangGuard passes first. The pause between
+// looks only paces them.
+func awaitNoCapture(t *testing.T, what string) {
+	t.Helper()
+	guard := time.After(hangGuard)
+	for strings.Contains(stacks(), captureFrame) {
+		select {
+		case <-guard:
+			t.Fatalf("%s had not returned after %v", what, hangGuard)
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+// stacks returns every goroutine's stack, as runtime.Stack dumps them.
+func stacks() string {
+	buf := make([]byte, 64<<10)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return string(buf[:n])
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+}
+
+// SessionStart, whose brief gets longer, has 1.5 seconds: once the payload
+// names it, Run moves its deadline from the 300 ms it gives every payload
+// to 1.5 seconds from its start. Held up by the session's lock, it returns
+// at that deadline, not at 300 ms, and without waiting for the lock, and it
+// stores nothing. Held up past the 300 ms instead, then let through, it
+// still delivers its brief and stores its event. The test passes each
+// deadline itself, at an exact point, so no clock decides the outcome, or
+// what the test can catch, however slow the machine. Malformed marker state
+// fails closed instead of treating the chat as on-record.
 func TestSessionStartBudgetAndMarkerErrors(t *testing.T) {
 	env, p := setup(t)
 	p.Event = "SessionStart"
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
 	release, err := sessionLock(context.Background(), env.Dirs.Locks(), "codex", p.Session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { time.Sleep(400 * time.Millisecond); release() }()
-	started := time.Now()
-	invoke(t, "codex", p, env)
-	if elapsed := time.Since(started); elapsed < 350*time.Millisecond || elapsed > 1400*time.Millisecond {
-		t.Fatalf("SessionStart budget=%v", elapsed)
+	held := env
+	held.Slack = 0
+	waits := make(chan heldWait, 3)
+	held.withDeadline = holdWaits(waits)
+	before := time.Now()
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		Run(context.Background(), "codex", bytes.NewReader(data), io.Discard, held)
+	}()
+	read := nextWait(t, waits, "its wait for the payload")
+	work := nextWait(t, waits, "its wait for the capture")
+	asked := time.Now()
+	// Run takes its start between before and asked, and ends each wait 10 ms
+	// before its deadline, keeping those for its output.
+	if got, want := work.deadline.Sub(read.deadline), budget("SessionStart")-budget(""); got != want {
+		t.Fatalf("SessionStart moved the deadline %v past the 300 ms one, want %v", got, want)
+	}
+	if deadline := work.deadline.Add(10 * time.Millisecond); deadline.Before(before.Add(budget("SessionStart"))) || deadline.After(asked.Add(budget("SessionStart"))) {
+		t.Fatalf("a SessionStart's deadline is %v after the test started it, want %v after Run's start", deadline.Sub(before), budget("SessionStart"))
+	}
+	// The 300 ms deadline passes while the capture waits for the lock, as it
+	// would on a real clock: the capture's time goes on, and Run waits. The
+	// capture's own call names it among session.Lock's waits, as the
+	// start-of-chat catch-up takes other chats' locks.
+	awaitParked(t, returned, sessionWait, "/internal/hook.sessionLock(", "the capture was not seen waiting for the session's lock",
+		"a SessionStart held up by the session's lock returned before its deadline")
+	read.end()
+	if work.ctx.Err() != nil {
+		t.Fatal("the 300 ms deadline ended a SessionStart's capture")
+	}
+	awaitParked(t, returned, runWait, "/hook."+t.Name()+".", "Run was not seen waiting for a SessionStart's capture",
+		"a SessionStart held up by the session's lock returned once the 300 ms deadline passed, before its own")
+	work.end()
+	mustReturn(t, "a SessionStart held up by the session's lock, past its deadline,", func() { <-returned })
+	release()
+	if rows := records(t, env); len(rows) != 0 {
+		t.Fatalf("a SessionStart past its deadline stored %#v", rows)
+	}
+	// The 300 ms deadline passes as Run starts a capture the session's lock
+	// holds up, before Run waits for it, as it can on a busy machine. Let
+	// through once Run waits for it, the capture still delivers its brief
+	// and stores its event. Its own limits keep busySlack.
+	release, err = sessionLock(context.Background(), env.Dirs.Locks(), "codex", p.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow := env
+	waits = make(chan heldWait, 3)
+	hold := holdWaits(waits)
+	asks := 0
+	var endPayload context.CancelFunc
+	slow.withDeadline = func(parent context.Context, d time.Time) (context.Context, context.CancelFunc) {
+		ctx, end := hold(parent, d)
+		asks++
+		switch asks {
+		case 1:
+			endPayload = end
+		case 2:
+			// Run asks for the capture's wait: the payload's ends first.
+			endPayload()
+		}
+		return ctx, end
+	}
+	var out bytes.Buffer
+	returned = make(chan struct{})
+	go func() {
+		defer close(returned)
+		Run(context.Background(), "codex", bytes.NewReader(data), &out, slow)
+	}()
+	nextWait(t, waits, "its wait for the payload")
+	nextWait(t, waits, "its wait for the capture")
+	awaitParked(t, returned, runWait, "/hook."+t.Name()+".", "Run was not seen waiting for a SessionStart's capture",
+		"a SessionStart returned while the session's lock held its capture up: the 300 ms deadline, already past, cut it short")
+	release()
+	mustReturn(t, "a SessionStart whose capture outlasted the 300 ms deadline", func() { <-returned })
+	if out.Len() == 0 {
+		t.Fatal("a SessionStart whose capture outlasted the 300 ms deadline printed nothing")
+	}
+	if context := contextFrom(t, out.String()); !strings.HasPrefix(context, "No earlier chats here;") {
+		t.Fatalf("a SessionStart whose capture outlasted the 300 ms deadline printed %q", out.String())
 	}
 	if rows := records(t, env); len(rows) != 1 || rows[0].Text != "session_start" {
-		t.Fatal(rows)
+		t.Fatalf("a SessionStart whose capture outlasted the 300 ms deadline stored %#v", rows)
 	}
 	// Malformed marker state fails closed instead of treating the chat as on-record.
 	marker := filepath.Join(env.Dirs.Sessions(), "codex", p.Session, session.OffRecord)
@@ -599,6 +907,10 @@ func TestBranchThreadSurvivesDetachedHEAD(t *testing.T) {
 	}
 }
 
+// A capture whose callback is still running when the hook's time is up
+// writes nothing later. The callback ends that time at an exact point, by
+// cancelling the hook's context, and holds the capture up until the test
+// lets it go; Run still gives Codex its {}.
 func TestCancelledCallbacksCannotWriteLater(t *testing.T) {
 	for _, callback := range []string{"getenv", "clock"} {
 		t.Run(callback, func(t *testing.T) {
@@ -606,20 +918,25 @@ func TestCancelledCallbacksCannotWriteLater(t *testing.T) {
 			p.Event = "Stop"
 			reply := "expired capture"
 			p.Reply = &reply
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 			unblock := make(chan struct{})
 			returned := make(chan struct{})
+			// Only the first call holds the capture up; a later one, as the
+			// failed run's heartbeat makes, returns at once.
+			var once sync.Once
+			hold := func() { once.Do(func() { cancel(); <-unblock; close(returned) }) }
 			if callback == "getenv" {
 				env.Getenv = func(key string) string {
 					if key == "EVA_MD_INNER" {
-						<-unblock
-						close(returned)
+						hold()
 					}
 					return os.Getenv(key)
 				}
 			} else {
-				env.Now = func() time.Time { <-unblock; close(returned); return time.Now() }
+				env.Now = func() time.Time { hold(); return time.Now() }
 			}
-			if out := invoke(t, "codex", p, env); out != "{}" {
+			if out := invokeContext(t, ctx, "codex", p, env); out != "{}" {
 				t.Fatal(out)
 			}
 			close(unblock)
@@ -640,7 +957,6 @@ func TestCancelledCallbacksCannotWriteLater(t *testing.T) {
 
 func TestParallelFreshHooks(t *testing.T) {
 	env, base := setup(t)
-	env.slack = busySlack
 	var wg sync.WaitGroup
 	errs := make(chan string, 8)
 	for i := 0; i < 8; i++ {
@@ -684,58 +1000,89 @@ func (w blockedWriter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+// callerDeadline is a caller's context whose deadline never passes by
+// itself, for a test that passes Run's deadlines itself.
+type callerDeadline struct {
+	context.Context
+	at time.Time
+}
+
+func (c callerDeadline) Deadline() (time.Time, bool) { return c.at, true }
+
+// A caller's deadline earlier than the hook's own wins; a later one, or
+// none, leaves the hook's own.
+func TestEarlierCallerDeadlineWins(t *testing.T) {
+	own := time.Now().Add(budget("Stop") + busySlack)
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want time.Time
+	}{
+		{"none", context.Background(), own},
+		{"earlier", callerDeadline{context.Background(), own.Add(-busySlack)}, own.Add(-busySlack)},
+		{"later", callerDeadline{context.Background(), own.Add(time.Millisecond)}, own},
+	} {
+		if got := invocationDeadline(tc.ctx, own); !got.Equal(tc.want) {
+			t.Errorf("%s caller's deadline: the hook's is %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A blocked output destination holds Run no longer than its caller's
+// deadline, which wins over the hook's own budget, here lengthened by
+// busySlack. The capture returns at once, as in a headless child's hook,
+// and leaves nothing behind under HOME. Run starts the write and waits for
+// it until that deadline, which the test passes itself, at an exact point,
+// once Run is seen waiting for it, so no clock decides the outcome, or what
+// the test can catch, however slow the machine.
 func TestBlockedOutputHonorsDeadline(t *testing.T) {
-	for _, budget := range []time.Duration{300 * time.Millisecond, 100 * time.Millisecond} {
-		t.Run(budget.String(), func(t *testing.T) {
-			env, p := setup(t)
-			// The caller's deadline must win over the hook's own budget, here
-			// made far longer, so the upper bound can allow for a busy machine.
-			env.slack = busySlack
-			p.Event = "Stop"
-			data, err := json.Marshal(p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writer := blockedWriter{started: make(chan struct{}), unblock: make(chan struct{}), written: make(chan string, 1)}
-			defer close(writer.unblock)
-			// The capture Run gave up on can still write under HOME after Run
-			// returns. Wait for it before the test's folders are removed.
-			running := runtime.NumGoroutine()
-			t.Cleanup(func() {
-				for end := time.Now().Add(2 * time.Second); runtime.NumGoroutine() > running && time.Now().Before(end); {
-					time.Sleep(5 * time.Millisecond)
-				}
-			})
-			ctx, cancel := context.WithTimeout(context.Background(), budget)
-			defer cancel()
-			started := time.Now()
-			if code := Run(ctx, "codex", bytes.NewReader(data), writer, env); code != 0 {
-				t.Fatal(code)
-			}
-			elapsed := time.Since(started)
-			if elapsed < budget-40*time.Millisecond || elapsed > budget+500*time.Millisecond {
-				t.Fatalf("blocked output elapsed=%v budget=%v", elapsed, budget)
-			}
-			// Run starts the write before it waits, but a busy machine may run
-			// the writer only after Run has returned.
-			select {
-			case <-writer.started:
-			case <-time.After(time.Second):
-				t.Fatal("output writer was not invoked")
-			}
-			// Release after Run returned and wait for the writer at test cleanup;
-			// a permanently stalled output destination cannot promise delivery.
-			t.Cleanup(func() {
-				select {
-				case got := <-writer.written:
-					if got != "{}" {
-						t.Errorf("eventual stdout=%q", got)
-					}
-				case <-time.After(time.Second):
-					t.Error("writer did not stop after release")
-				}
-			})
-		})
+	env, p := setup(t)
+	t.Setenv("EVA_MD_INNER", "1")
+	p.Event = "Stop"
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waits := make(chan heldWait, 3)
+	env.withDeadline = holdWaits(waits)
+	// The caller's deadline is as close as the hook's own budget without
+	// busySlack.
+	ctx := callerDeadline{context.Background(), time.Now().Add(budget("Stop"))}
+	writer := blockedWriter{started: make(chan struct{}), unblock: make(chan struct{}), written: make(chan string, 1)}
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		if code := Run(ctx, "codex", bytes.NewReader(data), writer, env); code != 0 {
+			t.Errorf("hook exit=%d", code)
+		}
+	}()
+	nextWait(t, waits, "its wait for the payload")
+	nextWait(t, waits, "its wait for the capture")
+	output := nextWait(t, waits, "its wait for its output")
+	if !output.deadline.Equal(ctx.at) {
+		t.Fatalf("Run waits for its output until %v, not until its caller's deadline, %v", output.deadline, ctx.at)
+	}
+	select {
+	case <-writer.started:
+	case <-time.After(hangGuard):
+		t.Fatalf("the output writer was not invoked in %v", hangGuard)
+	}
+	// Run waits for the blocked write until its deadline, which has not
+	// passed: it waits in writeOutput for the write or the deadline.
+	awaitParked(t, returned, outputWait, "/hook."+t.Name()+".", "Run was not seen waiting for its blocked output or its deadline",
+		"a hook whose output is blocked returned before its deadline")
+	output.end()
+	mustReturn(t, "a hook whose output is blocked, past its deadline,", func() { <-returned })
+	// A permanently stalled output destination cannot promise delivery; this
+	// one takes the output once released, after Run has returned.
+	close(writer.unblock)
+	select {
+	case got := <-writer.written:
+		if got != "{}" {
+			t.Errorf("eventual stdout=%q", got)
+		}
+	case <-time.After(hangGuard):
+		t.Errorf("the writer had not returned %v after its release", hangGuard)
 	}
 }
 

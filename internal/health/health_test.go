@@ -11,7 +11,21 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testlimits"
 )
+
+// Tests check what the doctor and the notices report, not how fast the
+// machine runs git and the hosts' commands or lists folders: the time limits
+// that protect a hook or the doctor from slow ones are raised for every test,
+// before any test runs.
+func TestMain(m *testing.M) {
+	testlimits.Raise()
+	activityTimeout = time.Minute
+	inventoryTimeout = time.Minute
+	commandTimeout = time.Minute
+	trustTimeout = time.Minute
+	os.Exit(m.Run())
+}
 
 func isolated(t *testing.T) paths.Dirs {
 	t.Helper()

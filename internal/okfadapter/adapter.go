@@ -5,6 +5,7 @@
 package okfadapter
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -54,10 +55,10 @@ type Source = okf.Source
 // ValidationResult contains the wiki's conformance and connectivity findings.
 type ValidationResult = okf.ValidationResult
 
-// lockTimeout bounds the wait for the wiki lock; lockPoll is how often a
-// busy lock is tried again.
+// LockTimeout bounds the wait for the wiki lock; lockPoll is how often a
+// busy lock is tried again. Tests raise LockTimeout before any test runs.
 var (
-	lockTimeout = 60 * time.Second
+	LockTimeout = 60 * time.Second
 	lockPoll    = 10 * time.Millisecond
 )
 
@@ -74,7 +75,8 @@ type Wiki struct {
 	root     string // symlink-resolved absolute path
 	lockDir  string
 	lockPath string
-	held     bool // the wiki lock is held for this Wiki (see Locked)
+	held     bool          // the wiki lock is held for this Wiki (see Locked)
+	lockWait time.Duration // when set, the wait for the wiki lock in place of LockTimeout; only tests set it
 }
 
 // Open opens the wiki at root. It resolves symlinks and requires a root
@@ -610,9 +612,15 @@ func withoutGenerated(s string) string {
 	return b.String()
 }
 
-// lock takes the exclusive wiki lock, waiting at most lockTimeout. Under
-// Locked the lock is already held, so it takes nothing.
+// lock takes the exclusive wiki lock, waiting at most LockTimeout, or
+// lockWait when it is set. Under Locked the lock is already held, so it
+// takes nothing.
 func (w *Wiki) lock() (unlock func(), err error) {
+	return w.lockWithin(cmp.Or(w.lockWait, LockTimeout))
+}
+
+// lockWithin is lock with the wait bounded by timeout.
+func (w *Wiki) lockWithin(timeout time.Duration) (unlock func(), err error) {
 	if w.held {
 		return func() {}, nil
 	}
@@ -635,7 +643,7 @@ func (w *Wiki) lock() (unlock func(), err error) {
 		_ = f.Close()
 		return nil, errors.New("okfadapter: wiki lock is not a regular file")
 	}
-	deadline := time.Now().Add(lockTimeout)
+	deadline := time.Now().Add(timeout)
 	for {
 		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
@@ -647,7 +655,7 @@ func (w *Wiki) lock() (unlock func(), err error) {
 		}
 		if time.Now().After(deadline) {
 			_ = f.Close()
-			return nil, fmt.Errorf("%w after %s", ErrLockBusy, lockTimeout)
+			return nil, fmt.Errorf("%w after %s", ErrLockBusy, timeout)
 		}
 		time.Sleep(lockPoll)
 	}

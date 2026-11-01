@@ -10,11 +10,52 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/redact"
 )
+
+// Tests check what Resolve finds, not how fast the machine runs git: its
+// time limits are raised for every test, before any test runs, far past
+// hangGuard, so a test of a deadline sees only the deadline it passes.
+func TestMain(m *testing.M) {
+	Timeout = 10 * time.Minute
+	WaitDelay = 10 * time.Minute
+	os.Exit(m.Run())
+}
+
+// hangGuard is how long a test waits for what must happen before it fails
+// naming what hung. The time limits TestMain raises are far past it, so a
+// Resolve that doesn't stop a hung git is still waiting when it fires.
+const hangGuard = time.Minute
+
+// heldDeadline is a context whose deadline passes when the test calls pass,
+// not at a time, so a test of a deadline never races the machine's speed.
+type heldDeadline struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func holdDeadline() *heldDeadline {
+	return &heldDeadline{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *heldDeadline) Done() <-chan struct{} { return c.done }
+
+// Err is the error of a passed deadline, once pass is called.
+func (c *heldDeadline) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (c *heldDeadline) pass() { c.once.Do(func() { close(c.done) }) }
 
 func TestNormalizeRemote(t *testing.T) {
 	gitEnvForTest(t)
@@ -294,26 +335,53 @@ func TestResolve(t *testing.T) {
 	})
 }
 
+// A git that hangs is stopped when the context's deadline passes: Resolve
+// then returns the deadline's error and doesn't wait for git to finish. The
+// test passes the deadline once the stand-in git runs, so the machine's
+// speed decides nothing.
 func TestGitReadDeadlineAndHardening(t *testing.T) {
 	home := gitEnvForTest(t)
 	bin := filepath.Join(home, "bin")
 	if err := os.Mkdir(bin, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nexec /bin/sleep 5\n"
+	// The stand-in git marks that it runs, then runs for as long as the mark
+	// is there, which is until the test's folder is removed, so Resolve can
+	// only return by stopping it.
+	started := filepath.Join(home, "started")
+	script := "#!/bin/sh\n: > '" + started + "'\nwhile [ -e '" + started + "' ]; do /bin/sleep 1 >/dev/null 2>&1; done\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-	defer cancel()
-	started := time.Now()
-	_, err := Resolve(ctx, home)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("got %v, want deadline", err)
+	ctx := holdDeadline()
+	t.Cleanup(ctx.pass)
+	done := make(chan error, 1)
+	go func() {
+		_, err := Resolve(ctx, home)
+		done <- err
+	}()
+	for guard := time.Now().Add(hangGuard); ; {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("Resolve returned before git ran: %v", err)
+		case <-time.After(10 * time.Millisecond):
+		}
+		if time.Now().After(guard) {
+			t.Fatalf("the stand-in git hadn't started after %s", hangGuard)
+		}
 	}
-	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
-		t.Fatalf("Resolve took %s", elapsed)
+	ctx.pass()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("got %v, want deadline", err)
+		}
+	case <-time.After(hangGuard):
+		t.Fatalf("Resolve still waits for a hung git %s after its deadline", hangGuard)
 	}
 }
 

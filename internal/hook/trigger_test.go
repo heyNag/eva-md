@@ -27,7 +27,6 @@ var hosts = []string{"claude-code", "codex"}
 func triggerSetup(t *testing.T) (Env, payload, func() [][]string) {
 	t.Helper()
 	env, p := setup(t)
-	env.slack = busySlack
 	env.Config.WikiPath = filepath.Join(os.Getenv("HOME"), "wiki")
 	var runs [][]string
 	env.spawn = func(args ...string) { runs = append(runs, append([]string(nil), args...)) }

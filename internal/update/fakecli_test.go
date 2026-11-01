@@ -1,15 +1,21 @@
 package update
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/heyNag/eva-md/internal/identity"
+	"github.com/heyNag/eva-md/internal/okfadapter"
+	"github.com/heyNag/eva-md/internal/resume"
 )
 
 // fakeScript stands in for claude and codex. It works in $HOME/fake, the
@@ -53,7 +59,25 @@ exit 0
 // time when each test writes its own.
 var fakeBin string
 
+// Tests check what the update does, not how fast the machine runs git or
+// reads a CLI's output: the time limits that protect a job from either are
+// raised for every test, before any test runs. A test of a CLI run's
+// timeout ends that timeout itself (see holdTimeouts).
 func TestMain(m *testing.M) {
+	// The time limits a slow machine could reach, raised for every test.
+	// internal/testlimits can't be imported here: it imports this package.
+	identity.Timeout, identity.WaitDelay = time.Minute, time.Minute
+	resume.GitTimeout, resume.GitWaitDelay = time.Minute, time.Minute
+	GitTimeout, GitWaitDelay = time.Minute, time.Minute
+	okfadapter.LockTimeout = time.Minute
+	// A run's wait for its output once the CLI has exited, raised to 30 s,
+	// past any copy of that output however late the copying goroutine runs,
+	// but kept to half of hangGuard: a grandchild forked while a run kills
+	// the group can miss the kill and hold the pipes open, and the run then
+	// ends only when this wait does, which must still be inside the test's
+	// guard.
+	WaitDelay = hangGuard / 2
+	runTimer = heldTimer
 	dir, err := os.MkdirTemp("", "eva-md-update-test-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -189,6 +213,20 @@ func request(t *testing.T, host string) Request {
 	}
 }
 
+// hangGuard is how long a test waits for what must happen, such as a run's
+// end, a process's exit or a file the fake writes, before it fails naming
+// what hung. No time limit under test comes near it, and a fake that only a
+// kill should end sleeps 300 s, past it, so it fires only when the code
+// hangs.
+const hangGuard = time.Minute
+
+// startChild is a fake's shell line that starts a child, which sleeps past
+// hangGuard, and records the child's pid in the file child, whole once it is
+// there. The fakes that use it exec their last command rather than fork it:
+// a process forked while the run kills the group can miss the kill and hold
+// the run's output open.
+const startChild = `sleep 300 & echo $! > "$dump/child.tmp"; mv "$dump/child.tmp" "$dump/child"; `
+
 // waitGone waits for the process recorded in file to be gone.
 func waitGone(t *testing.T, dump, file string) {
 	t.Helper()
@@ -196,19 +234,20 @@ func waitGone(t *testing.T, dump, file string) {
 	if err != nil || pid <= 1 {
 		t.Fatalf("no child pid recorded: %v", err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 	for syscall.Kill(pid, 0) == nil {
 		if time.Now().After(deadline) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
-			t.Fatalf("child %d outlived the run", pid)
+			t.Fatalf("child %d outlived the run by %s", pid, hangGuard)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-// waitFile waits for the fake CLI to write file.
+// waitFile waits for the fake CLI to write file, and reports false when it
+// hasn't after hangGuard.
 func waitFile(dump, file string) bool {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(filepath.Join(dump, file)); err == nil {
 			return true
@@ -216,4 +255,121 @@ func waitFile(dump, file string) bool {
 		time.Sleep(20 * time.Millisecond)
 	}
 	return false
+}
+
+// ran is how a run ended.
+type ran struct {
+	res Result
+	err error
+}
+
+// launch starts r on host's runner in the background. The run's context ends
+// with the test, so a run that a failing test leaves behind is stopped.
+func launch(t *testing.T, ctx context.Context, host string, r Request) <-chan ran {
+	t.Helper()
+	ctx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	done := make(chan ran, 1)
+	go func() {
+		res, err := NewRunner(host).Run(ctx, r)
+		done <- ran{res, err}
+	}()
+	return done
+}
+
+// await waits for a launched run to end, and fails the test, naming what
+// it waited for, when the run is still going after hangGuard.
+func await(t *testing.T, done <-chan ran, what string) (Result, error) {
+	t.Helper()
+	select {
+	case r := <-done:
+		return r.res, r.err
+	case <-time.After(hangGuard):
+		t.Fatalf("%s: still running after %s", what, hangGuard)
+		return Result{}, nil
+	}
+}
+
+// holdTimeouts returns a context under which a CLI run's timeout ends only
+// when the test calls expire, as if its time had run out, so a test of a
+// timeout never races the machine's speed. A run under any other context
+// gets its real timeout.
+func holdTimeouts(ctx context.Context) (context.Context, *timeouts) {
+	h := &timeouts{started: make(chan time.Duration, 16), expired: make(chan struct{})}
+	return context.WithValue(ctx, timeoutsKey{}, h), h
+}
+
+// timeouts holds the timeouts of the runs started under one context.
+type timeouts struct {
+	started chan time.Duration // each run's timeout, as the run starts
+	expired chan struct{}      // closed by expire
+	once    sync.Once
+}
+
+type timeoutsKey struct{}
+
+// next waits for the next run to start and returns its timeout.
+func (h *timeouts) next(t *testing.T) time.Duration {
+	t.Helper()
+	select {
+	case d := <-h.started:
+		return d
+	case <-time.After(hangGuard):
+		t.Fatalf("no run started in %s", hangGuard)
+		return 0
+	}
+}
+
+// expire ends the timeout of every run started under the context, and of
+// any run that starts later.
+func (h *timeouts) expire() { h.once.Do(func() { close(h.expired) }) }
+
+// heldTimer is runTimer in the tests: under holdTimeouts' context a run's
+// timeout ends when the test expires it, and elsewhere when it passes.
+func heldTimer(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	h, ok := ctx.Value(timeoutsKey{}).(*timeouts)
+	if !ok {
+		return context.WithTimeout(ctx, d)
+	}
+	select {
+	case h.started <- d:
+	case <-ctx.Done():
+	}
+	c := &heldContext{Context: ctx, done: make(chan struct{})}
+	go func() {
+		select {
+		case <-h.expired:
+			c.end(context.DeadlineExceeded)
+		case <-ctx.Done():
+			c.end(ctx.Err())
+		case <-c.done:
+		}
+	}()
+	return c, func() { c.end(context.Canceled) }
+}
+
+// heldContext is a run's timeout that a test holds. Expired, it ends with
+// the error a timeout gives.
+type heldContext struct {
+	context.Context
+	done chan struct{}
+	mu   sync.Mutex
+	err  error
+}
+
+func (c *heldContext) Done() <-chan struct{} { return c.done }
+
+func (c *heldContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+func (c *heldContext) end(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err == nil {
+		c.err = err
+		close(c.done)
+	}
 }

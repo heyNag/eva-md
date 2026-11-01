@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 // claudeRejected is the envelope claude prints for a model the account can't
@@ -285,20 +284,20 @@ func TestClaudeUnknownModelRunsTheDefault(t *testing.T) {
 }
 
 // An envelope printed before the timeout doesn't count while the CLI is
-// still running.
+// still running. The test ends the timeout once the fake has printed it.
 func TestClaudeAnswerBeforeTheTimeoutStillTimesOut(t *testing.T) {
 	isolate(t)
-	dump := fakeCLI(t, "sleep 30")
+	// The fake marks the file after it prints the envelope.
+	dump := fakeCLI(t, `: > "$dump/printed"; exec sleep 300`)
 	put(t, dump, "stdout", claudeSuccess)
-	r := request(t, HostClaude)
-	r.Timeout = 300 * time.Millisecond
-	start := time.Now()
-	res, err := NewRunner(HostClaude).Run(context.Background(), r)
-	if err != nil || res.Reason != ReasonTimeout {
-		t.Fatalf("result %+v %v", res, err)
+	ctx, timeouts := holdTimeouts(context.Background())
+	done := launch(t, ctx, HostClaude, request(t, HostClaude))
+	if !waitFile(dump, "printed") {
+		t.Fatalf("the fake printed no envelope in %s", hangGuard)
 	}
-	if elapsed := time.Since(start); elapsed > 10*time.Second {
-		t.Fatalf("took %v", elapsed)
+	timeouts.expire()
+	if res, err := await(t, done, "a run whose timeout ended"); err != nil || res.Reason != ReasonTimeout || res.Output != nil {
+		t.Fatalf("result %+v %v", res, err)
 	}
 }
 

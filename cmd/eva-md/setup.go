@@ -665,11 +665,19 @@ func configuredProblem(ctx context.Context, c config.Config) (problem, absent st
 	return "", ""
 }
 
+// setupGitTimeout bounds each git command setup runs to read a folder or a
+// repo, and peekCloneTimeout the shallow clone peekRemote reads a repo
+// from. Tests raise them before any test runs.
+var (
+	setupGitTimeout  = 10 * time.Second
+	peekCloneTimeout = 2 * time.Minute
+)
+
 // originID is the identity of a clone's origin, as the config records a
 // remote, or "" without one setup can use. A local remote that isn't there
 // now, such as one on a volume that isn't mounted, is named by its path.
 func originID(ctx context.Context, dir string) string {
-	origin, err := wikigit.Run(ctx, 10*time.Second, dir, "config", "--get", "remote.origin.url")
+	origin, err := wikigit.Run(ctx, setupGitTimeout, dir, "config", "--get", "remote.origin.url")
 	if err != nil {
 		return ""
 	}
@@ -695,7 +703,7 @@ func folderWiki(ctx context.Context, folder string) (origin, instance string, ok
 	if err != nil || schema.Instance == "" {
 		return "", "", false
 	}
-	origin, err = wikigit.Run(ctx, 10*time.Second, folder, "config", "--get", "remote.origin.url")
+	origin, err = wikigit.Run(ctx, setupGitTimeout, folder, "config", "--get", "remote.origin.url")
 	if err != nil {
 		return "", "", false
 	}
@@ -716,14 +724,14 @@ func otherRepo(ctx context.Context, folder string) string {
 	if info, err := os.Lstat(filepath.Join(folder, ".git")); err != nil || !info.IsDir() {
 		return ""
 	}
-	if _, err := wikigit.Run(ctx, 10*time.Second, folder, "rev-parse", "--verify", "HEAD"); err != nil {
-		if _, err := wikigit.Run(ctx, 10*time.Second, folder, "config", "--get", "remote.origin.url"); err != nil {
+	if _, err := wikigit.Run(ctx, setupGitTimeout, folder, "rev-parse", "--verify", "HEAD"); err != nil {
+		if _, err := wikigit.Run(ctx, setupGitTimeout, folder, "config", "--get", "remote.origin.url"); err != nil {
 			return "that folder is already a git repository, with no remote; choose a new or empty folder"
 		}
 		return ""
 	}
 	schema, err := config.LoadSchema(filepath.Join(folder, ".eva-md", "schema.toml"))
-	origin, originErr := wikigit.Run(ctx, 10*time.Second, folder, "config", "--get", "remote.origin.url")
+	origin, originErr := wikigit.Run(ctx, setupGitTimeout, folder, "config", "--get", "remote.origin.url")
 	switch {
 	case err != nil && originErr != nil:
 		return "that folder is already a git repository with commits; choose a new or empty folder"
@@ -749,7 +757,7 @@ func otherRepo(ctx context.Context, folder string) string {
 // dirty reports whether the clone in folder has changes git hasn't
 // committed, which init refuses to adopt.
 func dirty(ctx context.Context, folder string) bool {
-	status, err := wikigit.Run(ctx, 10*time.Second, folder, "status", "--porcelain", "--untracked-files=all")
+	status, err := wikigit.Run(ctx, setupGitTimeout, folder, "status", "--porcelain", "--untracked-files=all")
 	return err == nil && status != ""
 }
 
@@ -764,15 +772,15 @@ func peekRemote(ctx context.Context, remote string) (string, error) {
 	}
 	defer os.RemoveAll(tmp)
 	dir := filepath.Join(tmp, "repo")
-	if _, err := wikigit.Run(ctx, 2*time.Minute, tmp, "clone", "--no-local", "--depth", "1", "--no-checkout", "--", remote, dir); err != nil {
+	if _, err := wikigit.Run(ctx, peekCloneTimeout, tmp, "clone", "--no-local", "--depth", "1", "--no-checkout", "--", remote, dir); err != nil {
 		return "", errors.New("git couldn't read this repo; check its address and that git can sign in to it")
 	}
-	if _, err := wikigit.Run(ctx, 10*time.Second, dir, "rev-parse", "--verify", "HEAD"); err != nil {
+	if _, err := wikigit.Run(ctx, setupGitTimeout, dir, "rev-parse", "--verify", "HEAD"); err != nil {
 		return "", nil
 	}
 	// Only the schema is checked out. A symlinked .eva-md is refused, as
 	// init refuses it.
-	if _, err := wikigit.Run(ctx, 10*time.Second, dir, "checkout", "HEAD", "--", ".eva-md/schema.toml"); err == nil {
+	if _, err := wikigit.Run(ctx, setupGitTimeout, dir, "checkout", "HEAD", "--", ".eva-md/schema.toml"); err == nil {
 		if info, err := os.Lstat(filepath.Join(dir, ".eva-md")); err == nil && info.IsDir() {
 			if schema, err := config.LoadSchema(filepath.Join(dir, ".eva-md", "schema.toml")); err == nil && schema.Instance != "" {
 				if schema.SchemaVersion != 1 || schema.OKFSpec != "0.2" {

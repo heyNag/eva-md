@@ -14,7 +14,9 @@ import (
 )
 
 // nearDeadline has a deadline closer than markerReserve but never expires,
-// so the brief is built and only the marker's reserve can stop it.
+// so the brief is built and only the marker's reserve can stop it. The
+// deadline stays half the reserve ahead of the clock at every call, so the
+// reserve is always used up, however slow the machine.
 type nearDeadline struct{ context.Context }
 
 func (nearDeadline) Deadline() (time.Time, bool) { return time.Now().Add(markerReserve / 2), true }

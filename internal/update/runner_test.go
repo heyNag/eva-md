@@ -113,24 +113,33 @@ func TestInputGoesOnStdinOnly(t *testing.T) {
 	}
 }
 
+// A timeout kills the CLI and every process it started, and is not retried.
+// The test ends the timeout once the fake has started its child, so the
+// machine's speed decides nothing; TestTimeoutEndsTheRunAtItsDeadline lets
+// a timeout's whole time pass.
 func TestTimeoutKillsTheChildAndItsGroup(t *testing.T) {
 	for _, host := range hosts {
 		t.Run(host, func(t *testing.T) {
 			isolate(t)
-			dump := fakeCLI(t, `sleep 30 & echo $! > "$dump/child"; sleep 30`)
+			dump := fakeCLI(t, startChild+"exec sleep 300")
 			put(t, dump, "output", answer)
 			r := request(t, host)
 			r.Timeout = 1500 * time.Millisecond
-			start := time.Now()
-			res, err := NewRunner(host).Run(context.Background(), r)
+			ctx, timeouts := holdTimeouts(context.Background())
+			done := launch(t, ctx, host, r)
+			if d := timeouts.next(t); d != r.Timeout {
+				t.Fatalf("the run's timeout is %s, want %s", d, r.Timeout)
+			}
+			if !waitFile(dump, "child") {
+				t.Fatalf("the fake started no child in %s", hangGuard)
+			}
+			timeouts.expire()
+			res, err := await(t, done, "a run whose timeout ended")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if res.Reason != ReasonTimeout || res.Output != nil {
 				t.Fatalf("result %+v, want a timeout", res)
-			}
-			if elapsed := time.Since(start); elapsed > 10*time.Second {
-				t.Fatalf("the timeout took %v", elapsed)
 			}
 			if runs(t, dump) != 1 {
 				t.Fatal("a timeout must not be retried")
@@ -140,31 +149,96 @@ func TestTimeoutKillsTheChildAndItsGroup(t *testing.T) {
 	}
 }
 
+// A run ends when its timeout's time has passed, not before, and doesn't
+// wait for the CLI, which would go on for minutes. The test starts the
+// clock once the fake runs: the run sets its timer before it starts the CLI,
+// and a timer that runs out first, on a machine slow to start a process,
+// ends the run with the error that the CLI could not start.
+func TestTimeoutEndsTheRunAtItsDeadline(t *testing.T) {
+	for _, host := range hosts {
+		t.Run(host, func(t *testing.T) {
+			isolate(t)
+			dump := fakeCLI(t, `: > "$dump/started"; exec sleep 300`)
+			put(t, dump, "output", answer)
+			r := request(t, host)
+			r.Timeout = 300 * time.Millisecond
+			ctx, timeouts := holdTimeouts(context.Background())
+			done := launch(t, ctx, host, r)
+			d := timeouts.next(t)
+			if d != r.Timeout {
+				t.Fatalf("the run's timeout is %s, want %s", d, r.Timeout)
+			}
+			if !waitFile(dump, "started") {
+				t.Fatalf("the fake didn't start in %s", hangGuard)
+			}
+			began := time.Now()
+			time.AfterFunc(d, timeouts.expire)
+			res, err := await(t, done, "a run past its timeout")
+			elapsed := time.Since(began)
+			if err != nil || res.Reason != ReasonTimeout || res.Output != nil {
+				t.Fatalf("result %+v %v, want a timeout", res, err)
+			}
+			if elapsed < d {
+				t.Fatalf("the run ended %s after the fake started, before its %s timeout", elapsed, d)
+			}
+		})
+	}
+}
+
 // The attempts share one timeout: a rejected model or a refused effort
-// doesn't give the next attempt a fresh one.
+// doesn't give the next attempt a fresh one, and once the timeout has run
+// out, no attempt starts. The test ends the timeouts itself, so the
+// machine's speed decides nothing.
 func TestAttemptsShareTheTimeout(t *testing.T) {
 	for name, refusal := range map[string]string{"model": claudeRejected, "effort": claudeEffortRejected("max")} {
 		t.Run(name, func(t *testing.T) {
 			isolate(t)
-			// Every attempt takes 1.2 s; only the third would succeed.
-			dump := fakeCLI(t, "sleep 1.2")
+			// The first attempt is refused at once and the second runs until
+			// its timeout ends; only a third would succeed.
+			dump := fakeCLI(t, `if [ "$n" = 2 ]; then : > "$dump/second"; exec sleep 300; fi`)
 			put(t, dump, "stdout", refusal)
 			put(t, dump, "exit", "1")
 			put(t, dump, "stdout.3", claudeSuccess)
 			put(t, dump, "exit.3", "0")
 			r := request(t, HostClaude)
-			r.Timeout = 2 * time.Second
-			res, err := NewRunner(HostClaude).Run(context.Background(), r)
+			r.Timeout = time.Minute
+			ctx, timeouts := holdTimeouts(context.Background())
+			done := launch(t, ctx, HostClaude, r)
+			// The second attempt gets only what the first left of the timeout.
+			if first, second := timeouts.next(t), timeouts.next(t); first != r.Timeout || second >= first {
+				t.Fatalf("attempts' timeouts %s then %s, want %s then less", first, second, r.Timeout)
+			}
+			if !waitFile(dump, "second") {
+				t.Fatalf("the second attempt didn't start in %s", hangGuard)
+			}
+			timeouts.expire()
+			res, err := await(t, done, "a second attempt whose timeout ended")
 			if err != nil {
 				t.Fatal(err)
 			}
-			// The first attempt used 1.2 s of the 2 s, so the second runs out
-			// of time before it can be rejected, and there is no third.
 			if n := runs(t, dump); n != 2 {
 				t.Fatalf("ran %d times, want 2", n)
 			}
 			if res.Reason != ReasonTimeout || res.Attempts != 2 || res.Output != nil || res.Model != "claude-test-model" {
 				t.Fatalf("result %+v, want a timeout on the second attempt", res)
+			}
+			// A timeout of a nanosecond has run out by the time the first
+			// attempt is refused; the held timeout let that attempt finish,
+			// and no second one starts. A second would be refused at once.
+			for _, file := range []string{"count", "extra"} {
+				if err := os.Remove(filepath.Join(dump, file)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r = request(t, HostClaude)
+			r.Timeout = time.Nanosecond
+			ctx, _ = holdTimeouts(context.Background())
+			res, err = await(t, launch(t, ctx, HostClaude, r), "a run refused after its timeout ran out")
+			if err != nil || res.Reason != ReasonTimeout || res.Attempts != 1 || res.Output != nil {
+				t.Fatalf("result %+v %v, want a timeout after the first attempt", res, err)
+			}
+			if n := runs(t, dump); n != 1 {
+				t.Fatalf("ran %d times with the timeout used up, want 1", n)
 			}
 		})
 	}
@@ -238,20 +312,16 @@ func usesEffort(host string, args []string, effort string) bool {
 
 func TestCanceledRunIsAnErrorAndEndsTheChild(t *testing.T) {
 	isolate(t)
-	dump := fakeCLI(t, `sleep 30 & echo $! > "$dump/child"; sleep 30`)
+	dump := fakeCLI(t, startChild+"exec sleep 300")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() {
-		waitFile(dump, "child")
-		cancel()
-	}()
-	start := time.Now()
-	_, err := NewRunner(HostCodex).Run(ctx, request(t, HostCodex))
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error %v, want context.Canceled", err)
+	done := launch(t, ctx, HostCodex, request(t, HostCodex))
+	if !waitFile(dump, "child") {
+		t.Fatalf("the fake started no child in %s", hangGuard)
 	}
-	if elapsed := time.Since(start); elapsed > 15*time.Second {
-		t.Fatalf("cancel took %v", elapsed)
+	cancel()
+	if _, err := await(t, done, "a canceled run"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("error %v, want context.Canceled", err)
 	}
 	waitGone(t, dump, "child")
 }
