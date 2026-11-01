@@ -95,6 +95,7 @@ func runHook(ctx context.Context, args []string, in io.Reader, out io.Writer) (c
 	}
 	c, err := config.LoadContext(ctx, dirs.ConfigFile())
 	getenv := os.Getenv
+	unreadable := false
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// Still let the dispatcher identify Stop and emit its required {}, but
 		// make its first recursion guard skip all capture with unreadable config.
@@ -104,8 +105,11 @@ func runHook(ctx context.Context, args []string, in io.Reader, out io.Writer) (c
 			}
 			return os.Getenv(key)
 		}
+		// A chat start says so, unless the read ran out of time, which says
+		// nothing of the config, or the hook runs in eva-md's own run.
+		unreadable = ctx.Err() == nil && os.Getenv("EVA_MD_INNER") != "1"
 	}
-	return hook.Run(ctx, *host, in, out, hook.Env{Dirs: dirs, Config: c, Getenv: getenv, Now: time.Now, Slack: hookSlack})
+	return hook.Run(ctx, *host, in, out, hook.Env{Dirs: dirs, Config: c, Getenv: getenv, Now: time.Now, Slack: hookSlack, ConfigUnreadable: unreadable})
 }
 
 func runWiki(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {

@@ -78,7 +78,7 @@ func TestDryRunIsByteIdenticalAndShowsNoValues(t *testing.T) {
 	if err := e.job().DryRun(context.Background(), HostCodex, "dryrun-b", &out); err != nil {
 		t.Fatal(err)
 	}
-	if want := "\n  " + shellQuote(recorded) + " --no-daemon exec --ephemeral --json -s read-only --skip-git-repo-check -C '<an empty run folder>'"; !strings.Contains(out.String(), want) ||
+	if want := "\n  " + shellQuote(recorded) + " --no-daemon exec --ephemeral --json -s read-only --skip-git-repo-check -C '<an empty run folder>' --disable '<each tool feature codex features list names>' -c web_search=disabled "; !strings.Contains(out.String(), want) ||
 		!strings.Contains(out.String(), "--output-schema '<a file holding the schema below>' -o '<a file for the answer>' -") {
 		t.Fatalf("codex command:\n%s", out.String())
 	}

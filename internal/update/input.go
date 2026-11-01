@@ -35,6 +35,15 @@ const maxEntryLine = 2 << 20
 // looks for it.
 var recordMarker = []byte(`_record"`)
 
+// typedMarker is in the line of every prompt the user typed, as json.Marshal
+// writes an entry: its role and kind come before its text, so they are in
+// the first read of a long line, and text never holds them unescaped.
+// hostMarker is in every host_prompt event line.
+var (
+	typedMarker = []byte(`"role":"user","kind":"prompt"`)
+	hostMarker  = []byte(`"text":"host_prompt"`)
+)
+
 // Prefix reads the bytes of a session file before the watermark, a byte
 // offset. It counts their lines, so the entries after them keep their
 // physical line numbers, and reports whether the chat was off the record
@@ -42,29 +51,57 @@ var recordMarker = []byte(`_record"`)
 // decoded, so the job counts the newlines before the watermark once per file
 // and the watermark's format stays as it is.
 func Prefix(r io.Reader) (lines int, off bool, err error) {
+	p, err := scanPrefix(r)
+	return p.lines, p.off, err
+}
+
+// prefixScan is what scanPrefix finds before the watermark: Prefix's
+// results, and whether a prompt the user typed or a host prompt is there.
+type prefixScan struct {
+	lines         int
+	off           bool
+	typed, hosted bool
+}
+
+// scanPrefix is Prefix, and also looks for prompts: a host_prompt line is
+// decoded as a marker line is, and a typed prompt is told by typedMarker.
+func scanPrefix(r io.Reader) (prefixScan, error) {
+	var p prefixScan
 	br := bufio.NewReaderSize(r, 64<<10)
 	whole := true // the line so far came in one read; a marker line always does
 	for {
 		frag, err := br.ReadSlice('\n')
+		if whole && !p.typed && bytes.Contains(frag, typedMarker) {
+			p.typed = true
+		}
 		switch {
 		case errors.Is(err, bufio.ErrBufferFull):
 			whole = false
 			continue
 		case errors.Is(err, io.EOF):
-			return lines, off, nil
+			return p, nil
 		case err != nil:
-			return lines, off, err
+			return p, err
 		}
-		lines++
-		if whole && bytes.Contains(frag, recordMarker) {
+		p.lines++
+		if whole && (bytes.Contains(frag, recordMarker) || !p.hosted && bytes.Contains(frag, hostMarker)) {
 			var e inbox.Entry
-			if json.Unmarshal(frag, &e) == nil && marker(e) {
-				off = e.Text == "off_record"
+			if json.Unmarshal(frag, &e) == nil {
+				if marker(e) {
+					p.off = e.Text == "off_record"
+				}
+				p.hosted = p.hosted || hostEvent(e)
 			}
 		}
 		whole = true
 	}
 }
+
+// typed reports a prompt the user typed.
+func typed(e inbox.Entry) bool { return e.Role == "user" && e.Kind == "prompt" }
+
+// hostEvent reports a host_prompt event: a prompt the user didn't type.
+func hostEvent(e inbox.Entry) bool { return e.Kind == "event" && e.Text == "host_prompt" }
 
 // marker reports an off_record or on_record event.
 func marker(e inbox.Entry) bool {

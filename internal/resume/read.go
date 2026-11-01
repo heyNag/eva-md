@@ -133,6 +133,17 @@ func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, er
 		// A branch switch within a session creates separate histories. Source
 		// references retain the physical JSONL line numbers in either branch.
 		byBranch := map[string]*history{}
+		// A chat a program ran is judged on the whole file, as the job
+		// judges it: only a tail that holds the first line holds it all.
+		first, typed, hosted := false, false, false
+		for _, r := range recs {
+			if belongs(r.Entry, o, info.Name()) {
+				first = first || r.line == 1
+				typed = typed || r.Role == "user" && r.Kind == "prompt"
+				hosted = hosted || r.Kind == "event" && r.Text == "host_prompt"
+			}
+		}
+		program := first && !typed && hosted
 		off := false
 		for _, r := range recs {
 			if !belongs(r.Entry, o, info.Name()) {
@@ -155,7 +166,7 @@ func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, er
 			}
 			h := byBranch[branch]
 			if h == nil {
-				h = &history{host: r.Host, session: r.Session, branch: branch, file: info.Name(), size: info.Size()}
+				h = &history{host: r.Host, session: r.Session, branch: branch, file: info.Name(), size: info.Size(), program: program}
 				byBranch[branch] = h
 			}
 			if h.host != r.Host || h.session != r.Session {

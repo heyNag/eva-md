@@ -1109,6 +1109,14 @@ func stateFile(host, id string) (string, error) {
 	}
 	return filepath.Join(host, name+".json"), nil
 }
+
+// Headless reports whether the session's catch-up record, which the hooks
+// register at every event, marks a chat a program runs. A record that is
+// missing or can't be read marks none.
+func Headless(ctx context.Context, dirs paths.Dirs, host, id string) bool {
+	s, found, err := load(ctx, dirs, host, id)
+	return err == nil && found && s.Headless && s.Host == host && s.Session == id
+}
 func load(ctx context.Context, dirs paths.Dirs, host, id string) (Source, bool, error) {
 	name, err := stateFile(host, id)
 	if err != nil {

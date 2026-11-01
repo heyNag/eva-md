@@ -32,17 +32,10 @@ type Options struct {
 	DryRun bool
 }
 type Result struct {
-	Binary        string
-	Hosts         []string
-	Actions       []string
-	NeedsTrust    bool
-	CodexFeatures []Feature
-}
-
-// Feature records only native feature names/stages/states, never diagnostics.
-type Feature struct {
-	Name, Stage string
-	Enabled     bool
+	Binary     string
+	Hosts      []string
+	Actions    []string
+	NeedsTrust bool
 }
 
 const installMarker = ".eva-md-install"
@@ -129,9 +122,6 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			}
 			for _, line := range strings.Split(string(features), "\n") {
 				fields := strings.Fields(line)
-				if len(fields) == 3 && (fields[2] == "false" || fields[2] == "true") && plainFeature(fields[0]) && plainFeature(fields[1]) {
-					result.CodexFeatures = append(result.CodexFeatures, Feature{Name: fields[0], Stage: fields[1], Enabled: fields[2] == "true"})
-				}
 				if len(fields) >= 2 && fields[0] == "hooks" && fields[len(fields)-1] == "false" {
 					return result, errors.New("install: Codex hooks feature is disabled; enable it in Codex before installing")
 				}
@@ -386,17 +376,6 @@ func selectedHosts(host string) ([]string, error) {
 	}
 }
 
-func plainFeature(value string) bool {
-	if value == "" || len(value) > 100 {
-		return false
-	}
-	for _, r := range value {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
-			return false
-		}
-	}
-	return true
-}
 func addArgs(host string) []string {
 	if host == "claude" {
 		return []string{"plugin", "install", "eva-md@eva-md", "--scope", "user", "--json"}

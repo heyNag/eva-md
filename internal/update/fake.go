@@ -28,7 +28,6 @@ var _ Runner = (*Fake)(nil)
 func (f *Fake) Run(ctx context.Context, r Request) (Result, error) {
 	r.Input = slices.Clone(r.Input)
 	r.Schema = slices.Clone(r.Schema)
-	r.CodexDisable = slices.Clone(r.CodexDisable)
 	f.mu.Lock()
 	f.requests = append(f.requests, r)
 	f.mu.Unlock()

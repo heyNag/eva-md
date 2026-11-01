@@ -189,11 +189,58 @@ func TestDefaultThreadPageParses(t *testing.T) {
 func TestNoPush(t *testing.T) {
 	o := fixture(t)
 	o.NoPush = true
+	// With NoPush there is no push to ask about.
+	o.BeforePush = func(string) bool { t.Error("asked about a push under NoPush"); return true }
 	if _, err := Run(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
 	if refs := testGit(t, o.Remote, "for-each-ref", "--format=%(refname)"); refs != "" {
 		t.Fatal("unexpected pushed refs")
+	}
+	if c, err := config.Load(o.Dirs.ConfigFile()); err != nil || c.WikiPath != o.Dir {
+		t.Fatalf("config %+v %v", c, err)
+	}
+}
+
+func TestBeforePush(t *testing.T) {
+	for _, push := range []bool{false, true} {
+		o := fixture(t)
+		var asked []string
+		o.BeforePush = func(dir string) bool {
+			asked = append(asked, dir)
+			// The first commit is made before the question.
+			if testGit(t, dir, "log", "-1", "--format=%an") != "Eva Fixture" {
+				t.Error("no first commit to show")
+			}
+			return push
+		}
+		if _, err := Run(context.Background(), o); err != nil {
+			t.Fatal(err)
+		}
+		if len(asked) != 1 || asked[0] != o.Dir {
+			t.Fatalf("asked about %q, want %s", asked, o.Dir)
+		}
+		refs := testGit(t, o.Remote, "for-each-ref", "--format=%(objectname)")
+		if head := testGit(t, o.Dir, "rev-parse", "HEAD"); push && refs != head || !push && refs != "" {
+			t.Fatalf("push %v: remote has %q, HEAD is %s", push, refs, head)
+		}
+		// A no keeps the commit and the config, as --no-push does.
+		if c, err := config.Load(o.Dirs.ConfigFile()); err != nil || c.WikiPath != o.Dir {
+			t.Fatalf("config %+v %v", c, err)
+		}
+		// Adopting a wiki whose commit the remote has never had, as a
+		// Ctrl-C at the question leaves it, asks again; a pushed one has
+		// nothing new to show.
+		want := 1
+		if !push {
+			want = 2
+		}
+		if _, err := Run(context.Background(), o); err != nil || len(asked) != want {
+			t.Fatalf("push %v, adopting: %v, asked %d times, want %d", push, err, len(asked), want)
+		}
+		if refs := testGit(t, o.Remote, "for-each-ref", "--format=%(objectname)"); !push && refs != "" {
+			t.Fatalf("adopting pushed %q after a no", refs)
+		}
 	}
 }
 
@@ -252,7 +299,7 @@ func TestRefusals(t *testing.T) {
 func TestProtectedLocations(t *testing.T) {
 	o := fixture(t)
 	home := filepath.Dir(o.Dir)
-	for _, name := range []string{"Documents/wiki", "Desktop/wiki", "Library/Mobile Documents/wiki", ".local/state/eva-md/wiki"} {
+	for _, name := range []string{"Documents/wiki", "Desktop/wiki", "Downloads/wiki", "Library/Mobile Documents/wiki", "Library/CloudStorage/OneDrive-Acme/wiki", ".local/state/eva-md/wiki"} {
 		o.Dir = filepath.Join(home, name)
 		if _, err := Run(context.Background(), o); err == nil {
 			t.Fatalf("accepted %s", name)
@@ -271,8 +318,19 @@ func TestProtectedLocations(t *testing.T) {
 	if _, err := Run(context.Background(), o); err == nil {
 		t.Fatal("accepted symlink into Documents")
 	}
+	// As the link OneDrive makes in the home folder.
+	if err := os.MkdirAll(filepath.Join(home, "Library", "CloudStorage", "OneDrive-Acme"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "Library", "CloudStorage", "OneDrive-Acme"), filepath.Join(home, "OneDrive - Acme")); err != nil {
+		t.Fatal(err)
+	}
+	o.Dir = filepath.Join(home, "OneDrive - Acme", "wiki")
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "cloud storage") {
+		t.Fatalf("a symlink into cloud storage: %v", err)
+	}
 	if runtime.GOOS == "darwin" {
-		for _, name := range []string{"documents/wiki", "desktop/wiki", "library/mobile documents/wiki"} {
+		for _, name := range []string{"documents/wiki", "desktop/wiki", "downloads/wiki", "library/mobile documents/wiki", "library/cloudstorage/wiki"} {
 			o.Dir = filepath.Join(home, name)
 			if _, err := Run(context.Background(), o); err == nil {
 				t.Fatalf("accepted case alias %s", name)
@@ -390,10 +448,13 @@ func TestCheckFolder(t *testing.T) {
 	if _, err := CheckFolder(filepath.Join(empty, "notes.txt"), o.Dirs); err == nil || !strings.Contains(err.Error(), "file") {
 		t.Fatalf("file: %v", err)
 	}
-	for _, protected := range []string{"Documents", "Desktop", filepath.Join("Library", "Mobile Documents")} {
+	for _, protected := range []string{"Documents", "Desktop", "Downloads", filepath.Join("Library", "Mobile Documents")} {
 		if _, err := CheckFolder(filepath.Join(home, protected, "wiki"), o.Dirs); err == nil || !strings.Contains(err.Error(), "protects") {
 			t.Fatalf("%s: %v", protected, err)
 		}
+	}
+	if _, err := CheckFolder(filepath.Join(home, "Library", "CloudStorage", "Box-Box", "wiki"), o.Dirs); err == nil || !strings.Contains(err.Error(), "syncs into .git") {
+		t.Fatalf("cloud storage: %v", err)
 	}
 	if _, err := CheckFolder(home, o.Dirs); err == nil {
 		t.Fatal("the home folder itself was accepted")

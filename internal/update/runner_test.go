@@ -451,7 +451,6 @@ func TestRequestsThatCannotRunAreRefused(t *testing.T) {
 		"schema not an object":    func(r *Request) { r.Schema = []byte(`[1]`) },
 		"schema not JSON":         func(r *Request) { r.Schema = []byte(`{"type":`) },
 		"negative timeout":        func(r *Request) { r.Timeout = -time.Second },
-		"feature read as a flag":  func(r *Request) { r.CodexDisable = []string{"--yolo"} },
 	}
 	for name, change := range cases {
 		r := request(t, HostClaude)

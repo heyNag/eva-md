@@ -24,6 +24,7 @@ const (
 	maxLine   = 4 << 20  // one Codex event
 	maxOutput = 4 << 20  // the Codex -o file
 	maxDiag   = 64 << 10 // error text kept to name a failure
+	maxList   = 64 << 10 // codex features list
 )
 
 // WaitDelay bounds the wait for output pipes after the CLI exits, in case a
@@ -110,14 +111,18 @@ func withDir(env []string, dir string) []string {
 // spawn runs cli, a name looked up on PATH or an absolute path, with args in
 // dir, with stdin as its input and stdout going to out, in a process group of
 // its own. When ctx is done or the timeout passes, the whole group is killed;
-// whatever is left of the group is killed once the CLI exits. The error is
-// only for a CLI that is there but could not be started.
+// whatever is left of the group is killed once the CLI exits. A zero timeout
+// leaves the limit to ctx. The error is only for a CLI that is there but
+// could not be started.
 func spawn(ctx context.Context, cli string, args []string, dir string, stdin []byte, out io.Writer, timeout time.Duration) (child, error) {
 	path, err := exec.LookPath(cli)
 	if err != nil {
 		return child{missing: true}, nil
 	}
-	tctx, cancel := runTimer(ctx, timeout)
+	tctx, cancel := ctx, context.CancelFunc(func() {})
+	if timeout > 0 {
+		tctx, cancel = runTimer(ctx, timeout)
+	}
 	defer cancel()
 	cmd := exec.CommandContext(tctx, path, args...)
 	cmd.Dir = dir

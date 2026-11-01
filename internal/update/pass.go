@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/resume"
@@ -162,6 +163,10 @@ func (r *run) plan(ctx context.Context, c *chatFile) (plan, error) {
 	p.area = *a
 	p.rec = Record{Host: host, Session: sid, Project: c.key, Thread: g.branch, RulesVersion: RulesVersion, Manual: r.j.Manual}
 	switch {
+	case b.programRun(func() bool { return catchup.Headless(ctx, r.j.Dirs, host, sid) }):
+		_, off := onRecord(b.entries, b.off)
+		p.kind, p.reason, p.end, p.off = planSkip, ReasonHeadless, b.entries[len(b.entries)-1].End, off
+		return p, nil
 	case errors.Is(g.err, ErrTooSmall) && (g.closed || b.more):
 		_, off := onRecord(g.entries, b.off)
 		p.kind, p.reason, p.end, p.off = planSkip, ReasonSmall, g.entries[len(g.entries)-1].End, off

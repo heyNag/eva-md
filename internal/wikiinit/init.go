@@ -26,6 +26,11 @@ type Options struct {
 	Remote, Dir, Version, OKFModule string
 	NoPush                          bool
 	Dirs                            paths.Dirs
+	// BeforePush, when set, is called with the wiki's folder before Run
+	// pushes a commit the remote has never had: a new wiki's first commit,
+	// or an adopted wiki whose branch was never pushed. false keeps the
+	// commit and pushes nothing, as NoPush does.
+	BeforePush func(dir string) bool
 }
 
 // Result identifies the initialized wiki; Adopted means its schema already existed.
@@ -222,8 +227,20 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		if err != nil {
 			return result, errors.New("wikiinit: cannot push a detached HEAD")
 		}
-		if _, err := git(ctx, root, "push", "--set-upstream", "origin", "HEAD:refs/heads/"+branch); err != nil {
-			return result, err
+		push := true
+		if o.BeforePush != nil {
+			// A clone has origin's branch once it has fetched or pushed it,
+			// so a wiki without it has a commit the remote has never had.
+			// Any error in that lookup asks too.
+			_, err := git(ctx, root, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch)
+			if !hasHead || err != nil {
+				push = o.BeforePush(root)
+			}
+		}
+		if push {
+			if _, err := git(ctx, root, "push", "--set-upstream", "origin", "HEAD:refs/heads/"+branch); err != nil {
+				return result, err
+			}
 		}
 	}
 	previous.WikiPath, previous.ExpectedRemote, previous.Instance = root, expected, schema.Instance
@@ -359,9 +376,9 @@ func checkInitialFiles(root string) error {
 
 // CheckFolder reports whether dir can hold the wiki, before Run is asked to
 // create it there: an absolute folder of its own, outside Documents, Desktop,
-// iCloud Drive and eva-md's own folders, that is new, empty or already a git
-// clone (Run then checks its remote and schema). It returns the folder's
-// canonical path.
+// Downloads, iCloud Drive, the cloud storage in ~/Library/CloudStorage and
+// eva-md's own folders, that is new, empty or already a git clone (Run then
+// checks its remote and schema). It returns the folder's canonical path.
 func CheckFolder(dir string, dirs paths.Dirs) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -431,7 +448,9 @@ func allowedLocation(dir, home string, dirs paths.Dirs) (string, error) {
 	for _, banned := range []struct{ path, why string }{
 		{filepath.Join(home, "Documents"), "that folder is in Documents, which macOS protects from background updates; choose a folder outside it"},
 		{filepath.Join(home, "Desktop"), "that folder is on the Desktop, which macOS protects from background updates; choose a folder outside it"},
+		{filepath.Join(home, "Downloads"), "that folder is in Downloads, which macOS protects from background updates; choose a folder outside it"},
 		{filepath.Join(home, "Library", "Mobile Documents"), "that folder is in iCloud Drive, which macOS protects from background updates and syncs into .git; choose a folder outside it"},
+		{filepath.Join(home, "Library", "CloudStorage"), "that folder is in cloud storage, such as OneDrive, Box, Google Drive or Dropbox, which syncs into .git; choose a folder outside it"},
 		{dirs.Config, "that folder is inside eva-md's own files; choose another folder"},
 		{dirs.State, "that folder is inside eva-md's own files; choose another folder"},
 		{dirs.Share, "that folder is inside eva-md's own files; choose another folder"},

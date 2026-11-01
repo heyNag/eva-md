@@ -68,7 +68,7 @@ func newFakeSetup(t *testing.T, interactive bool) *fakeSetup {
 		},
 		install: func(_ context.Context, o install.Options) (install.Result, error) {
 			f.installs = append(f.installs, o)
-			return install.Result{Actions: []string{"replace stable binary"}, NeedsTrust: true}, nil
+			return install.Result{Binary: filepath.Join(o.Dirs.Share, "bin", "eva-md"), Actions: []string{"replace stable binary"}, NeedsTrust: true}, nil
 		},
 		inspect: func(context.Context, paths.Dirs) health.Report {
 			return health.Report{Checks: []health.Check{{Name: "wiki", Status: "PASS"}, {Name: "updates", Status: "UNKNOWN"}}}
@@ -150,6 +150,15 @@ func (f *fakeSetup) bareRepo(t *testing.T, name string) string {
 // config.
 func evaWiki(t *testing.T, folder, remote, label string) {
 	t.Helper()
+	unpushedEvaWiki(t, folder, remote, label)
+	gitIn(t, folder, "push", "--quiet", "origin", "HEAD:refs/heads/main")
+}
+
+// unpushedEvaWiki makes an eva wiki in folder for remote, an empty repo, as
+// setup on the Mac with this label leaves it when the push never happens,
+// without touching f's config.
+func unpushedEvaWiki(t *testing.T, folder, remote, label string) {
+	t.Helper()
 	tmp := t.TempDir()
 	dirs := paths.Dirs{Config: filepath.Join(tmp, "config"), State: filepath.Join(tmp, "state"), Share: filepath.Join(tmp, "share")}
 	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: folder, Dirs: dirs, Version: "test", OKFModule: "v0.7.2", NoPush: true}); err != nil {
@@ -165,7 +174,6 @@ func evaWiki(t *testing.T, folder, remote, label string) {
 		t.Fatal(err)
 	}
 	gitIn(t, folder, "commit", "--quiet", "--all", "--message", "Fixture instance")
-	gitIn(t, folder, "push", "--quiet", "origin", "HEAD:refs/heads/main")
 }
 
 // plainRepo pushes a README, which isn't an eva wiki, to the bare repo
@@ -276,10 +284,135 @@ func TestSetupWithoutTerminalNeedsFlags(t *testing.T) {
 
 func TestSetupRefusesProtectedFolderFlag(t *testing.T) {
 	f := newFakeSetup(t, false)
-	code, _, errOut := f.run("", "--dir", filepath.Join(f.env.home, "Desktop", "wiki"), "--remote", "git@github.com:me/eva-wiki.git")
-	if code != 1 || len(f.inits) != 0 || !strings.Contains(errOut, "on the Desktop") {
-		t.Fatalf("code %d inits %d stderr %q", code, len(f.inits), errOut)
+	for folder, why := range map[string]string{
+		filepath.Join("Desktop", "wiki"):                                  "on the Desktop",
+		filepath.Join("Downloads", "wiki"):                                "in Downloads, which macOS protects",
+		filepath.Join("Library", "CloudStorage", "OneDrive-Acme", "wiki"): "in cloud storage, such as OneDrive",
+	} {
+		code, _, errOut := f.run("", "--dir", filepath.Join(f.env.home, folder), "--remote", "git@github.com:me/eva-wiki.git")
+		if code != 1 || len(f.inits) != 0 || !strings.Contains(errOut, why) {
+			t.Fatalf("%s: code %d inits %d stderr %q", folder, code, len(f.inits), errOut)
+		}
 	}
+}
+
+// signedElsewhere makes git sign as another person in <home>/projects, as an
+// includeIf for work repos does, with a fake signing program, so the home
+// folder's settings and the wiki's differ.
+func (f *fakeSetup) signedElsewhere(t *testing.T) {
+	t.Helper()
+	signer := filepath.Join(f.env.home, "signer")
+	script := "#!/bin/sh\nwhile read -r line; do :; done\nprintf '%s\\n' '-----BEGIN PGP SIGNATURE-----' '' 'ZmFrZQ==' '-----END PGP SIGNATURE-----'\nprintf '\\n[GNUPG:] SIG_CREATED D 1 8 00 0 FIXTURE\\n' >&2\n"
+	if err := os.WriteFile(signer, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(f.env.home, "work.gitconfig")
+	if err := os.WriteFile(work, []byte("[user]\n\tname = Work Person\n\temail = work@example.invalid\n\tsigningkey = fixture\n[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = "+signer+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	global, err := os.OpenFile(os.Getenv("GIT_CONFIG_GLOBAL"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer global.Close()
+	if _, err := global.WriteString("[includeIf \"gitdir:" + filepath.Join(f.env.home, "projects") + "/\"]\n\tpath = " + work + "\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetupShowsTheFirstCommitBeforePushing(t *testing.T) {
+	const remote = "git@github.com:me/eva-wiki.git"
+	shown := "  The first commit is by Work Person <work@example.invalid>, signed.\n"
+	question := "  Push it to " + remote + "? [Y/n] "
+	for _, tc := range []struct {
+		name        string
+		interactive bool
+		flags       []string
+		input       string
+		pushed      bool
+	}{
+		{"declined", true, nil, "y\nn\n", false},
+		{"accepted", true, nil, "y\ny\n", true},
+		// --yes skips only the summary's confirmation.
+		{"--yes", true, []string{"--yes"}, "n\n", false},
+		{"no terminal", false, nil, "", true},
+		// With --no-push nothing is shown or asked.
+		{"--no-push", true, []string{"--no-push"}, "y\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeSetup(t, tc.interactive)
+			f.realGit(t)
+			bare := f.bareRepo(t, "eva-wiki")
+			f.signedElsewhere(t)
+			folder := filepath.Join(f.env.home, "projects", "wiki")
+			code, out, errOut := f.run(tc.input, append([]string{"--dir", folder, "--remote", remote}, tc.flags...)...)
+			f.wantRemote(t, code, out, errOut, remote)
+			pushLater := "The wiki's first commit isn't pushed. To push it, run " + filepath.Join(f.env.dirs.Share, "bin", "eva-md") + " commit --push-only.\n"
+			switch {
+			case tc.name == "--no-push":
+				wantNotIn(t, "stdout", out, "The first commit is by", "Push it to")
+			case tc.interactive:
+				wantIn(t, "stdout", out, shown+question)
+			default:
+				wantIn(t, "stdout", out, shown+"  Wiki ready in ")
+				wantNotIn(t, "stdout", out, question)
+			}
+			head := gitIn(t, folder, "rev-parse", "HEAD")
+			refs := gitIn(t, bare, "for-each-ref", "--format=%(objectname)")
+			if tc.pushed {
+				if refs != head {
+					t.Fatalf("pushed %q, want %s", refs, head)
+				}
+				wantNotIn(t, "stdout", out, "not pushed", pushLater)
+				return
+			}
+			if refs != "" {
+				t.Fatalf("pushed %q after a no", refs)
+			}
+			if tc.name == "--no-push" {
+				wantIn(t, "stdout", out, "  The first commit was not pushed (--no-push).\n", pushLater)
+			} else {
+				wantIn(t, "stdout", out, "  The first commit was not pushed. The daily commit pushes it", pushLater)
+			}
+			// The commit and the config stay, so the wiki is set up.
+			if c, err := config.Load(f.env.dirs.ConfigFile()); err != nil || c.WikiPath != folder {
+				t.Fatalf("config %+v %v", c, err)
+			}
+		})
+	}
+}
+
+// A Ctrl-C at the push question, or moving the config aside after a no,
+// leaves a wiki whose commit the remote has never had and no config. Setup
+// adopting that folder asks before pushing it, as for a new wiki.
+func TestSetupAsksBeforePushingAnAdoptedUnpushedWiki(t *testing.T) {
+	const remote = "git@github.com:me/eva-wiki.git"
+	f := newFakeSetup(t, true)
+	f.realGit(t)
+	bare := f.bareRepo(t, "eva-wiki")
+	f.signedElsewhere(t)
+	folder := filepath.Join(f.env.home, "projects", "wiki")
+	unpushedEvaWiki(t, folder, remote, "this-mac")
+	code, out, errOut := f.run("y\ny\nn\n", "--dir", folder, "--remote", remote)
+	f.wantRemote(t, code, out, errOut, remote)
+	wantIn(t, "stdout", out, "  The first commit is by Work Person <work@example.invalid>, signed.\n  Push it to "+remote+"? [Y/n] ",
+		"  The first commit was not pushed. The daily commit pushes it",
+		"The wiki's first commit isn't pushed. To push it, run "+filepath.Join(f.env.dirs.Share, "bin", "eva-md")+" commit --push-only.\n")
+	if refs := gitIn(t, bare, "for-each-ref"); refs != "" {
+		t.Fatalf("pushed %q after a no", refs)
+	}
+}
+
+func TestSetupNamesTheInstalledBinary(t *testing.T) {
+	f := newFakeSetup(t, true)
+	f.env.inspect = func(context.Context, paths.Dirs) health.Report {
+		return health.Report{Checks: []health.Check{{Name: "wiki", Status: "FAIL", Detail: "missing"}}}
+	}
+	code, out, errOut := f.run("~/projects/wiki\ngit@github.com:me/eva-wiki.git\ny\n")
+	if code != 0 {
+		t.Fatalf("code %d\n%s\n%s", code, out, errOut)
+	}
+	wantIn(t, "stdout", out, "Run "+filepath.Join(f.env.dirs.Share, "bin", "eva-md")+" doctor after fixing them.\n")
 }
 
 func TestSetupKeepsAHealthyWiki(t *testing.T) {
@@ -562,7 +695,7 @@ func TestSetupUsesTheEvaWikiInTheFolder(t *testing.T) {
 	f.bareRepo(t, "eva-wiki")
 	folder := filepath.Join(f.env.home, "projects", "wiki")
 	evaWiki(t, folder, "git@github.com:me/eva-wiki.git", "old-laptop")
-	const found = "   This folder is already an eva wiki, pushed to git@github.com:me/eva-wiki.git."
+	const found = "   This folder is already an eva wiki for git@github.com:me/eva-wiki.git."
 	// stopped checks that a run stopped before changing anything.
 	stopped := func(t *testing.T, code int, out, errOut string) {
 		t.Helper()

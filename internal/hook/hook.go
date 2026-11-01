@@ -35,6 +35,9 @@ type Env struct {
 	Config config.Config
 	Getenv func(string) string
 	Now    func() time.Time
+	// ConfigUnreadable says eva-md's config exists but can't be read. Run
+	// then captures nothing, and a SessionStart says so in the chat.
+	ConfigUnreadable bool
 	// recoverTranscript replaces catchup.Recover in tests. It lives here, not
 	// in a package variable, because a test's abandoned capture can still be
 	// running when the next test starts.
@@ -79,6 +82,9 @@ type payload struct {
 }
 
 var stopEvent = regexp.MustCompile(`"hook_event_name"\s*:\s*"Stop"`)
+
+// configNotice is what a chat start says when the config can't be read.
+const configNotice = "eva.md: the config can't be read, so this chat isn't captured; run eva-md doctor."
 
 // Run handles one hook within 300 ms (1.5 seconds for SessionStart). It always
 // returns zero, contains panics, and never writes a block decision. Codex Stop
@@ -154,6 +160,12 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 		}
 		p = r.p
 	case <-readCtx.Done():
+		return 0
+	}
+	if env.ConfigUnreadable {
+		if event == "SessionStart" {
+			output = reply{context: configNotice, message: configNotice}.encode(event)
+		}
 		return 0
 	}
 	p.entrypoint, p.headless = entrypoint(host, env.Getenv)
@@ -318,9 +330,10 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	file := store.Path(project.Key, host, p.Session)
 	// The prompt trigger and the SessionStart catch-up need the session's
 	// file as it was before this hook appended anything, transcript recovery
-	// included: one stat.
+	// included: one stat. A chat a program runs never asks for its own
+	// update, so its file is taken for none.
 	var before os.FileInfo
-	if updatesOn(env.Config) && (p.Event == "UserPromptSubmit" || p.Event == "SessionStart") {
+	if updatesOn(env.Config) && !p.headless && (p.Event == "UserPromptSubmit" || p.Event == "SessionStart") {
 		if info, err := os.Lstat(file); err == nil {
 			before = info
 		}
@@ -487,7 +500,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 			}
 			appendEvent(event)
 		}
-		if p.Event == "SessionEnd" || p.Event == "PreCompact" {
+		if (p.Event == "SessionEnd" || p.Event == "PreCompact") && !p.headless {
 			queueUpdate(spawns, env, host+":"+p.Session)
 		}
 		return resumeContext(ctx, host, p, env, project, now, start, spawns)
@@ -501,7 +514,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 			failed = true
 		}
 	}
-	if p.Event == "Stop" && updatesOn(env.Config) && stopBacklogged(store, file) {
+	if p.Event == "Stop" && !p.headless && updatesOn(env.Config) && stopBacklogged(store, file) {
 		queueUpdate(spawns, env, host+":"+p.Session)
 	}
 	return resumeContext(ctx, host, p, env, project, now, start, spawns)

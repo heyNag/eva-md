@@ -221,7 +221,8 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "1. Where should the wiki live on this Mac?")
 			fmt.Fprintln(out, "   Choose a new or empty folder of its own, such as one next to your projects.")
-			fmt.Fprintln(out, "   Not in Documents, Desktop or iCloud Drive: macOS blocks background updates there.")
+			fmt.Fprintln(out, "   Not in Documents, Desktop or Downloads, where macOS blocks background updates, or")
+			fmt.Fprintln(out, "   in iCloud Drive, OneDrive, Dropbox or other cloud storage, which syncs into .git.")
 			if folder = askUntil(ask, out, "   Folder: ", func(a string) (string, error) { return s.checkFolder(a, *remote) }); folder == "" {
 				fmt.Fprintln(errOut, "eva-md: setup stopped; nothing was changed")
 				return 1
@@ -335,6 +336,7 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 		}
 	}
 
+	unpushed := false // the new wiki's first commit stays on this Mac
 	if p != planPlugins {
 		fmt.Fprintln(out)
 		switch p {
@@ -352,8 +354,20 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 			fmt.Fprintln(out, "  Your git setup may ask you to approve access to the repo, for example in your password manager.")
 		}
 		// The wiki cloned again has nothing to push, and a push would ask for
-		// another approval.
-		r, err := env.initWiki(ctx, wikiinit.Options{Remote: remoteURL, Dir: folder, NoPush: *noPush || p == planReclone, Version: version, OKFModule: okfModule(), Dirs: env.dirs})
+		// another approval. A push can't be taken back, so a commit the remote
+		// has never had is shown before it is pushed, as git made it in the
+		// wiki, and with a terminal the user chooses whether to push it.
+		declined := false
+		beforePush := func(dir string) bool {
+			showFirstCommit(ctx, out, dir)
+			if !env.interactive {
+				return true
+			}
+			push, _ := yesNo(ask, out, "  Push it to "+remoteURL+"? [Y/n] ", true)
+			declined = !push
+			return push
+		}
+		r, err := env.initWiki(ctx, wikiinit.Options{Remote: remoteURL, Dir: folder, NoPush: *noPush || p == planReclone, Version: version, OKFModule: okfModule(), Dirs: env.dirs, BeforePush: beforePush})
 		if err != nil {
 			fmt.Fprintln(errOut, "eva-md: "+plain(err))
 			switch {
@@ -370,8 +384,14 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 		} else {
 			fmt.Fprintf(out, "  Wiki ready in %s\n", r.WikiPath)
 		}
-		if *noPush && !r.Adopted {
+		unpushed = declined || !r.Adopted && *noPush
+		switch {
+		case unpushed && *noPush:
 			fmt.Fprintln(out, "  The first commit was not pushed (--no-push).")
+		case unpushed:
+			fmt.Fprintln(out, "  The first commit was not pushed. The daily commit pushes it with the next changes;")
+			fmt.Fprintln(out, "  to change its author first, fix git's settings for this folder and run")
+			fmt.Fprintln(out, "  git commit --amend --reset-author in it.")
 		}
 	}
 
@@ -421,9 +441,12 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 
 	fmt.Fprintln(out)
 	if report.Failed() {
-		fmt.Fprintln(out, "Setup finished, but the checks above need attention. Run eva-md doctor after fixing them.")
+		fmt.Fprintf(out, "Setup finished, but the checks above need attention. Run %s doctor after fixing them.\n", ir.Binary)
 	} else {
 		fmt.Fprintln(out, "eva.md is ready.")
+	}
+	if unpushed {
+		fmt.Fprintf(out, "The wiki's first commit isn't pushed. To push it, run %s commit --push-only.\n", ir.Binary)
 	}
 	fmt.Fprintln(out, "Start a new chat in Claude Code or Codex, in any project: eva.md captures it from the")
 	fmt.Fprintln(out, "first message. In a later chat, ask \"where did we stop?\".")
@@ -466,7 +489,7 @@ func (s *setupRun) checkFolder(answer, remote string) (string, error) {
 	if dirty(s.ctx, folder) {
 		return "", fmt.Errorf("this eva wiki has uncommitted changes; commit them in %s (git add -A && git commit) and run setup again", folder)
 	}
-	found := "   This folder is already an eva wiki, pushed to " + origin + "."
+	found := "   This folder is already an eva wiki for " + origin + "."
 	if remote != "" && !sameRepo(origin, remote) {
 		fmt.Fprintln(s.out, found)
 		return "", errors.New("--remote names another repo; leave it out to use this wiki, or choose another folder")
@@ -942,6 +965,48 @@ func isTerminal(r io.Reader) bool {
 	}
 	null, err := os.Stat(os.DevNull)
 	return err != nil || !os.SameFile(info, null)
+}
+
+// showFirstCommit says who made the new wiki's first commit and whether it
+// is signed, as git recorded it in the wiki: per-folder git settings, such as
+// includeIf, can make these differ from what git uses in the home folder.
+func showFirstCommit(ctx context.Context, out io.Writer, dir string) {
+	author, signed, err := firstCommit(ctx, dir)
+	switch {
+	case err != nil:
+		fmt.Fprintf(out, "  The first commit's author couldn't be read; git log in %s shows it.\n", dir)
+	case signed:
+		fmt.Fprintf(out, "  The first commit is by %s, signed.\n", author)
+	default:
+		fmt.Fprintf(out, "  The first commit is by %s, not signed.\n", author)
+	}
+}
+
+// firstCommit reads the author of the commit at HEAD in dir, as "name
+// <email>", and whether it carries a signature. It reads the commit only,
+// never verifies the signature.
+func firstCommit(ctx context.Context, dir string) (author string, signed bool, err error) {
+	commit, err := wikigit.Run(ctx, setupGitTimeout, dir, "cat-file", "commit", "HEAD")
+	if err != nil {
+		return "", false, err
+	}
+	for _, line := range strings.Split(commit, "\n") {
+		if line == "" {
+			break // the message follows the headers
+		}
+		if rest, ok := strings.CutPrefix(line, "author "); ok {
+			if i := strings.LastIndexByte(rest, '>'); i >= 0 {
+				author = rest[:i+1]
+			}
+		}
+		if strings.HasPrefix(line, "gpgsig ") || strings.HasPrefix(line, "gpgsig-sha256 ") {
+			signed = true
+		}
+	}
+	if author == "" {
+		return "", false, errors.New("the commit has no author")
+	}
+	return author, signed, nil
 }
 
 // gitSigning reports the commit signing format git uses from the home

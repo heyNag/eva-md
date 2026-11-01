@@ -9,8 +9,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // codexEfforts are the model_reasoning_effort values, lowest first; "highest"
@@ -18,9 +20,33 @@ import (
 // accepts from them.
 var codexEfforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
 
-// codexOff is disabled on every run, ahead of the tool features recorded at
-// install.
+// codexOff is disabled on every run, even one that can't read codex
+// features list.
 var codexOff = []string{"hooks", "plugins", "memories", "shell_tool", "apps"}
+
+// codexTools are the other features that give the model a tool, from codex's
+// feature registry and tool plan (codex-rs/features/src/lib.rs and
+// codex-rs/core/src/tools/spec_plan.rs at 0.166.0): each adds a tool the
+// model can call, or lets one run (code_mode_host, and the browser and
+// computer use gates). Features that tune a tool, the connection, sign-in or
+// the desktop app's panes stay as they are. unified_exec is left out: codex
+// turns it back on unless managed requirements pin it, and with shell_tool
+// off codex offers no exec tool at all.
+var codexTools = []string{
+	"view_image", "sleep_tool", "request_permissions_tool", "standalone_web_search", "multi_env_copy_file",
+	"multi_agent", "multi_agent_v2", "agent_message_board", "goals", "image_generation", "artifact",
+	"tool_suggest", "enable_mcp_apps", "code_mode", "code_mode_only", "code_mode_host", "deferred_executor",
+	"default_mode_request_user_input", "send_message_to_user_async", "token_budget", "current_time_reminder",
+	"browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use",
+}
+
+// featuresTimeout bounds the codex features list read ahead of each run, apart
+// from the run's own timeout. Tests raise it before any test runs.
+var featuresTimeout = 15 * time.Second
+
+// featuresTimer starts that read's timeout. Tests replace it before any test
+// runs, so a test can end the read's time at an exact point.
+var featuresTimer = context.WithTimeout
 
 func runCodex(ctx context.Context, r Request, t try) (attempt, error) {
 	// The schema and the answer live in a private folder of their own, so the
@@ -34,10 +60,12 @@ func runCodex(ctx context.Context, r Request, t try) (attempt, error) {
 	if err := os.WriteFile(schema, r.Schema, 0o600); err != nil {
 		return attempt{}, errors.New("update: could not write the schema file for the codex run")
 	}
+	cli := cliFor("codex", r.CLI)
+	disable := codexDisable(ctx, cli, dir)
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	s := &codexStream{stop: stop, diag: diagnostics{effort: t.effort}}
-	c, err := spawn(runCtx, cliFor("codex", r.CLI), codexArgs(r, t, schema, output), r.RunDir, codexStdin(r), s, t.timeout)
+	c, err := spawn(runCtx, cli, codexArgs(r, t, disable, schema, output), r.RunDir, codexStdin(r), s, t.timeout)
 	if err != nil {
 		return attempt{}, err
 	}
@@ -45,21 +73,47 @@ func runCodex(ctx context.Context, r Request, t try) (attempt, error) {
 	return s.result(c, output), nil
 }
 
-// codexArgs is the command from design.md "Model selection". Each tool
-// feature is disabled once; the batch is stdin, never an argument.
-// --no-daemon, a top-level flag that goes before exec, keeps the run off
-// codex's shared background server, where it would escape the cleared
-// environment and the process group. tools.update_plan.enabled=false turns
+// codexDisable is what a run disables: each feature of codexOff and
+// codexTools that codex features list names, whether on or off, since
+// --ignore-user-config can turn one back on, and only those, since codex
+// refuses a name it doesn't know. A list that can't be read gives codexOff.
+func codexDisable(ctx context.Context, cli, dir string) []string {
+	ctx, cancel := featuresTimer(ctx, featuresTimeout)
+	defer cancel()
+	out := &capped{limit: maxList}
+	c, err := spawn(ctx, cli, []string{"features", "list"}, dir, nil, out, 0)
+	if err != nil || c.missing || c.failed || out.overflow {
+		return codexOff
+	}
+	listed := map[string]bool{}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if f := strings.Fields(line); len(f) >= 3 && (f[len(f)-1] == "true" || f[len(f)-1] == "false") {
+			listed[f[0]] = true
+		}
+	}
+	if len(listed) == 0 {
+		return codexOff
+	}
+	var names []string
+	for _, name := range append(slices.Clone(codexOff), codexTools...) {
+		if listed[name] {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// codexArgs is the command from design.md "Model selection", disabling each
+// feature of disable; the batch is stdin, never an argument. --no-daemon, a
+// top-level flag that goes before exec, keeps the run off codex's shared
+// background server, where it would escape the cleared environment and the
+// process group. tools.update_plan.enabled=false turns
 // off the plan tool, a key codex 0.166.0 itself sets for its tool-free
 // structured turns.
-func codexArgs(r Request, t try, schema, output string) []string {
+func codexArgs(r Request, t try, disable []string, schema, output string) []string {
 	args := []string{"--no-daemon", "exec", "--ephemeral", "--json", "-s", "read-only", "--skip-git-repo-check", "-C", r.RunDir}
-	seen := map[string]bool{}
-	for _, name := range append(append([]string{}, codexOff...), r.CodexDisable...) {
-		if !seen[name] {
-			seen[name] = true
-			args = append(args, "--disable", name)
-		}
+	for _, name := range disable {
+		args = append(args, "--disable", name)
 	}
 	args = append(args, "-c", "web_search=disabled", "-c", "tools.update_plan.enabled=false")
 	if t.model != "" {

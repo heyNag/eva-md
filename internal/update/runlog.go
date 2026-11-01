@@ -29,7 +29,8 @@ const (
 // Reasons the job adds to the runners'. A skip names why the page was not
 // written: locked, verified, damaged, quarantined, or small for a group a
 // branch switch closed before it reached one exchange or 600 characters, or
-// the rest of a group that holds only events.
+// the rest of a group that holds only events, or headless for a chat a
+// program ran (see backlog.programRun).
 const (
 	ReasonOKFRefused  = "okf_refused" // okf refused the page's text; counts toward the session
 	ReasonWikiError   = "wiki_error"  // the wiki lock stayed busy, or a file system error; backs off
@@ -41,6 +42,7 @@ const (
 	ReasonDamaged     = "damaged"
 	ReasonQuarantined = "quarantined"
 	ReasonSmall       = "small"
+	ReasonHeadless    = "headless" // the watermark moves past the window with no model call
 )
 
 // The failure classes of docs/design.md "Failures, budget and quarantine". A

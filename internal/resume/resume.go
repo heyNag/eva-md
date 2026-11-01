@@ -61,6 +61,7 @@ type history struct {
 	records               []record
 	latest                time.Time
 	worked                bool
+	program               bool // a chat a program ran (see programRun)
 }
 type page struct {
 	now, hash, id, head string
@@ -411,7 +412,12 @@ func join(parts ...string) string {
 	return strings.Join(kept, "\n\n")
 }
 
+// useful reports whether a chat did real work a brief may resume. A chat a
+// program ran never did.
 func useful(h history) bool {
+	if programRun(h) {
+		return false
+	}
 	if h.worked {
 		return true
 	}
@@ -429,6 +435,13 @@ func useful(h history) bool {
 	}
 	return u > 2 && a > 2
 }
+
+// programRun reports a chat a program ran, such as claude -p: from its
+// session file's first line on, it holds host prompts and no prompt the user
+// typed. The whole file is judged, on every branch the chat checked out,
+// when the brief reads it from that first line; one longer than the tail a
+// brief reads never is.
+func programRun(h history) bool { return h.program }
 
 func ending(h history) string {
 	for i := len(h.records) - 1; i >= 0; i-- {

@@ -33,14 +33,17 @@ type backlog struct {
 	lines   int   // the physical lines before start
 	off     bool  // the chat was off the record at start
 	more    bool  // the pass that set the watermark stopped inside a group
+	typed   bool  // a prompt the user typed comes before start
+	hosted  bool  // a host prompt comes before start
 	window  int64 // the bytes read past start
+	limit   int64 // the most window grows to: maxWindowBytes, less in a test
 	eof     bool  // the window reached the end of the file
 	entries []Entry
 }
 
 // openBacklog opens a session file at its watermark. It counts the lines
-// before the watermark once, with Prefix, which also tells whether the chat
-// was off the record there.
+// before the watermark once, with scanPrefix, which also tells whether the
+// chat was off the record there and whether prompts come before it.
 func openBacklog(store inbox.Store, path string) (*backlog, error) {
 	m, err := store.Mark(path)
 	if err != nil {
@@ -50,15 +53,17 @@ func openBacklog(store inbox.Store, path string) (*backlog, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := &backlog{store: store, path: path, f: f, start: m.Offset, more: m.More}
+	b := &backlog{store: store, path: path, f: f, start: m.Offset, more: m.More, limit: maxWindowBytes}
 	if err := b.check(); err != nil {
 		f.Close()
 		return nil, err
 	}
-	if b.lines, b.off, err = Prefix(io.NewSectionReader(f, 0, m.Offset)); err != nil {
+	p, err := scanPrefix(io.NewSectionReader(f, 0, m.Offset))
+	if err != nil {
 		f.Close()
 		return nil, fmt.Errorf("update: read the session file: %w", err)
 	}
+	b.lines, b.off, b.typed, b.hosted = p.lines, p.off, p.typed, p.hosted
 	if err := b.load(windowBytes); err != nil {
 		f.Close()
 		return nil, err
@@ -100,10 +105,10 @@ func (b *backlog) load(n int64) error {
 
 // grow reads a window twice as large, or reports that it can't.
 func (b *backlog) grow() (bool, error) {
-	if b.eof || b.window >= maxWindowBytes {
+	if b.eof || b.window >= b.limit {
 		return false, nil
 	}
-	return true, b.load(min(max(2*b.window, windowBytes), maxWindowBytes))
+	return true, b.load(min(max(2*b.window, windowBytes), b.limit))
 }
 
 // refill reads the next window once the decoded entries are used up, and
@@ -143,6 +148,27 @@ func (b *backlog) group() (entries []Entry, branch string, closed bool) {
 // cut reports whether the group may run on past the window: no prompt of
 // another branch ends it there, and the file goes on.
 func (b *backlog) cut(closed bool) bool { return !closed && !b.eof }
+
+// programRun reports a chat a program ran, such as claude -p: no prompt the
+// user typed comes before the watermark or in the window, and the catch-up
+// record, which headless reads, marks it a program's chat, or the window
+// reaches the end of the file and a host prompt comes before it. A person's
+// chat can begin with host prompts, from scheduled tasks, /loop runs or
+// subagent reports, and type later, so a host prompt counts only once the
+// whole file is read.
+func (b *backlog) programRun(headless func() bool) bool {
+	if b.typed {
+		return false
+	}
+	hosted := b.hosted
+	for _, e := range b.entries {
+		if typed(e.Entry) {
+			return false
+		}
+		hosted = hosted || hostEvent(e.Entry)
+	}
+	return b.eof && hosted || headless()
+}
 
 // answered leaves out the last prompt of a group the file ends in, and what
 // follows it, while no reply follows it, so the prompt waits to be taken
@@ -198,6 +224,8 @@ func (b *backlog) advance(end int64, more, off bool) error {
 	}
 	n := 0
 	for n < len(b.entries) && b.entries[n].End <= end {
+		b.typed = b.typed || typed(b.entries[n].Entry)
+		b.hosted = b.hosted || hostEvent(b.entries[n].Entry)
 		n++
 	}
 	b.entries = b.entries[n:]

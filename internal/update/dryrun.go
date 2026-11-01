@@ -16,6 +16,7 @@ const (
 	rulesArg   = "<the rules below>"
 	schemaArg  = "<the schema below>"
 	runDirArg  = "<an empty run folder>"
+	disableArg = "<each tool feature codex features list names>"
 	schemaFile = "<a file holding the schema below>"
 	outputFile = "<a file for the answer>"
 )
@@ -168,7 +169,7 @@ func (r *run) writeCommand(b *strings.Builder, p plan, effort string) {
 	t := try{model: p.model, effort: effort}
 	cli, args, stdin := cliFor("claude", r.clis["claude"]), claudeArgs(req, t), "the input below"
 	if p.batch.Host == HostCodex {
-		cli, args, stdin = cliFor("codex", r.clis["codex"]), codexArgs(req, t, schemaFile, outputFile), "the rules below, a blank line, then the input below"
+		cli, args, stdin = cliFor("codex", r.clis["codex"]), codexArgs(req, t, []string{disableArg}, schemaFile, outputFile), "the rules below, a blank line, then the input below"
 	}
 	quoted := []string{shellQuote(cli)}
 	for _, a := range args {

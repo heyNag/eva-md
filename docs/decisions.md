@@ -101,7 +101,7 @@ Some decisions cover parts that are not built yet, such as knowledge pages. [des
     - **Off switch:** saying "off the record" stops saving for that chat.
     - **Work machines:** eva-md assumes plugins, hooks and background headless runs are allowed there. The health check still reports managed settings that switch hooks off, where it can see them.
     - **Repos:** the platform repo (github.com/heyNag/eva-md) holds no personal data, so it can be public. Each wiki repo stays private.
-    - **Wiki location:** chosen by you during setup; there is no default. Any folder of its own, outside Documents, Desktop and iCloud Drive, which macOS protects from background processes.
+    - **Wiki location:** chosen by you during setup; there is no default. Any folder of its own, outside Documents, Desktop, Downloads and iCloud Drive, which macOS protects from background processes, and outside other cloud storage, such as OneDrive or Dropbox, which syncs into .git.
 17. **Background update settings.**
     - Codex update runs use your normal Codex config (`~/.codex/config.toml`) by default, so its provider settings apply. Your MCP servers start on those runs too.
     - Effort is configurable per host and per model. The default is the highest effort the chat's model supports.

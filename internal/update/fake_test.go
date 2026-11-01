@@ -9,16 +9,15 @@ import (
 func TestFakeRecordsRequestsAndAnswers(t *testing.T) {
 	isolate(t)
 	f := &Fake{Result: Result{Output: []byte(answer)}}
-	r := Request{Host: HostCodex, Input: []byte("batch"), CodexDisable: []string{"view_image"}}
+	r := Request{Host: HostCodex, Input: []byte("batch")}
 	res, err := f.Run(context.Background(), r)
 	if err != nil || string(res.Output) != answer {
 		t.Fatalf("result %+v %v", res, err)
 	}
 	// The record is a copy: the caller may reuse its buffers.
 	r.Input[0] = 'X'
-	r.CodexDisable[0] = "changed"
 	got := f.Requests()
-	if len(got) != 1 || string(got[0].Input) != "batch" || got[0].CodexDisable[0] != "view_image" {
+	if len(got) != 1 || string(got[0].Input) != "batch" {
 		t.Fatalf("requests %+v", got)
 	}
 

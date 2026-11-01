@@ -34,8 +34,8 @@ func TestCodexArgumentsMatchTheDesign(t *testing.T) {
 	isolate(t)
 	dump := fakeHost(t, HostCodex)
 	r := request(t, HostCodex)
-	// A repeated name, or one of the fixed five, is passed once.
-	r.CodexDisable = []string{"multi_agent", "view_image", "hooks", "multi_agent", "code_mode_host"}
+	// The run disables the features codex features list names, and no others.
+	put(t, dump, "features", "hooks  stable  true\nmulti_agent  stable  false\nview_image  stable  true\n")
 	r.IgnoreUserConfig = true
 	res, err := NewRunner(HostCodex).Run(context.Background(), r)
 	if err != nil || res.Reason != "" {
@@ -48,8 +48,7 @@ func TestCodexArgumentsMatchTheDesign(t *testing.T) {
 	}
 	schema, output := got[i+1], got[i+3]
 	want := []string{"--no-daemon", "exec", "--ephemeral", "--json", "-s", "read-only", "--skip-git-repo-check", "-C", r.RunDir,
-		"--disable", "hooks", "--disable", "plugins", "--disable", "memories", "--disable", "shell_tool", "--disable", "apps",
-		"--disable", "multi_agent", "--disable", "view_image", "--disable", "code_mode_host",
+		"--disable", "hooks", "--disable", "view_image", "--disable", "multi_agent",
 		"-c", "web_search=disabled", "-c", "tools.update_plan.enabled=false", "-m", "gpt-test-model", "-c", "model_reasoning_effort=ultra",
 		"--ignore-user-config", "--output-schema", schema, "-o", output, "-"}
 	if !slices.Equal(got, want) {
@@ -78,12 +77,102 @@ func TestCodexArgumentsMatchTheDesign(t *testing.T) {
 		t.Fatalf("working folder %s, want %s", got, real)
 	}
 	r.IgnoreUserConfig = false
-	r.CodexDisable = nil
+	put(t, dump, "features", "hooks  stable  true\nview_image  stable  true\n")
 	if _, err := NewRunner(HostCodex).Run(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	if got := argsOf(t, dump, 2); slices.Contains(got, "--ignore-user-config") || slices.Contains(got, "multi_agent") {
 		t.Fatalf("second run arguments %q", got)
+	}
+}
+
+// disabled is the features a run's arguments disable, in order.
+func disabled(args []string) []string {
+	var names []string
+	for i, a := range args {
+		if a == "--disable" && i+1 < len(args) {
+			names = append(names, args[i+1])
+		}
+	}
+	return names
+}
+
+// A run disables each tool feature codex features list names, on or off,
+// and no name the list lacks; a feature that gives no tool stays as it is.
+// A list that can't be read, or holds no feature, leaves the fixed five.
+func TestCodexDisablesTheToolFeaturesCodexLists(t *testing.T) {
+	isolate(t)
+	dump := fakeHost(t, HostCodex)
+	put(t, dump, "features", `hooks                                    stable             true
+plugins                                  stable             true
+memories                                 stable             false
+shell_tool                               stable             true
+unified_exec                             stable             true
+view_image                               stable             true
+skill_search                             stable             true
+code_mode                                under development  false
+code_mode_host                           stable             true
+computer_use                             stable             true
+browser_use                              stable             false
+deferred_executor                        under development  false
+secret_auth_storage                      stable             false
+guardianv2.thread_context                removed            false
+a notice that is not a feature
+`)
+	r := request(t, HostCodex)
+	if _, err := NewRunner(HostCodex).Run(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, dump, "features.args"); got != "features\x00list\x00" {
+		t.Fatalf("features list arguments %q", got)
+	}
+	// apps is not listed, so it is not passed.
+	want := []string{"hooks", "plugins", "memories", "shell_tool", "view_image", "code_mode", "code_mode_host", "deferred_executor", "browser_use", "computer_use"}
+	if got := disabled(argsOf(t, dump, 1)); !slices.Equal(got, want) {
+		t.Fatalf("disabled %q, want %q", got, want)
+	}
+	for i, list := range []string{"", "Error: features are unavailable\n"} {
+		put(t, dump, "features", list)
+		if _, err := NewRunner(HostCodex).Run(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+		if got := disabled(argsOf(t, dump, i+2)); !slices.Equal(got, codexOff) {
+			t.Fatalf("list %q: disabled %q, want %q", list, got, codexOff)
+		}
+	}
+	if err := os.Remove(filepath.Join(dump, "features")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRunner(HostCodex).Run(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if got := disabled(argsOf(t, dump, 4)); !slices.Equal(got, codexOff) {
+		t.Fatalf("failed list: disabled %q, want %q", got, codexOff)
+	}
+}
+
+// codex features list ends at a timeout of its own, and a run whose list
+// hangs goes on with the fixed five. The test ends that timeout once the
+// fake lists, so the machine's speed decides nothing.
+func TestCodexFeaturesListThatHangsFallsBack(t *testing.T) {
+	isolate(t)
+	dump := fakeHost(t, HostCodex)
+	put(t, dump, "features.sh", `: > "$dump/listing"; exec sleep 300`)
+	ctx, features := holdFeatures(context.Background())
+	done := launch(t, ctx, HostCodex, request(t, HostCodex))
+	if d := features.next(t); d != featuresTimeout {
+		t.Fatalf("the list's timeout is %s, want %s", d, featuresTimeout)
+	}
+	if !waitFile(dump, "listing") {
+		t.Fatalf("the fake didn't list in %s", hangGuard)
+	}
+	features.expire()
+	res, err := await(t, done, "a run whose features list hung")
+	if err != nil || res.Reason != "" {
+		t.Fatalf("result %+v %v", res, err)
+	}
+	if got := disabled(argsOf(t, dump, 1)); !slices.Equal(got, codexOff) {
+		t.Fatalf("disabled %q, want %q", got, codexOff)
 	}
 }
 

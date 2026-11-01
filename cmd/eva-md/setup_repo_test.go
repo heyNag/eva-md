@@ -638,7 +638,7 @@ func TestSetupUsesARepoWithContent(t *testing.T) {
 		f := newFakeSetup(t, true).fakes(t, withContent)
 		f.realGit(t)
 		f.plainRepo(t, "eva-wiki")
-		f.bareRepo(t, "eva-memory")
+		bare := f.bareRepo(t, "eva-memory")
 		const refusal = "   This repo has content but isn't an eva wiki; use an empty private repo, or the repo of your eva wiki\n   Another name, or an address: "
 		code, out, errOut := f.answers(t, "", "")
 		if code != 1 || !strings.Contains(out, contentQuestion+checking+refusal) || !strings.Contains(errOut, "nothing was changed") {
@@ -648,10 +648,13 @@ func TestSetupUsesARepoWithContent(t *testing.T) {
 			t.Fatalf("the folder was made: %v", err)
 		}
 		f.noTempLeft(t)
-		code, out, errOut = f.answers(t, "", "", "eva-memory", "y")
+		code, out, errOut = f.answers(t, "", "", "eva-memory", "y", "y")
 		f.wantRemote(t, code, out, errOut, "git@github.com:me/eva-memory.git")
 		wantIn(t, "stdout", out, refusal, "Setup will create a new wiki in this folder and push it, then install the plugins.\n", "  Wiki ready in ")
 		wantIn(t, "gh log", f.log(t, "gh"), "repo create eva-memory --private")
+		if refs, head := gitIn(t, bare, "for-each-ref", "--format=%(objectname)"), gitIn(t, filepath.Join(f.env.home, "projects", "wiki"), "rev-parse", "HEAD"); refs != head {
+			t.Fatalf("pushed %q, want %s", refs, head)
+		}
 	})
 }
 
@@ -663,7 +666,7 @@ func TestSetupReadsATypedRepo(t *testing.T) {
 	f.bareRepo(t, "eva-wiki")
 	evaWiki(t, filepath.Join(t.TempDir(), "wiki"), "git@github.com:me/eva-wiki.git", "this-mac")
 	f.plainRepo(t, "notes")
-	f.bareRepo(t, "empty-wiki")
+	empty := f.bareRepo(t, "empty-wiki")
 	folder := filepath.Join(f.env.home, "projects", "wiki")
 
 	t.Run("one git can't read", func(t *testing.T) {
@@ -698,12 +701,15 @@ func TestSetupReadsATypedRepo(t *testing.T) {
 			t.Fatal(err)
 		}
 		f.inits = nil
-		code, out, errOut := f.answers(t, "git@github.com:me/notes.git", "git@github.com:me/empty-wiki.git", "y")
+		code, out, errOut := f.answers(t, "git@github.com:me/notes.git", "git@github.com:me/empty-wiki.git", "y", "y")
 		f.wantRemote(t, code, out, errOut, "git@github.com:me/empty-wiki.git")
 		wantIn(t, "stdout", out,
 			checking+"   This repo has content but isn't an eva wiki; use an empty private repo, or the repo of your eva wiki\n   Remote: ",
 			checking+"   The repo is empty: setup will create the wiki in it.\n",
 			"  Wiki ready in "+folder+"\n")
+		if refs, head := gitIn(t, empty, "for-each-ref", "--format=%(objectname)"), gitIn(t, folder, "rev-parse", "HEAD"); refs != head {
+			t.Fatalf("pushed %q, want %s", refs, head)
+		}
 	})
 }
 

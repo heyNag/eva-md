@@ -24,9 +24,17 @@ import (
 // and pwd.n, and copies the schema file it was given to schema.n. It copies
 // output.n to the file after -o, writes stderr.n and stdout.n, runs the
 // shell lines in extra, and exits with the code in exit.n. Each of these
-// falls back to the file without ".n".
+// falls back to the file without ".n". codex features list is not a run: it
+// records its arguments in features.args, runs the shell lines in
+// features.sh, and prints the file features, or exits 1 when there is none.
 const fakeScript = `#!/bin/sh
 dump=$HOME/fake
+if [ "$1" = features ]; then
+	printf '%s\0' "$@" > "$dump/features.args"
+	if [ -f "$dump/features.sh" ]; then . "$dump/features.sh"; fi
+	if [ -f "$dump/features" ]; then cat "$dump/features"; exit 0; fi
+	exit 1
+fi
 n=0
 if [ -f "$dump/count" ]; then read n < "$dump/count"; fi
 n=$((n + 1))
@@ -77,7 +85,8 @@ func TestMain(m *testing.M) {
 	// ends only when this wait does, which must still be inside the test's
 	// guard.
 	WaitDelay = hangGuard / 2
-	runTimer = heldTimer
+	featuresTimeout = 10 * time.Minute
+	runTimer, featuresTimer = heldTimer(timeoutsKey{}), heldTimer(featuresKey{})
 	dir, err := os.MkdirTemp("", "eva-md-update-test-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -295,8 +304,18 @@ func await(t *testing.T, done <-chan ran, what string) (Result, error) {
 // timeout never races the machine's speed. A run under any other context
 // gets its real timeout.
 func holdTimeouts(ctx context.Context) (context.Context, *timeouts) {
+	return hold(ctx, timeoutsKey{})
+}
+
+// holdFeatures is holdTimeouts for the codex features list a Codex run reads
+// first, whose timeout is its own.
+func holdFeatures(ctx context.Context) (context.Context, *timeouts) {
+	return hold(ctx, featuresKey{})
+}
+
+func hold(ctx context.Context, key any) (context.Context, *timeouts) {
 	h := &timeouts{started: make(chan time.Duration, 16), expired: make(chan struct{})}
-	return context.WithValue(ctx, timeoutsKey{}, h), h
+	return context.WithValue(ctx, key, h), h
 }
 
 // timeouts holds the timeouts of the runs started under one context.
@@ -306,7 +325,10 @@ type timeouts struct {
 	once    sync.Once
 }
 
-type timeoutsKey struct{}
+type (
+	timeoutsKey struct{}
+	featuresKey struct{}
+)
 
 // next waits for the next run to start and returns its timeout.
 func (h *timeouts) next(t *testing.T) time.Duration {
@@ -324,13 +346,20 @@ func (h *timeouts) next(t *testing.T) time.Duration {
 // any run that starts later.
 func (h *timeouts) expire() { h.once.Do(func() { close(h.expired) }) }
 
-// heldTimer is runTimer in the tests: under holdTimeouts' context a run's
-// timeout ends when the test expires it, and elsewhere when it passes.
-func heldTimer(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
-	h, ok := ctx.Value(timeoutsKey{}).(*timeouts)
-	if !ok {
-		return context.WithTimeout(ctx, d)
+// heldTimer is runTimer, or featuresTimer, in the tests: under the context
+// of holdTimeouts, or holdFeatures, its timeout ends when the test expires
+// it, and elsewhere when it passes.
+func heldTimer(key any) func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
+	return func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+		h, ok := ctx.Value(key).(*timeouts)
+		if !ok {
+			return context.WithTimeout(ctx, d)
+		}
+		return h.timer(ctx, d)
 	}
+}
+
+func (h *timeouts) timer(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
 	select {
 	case h.started <- d:
 	case <-ctx.Done():

@@ -70,7 +70,6 @@ type Request struct {
 	Input            []byte        // the batch, on stdin, never in an argument
 	Schema           []byte        // the strict JSON schema, a JSON object
 	RunDir           string        // an empty folder, by absolute path, used as the child's working directory
-	CodexDisable     []string      // tool features to disable, from the list recorded at install
 	IgnoreUserConfig bool          // codex_ignore_user_config
 	Timeout          time.Duration // zero: derived from the effort; one budget for all attempts
 	CLI              string        // the CLI's absolute path, as install recorded it; empty, or no longer the CLI: looked up on PATH
@@ -244,13 +243,9 @@ func joinNotes(notes ...string) string {
 	return strings.Join(kept, "; ")
 }
 
-var (
-	// A model name never starts with a dash, so it can't be read as a flag.
-	// The rest allows aliases, dated ids, provider prefixes and "[1m]".
-	modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,199}$`)
-	// Codex feature names are snake_case.
-	featureName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
-)
+// A model name never starts with a dash, so it can't be read as a flag.
+// The rest allows aliases, dated ids, provider prefixes and "[1m]".
+var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,199}$`)
 
 // check refuses a request with nothing to run, with a value a CLI could read
 // as another flag, or without an empty run folder, so nothing unexpected
@@ -270,11 +265,6 @@ func check(r Request) error {
 		return errors.New("update: the schema is not a JSON object")
 	case r.Timeout < 0:
 		return errors.New("update: the timeout is negative")
-	}
-	for _, name := range r.CodexDisable {
-		if !featureName.MatchString(name) {
-			return fmt.Errorf("update: %q is not a Codex feature name", name)
-		}
 	}
 	return checkRunDir(r.RunDir)
 }
