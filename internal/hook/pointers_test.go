@@ -411,7 +411,7 @@ func TestPointerFits(t *testing.T) {
 		{"Orders", "Calls the bank with " + secret, "eva.md: Orders: " + bin + " show systems/orders"},
 		{"Orders " + secret, "Takes orders", ""},
 	} {
-		got := pointer(tc.title, tc.description, bin, "orders")
+		got := pointer(tc.title, tc.description, nil, bin, "orders")
 		if got != tc.want || len([]rune(got)) > pointerCap {
 			t.Errorf("pointer(%q, %q)\n got %q\nwant %q", tc.title, tc.description, got, tc.want)
 		}

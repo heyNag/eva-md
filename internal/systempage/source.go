@@ -1,39 +1,27 @@
 package systempage
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/url"
 	"regexp"
 	"slices"
 	"strings"
 
-	"github.com/heyNag/eva-md/internal/identity"
-	"github.com/heyNag/eva-md/internal/redact"
+	"github.com/heyNag/eva-md/internal/coderef"
 )
 
-var (
-	// commitRef is <repo>@<commit> or <repo>@<commit>:<path>.
-	commitRef = regexp.MustCompile(`^(.+)@([0-9a-f]{7,40})(?::(.+))?$`)
-	// versionAfter is a URL followed by a space and the version it cites.
-	versionAfter = regexp.MustCompile(`^(\S+) v([0-9]+)$`)
-	// hashKey and localKey are the project keys that come from no remote
-	// (see identity.Project.Key).
-	hashKey  = regexp.MustCompile(`^(?:repo|local)-[0-9a-f]{12}$`)
-	localKey = regexp.MustCompile(`^local-[a-z0-9._-]{1,40}-[0-9a-f]{6}$`)
-)
+// versionAfter is a URL followed by a space and the version it cites.
+var versionAfter = regexp.MustCompile(`^(\S+) v([0-9]+)$`)
 
 // source reports whether a page may cite s: code as <repo>@<commit>, with
-// :<path> for a file, where the repo is a git remote or a project key and
-// the commit 7 to 40 hex digits; or a document as its https:// URL, without
-// a user name, a password or a query parameter that carries a credential,
-// perhaps with the version it cites as a query parameter or written after it
-// as a space and v<n>, so a later digest can tell what changed.
+// :<path> for a file or a folder, where the repo is a git remote or a
+// project key and the commit 7 to 40 hex digits (see coderef.Parse); or a
+// document as its https:// URL, without a user name, a password or a query
+// parameter that carries a credential, perhaps with the version it cites as
+// a query parameter or written after it as a space and v<n>, so a later
+// digest can tell what changed.
 func source(s string) bool {
-	if m := commitRef.FindStringSubmatch(s); m != nil {
-		if _, ok := projectKey(m[1]); ok && !withPassword(m[1]) && (m[3] == "" || filePath(m[3])) {
-			return true
-		}
+	if _, ok := coderef.Parse(s); ok {
+		return true
 	}
 	if m := versionAfter.FindStringSubmatch(s); m != nil {
 		s = m[1]
@@ -60,63 +48,18 @@ func withCredential(u *url.URL) bool {
 	return false
 }
 
-// withPassword reports a remote URL that holds a password, which a source
-// would keep.
-func withPassword(remote string) bool {
-	u, err := url.Parse(remote)
-	if err != nil || u.User == nil {
-		return false
-	}
-	_, has := u.User.Password()
-	return has
-}
-
-// filePath reports a path inside a repo: relative, without .. or spaces.
-func filePath(s string) bool {
-	if strings.HasPrefix(s, "/") || strings.ContainsAny(s, " \\") {
-		return false
-	}
-	for _, part := range strings.Split(s, "/") {
-		if part == ".." || part == "" {
-			return false
+// codeRefs returns the code sources among sources, each once, in their
+// order.
+func codeRefs(sources []string) []coderef.Ref {
+	var out []coderef.Ref
+	for _, s := range sources {
+		if r, ok := coderef.Parse(s); ok && !slices.Contains(out, r) {
+			out = append(out, r)
 		}
 	}
-	return true
+	return out
 }
 
 // projectKey returns the key the inbox and identity use for the project a
-// repo names: a git remote in any form git takes, a normalized remote such
-// as github.com/acme/orders, or a project key itself, as a page read back
-// shows it.
-func projectKey(s string) (string, bool) {
-	if remote, ok := identity.NormalizeRemote(s); ok {
-		return remoteKey(remote), true
-	}
-	if hashKey.MatchString(s) || localKey.MatchString(s) {
-		return s, true
-	}
-	if host, _, ok := strings.Cut(s, "/"); ok {
-		if remote, ok := identity.NormalizeRemote("https://" + s); ok && strings.Contains(host, ".") {
-			return remoteKey(remote), true
-		}
-		return "", false
-	}
-	remote := strings.ReplaceAll(strings.ReplaceAll(s, "__", "/"), "_u", "_")
-	if r, ok := identity.NormalizeRemote("https://" + remote); ok && r == remote && remoteKey(r) == s {
-		return s, true
-	}
-	return "", false
-}
-
-// remoteKey is the project key of a normalized remote, made as
-// identity.Resolve makes it: '_' escaped as "_u" and '/' as "__", or
-// repo-<hash12> when that key reads as a provider token, which the inbox
-// refuses.
-func remoteKey(remote string) string {
-	key := strings.ReplaceAll(strings.ReplaceAll(remote, "_", "_u"), "/", "__")
-	if clean, n := redact.RedactKnown(key); n != 0 || clean != key {
-		sum := sha256.Sum256([]byte(remote))
-		return "repo-" + hex.EncodeToString(sum[:])[:12]
-	}
-	return key
-}
+// repo names (see coderef.ProjectKey).
+func projectKey(s string) (string, bool) { return coderef.ProjectKey(s) }

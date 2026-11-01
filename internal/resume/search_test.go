@@ -7,25 +7,130 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/inbox"
+	"github.com/heyNag/eva-md/internal/searchindex"
 )
 
 func searchOptions(o Options, terms ...string) SearchOptions {
 	return SearchOptions{Dirs: o.Dirs, Project: o.Project, Terms: terms, Days: 90, Limit: 10, Now: o.Now}
 }
 
+// search runs a search as it runs without an index and returns its output.
+// It then builds the search index, runs the search again and checks that
+// the index finds the same hits, in an order that may differ only where the
+// index's scores rank equally good hits, before it deletes the index again.
 func search(t *testing.T, so SearchOptions) string {
 	t.Helper()
 	out, err := Search(context.Background(), so)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := searchindex.Catchup(context.Background(), so.Dirs, "index"); err != nil {
+		t.Fatal(err)
+	}
+	indexed, err := Search(context.Background(), so)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(so.Dirs.SearchIndex()); err != nil {
+		t.Fatal(err)
+	}
+	sameHits(t, so.Terms, out, indexed)
 	return out
+}
+
+// sameHits checks that a search with the index found what the search
+// without it found (see sameHitsOK).
+func sameHits(t *testing.T, terms []string, scanned, indexed string) {
+	t.Helper()
+	if !sameHitsOK(t, terms, scanned, indexed) {
+		t.Fatalf("the index found other hits\nwithout it:\n%s\nwith it:\n%s", scanned, indexed)
+	}
+}
+
+// sameHitsOK reports whether two searches for terms, without the index and
+// with it, show the same label, but for the scores' place in the order, and
+// the same hit lines and count. With a "more" line the index may show other
+// hits ranked as the last one shown, since the scores order those, but no
+// hit ranked above it may be left out. A hit's rank before the scores is
+// how many terms it holds, whether it holds one in the case typed or the
+// phrase, and whether it is a page line; it is read here from its snippet,
+// which holds the whole of a short text.
+func sameHitsOK(t *testing.T, terms []string, scanned, indexed string) bool {
+	t.Helper()
+	label := func(out string) string {
+		first, _, _ := strings.Cut(out, "\n")
+		return strings.Replace(first, ", then rarer and denser matches, then newest", ", then newest", 1)
+	}
+	count := func(out string) (lines []string, total int) {
+		lines = hits(t, out)
+		total = len(lines)
+		if m := regexp.MustCompile(`\n(?:about )?(\d+) more; refine`).FindStringSubmatch(out); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			total += n
+		}
+		return lines, total
+	}
+	q := newQuery(terms)
+	type rank struct {
+		matched     int
+		exact, page bool
+	}
+	rankOf := func(line string) rank {
+		snippet := line[strings.LastIndex(line, " · ")+len(" · "):]
+		lower := strings.ToLower(snippet)
+		r := rank{exact: q.exact(snippet, lower), page: pageHitShape.MatchString(line)}
+		for _, t := range q.terms {
+			if find(lower, t.lower, t.token) >= 0 {
+				r.matched++
+			}
+		}
+		return r
+	}
+	a, an := count(scanned)
+	b, bn := count(indexed)
+	if label(scanned) != label(indexed) || an != bn || len(a) != len(b) {
+		return false
+	}
+	if an == len(a) {
+		a, b = slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b))
+		return slices.Equal(a, b)
+	}
+	last := rankOf(a[len(a)-1])
+	for _, pair := range [][2][]string{{a, b}, {b, a}} {
+		for _, line := range pair[0] {
+			if !slices.Contains(pair[1], line) && rankOf(line) != last {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// With a "more" line, sameHits lets the index show another hit ranked as
+// the last one shown, but catches one ranked above it left out.
+func TestSameHitsCatchesAHitLeftOut(t *testing.T) {
+	out := func(hits ...string) string {
+		return "eva.md search: earlier chat text matching \"Mango\", best matches first, then newest. " + searchFacts + "\n" +
+			strings.Join(hits, "\n") + "\n1 more; refine with other terms\nScanned 3 files (0.0 MB) in 1 project, last 90 days, 1 ms."
+	}
+	exact := "[user] 2026-10-29 12:14 · main · s:a#1 · the Mango as typed"
+	two := "[user] 2026-10-29 12:13 · main · s:b#1 · mango two"
+	three := "[user] 2026-10-29 12:12 · main · s:c#1 · mango three"
+	scanned := out(exact, two)
+	if !sameHitsOK(t, []string{"Mango"}, scanned, out(exact, three)) {
+		t.Fatal("a hit ranked as the last one shown is not let differ")
+	}
+	if sameHitsOK(t, []string{"Mango"}, scanned, out(two, three)) {
+		t.Fatal("a hit ranked above the last one shown left out is not caught")
+	}
 }
 
 // say appends one entry to a Codex session's file.
@@ -496,5 +601,21 @@ func TestSearchSmokeThousandSessions(t *testing.T) {
 	// smoke-0700 to smoke-0799 share the ref's 8 characters.
 	if got := hits(t, out); len(got) != 1 || !strings.Contains(got[0], " · s:smoke-0777-session#13 · …") || !strings.Contains(got[0], "the quokka migration") {
 		t.Fatalf("planted term:\n%s", out)
+	}
+	// The same search through the index, with no window. Again the time is
+	// logged, not bounded.
+	start = time.Now()
+	buildIndex(t, o)
+	built := time.Since(start)
+	so := searchOptions(o, "quokka")
+	so.Days = 0
+	start = time.Now()
+	indexedOut, err := Search(context.Background(), so)
+	t.Logf("built the index in %s; searched through it in %s", built, time.Since(start))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hits(t, indexedOut); len(got) != 1 || !strings.Contains(got[0], " · s:smoke-0777-session#13 · …") || !throughIndex.MatchString(indexedOut) || !strings.Contains(indexedOut, "Scanned 0 files") {
+		t.Fatalf("through the index:\n%s", indexedOut)
 	}
 }

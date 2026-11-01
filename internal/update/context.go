@@ -91,12 +91,12 @@ func commitsOf(ctx context.Context, root, branch string) (subjects []string, hea
 	if err != nil {
 		return unknown, ""
 	}
-	for i, line := range strings.Split(out, "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		sha, subject, ok := strings.Cut(line, "\t")
 		if !ok {
 			continue
 		}
-		if i == 0 && objectID.MatchString(sha) {
+		if head == "" && objectID.MatchString(sha) {
 			head = sha
 		}
 		subjects = append(subjects, subject)
@@ -108,11 +108,14 @@ func commitsOf(ctx context.Context, root, branch string) (subjects []string, hea
 }
 
 // gitRead runs one read-only git command in dir with fsmonitor and hooks
-// off, no optional locks and no inherited git variable that could point it
-// at another repo, and returns its stdout without the final newline.
+// off, no optional locks, no signature checked, lazy fetches off and no
+// inherited git variable that could point it at another repo, and returns
+// its stdout without the final newline. Its commands read only commits,
+// which a partial clone always has, so it needs no --no-lazy-fetch, which
+// a git before 2.44 refuses.
 func gitRead(ctx context.Context, dir string, args ...string) (string, error) {
-	argv := append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks", "-C", dir}, args...)
-	cmd := exec.CommandContext(ctx, "git", argv...)
+	argv := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false", "--no-optional-locks", "-C", dir}
+	cmd := exec.CommandContext(ctx, "git", append(argv, args...)...)
 	cmd.Dir = "/"
 	cmd.WaitDelay = GitWaitDelay
 	for _, kv := range os.Environ() {
@@ -122,7 +125,7 @@ func gitRead(ctx context.Context, dir string, args ...string) (string, error) {
 		}
 		cmd.Env = append(cmd.Env, kv)
 	}
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
 	out := &capped{limit: 64 << 10}
 	cmd.Stdout = out
 	if err := cmd.Run(); err != nil {

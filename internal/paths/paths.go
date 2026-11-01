@@ -61,8 +61,12 @@ func (d Dirs) Locks() string { return filepath.Join(d.State, "locks") }
 func (d Dirs) Logs() string { return filepath.Join(d.State, "logs") }
 
 // Cache holds caches that are rebuilt when missing, such as the identity
-// cache. Deleting it loses nothing.
+// cache and the search index. Deleting it loses nothing.
 func (d Dirs) Cache() string { return filepath.Join(d.State, "cache") }
+
+// SearchIndex holds the search index, a folder per inbox project folder,
+// which eva-md index and the daily maintain build from the inbox.
+func (d Dirs) SearchIndex() string { return filepath.Join(d.Cache(), "search") }
 
 // ConfigFile is the per-Mac config file.
 func (d Dirs) ConfigFile() string { return filepath.Join(d.Config, "config.toml") }

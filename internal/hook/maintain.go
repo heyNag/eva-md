@@ -14,8 +14,8 @@ import (
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
-// The jobs maintain runs as: the day's commit, push and lint, and the retry
-// of a pending push.
+// The jobs maintain runs as: the day's commit, push, lint and search index,
+// and the retry of a pending push.
 var (
 	dailyJob = []string{"maintain"}
 	retryJob = []string{"maintain", "--push-only"}
@@ -24,20 +24,26 @@ var (
 // retryEvery spaces the push retries chat starts spawn.
 const retryEvery = 30 * time.Minute
 
-// maintainOn reports whether the hooks start maintain: a wiki set up by
-// init, its path and instance in the config, without which maintain could
-// only be refused.
-func maintainOn(c config.Config) bool { return c.WikiPath != "" && c.Instance != "" }
+// wikiOn reports whether a wiki is set up by init: its path and instance
+// in the config.
+func wikiOn(c config.Config) bool { return c.WikiPath != "" && c.Instance != "" }
+
+// maintainOn reports whether the hooks start the day's maintain: with a
+// wiki set up by init, and with no wiki at all, for maintain's search index
+// step; not with a wiki path but no instance, a wiki whose commit
+// maintain could only refuse.
+func maintainOn(c config.Config) bool { return wikiOn(c) || c.WikiPath == "" }
 
 // queueMaintain asks for the day's maintain, and at a chat start for a push
-// retry while commits are on. Asking costs the hook nothing here: launch
-// decides, once the output is written, whether each is due.
+// retry while commits are on and a wiki is set up. Asking costs the hook
+// nothing here: launch decides, once the output is written, whether each is
+// due.
 func queueMaintain(spawns *[][]string, env Env, start bool) {
 	if !maintainOn(env.Config) {
 		return
 	}
 	*spawns = append(*spawns, dailyJob)
-	if start && env.Config.Commits {
+	if start && env.Config.Commits && wikiOn(env.Config) {
 		*spawns = append(*spawns, retryJob)
 	}
 }

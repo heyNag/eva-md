@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/paths"
 )
@@ -546,23 +547,74 @@ func (c Cache) load(name, path string) (cacheEntry, bool) {
 		return cacheEntry{}, false
 	}
 	defer root.Close()
-	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return cacheEntry{}, false
-	}
-	defer f.Close()
-	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() || info.Size() > maxEntry {
-		return cacheEntry{}, false
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxEntry+1))
-	if err != nil || len(data) > maxEntry {
-		return cacheEntry{}, false
-	}
-	var e cacheEntry
-	if json.Unmarshal(data, &e) != nil || e.V != cacheVersion || e.Path != path || e.Sum != e.checksum() {
+	e, _, ok := readEntry(root, name)
+	if !ok || e.Path != path {
 		return cacheEntry{}, false
 	}
 	return e, true
+}
+
+// readEntry reads an entry of root: a regular file of at most 16 KB, never
+// through a link, of this cache version, whose checksum holds.
+func readEntry(root *os.Root, name string) (cacheEntry, os.FileInfo, bool) {
+	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return cacheEntry{}, nil, false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxEntry {
+		return cacheEntry{}, nil, false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxEntry+1))
+	if err != nil || len(data) > maxEntry {
+		return cacheEntry{}, nil, false
+	}
+	var e cacheEntry
+	if json.Unmarshal(data, &e) != nil || e.V != cacheVersion || e.Sum != e.checksum() {
+		return cacheEntry{}, nil, false
+	}
+	return e, info, true
+}
+
+// Entry is a worktree the cache holds an entry for: its top level, the
+// project Resolve gave it, and when the entry was last written.
+type Entry struct {
+	Path    string
+	Project Project
+	Seen    time.Time
+}
+
+// Entries lists the worktrees the cache holds entries for, the newest entry
+// first. It reads at most limit of the folder's files, each as Resolve reads
+// an entry, and keeps those of a repo whose answer is known; an entry of a
+// folder outside any repo is left out. It starts no git process, and an
+// entry it lists may be out of date: resolve the worktree again before
+// relying on it.
+func (c Cache) Entries(limit int) []Entry {
+	root, err := paths.OpenRoot(c.Dir, false)
+	if err != nil {
+		return nil
+	}
+	defer root.Close()
+	d, err := root.Open(".")
+	if err != nil {
+		return nil
+	}
+	files, _ := d.ReadDir(limit)
+	d.Close()
+	var out []Entry
+	for _, f := range files {
+		if !strings.HasSuffix(f.Name(), ".json") || !f.Type().IsRegular() {
+			continue
+		}
+		e, info, ok := readEntry(root, f.Name())
+		if ok && e.Sig != "" && e.Project.Kind != KindGeneral && e.Project.Root == e.Path && filepath.IsAbs(e.Path) {
+			out = append(out, Entry{Path: e.Path, Project: e.Project, Seen: info.ModTime()})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Seen.After(out[j].Seen) })
+	return out
 }
 
 // store replaces an entry by renaming a new 0600 file over it, so a reader

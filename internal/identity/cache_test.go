@@ -3,14 +3,17 @@ package identity
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // gitCounter puts a git first on PATH that counts its runs and then runs the
@@ -886,4 +889,70 @@ func benchRepo(b *testing.B) (Cache, string) {
 		}
 	}
 	return Cache{Dir: filepath.Join(home, "cache")}, repo
+}
+
+// Entries lists the worktrees the cache knows, the newest entry first, and
+// stops at its limit. It leaves out a folder outside any repo, an entry that
+// doesn't verify and one that is not a regular file, and starts no git.
+func TestEntries(t *testing.T) {
+	f := newCacheFixture(t)
+	var repos []string
+	for i, name := range []string{"orders", "billing", "ledger"} {
+		repo := newRepo(t, filepath.Join(f.home, "code", name), true)
+		runGit(t, repo, "remote", "add", "origin", "git@github.com:acme/"+name+".git")
+		f.miss(t, repo)
+		repos = append(repos, repo)
+		touchEntry(t, f.cache, repo, time.Now().Add(time.Duration(i-10)*time.Minute))
+	}
+	f.miss(t, mkdir(t, filepath.Join(f.home, "notes")))
+	damaged := newRepo(t, filepath.Join(f.home, "code", "damaged"), true)
+	f.miss(t, damaged)
+	name := touchEntry(t, f.cache, damaged, time.Now())
+	data, err := os.ReadFile(filepath.Join(f.cache.Dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(f.cache.Dir, name), strings.Replace(string(data), `"Branch":"main"`, `"Branch":"evil"`, 1))
+	if err := os.Symlink(filepath.Join(f.cache.Dir, name), filepath.Join(f.cache.Dir, "link.json")); err != nil {
+		t.Fatal(err)
+	}
+	before := f.runs()
+	var got []string
+	for _, e := range f.cache.Entries(4096) {
+		if e.Project.Root != e.Path || e.Seen.IsZero() {
+			t.Fatalf("entry %+v", e)
+		}
+		got = append(got, e.Path)
+	}
+	if want := []string{repos[2], repos[1], repos[0]}; !slices.Equal(got, want) || f.runs() != before {
+		t.Fatalf("entries %q, want %q; %d git runs", got, want, f.runs()-before)
+	}
+	if n := len(f.cache.Entries(2)); n > 2 {
+		t.Fatalf("%d entries past a limit of 2", n)
+	}
+	if got := (Cache{Dir: filepath.Join(f.home, "no-such-folder")}).Entries(10); got != nil {
+		t.Fatalf("no cache folder: %+v", got)
+	}
+}
+
+// touchEntry sets when the cache's entry for path was written, and returns
+// its file's name.
+func touchEntry(t *testing.T, c Cache, path string, at time.Time) string {
+	t.Helper()
+	files, err := os.ReadDir(c.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(filepath.Join(c.Dir, file.Name()))
+		var e cacheEntry
+		if err == nil && json.Unmarshal(data, &e) == nil && e.Path == path {
+			if err := os.Chtimes(filepath.Join(c.Dir, file.Name()), at, at); err != nil {
+				t.Fatal(err)
+			}
+			return file.Name()
+		}
+	}
+	t.Fatalf("no entry for %s", path)
+	return ""
 }

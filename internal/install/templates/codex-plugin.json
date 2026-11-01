@@ -4,6 +4,7 @@
   "description": "Resume your project from locally captured chats using your private eva.md wiki.",
   "author": {"name": "eva-md"},
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "eva.md",
     "shortDescription": "Automatic private markdown memory",

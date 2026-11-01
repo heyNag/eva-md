@@ -136,6 +136,12 @@ func spawn(ctx context.Context, cli string, args []string, dir string, stdin []b
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
 			return child{missing: true}, nil
 		}
+		// A run whose time ran out before the CLI started, as a retry left
+		// with almost none of the attempts' shared timeout, timed out as one
+		// that ran out later does; Run reports a cancelled job as before.
+		if tctx.Err() != nil {
+			return child{failed: true, timedOut: errors.Is(tctx.Err(), context.DeadlineExceeded)}, nil
+		}
 		return child{}, fmt.Errorf("update: could not start %s: %w", filepath.Base(cli), err)
 	}
 	// The exit status comes from ProcessState rather than Wait's error: a

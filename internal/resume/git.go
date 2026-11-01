@@ -11,14 +11,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/identity"
 )
 
 type gitInfo struct {
 	text    string
 	changed bool
+	head    string // the commit HEAD names, when the summary read it
 }
 
 var objectID = regexp.MustCompile(`^[a-fA-F0-9]{7,64}$`)
@@ -87,6 +90,9 @@ func gitSummary(parent context.Context, p identity.Project, head string) gitInfo
 	}
 	if objectID.MatchString(head) {
 		current, e := git(ctx, p.Root, "rev-parse", "--verify", "HEAD")
+		if e == nil {
+			r.head = current
+		}
 		if e == nil && !strings.HasPrefix(current, head) {
 			count, e := git(ctx, p.Root, "rev-list", "--count", head+"..HEAD")
 			if e == nil {
@@ -132,10 +138,18 @@ func gitSummary(parent context.Context, p identity.Project, head string) gitInfo
 	return r
 }
 
-// No hook, fsmonitor, optional locks or inherited locator can redirect a read.
+// No hook, fsmonitor, optional locks or inherited locator can redirect a
+// read, no signature is checked, and a partial clone never fetches what it
+// lacks (see coderef.Partial). A call killed at its deadline takes any
+// process it started with it.
 func git(ctx context.Context, root string, args ...string) (string, error) {
-	argv := append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks", "-C", root}, args...)
-	cmd := exec.CommandContext(ctx, "git", argv...)
+	argv := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false", "--no-optional-locks"}
+	if coderef.Partial(root) {
+		argv = append(argv, "--no-lazy-fetch")
+	}
+	cmd := exec.CommandContext(ctx, "git", append(append(argv, "-C", root), args...)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return coderef.KillGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = GitWaitDelay
 	for _, e := range os.Environ() {
 		key := strings.SplitN(e, "=", 2)[0]
@@ -144,7 +158,7 @@ func git(ctx context.Context, root string, args ...string) (string, error) {
 		}
 		cmd.Env = append(cmd.Env, e)
 	}
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
 	var out limitBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = &limitBuffer{}

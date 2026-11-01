@@ -15,15 +15,20 @@ import (
 	"github.com/heyNag/eva-md/internal/systempage"
 )
 
-const systemUsage = "usage: eva-md system write <slug> [--replace] < page.md"
+const systemUsage = "usage: eva-md system write <slug> [--replace] < page.md | eva-md system status [<slug>...] [--json]"
 
 // runSystem runs eva-md system write <slug> [--replace]: it reads one system
 // page from stdin and writes it to the wiki with the system map, from any
-// folder. It prints one line, "wrote systems/<slug>.md (<n> bytes); the map
-// has <m> systems", or the problems it refused the page for, each naming its
-// lines and never their text. It exits 0 on a write, 1 on a refusal and 2
-// on a usage error.
+// folder. It prints "wrote systems/<slug>.md (<n> bytes); the map has <m>
+// systems", then a line for each repo and commit of the code the page cites,
+// saying whether a local clone confirmed its paths and why not; or the
+// problems it refused the page for, each naming its lines and never their
+// text. It exits 0 on a write, 1 on a refusal and 2 on a usage error. eva-md
+// system status is runSystemStatus.
 func runSystem(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
+	if len(args) >= 2 && args[1] == "status" {
+		return runSystemStatus(ctx, args[2:], out, errOut)
+	}
 	if len(args) < 2 || args[1] != "write" {
 		return usage(errOut, systemUsage)
 	}
@@ -55,7 +60,8 @@ func runSystem(ctx context.Context, args []string, in io.Reader, out, errOut io.
 		}
 		return 1
 	}
-	r, err := systempage.Write(ctx, systempage.Options{Config: c, Dirs: dirs, Version: version, Now: time.Now}, slug, *replace, in)
+	cwd, _ := os.Getwd()
+	r, err := systempage.Write(ctx, systempage.Options{Config: c, Dirs: dirs, Version: version, Now: time.Now, Cwd: cwd}, slug, *replace, in)
 	var refused *systempage.Refusal
 	switch {
 	case errors.As(err, &refused):
@@ -73,6 +79,9 @@ func runSystem(ctx context.Context, args []string, in io.Reader, out, errOut io.
 		systems = "system"
 	}
 	fmt.Fprintf(out, "wrote %s (%d bytes); the map has %d %s\n", r.Page, r.Bytes, r.Systems, systems)
+	for _, note := range r.Notes {
+		fmt.Fprintln(out, note)
+	}
 	return 0
 }
 

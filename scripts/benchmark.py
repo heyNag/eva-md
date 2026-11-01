@@ -8,16 +8,103 @@ the latency targets are for. The transcript-recovery figure is
 sensitive to machine load, so compare builds in alternating runs. The
 installed binary the hooks spawn for an update or maintain is a stand-in that
 only counts its runs, so a benchmark never starts a real update, a model call
-or a commit.
+or a commit. Two searches over the padded inbox, before and after eva-md
+index, are reported as figures only.
 """
 import argparse
 import json
 import os
 from pathlib import Path
+import select
 import subprocess
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
+
+
+class MCP:
+    """One eva-md mcp server over pipes, as a host starts it."""
+
+    def __init__(self, binary, env, cwd):
+        self.p = subprocess.Popen([str(binary), "mcp", "--host", "codex"], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=str(cwd))
+        self.buf, self.next_id = b"", 0
+
+    def request(self, method, params, limit=10):
+        """Sends one request and returns its answer and the milliseconds it took."""
+        self.next_id += 1
+        line = json.dumps({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}).encode()+b"\n"
+        start = time.perf_counter()
+        self.p.stdin.write(line); self.p.stdin.flush()
+        while True:
+            reply = json.loads(self.readline(start+limit))
+            if reply.get("id") == self.next_id:
+                return reply, (time.perf_counter()-start)*1000
+
+    def call(self, name, arguments):
+        reply, elapsed = self.request("tools/call", {"name": name, "arguments": arguments})
+        result = reply.get("result") or {}
+        if result.get("isError") or len(result.get("content", [])) != 1:
+            raise RuntimeError("eva-md mcp: %s failed" % name)
+        return result["content"][0]["text"], elapsed
+
+    def readline(self, deadline):
+        while b"\n" not in self.buf:
+            ready, _, _ = select.select([self.p.stdout], [], [], max(deadline-time.perf_counter(), 0))
+            chunk = os.read(self.p.stdout.fileno(), 1 << 16) if ready else b""
+            if not chunk:
+                raise RuntimeError("eva-md mcp: no answer")
+            self.buf += chunk
+        line, self.buf = self.buf.split(b"\n", 1)
+        return line
+
+    def close(self):
+        """Closes stdin and returns the milliseconds until the server exited."""
+        start = time.perf_counter()
+        self.p.stdin.close()
+        self.p.wait(timeout=5)
+        elapsed = (time.perf_counter()-start)*1000
+        if self.p.returncode or self.p.stderr.read():
+            raise RuntimeError("eva-md mcp failed or wrote diagnostics")
+        return elapsed
+
+
+def mcp_timings(binary, env, cwd):
+    """Cold starts timed to the initialize answer and to the exit after
+    stdin closes, then eva_search over the padded inbox, eva_show of a ref
+    it found and eva_status, each timed over one server."""
+    initialize = {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "benchmark", "version": "1"}}
+    starts, exits = [], []
+    for _ in range(10):
+        start = time.perf_counter()
+        server = MCP(binary, env, cwd)
+        reply, _ = server.request("initialize", initialize)
+        starts.append((time.perf_counter()-start)*1000)
+        if reply["result"]["serverInfo"]["name"] != "eva-md":
+            raise RuntimeError("eva-md mcp: not eva-md's server")
+        exits.append(server.close())
+    server = MCP(binary, env, cwd)
+    server.request("initialize", initialize)
+    searches, shows, statuses = [], [], []
+    ref = None
+    for _ in range(20):
+        text, elapsed = server.call("eva_search", {"terms": ["MARIGOLD"]})
+        searches.append(elapsed)
+        ref = ref or next((part for line in text.splitlines() for part in line.split(" · ") if part.startswith("s:")), None)
+    if not ref:
+        raise RuntimeError("eva_search found no planted exchange")
+    for _ in range(20):
+        text, elapsed = server.call("eva_show", {"ref": ref})
+        if "MARIGOLD" not in text:
+            raise RuntimeError("eva_show did not open the ref eva_search found")
+        shows.append(elapsed)
+    for _ in range(20):
+        text, elapsed = server.call("eva_status", {})
+        if not text.startswith("scope: "):
+            raise RuntimeError("eva_status gave no status")
+        statuses.append(elapsed)
+    server.close()
+    return starts, exits, searches, shows, statuses
 
 
 def main():
@@ -28,7 +115,9 @@ def main():
     a = p.parse_args()
     binary = a.binary.resolve(strict=True)
     cwd = a.cwd.resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix="eva-md-m1-") as home:
+    # A home under /tmp keeps the binary's path, which every pointer names,
+    # near the length of an installed one's.
+    with tempfile.TemporaryDirectory(prefix="eva-md-m1-", dir="/tmp") as home:
         env = os.environ.copy()
         env.update(HOME=home, GIT_CONFIG_GLOBAL=str(Path(home)/"gitconfig"), GIT_CONFIG_NOSYSTEM="1",
                    EVA_MD_INNER="", CLAUDE_CODE_REMOTE="", CLAUDE_CODE_ENTRYPOINT="", TMPDIR="/tmp")
@@ -54,6 +143,9 @@ def main():
                 raise RuntimeError("invalid Stop output")
             return r.stdout, elapsed
 
+        # With no config, a capture-only install, the day's first event
+        # starts maintain, for its search index step: the stand-in's one
+        # maintain run.
         hook("claude-code", "SessionStart", "m1-previous", source="startup")
         for i in range(3):
             hook("claude-code", "UserPromptSubmit", "m1-previous", prompt_id=str(i), prompt="Codename MARIGOLD; decision: keep JSONL; open question: retention; next step: resume tests.")
@@ -80,6 +172,25 @@ def main():
             if "MARIGOLD" not in context or "eva-memory" not in context or len(context)>7000:
                 raise RuntimeError("cross-host startup failed")
             startup.append(elapsed)
+        # Search with no window over every project: first as a search finds
+        # an inbox with no index, which also indexes up to 16 MiB of it for
+        # the next search, then after eva-md index. Figures only: process
+        # start dominates at 50 MB.
+        def search():
+            start=time.perf_counter()
+            r=subprocess.run([str(binary),"search","--all","--days","0","--cwd",str(cwd),"MARIGOLD"],text=True,capture_output=True,env=env,timeout=30)
+            elapsed=(time.perf_counter()-start)*1000
+            if r.returncode or "MARIGOLD" not in r.stdout:
+                raise RuntimeError("search failed")
+            return r.stdout,elapsed
+        _,search_before=search()
+        start=time.perf_counter()
+        if subprocess.run([str(binary),"index"],capture_output=True,env=env,timeout=120).returncode:
+            raise RuntimeError("eva-md index failed")
+        index_ms=(time.perf_counter()-start)*1000
+        found,search_after=search()
+        if " through the index of " not in found:
+            raise RuntimeError("the search after eva-md index did not use it")
         transcript=Path(home)/".claude/projects/m1-fixture/m1-transcript.jsonl"
         transcript.parent.mkdir(parents=True,mode=0o700)
         transcript.touch(mode=0o600)
@@ -113,10 +224,10 @@ def main():
         # With a wiki set up, the start-of-chat notice reads the newest run
         # log and commit records, at most 64 KB of each day's and 16 KB of
         # each month's: here a busy day of updates on each of two days and two
-        # months of daily commits, all healthy, so no notice shows. The first
-        # of these starts the day's maintain, one open of its marker and a
-        # spawn; the others check for a push to retry at most every 30
-        # minutes, and otherwise stat that check's marker.
+        # months of daily commits, all healthy, so no notice shows. The day's
+        # maintain started already, so each finds its marker; they check for
+        # a push to retry at most every 30 minutes, and otherwise stat that
+        # check's marker.
         state=Path(home)/".local/state/eva-md"
         now=datetime.now().astimezone()
         stamp=lambda t: t.isoformat(timespec="seconds")
@@ -181,7 +292,7 @@ def main():
                 pointed.append(elapsed)
         # Spawning: every Stop with 60 KB or more unprocessed, and every
         # SessionEnd, starts the stand-in detached, as the day's first hook
-        # event with the wiki set up did for maintain.
+        # event did for maintain.
         pad=json.dumps(dict(sample,host="codex",session="m1-spawn")).encode()+b"\n"
         (files[0].parent/"codex-m1-spawn.jsonl").write_bytes(pad*((61<<10)//len(pad)+1))
         stop_spawn=[]
@@ -199,7 +310,11 @@ def main():
             time.sleep(0.05)
         if runs()!=expected or spawned.read_text().splitlines().count("maintain")!=1:
             raise RuntimeError("the hooks started the stand-in %d times, not %d with maintain once"%(runs(),expected))
+        # The MCP server, started in the project as Claude Code starts it,
+        # with the padded inbox, the wiki and the records above in place.
+        mcp_starts,mcp_exits,mcp_searches,mcp_shows,mcp_statuses=mcp_timings(binary,env,cwd)
         p95=lambda values: sorted(values)[int((len(values)-1)*.95)]
+        code=code_scenarios(hook,cwd,wiki,state,sample["project"])
         report={"offline":True,"isolated_home":True,"cross_host_resume":True,"inbox_bytes":files[0].stat().st_size,
                 "capture_samples":len(capture),"capture_p95_ms":round(p95(capture),3),
                 "startup_samples":len(startup),"startup_p95_ms":round(p95(startup),3),
@@ -216,12 +331,80 @@ def main():
                 "capture_target_met":p95(capture)<50,"startup_target_met":p95(startup)<300,
                 "startup_with_records_samples":len(startup_records),"startup_with_records_p95_ms":round(p95(startup_records),3),
                 "startup_with_records_target_met":p95(startup_records)<300,
+                "search_before_index_ms":round(search_before,3),"index_ms":round(index_ms,3),
+                "search_after_index_ms":round(search_after,3),
+                "mcp_initialize_samples":len(mcp_starts),"mcp_initialize_p95_ms":round(p95(mcp_starts),3),
+                "mcp_initialize_target_met":p95(mcp_starts)<100,
+                "mcp_exit_max_ms":round(max(mcp_exits),3),"mcp_exit_target_met":max(mcp_exits)<1000,
+                "mcp_search_samples":len(mcp_searches),"mcp_search_p95_ms":round(p95(mcp_searches),3),
+                "mcp_search_target_met":p95(mcp_searches)<5000,
+                "mcp_show_samples":len(mcp_shows),"mcp_show_p95_ms":round(p95(mcp_shows),3),
+                "mcp_show_target_met":p95(mcp_shows)<300,
+                "mcp_status_samples":len(mcp_statuses),"mcp_status_p95_ms":round(p95(mcp_statuses),3),
+                "mcp_status_target_met":p95(mcp_statuses)<300,
                 "checked_at":datetime.now(timezone.utc).isoformat()}
+        for name,values,target in (("code_brief",code["brief"],300),("code_prompt",code["prompts"],50)):
+            report.update({name+"_samples":len(values),name+"_p95_ms":round(p95(values),3) if values else None,
+                           name+"_target_met":bool(values) and p95(values)<target})
         encoded=json.dumps(report,indent=2)+"\n"
         if a.output:
             a.output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
             a.output.write_text(encoded);a.output.chmod(0o600)
         print(encoded,end="")
+
+
+def code_scenarios(hook, cwd, wiki, state, key):
+    """Times the code notes. Startup briefs in --cwd, whose project key the
+    inbox recorded, point at 3 systems that cite its repo at HEAD~1, so each
+    brief counts the commits since, 3 git calls, and every pointer must say
+    the code moved. Then prompts each name 3 of the 400 systems, whose map
+    lines cite a made-up repo's code and whose entries in a planted code
+    status, one for each of the 400 pages, say it moved 14 commits: every
+    pointer must say so, read from the status with no git. A --cwd repo with
+    a single commit skips the briefs."""
+    head1=subprocess.run(["git","-C",str(cwd),"rev-parse","HEAD~1"],capture_output=True,text=True)
+    systems=wiki/"systems"
+    mapfile=systems/"map.md"
+    text=mapfile.read_text()
+    briefs=[]
+    if head1.returncode==0 and " " not in key:
+        for letter in "abc":
+            (systems/("code-"+letter+".md")).write_text('---\ntype: system\ntitle: Code %s\nas_of: "2026-10-30"\n---\n\n## Summary\nCode.\n'%letter.upper())
+            text+="- [Code %s](code-%s.md): Code of this repo · repos: %s · code: %s@%s · as of 2026-10-30\n"%(letter.upper(),letter,key,key,head1.stdout.strip())
+        mapfile.write_text(text)
+        for i in range(10):
+            out,elapsed=hook("codex","SessionStart","m1-code-"+str(i),source="startup")
+            value=json.loads(out)
+            context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
+            lines=[l for l in context.split("\n") if l.startswith("System: Code ") and " (code moved " in l]
+            if len(lines)!=3:
+                raise RuntimeError("a startup brief did not say how far the code of 3 systems moved")
+            briefs.append(elapsed)
+    commit="4e2bf4c0a1b2"
+    pages=[]
+    for i in range(400):
+        slug="svc-%04d-ledger"%i
+        old="- [Ledger Service %04d](%s.md): Keeps the books of region %04d · as of 2026-10-28\n"%(i,slug,i)
+        new="- [Ledger Service %04d](%s.md): Keeps the books of region %04d · repos: github.com__example__ledger · code: github.com__example__ledger@%s:internal/region%04d · as of 2026-10-28\n"%(i,slug,i,commit,i)
+        text=text.replace(old,new)
+        pages.append(dict(slug=slug,as_of="2026-10-28",repos=[dict(key="github.com__example__ledger",commit=commit,paths=["internal/region%04d"%i],
+                                                                  state="moved",moved=14,clone="/Users/example/code/ledger",branch="main",head="0"*40)]))
+    mapfile.write_text(text)
+    status=state/"code-status.json"
+    status.write_text(json.dumps(dict(v=1,at=datetime.now().astimezone().isoformat(timespec="seconds"),duration_ms=1800,pages=pages))+"\n")
+    status.chmod(0o600)
+    prompts=[]
+    for c in range(25):
+        hook("codex","SessionStart","m1-code-prompts-%d"%c,source="startup")
+        n=300+c*3
+        prompt="Why does LedgerSync%04d drop rows when svc-%04d-ledger retries, and does the ledger gateway zone %04d see it?"%(n,n+1,n+2)
+        output,elapsed=hook("codex","UserPromptSubmit","m1-code-prompts-%d"%c,turn_id="0",prompt=prompt)
+        value=json.loads(output)
+        context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
+        if context.count(" (code moved 14 commits")!=3:
+            raise RuntimeError("a prompt naming three systems did not get three pointers saying their code moved")
+        prompts.append(elapsed)
+    return {"brief":briefs,"prompts":prompts}
 
 
 if __name__=="__main__":

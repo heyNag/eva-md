@@ -165,6 +165,7 @@ func inspect(ctx context.Context, d paths.Dirs, module string, hosts, repair boo
 		inspectWiki(ctx, &r, d, c, module, repair)
 	}
 	inspectInbox(ctx, &r, d)
+	inspectSearchIndex(&r, d)
 	now := time.Now()
 	for _, host := range []string{"claude-code", "codex"} {
 		for _, event := range hostEvents(host) {
@@ -192,8 +193,10 @@ func inspect(ctx context.Context, d paths.Dirs, module string, hosts, repair boo
 		}
 		r.Checks = append(r.Checks, captureFreshness(ctx, d, host, now), hookCheck(d, host, now), driftCheck(d, host))
 	}
+	inspectMCPManifests(&r, d)
 	if hosts {
 		inspectHosts(ctx, &r, d, inventoryTimeout)
+		inspectMCPServer(ctx, &r, d)
 	}
 	inspectBackground(&r, d, c, now)
 	return r

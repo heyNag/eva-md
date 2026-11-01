@@ -14,7 +14,9 @@ import (
 
 // Both plugins carry the digest skill, which runs the installed binary by
 // its absolute path and names its host, in each host's documented layout,
-// while hooks.json stays byte for byte what it was before the skill.
+// while hooks.json stays byte for byte what it was before the skill. The
+// skill asks for code cited by folder at the commit read, and for the code
+// status before a page changes.
 func TestDigestSkill(t *testing.T) {
 	binary := "/Users/test/it's a space/.local/share/eva-md/bin/eva-md"
 	for _, host := range []string{"claude", "codex"} {
@@ -39,7 +41,7 @@ func TestDigestSkill(t *testing.T) {
 		if len(lines) != 2 || lines[0] != "name: eva-md-digest" || description == "" || len(description) > 200 || strings.ContainsAny(description, ":<>#\"'") {
 			t.Fatalf("%s skill frontmatter %q", host, front)
 		}
-		if len(body) > 2200 {
+		if len(body) > 2800 {
 			t.Fatalf("%s skill body is %d bytes", host, len(body))
 		}
 		author := map[string]string{"claude": "claude-code", "codex": "codex"}[host]
@@ -47,6 +49,9 @@ func TestDigestSkill(t *testing.T) {
 		for _, want := range []string{bin + " show systems/map", bin + " show systems/<slug>", bin + " system write <slug> < <file>", "`--replace`", "## Unverified",
 			"`## Decisions and constraints` names its source", "`[REDACTED:...]`, restore the text from its source", "at most 24 KB", "generated: { by: " + author + "/",
 			"cite each source's URL, with its version when it has one",
+			"`eva.md: systems/<slug>: ...` lines on stderr", bin + " system status <slug>",
+			"cite code as `<repo>@<commit>:<folder>` for each folder or file you read, at the commit you read it", "one commit per repo in a digest", "at most 16 a page",
+			"`stale_after: <YYYY-MM-DD>`, the day to review it by",
 			"\nNever copy sensitive documents (HR, legal, health, credentials) into a system page; cite them by link and title only.\n"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s skill lacks %q", host, want)

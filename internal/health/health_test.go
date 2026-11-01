@@ -17,13 +17,15 @@ import (
 // Tests check what the doctor and the notices report, not how fast the
 // machine runs git and the hosts' commands or lists folders: the time limits
 // that protect a hook or the doctor from slow ones are raised for every test,
-// before any test runs.
+// before any test runs, the probe of the MCP server's included. The test of
+// a server that hangs gives the probe a short limit of its own.
 func TestMain(m *testing.M) {
 	testlimits.Raise()
 	activityTimeout = time.Minute
 	inventoryTimeout = time.Minute
 	commandTimeout = time.Minute
 	trustTimeout = time.Minute
+	mcpProbeTimeout = time.Minute
 	os.Exit(m.Run())
 }
 

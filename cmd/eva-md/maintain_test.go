@@ -122,7 +122,7 @@ func TestMaintain(t *testing.T) {
 	}
 	addTimelineLine(t, wiki, "Chose the amber switch.")
 	code, out, errOut := evaMD(t, "maintain")
-	if code != 0 || out != "maintain: committed (1 page), push ok\nmaintain: lint: 1 thread pages, 0 over 512 KB, 0 bad refs\n" || errOut != "" {
+	if code != 0 || out != "maintain: committed (1 page), push ok\nmaintain: lint: 1 thread pages, 0 over 512 KB, 0 bad refs\nmaintain: index: up to date (0.0 MB)\n" || errOut != "" {
 		t.Fatalf("maintain: %d %q %q", code, out, errOut)
 	}
 	if got := gitRun(t, remote, "log", "-1", "--format=%s"); !strings.HasPrefix(got, "eva-md daily ") {

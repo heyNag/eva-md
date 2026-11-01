@@ -359,8 +359,10 @@ func TestSpawnFollowsTheOutput(t *testing.T) {
 	}
 }
 
-// updates = false in the config starts nothing, whatever the triggers find,
-// and neither does a config without a wiki, for which a job could only fail.
+// updates = false in the config starts no update, whatever the triggers
+// find, and neither does a config without a wiki, for which a job could
+// only fail; without a wiki the day's maintain still starts, for its search
+// index step.
 func TestUpdatesOffSpawnsNothing(t *testing.T) {
 	for _, host := range hosts {
 		for _, off := range []string{"updates = false", "no wiki"} {
@@ -385,14 +387,17 @@ func TestUpdatesOffSpawnsNothing(t *testing.T) {
 				}
 				p.Session, p.Event, p.Source = "next-session", "SessionStart", "startup"
 				invoke(t, host, p, env)
-				if got := spawned(); got != nil {
+				if got := updateSpawns(spawned()); got != nil {
 					t.Fatalf("spawned %q with %s", got, off)
+				}
+				if got := maintainSpawns(spawned()); off == "no wiki" && !reflect.DeepEqual(got, daily) {
+					t.Fatalf("no wiki: maintain spawns %q", got)
 				}
 				// The same inbox with updates on starts them.
 				env.Config.Updates, env.Config.WikiPath = true, wiki
 				p.Session, p.Event = "test-session", "SessionEnd"
 				invoke(t, host, p, env)
-				if got := spawned(); len(got) != 1 {
+				if got := updateSpawns(spawned()); len(got) != 1 {
 					t.Fatalf("updates on: spawned %q", got)
 				}
 			})

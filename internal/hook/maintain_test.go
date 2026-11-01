@@ -41,6 +41,17 @@ func maintainSpawns(runs [][]string) [][]string {
 	return out
 }
 
+// updateSpawns filters the update jobs out of what the hooks started.
+func updateSpawns(runs [][]string) [][]string {
+	var out [][]string
+	for _, r := range runs {
+		if r[0] != "maintain" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // since returns what spawned recorded after the first n runs, nil for
 // nothing, and the new count.
 func since(spawned func() [][]string, n int) ([][]string, int) {
@@ -91,8 +102,9 @@ func commitFolder(t *testing.T, env Env) []string {
 // it again. Each costs one open of the day's attempt marker, which is all
 // the commit folder holds besides the marker of a chat start's push-retry
 // check. updates = false and commits = false still start it (maintain
-// lints, and commits unless commits = false); a config without a wiki set
-// up by init, or the headless child's hooks, never do.
+// lints, and commits unless commits = false), and so does a config with no
+// wiki, for maintain's search index step; a wiki path without the instance
+// init sets, or the headless child's hooks, never do.
 func TestDailyMaintainStartsOnce(t *testing.T) {
 	for _, host := range hosts {
 		env, p, spawned := maintainSetup(t)
@@ -138,7 +150,7 @@ func TestDailyMaintainStartsOnce(t *testing.T) {
 		{"updates off", func(e *Env) { e.Config.Updates = false }, false, daily},
 		{"commits off", func(e *Env) { e.Config.Commits = false }, false, daily},
 		{"no instance", func(e *Env) { e.Config.Instance = "" }, false, nil},
-		{"no wiki", func(e *Env) { e.Config.WikiPath = "" }, false, nil},
+		{"no wiki", func(e *Env) { e.Config.WikiPath, e.Config.Instance = "", "" }, false, daily},
 		{"headless child", func(*Env) {}, true, nil},
 	} {
 		env, p, spawned := maintainSetup(t)
@@ -230,6 +242,26 @@ func TestPushRetrySpacing(t *testing.T) {
 	env.Config.Commits = true
 	if got := start(at.Add(45 * time.Minute)); !reflect.DeepEqual(got, retry) {
 		t.Fatalf("the next check spawned %q", got)
+	}
+}
+
+// Without a wiki, a capture-only install, the day's first event starts
+// maintain for its search index step, but a chat start never retries a
+// push, even with a pending push recorded.
+func TestNoWikiStartsMaintainButNoPushRetry(t *testing.T) {
+	env, p, spawned := triggerSetup(t)
+	env.Config.WikiPath = ""
+	now := env.Now()
+	commitRecords(t, env, wikigit.Result{At: now.Add(-2 * time.Hour).Format(time.RFC3339), Outcome: wikigit.Committed, Pages: 2, Push: wikigit.PushPending})
+	p.Event, p.Source = "SessionStart", "startup"
+	invoke(t, "claude-code", p, env)
+	if got := maintainSpawns(spawned()); !reflect.DeepEqual(got, daily) {
+		t.Fatalf("the day's first start spawned %q", got)
+	}
+	env.Now = func() time.Time { return now.Add(time.Hour) }
+	invoke(t, "claude-code", p, env)
+	if got := maintainSpawns(spawned()); !reflect.DeepEqual(got, daily) {
+		t.Fatalf("a later start spawned %q", got)
 	}
 }
 

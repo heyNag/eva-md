@@ -272,18 +272,25 @@ var locatingVars = map[string]bool{
 	"GIT_NAMESPACE": true, "GIT_PREFIX": true,
 }
 
+// GitEnv is the environment of eva-md's read-only git calls: the process's,
+// without the variables that could point git at another repo or change its
+// config, and with prompts, optional locks, lazy fetches and translations
+// off, so a partial clone never fetches an object it lacks from its remote;
+// git older than 2.44 ignores GIT_NO_LAZY_FETCH.
+func GitEnv() []string { return gitEnv() }
+
 func gitEnv() []string {
-	env := make([]string, 0, len(os.Environ())+2)
+	env := make([]string, 0, len(os.Environ())+4)
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if locatingVars[name] || name == "GIT_TERMINAL_PROMPT" || name == "GIT_OPTIONAL_LOCKS" || name == "LC_ALL" ||
+		if locatingVars[name] || name == "GIT_TERMINAL_PROMPT" || name == "GIT_OPTIONAL_LOCKS" || name == "GIT_NO_LAZY_FETCH" || name == "LC_ALL" ||
 			name == "GIT_CONFIG" || name == "GIT_CONFIG_PARAMETERS" || name == "GIT_CONFIG_COUNT" ||
 			strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
 }
 
 // git runs one read-only git command in dir with fsmonitor and hooks off and

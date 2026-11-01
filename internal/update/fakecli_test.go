@@ -336,6 +336,14 @@ func heldTimer(ctx context.Context, d time.Duration) (context.Context, context.C
 	case <-ctx.Done():
 	}
 	c := &heldContext{Context: ctx, done: make(chan struct{})}
+	// A run that starts once the test has expired the timeouts starts with
+	// no time left at all.
+	select {
+	case <-h.expired:
+		c.end(context.DeadlineExceeded)
+		return c, func() {}
+	default:
+	}
 	go func() {
 		select {
 		case <-h.expired:

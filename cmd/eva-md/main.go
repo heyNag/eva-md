@@ -26,7 +26,7 @@ func main() { os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout
 
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errOut, "usage: eva-md setup | version | init | install | uninstall | doctor | status | brief | show | search | update | commit | maintain | system | validate | hook")
+		fmt.Fprintln(errOut, "usage: eva-md setup | version | init | install | uninstall | doctor | status | brief | show | search | index | update | commit | maintain | system | validate | hook | mcp")
 		return 2
 	}
 	if args[0] == "hook" {
@@ -55,8 +55,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return runUpdate(ctx, args, out, errOut)
 	case "maintain":
 		return runMaintain(ctx, args, out, errOut)
+	case "index":
+		return runIndex(ctx, args, out, errOut)
 	case "system":
 		return runSystem(ctx, args, in, out, errOut)
+	case "mcp":
+		return runMCP(ctx, args[1:], in, out, errOut)
 	default:
 		fmt.Fprintf(errOut, "eva-md: unknown command %q; run eva-md with no arguments for the list\n", args[0])
 		return 2

@@ -12,7 +12,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
@@ -290,32 +289,10 @@ func lockUpdates(dir string) (unlock func(), busy bool, err error) {
 	return unlock, busy, err
 }
 
-// TryLock takes the lock file dir/name, creating both, without waiting;
-// busy reports that another process holds it. It refuses a symlink or
-// anything else that is not a regular file. The update job and eva-md
-// maintain take their locks with it.
+// TryLock takes the lock file dir/name without waiting, as paths.TryLock
+// does. The update job and eva-md maintain take their locks with it.
 func TryLock(dir, name string) (unlock func(), busy bool, err error) {
-	root, err := paths.OpenRoot(dir, true)
-	if err != nil {
-		return nil, false, fmt.Errorf("lock folder: %w", err)
-	}
-	defer root.Close()
-	f, err := root.OpenFile(name, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
-	if err != nil {
-		return nil, false, fmt.Errorf("lock: %w", err)
-	}
-	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
-		f.Close()
-		return nil, false, errors.New("the lock is not a regular file")
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, true, nil
-		}
-		return nil, false, fmt.Errorf("lock: %w", err)
-	}
-	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }, false, nil
+	return paths.TryLock(dir, name)
 }
 
 // sessionFile is one session file of the inbox.

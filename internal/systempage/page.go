@@ -16,7 +16,8 @@
 //	generated: { by: claude-code/claude-opus-5-5 }
 //	sources:
 //	  - resource: "https://docs.example.com/eng/orders/overview?version=12"
-//	  - resource: "github.com/acme/orders@4e2bf4c:internal/orders/service.go"
+//	  - resource: "github.com/acme/orders@4e2bf4c:internal/orders/"
+//	  - resource: "github.com/acme/orders@4e2bf4c:api/orders.proto"
 //	repos: [git@github.com:acme/orders.git]
 //	aliases: [order service]
 //	as_of: 2026-10-30
@@ -34,12 +35,17 @@
 //
 // The sections are Summary (required), Responsibilities, Interfaces, Depends
 // on, Used by, Decisions and constraints, Open questions and Unverified, in
-// that order, with ### subheadings inside them. Saved, repos hold the project
-// keys the inbox uses, and the body ends with the line code adds, "Part of
-// the [system map](map.md).". The map, systems/map.md, is built from the
-// pages' frontmatter on every write, one line per page sorted by slug:
-// "- [<title>](<slug>.md): <description> · repos: <key>, <key> · as of
-// <YYYY-MM-DD>".
+// that order, with ### subheadings inside them. A code source cites a file
+// or a folder, at most 16 of them a page, and is the page's tie to the code
+// (see internal/coderef); a page built only from documentation may set
+// stale_after, the day to review it by. Saved, repos hold the project keys
+// the inbox uses, and the body ends with the line code adds, "Part of the
+// [system map](map.md).". The map, systems/map.md, is built from the pages'
+// frontmatter on every write, one line per page sorted by slug:
+// "- [<title>](<slug>.md): <description> · repos: <key>, <key> · code:
+// <key>@<commit>[:<path>], ... · as of <YYYY-MM-DD> · review by
+// <YYYY-MM-DD>", where repos adds the repos of the code sources to the
+// page's own.
 package systempage
 
 import (
@@ -103,7 +109,7 @@ const (
 	pageLinkRule  = "a link to something other than an existing system page; link systems as [<title>](<slug>.md) once their pages exist"
 	sourceRule    = "a source is an https:// URL without a user name, a password or a credential parameter such as sig= or token=, with the version it cites when it has one (a version query parameter, or the URL, a space and v<n>), or <repo>@<commit> or <repo>@<commit>:<path>"
 	secretRule    = "what looks like a secret, which the daily commit would leave out; take it out"
-	mapSecretRule = "the map's line for the page would hold what looks like a secret; reword the title, the description or the repos"
+	mapSecretRule = "the map's line for the page would hold what looks like a secret; reword the title, the description, the repos or the code sources"
 )
 
 // page is a system page as Write saves it.
@@ -112,6 +118,7 @@ type page struct {
 	actor                    string // generated.by
 	sources, repos, aliases  []string
 	asOf                     string
+	staleAfter               string // the day to review it by, if any
 	body                     string // the sections, without the line code adds
 }
 
@@ -154,8 +161,9 @@ func check(slug, text string, now time.Time, exists func(string) bool) (page, []
 // repos as project keys and the generated line it adds) and the page's lines
 // on the map and in the folder's index. A flagged frontmatter line is named
 // by the line keys gives for its key, and a flagged map or index line by the
-// lines of the title, the description and the repos. The body is saved line
-// for line as written, so the scan of the page's own lines covers it.
+// lines of the title, the description, the repos and, when the page cites
+// code, the sources. The body is saved line for line as written, so the scan
+// of the page's own lines covers it.
 func checkSaved(pg page, keys map[string]int, now time.Time, p *problems) {
 	front, _, _ := strings.Cut(strings.TrimPrefix(pg.saved(now), "---\n"), "\n---\n")
 	lines := strings.Split(front, "\n")
@@ -169,7 +177,11 @@ func checkSaved(pg page, keys map[string]int, now time.Time, p *problems) {
 	}
 	e := pg.entry()
 	if wikigit.SecretLines(e.line()+"\n"+e.indexLine()) != nil {
-		for _, key := range []string{"title", "description", "repos"} {
+		blamed := []string{"title", "description", "repos"}
+		if len(e.Code) > 0 {
+			blamed = append(blamed, "sources")
+		}
+		for _, key := range blamed {
 			p.add(keys[key], mapSecretRule)
 		}
 	}

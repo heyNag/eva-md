@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/inbox"
@@ -20,13 +21,17 @@ import (
 
 // Tests check what the brief says, not how fast the machine runs git: the
 // time limits that protect a hook from slow git are raised for every test,
-// before any test runs. The raised gitReserve leaves the rest of a brief
+// before any test runs, the bounds on the brief's counts of code and
+// coderef's wait for git's output included; a test of those bounds passes
+// its own (see codeClock). The raised gitReserve leaves the rest of a brief
 // with a deadline half a minute after live git is cut off; it stays below
 // GitTimeout, so TestSlowGitLeavesTimeToDeliverBrief can tell the two cuts
 // apart.
 func TestMain(m *testing.M) {
 	identity.Timeout, identity.WaitDelay = time.Minute, time.Minute
 	GitTimeout, GitWaitDelay = time.Minute, time.Minute
+	CodeCall, CodeBudget = 10*time.Minute, 10*time.Minute
+	coderef.WaitDelay = 10 * time.Minute
 	gitReserve = 30 * time.Second
 	os.Exit(m.Run())
 }

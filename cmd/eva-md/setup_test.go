@@ -817,6 +817,65 @@ func TestPeekRemote(t *testing.T) {
 	f.noTempLeft(t)
 }
 
+// A repo git doesn't finish reading in time is never taken for an empty one
+// or for one with other content: whichever of the clone, the read of HEAD
+// and the schema's checkout runs out of time, the peek fails saying so. The
+// test ends that time at the exact point, once a stand-in git is in the
+// command it holds, by cancelling the peek's context as its deadline would.
+func TestPeekRemoteOutOfTime(t *testing.T) {
+	for _, held := range []string{"clone", "rev-parse", "checkout"} {
+		t.Run(held, func(t *testing.T) {
+			f := newFakeSetup(t, true)
+			f.realGit(t)
+			f.bareRepo(t, "eva-wiki")
+			evaWiki(t, filepath.Join(t.TempDir(), "wiki"), "git@github.com:me/eva-wiki.git", "old-laptop")
+			marker := filepath.Join(t.TempDir(), "held")
+			stand := "#!/bin/sh\nfor a in \"$@\"; do\n\tif [ \"$a\" = " + held + " ]; then\n\t\t: > '" + marker + "'\n\t\texec /bin/sleep 300\n\tfi\ndone\nexec '" + realGitPath + "' \"$@\"\n"
+			git := filepath.Join(f.bin, "git")
+			if err := os.Remove(git); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(git, []byte(stand), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			type peeked struct {
+				instance string
+				err      error
+			}
+			done := make(chan peeked, 1)
+			go func() {
+				instance, err := peekRemote(ctx, "git@github.com:me/eva-wiki.git")
+				done <- peeked{instance, err}
+			}()
+			guard := time.After(hangGuard)
+			for {
+				if _, err := os.Stat(marker); err == nil {
+					break
+				}
+				select {
+				case p := <-done:
+					t.Fatalf("the peek ended before git %s ran: %q, %v", held, p.instance, p.err)
+				case <-guard:
+					t.Fatalf("git %s had not started after %v", held, hangGuard)
+				case <-time.After(time.Millisecond):
+				}
+			}
+			cancel()
+			select {
+			case p := <-done:
+				if p.instance != "" || p.err == nil || p.err.Error() != "git didn't finish reading this repo in time; try again" {
+					t.Fatalf("git %s out of time: %q, %v", held, p.instance, p.err)
+				}
+			case <-time.After(hangGuard):
+				t.Fatalf("the peek still waited for git %s %v after its time ran out", held, hangGuard)
+			}
+			f.noTempLeft(t)
+		})
+	}
+}
+
 func TestAnswerPath(t *testing.T) {
 	env := setupEnv{home: "/Users/me", cwd: "/Users/me/projects"}
 	for in, want := range map[string]string{

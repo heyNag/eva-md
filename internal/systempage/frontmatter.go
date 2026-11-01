@@ -9,12 +9,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/freetext"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 )
 
-// required are the frontmatter keys every page sets; repos and aliases may
-// be left out.
+// required are the frontmatter keys every page sets; repos, aliases and
+// stale_after may be left out.
 var required = []string{"type", "title", "description", "status", "generated", "sources", "as_of", "state"}
 
 // fixed are the keys whose value is always the same.
@@ -72,6 +73,8 @@ func checkFront(pg *page, lines []string, first int, now time.Time, p *problems)
 			pg.repos = repos(f, p)
 		case "aliases":
 			pg.aliases = aliases(f, p)
+		case "stale_after":
+			pg.staleAfter = reviewDay(f, p)
 		}
 	}
 	if pg.repos == nil {
@@ -88,7 +91,7 @@ func checkFront(pg *page, lines []string, first int, now time.Time, p *problems)
 func parseFront(lines []string, first int, p *problems) map[string]field {
 	const skip = "-" // the key being skipped, which no key can be
 	fields := map[string]field{}
-	known := append(slices.Clone(required), "repos", "aliases")
+	known := append(slices.Clone(required), "repos", "aliases", "stale_after")
 	cur := ""
 	for i, l := range lines {
 		n := first + i
@@ -238,7 +241,22 @@ func date(f field, now time.Time, p *problems) string {
 	return ""
 }
 
-// sources reads the sources, each a "- resource: <source>" line.
+// reviewDay reads stale_after, the day to review a page by whose sources
+// eva-md can't check, such as documentation. It may be in the future.
+func reviewDay(f field, p *problems) string {
+	v, ok := scalar(f, "stale_after", p)
+	if !ok {
+		return ""
+	}
+	if _, err := time.Parse(time.DateOnly, v); err != nil {
+		p.add(f.line, "stale_after is a day, YYYY-MM-DD")
+		return ""
+	}
+	return v
+}
+
+// sources reads the sources, each a "- resource: <source>" line, at most
+// coderef.MaxRefs of them code.
 func sources(f field, p *problems) []string {
 	items, ok := list(f)
 	if !ok {
@@ -257,6 +275,9 @@ func sources(f field, p *problems) []string {
 			continue
 		}
 		out = append(out, v)
+	}
+	if n := len(codeRefs(out)); n > coderef.MaxRefs {
+		p.add(f.line, fmt.Sprintf("cite the folders a page describes rather than every file (at most %d code sources)", coderef.MaxRefs))
 	}
 	return out
 }

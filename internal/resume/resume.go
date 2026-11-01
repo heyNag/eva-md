@@ -145,7 +145,7 @@ func Build(ctx context.Context, o Options) (Result, error) {
 			// project's.
 			if o.Variant == "startup" || o.Variant == "clear" {
 				r.Text = clean(firstFooter(o))
-				sys, rules := systemPointers(ctx, o), rulesBlock(o, pg.rules, rulesHead)
+				sys, rules := systemPointers(ctx, o, ""), rulesBlock(o, pg.rules, rulesHead)
 				if sys != "" || rules != "" {
 					cap, _, _ := budgets(o.Host, o.Variant, true)
 					r.Text = wrap(join(rules, sys, r.Text), cap)
@@ -313,7 +313,7 @@ func brief(ctx context.Context, o Options, all []history, chosen *history, pg pa
 	// The pointers stand just before the footer. They are wiki text, cleaned
 	// already, which cleaning again as free text could change. The standing
 	// rules come first, and like them and the footer are reserved.
-	sys, rules := systemPointers(ctx, o), rulesBlock(o, pg.rules, rulesHead)
+	sys, rules := systemPointers(ctx, o, git.head), rulesBlock(o, pg.rules, rulesHead)
 	reserved := runes(foot) + 2
 	if sys != "" {
 		reserved += runes(sys) + 2

@@ -113,6 +113,28 @@ func TestInputGoesOnStdinOnly(t *testing.T) {
 	}
 }
 
+// A run whose time ran out before its CLI started, as a retry left with
+// none of the attempts' shared timeout, is a timeout like one that ran out
+// later, not an error, and its CLI never starts.
+func TestTimeoutBeforeTheCLIStartsIsATimeout(t *testing.T) {
+	for _, host := range hosts {
+		t.Run(host, func(t *testing.T) {
+			isolate(t)
+			dump := fakeCLI(t, "")
+			put(t, dump, "output", answer)
+			ctx, timeouts := holdTimeouts(context.Background())
+			timeouts.expire()
+			res, err := await(t, launch(t, ctx, host, request(t, host)), "a run whose time ran out before its CLI started")
+			if err != nil || res.Reason != ReasonTimeout || res.Output != nil {
+				t.Fatalf("result %+v %v, want a timeout", res, err)
+			}
+			if n := runs(t, dump); n != 0 {
+				t.Fatalf("the CLI ran %d times", n)
+			}
+		})
+	}
+}
+
 // A timeout kills the CLI and every process it started, and is not retried.
 // The test ends the timeout once the fake has started its child, so the
 // machine's speed decides nothing; TestTimeoutEndsTheRunAtItsDeadline lets

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
@@ -179,7 +180,7 @@ func TestSystemPointerCaps(t *testing.T) {
 	// The longest title and slug the writer allows leave no room for a
 	// description or the day, so the title is cut.
 	title, slug := strings.Repeat("Ledger ", 12)[:80], "l"+strings.Repeat("x", 63)
-	if line := pointer(systempage.MapEntry{Slug: slug, Title: title, Description: long, AsOf: "2026-10-28"}, usualBin, pointerCap); runes(line) != pointerCap || !strings.HasSuffix(line, "…: "+usualBin+" show systems/"+slug) {
+	if line := pointer(systempage.MapEntry{Slug: slug, Title: title, Description: long, AsOf: "2026-10-28"}, "", usualBin, pointerCap); runes(line) != pointerCap || !strings.HasSuffix(line, "…: "+usualBin+" show systems/"+slug) {
 		t.Fatalf("long title and slug (%d runes): %q", runes(line), line)
 	}
 	o.Dirs.Share = "/" + strings.Repeat("share/", 50)
@@ -478,6 +479,40 @@ func TestSearchFindsSystemLines(t *testing.T) {
 	}
 	if got := hits(t, search(t, withPages(o, "quince"))); len(got) != 2 || got[0] != "[system] 2026-06-01 · systems/archive#Summary · Archive keeps quince records." {
 		t.Fatalf("an old page:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// A system page's hit says how far the code the page cites moved, as the
+// code status measured it and the prompt pointers say it, without the day
+// the hit shows. A status taken at other commits than the map's line cites,
+// and none at all, leave the hit as it was.
+func TestSearchSaysHowFarASystemsCodeMoved(t *testing.T) {
+	o := fixture(t)
+	so := systemsWiki(t, &o)
+	page := strings.Replace(systemPage("Ledger", "Keeps the books", "2026-10-28", "github.com/acme/ledger", "## Summary\nThe ledger keeps the quartz books.\n"),
+		"  - resource: \"https://docs.example.com/eng/ledger v4\"\n", "  - resource: \"github.com/acme/ledger@4e2bf4c:internal/books/\"\n", 1)
+	if _, err := systempage.Write(context.Background(), so, "ledger", false, strings.NewReader(page)); err != nil {
+		t.Fatal(err)
+	}
+	plant := func(commit string) {
+		t.Helper()
+		r := coderef.Report{V: 1, At: "2026-10-29T03:10:00+07:00", Pages: []coderef.PageStatus{{Slug: "ledger", AsOf: "2026-10-28",
+			Repos: []coderef.RepoStatus{{Key: "github.com__acme__ledger", Commit: commit, State: coderef.Moved, Moved: 14}}}}}
+		if err := coderef.Save(o.Dirs.State, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const plain = "[system] 2026-10-28 · systems/ledger#Summary · The ledger keeps the quartz books."
+	if got := hits(t, search(t, withPages(o, "quartz"))); len(got) != 1 || got[0] != plain {
+		t.Fatalf("no status:\n%s", strings.Join(got, "\n"))
+	}
+	plant("4e2bf4c")
+	if got := hits(t, search(t, withPages(o, "quartz"))); len(got) != 1 || got[0] != "[system] 2026-10-28 · systems/ledger#Summary · code moved 14 commits · The ledger keeps the quartz books." {
+		t.Fatalf("moved:\n%s", strings.Join(got, "\n"))
+	}
+	plant("9c1d2e3")
+	if got := hits(t, search(t, withPages(o, "quartz"))); len(got) != 1 || got[0] != plain {
+		t.Fatalf("other commits:\n%s", strings.Join(got, "\n"))
 	}
 }
 

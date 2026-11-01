@@ -43,8 +43,8 @@ var updateHosts = []string{update.HostClaude, update.HostCodex}
 
 // inspectBackground adds the rows the records on disk give: each host's
 // updates from the run log, the daily commit and the push from the commit
-// records, the lint's result and the system map. It reads the newest records
-// only, never the inbox or the wiki whole.
+// records, the lint's result, the system map and the code status. It reads
+// the newest records only, never the inbox or the wiki whole.
 func inspectBackground(r *Report, d paths.Dirs, c config.Config, now time.Time) {
 	if c.WikiPath == "" {
 		for _, host := range updateHosts {
@@ -57,6 +57,7 @@ func inspectBackground(r *Report, d paths.Dirs, c config.Config, now time.Time) 
 	inspectCommits(r, d, c, now)
 	inspectLint(r, d)
 	inspectSystems(r, c)
+	inspectCode(r, d, c, now)
 }
 
 func inspectUpdates(r *Report, d paths.Dirs, c config.Config, now time.Time) {

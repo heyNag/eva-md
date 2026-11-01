@@ -251,18 +251,20 @@ func TestProblemsGrouped(t *testing.T) {
 
 // A title and a description that pass on their own lines can still make a
 // map line the commit's scan flags; the refusal names the lines of the keys
-// the map line is made from.
+// the map line is made from, the sources' among them when the page cites
+// code, which the line lists.
 func TestMapLineSecret(t *testing.T) {
 	page := strings.Replace(with(t, "title: Orders service", "title: fbKMSifL0S09kPdqP0eVDyXc+8Z2 client_secret 4bac2dddd28b password"),
 		"description: Takes, prices and tracks customer orders", "description: github.com__acme__orders-c64017 fe47b88 M5Gx8J6/1/DOSIOdHFQSlNM1VP9AlaZ0+WO21Z8 4d76591", 1)
 	_, problems := check("orders", page, day, none)
-	if !reflect.DeepEqual(problems, []string{"lines 3, 4, 10: " + mapSecretRule}) {
+	if !reflect.DeepEqual(problems, []string{"lines 3, 4, 7, 10: " + mapSecretRule}) {
 		t.Fatalf("problems %q", problems)
 	}
 }
 
 // The frontmatter is scanned as okf saves it, and a line the scan flags is
-// named by its key's line, a list item's included.
+// named by its key's line, a list item's included. A code source's path goes
+// on the map's line too, which is scanned as well.
 func TestSavedFrontmatterScanned(t *testing.T) {
 	pg, refused := check("orders", valid, day, none)
 	if len(refused) != 0 {
@@ -273,7 +275,7 @@ func TestSavedFrontmatterScanned(t *testing.T) {
 	pg.sources = append(pg.sources, "github.com/acme/orders@4e2bf4c:"+secret)
 	var found problems
 	checkSaved(pg, map[string]int{"sources": 7, "aliases": 11}, day, &found)
-	if got := found.list(); !reflect.DeepEqual(got, []string{"lines 7, 11: " + secretRule}) {
+	if got := found.list(); !reflect.DeepEqual(got, []string{"lines 7, 11: " + secretRule, "line 7: " + mapSecretRule}) {
 		t.Fatalf("problems %q", got)
 	}
 }

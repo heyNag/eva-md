@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/session"
@@ -22,10 +23,12 @@ import (
 )
 
 // A prompt that names a system the wiki has a page for gets a line pointing
-// at the page, never the page itself, by the names index systempage keeps;
-// and the chat's first prompt, then every reminder_every prompts, gets a
-// line reminding the agent of its memory (docs/design.md "Per prompt").
-// Both read local files only, each bounded.
+// at the page, never the page itself, by the names index systempage keeps,
+// saying how far the code the page cites has moved by the code status file
+// the daily job writes; and the chat's first prompt, then every
+// reminder_every prompts, gets a line reminding the agent of its memory
+// (docs/design.md "Per prompt"). Both read local files only, each bounded,
+// and never run git.
 
 // Bounds of the lines a prompt gets.
 const (
@@ -225,7 +228,8 @@ func pointers(ctx context.Context, env Env, prompt string, s *promptState) ([]st
 	}
 	bin := filepath.Join(env.Dirs.Share, "bin", "eva-md")
 	var lines []string
-	var descriptions map[string]string
+	var entries map[string]systempage.MapEntry
+	var status map[string]coderef.PageStatus
 	for _, n := range named(scanned(prompt), index) {
 		if len(lines) == promptPointers || s.Pointers >= chatPointers || ctx.Err() != nil {
 			break
@@ -234,10 +238,11 @@ func pointers(ctx context.Context, env Env, prompt string, s *promptState) ([]st
 		if slices.Contains(s.Pages, n.ID) || !isPage(root, slug) {
 			continue
 		}
-		if descriptions == nil {
-			descriptions = mapDescriptions(root)
+		if entries == nil {
+			entries, status = mapEntries(root), codeStatus(env.Dirs.State)
 		}
-		if line := pointer(n.Title, descriptions[slug], bin, slug); line != "" {
+		e := entries[slug]
+		if line := pointer(n.Title, e.Description, codeNotes(e, status[slug]), bin, slug); line != "" {
 			lines = append(lines, line)
 			s.Pointers++
 			s.point(n.ID)
@@ -290,36 +295,78 @@ func isPage(root *os.Root, slug string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// mapDescriptions reads the system pages' descriptions, by slug, from the
-// system map, which holds a line for each page.
-func mapDescriptions(root *os.Root) map[string]string {
-	out := map[string]string{}
+// mapEntries reads the system pages' lines, by slug, from the system map,
+// which holds a line for each page: their descriptions, as_of days and the
+// code they cite.
+func mapEntries(root *os.Root) map[string]systempage.MapEntry {
+	out := map[string]systempage.MapEntry{}
 	data, err := readFile(root, "systems/map.md", mapCap)
 	if err != nil {
 		return out
 	}
 	for l := range strings.SplitSeq(string(data), "\n") {
 		if e, ok := systempage.ParseMapLine(strings.TrimRight(l, "\r")); ok {
-			out[e.Slug] = e.Description
+			out[e.Slug] = e
 		}
 	}
 	return out
 }
 
+// codeStatus reads the code status file, by page: a regular file in eva-md's
+// state folder, never through a link and of at most 256 KB, or nothing.
+func codeStatus(state string) map[string]coderef.PageStatus {
+	out := map[string]coderef.PageStatus{}
+	r, ok, err := coderef.Load(state, coderef.HookLimit)
+	if err != nil || !ok {
+		return out
+	}
+	for _, p := range r.Pages {
+		out[p.Slug] = p
+	}
+	return out
+}
+
+// codeNotes returns what a page's pointer may say of the code it cites, by
+// its entry in the code status: how far that code had moved since the
+// page's as_of when the status was taken, with the day and without it. It is
+// nothing for a page that cites no code, one that couldn't be measured, and
+// one written again since the status was taken, at other commits than the
+// map's line cites.
+func codeNotes(e systempage.MapEntry, s coderef.PageStatus) []string {
+	m, ok := s.MovementSince(e.AsOf, e.Code)
+	if !ok {
+		return nil
+	}
+	return []string{coderef.Note(e.AsOf, m), m.Words()}
+}
+
 // pointer is the line pointing at a system page, "eva.md: <title>:
-// <description>: <bin> show systems/<slug>", in at most 160 characters. The
-// description is cut to fit or left out, then the title cut. A line without
-// room for the command, or that the daily commit's scan would take for a
-// secret, is "".
-func pointer(title, description, bin, slug string) string {
+// <description> (<note>): <bin> show systems/<slug>", in at most 160
+// characters, where a note says how far the code the page cites has moved
+// (see codeNotes). The command comes first, then the title, the note and the
+// description: the description is cut to fit or left out, then the note
+// gives way to its form without the day, then goes, then the title is cut.
+// A line without room for the command, or that the daily commit's scan would
+// take for a secret, is "".
+func pointer(title, description string, notes []string, bin, slug string) string {
 	title, description = plain(title), plain(description)
 	if title == "" {
 		title = slug
 	}
 	head, tail := "eva.md: "+title, ": "+bin+" show systems/"+slug
+	var marks []string
+	for _, note := range notes {
+		marks = append(marks, " ("+note+")")
+	}
+	marks = append(marks, "")
 	var lines []string
-	if room := pointerCap - runes(head+": "+tail); description != "" && room >= min(runes(description), minDescription) {
-		lines = append(lines, head+": "+cut(description, room)+tail)
+	if room := pointerCap - runes(head+": "+marks[0]+tail); description != "" && room >= min(runes(description), minDescription) {
+		lines = append(lines, head+": "+cut(description, room)+marks[0]+tail)
+	}
+	for _, mark := range marks[:len(marks)-1] {
+		if line := head + mark + tail; runes(line) <= pointerCap {
+			lines = append(lines, line)
+		}
 	}
 	if room := pointerCap - runes("eva.md: "+tail); room > 0 {
 		lines = append(lines, "eva.md: "+cut(title, room)+tail)

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -27,12 +29,15 @@ const attemptsKept = 14
 // runMaintain runs eva-md maintain [--push-only], the daily job the first
 // hook event of a day spawns detached: the day's commit and push, unless
 // commits = false in the config, then the lint, which writes
-// <state>/lint.json, and the removal of attempt markers older than 14 days.
+// <state>/lint.json, the code status of the system pages (see codeStep),
+// and the removal of attempt markers older than 14 days.
 // With --push-only, which a chat start spawns while a push is pending, it
 // only pushes, and only while the newest commit record's push is still
 // pending. It runs under <locks>/maintain.lock; a run that finds it held
 // exits 0 at once. It prints a line a step, counts and reasons only, and
-// exits 1 when a step was refused or failed.
+// exits 1 when a step was refused or failed. Last it brings the search
+// index up to date (see indexStep), the one step it also runs without a
+// wiki.
 func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet("maintain", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
@@ -46,7 +51,8 @@ func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int 
 		return 1
 	}
 	c, err := config.Load(dirs.ConfigFile())
-	if err != nil || c.WikiPath == "" {
+	wiki := err == nil && c.WikiPath != ""
+	if !wiki && (*pushOnly || err != nil && !errors.Is(err, fs.ErrNotExist)) {
 		fmt.Fprintln(errOut, "eva-md: no wiki is set up; run eva-md setup first")
 		return 1
 	}
@@ -62,6 +68,12 @@ func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int 
 		return 1
 	}
 	defer unlock()
+	if !wiki {
+		// A capture-only install: maintain keeps the search index alone.
+		code := indexStep(ctx, dirs, out, errOut)
+		pruneAttempts(dirs.State, time.Now())
+		return code
+	}
 	code := commitStep(ctx, c, dirs, *pushOnly, out, errOut)
 	if *pushOnly {
 		return code
@@ -73,7 +85,13 @@ func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int 
 	} else {
 		fmt.Fprintf(out, "maintain: lint: %d thread pages, %d over 512 KB, %d bad refs\n", r.Pages, len(r.Oversize), r.BadRefs)
 	}
+	if codeStep(ctx, c, dirs, out, errOut) != 0 {
+		code = 1
+	}
 	pruneAttempts(dirs.State, time.Now())
+	if indexStep(ctx, dirs, out, errOut) != 0 {
+		code = 1
+	}
 	return code
 }
 

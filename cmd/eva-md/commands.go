@@ -103,8 +103,9 @@ func runResume(ctx context.Context, args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// runShow prints a source ref's entry or a page or part of it. Flags may
-// come before or after the ref.
+// runShow prints a source ref's entry or a page or part of it, and for a
+// system page what its code has done since on stderr (see showCode). Flags
+// may come before or after the ref.
 func runShow(ctx context.Context, d paths.Dirs, c config.Config, args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet("show", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
@@ -129,6 +130,7 @@ func runShow(ctx context.Context, d paths.Dirs, c config.Config, args []string, 
 		return 1
 	}
 	fmt.Fprintln(out, text)
+	showCode(ctx, d, c, refs[0], errOut)
 	return 0
 }
 
@@ -194,7 +196,7 @@ func runSearch(ctx context.Context, d paths.Dirs, c config.Config, args []string
 	if c.Excluded(*cwd, p.Remote) {
 		return 0
 	}
-	text, err := resume.Search(ctx, resume.SearchOptions{Dirs: d, Config: c, Project: p, All: *all, Pages: *pages, Inbox: *inboxOnly, Terms: terms, Days: *days, Limit: *limit, Now: time.Now()})
+	text, err := resume.Search(ctx, resume.SearchOptions{Dirs: d, Config: c, Project: p, All: *all, Pages: *pages, Inbox: *inboxOnly, Terms: terms, Days: *days, Limit: *limit, Now: time.Now(), TopUp: true})
 	if err != nil {
 		fmt.Fprintln(errOut, "eva-md:", err)
 		return 1

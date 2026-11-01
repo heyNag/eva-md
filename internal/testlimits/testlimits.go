@@ -9,10 +9,12 @@ package testlimits
 import (
 	"time"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/resume"
+	"github.com/heyNag/eva-md/internal/systempage"
 	"github.com/heyNag/eva-md/internal/update"
 	"github.com/heyNag/eva-md/internal/wikigit"
 	"github.com/heyNag/eva-md/internal/wikiinit"
@@ -26,9 +28,12 @@ const Long = 10 * time.Minute
 func Raise() {
 	identity.Timeout, identity.WaitDelay = Long, Long
 	resume.GitTimeout, resume.GitWaitDelay = Long, Long
+	resume.CodeCall, resume.CodeBudget = Long, Long
 	wikigit.GitTimeout, wikigit.CommitTimeout, wikigit.PushTimeout, wikigit.WaitDelay = Long, Long, Long, Long
 	wikiinit.GitTimeout = Long
 	install.HostTimeout, install.HostWaitDelay, install.RollbackTimeout = Long, Long, Long
 	okfadapter.LockTimeout = Long
 	update.GitTimeout, update.GitWaitDelay, update.WaitDelay = Long, Long, Long
+	coderef.WaitDelay, coderef.CallTimeout = Long, Long
+	systempage.VerifyBudget, systempage.VerifyCall = Long, Long
 }

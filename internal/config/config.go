@@ -63,6 +63,7 @@ type Config struct {
 	Notice                string            `toml:"notice"`                   // "start" (default) or "problems"
 	Updates               bool              `toml:"updates"`                  // default true; false stops every update and trigger at once
 	Commits               bool              `toml:"commits"`                  // default true; false stops the daily commit and push, which updates = false leaves on
+	MCP                   bool              `toml:"mcp"`                      // default true; false turns the MCP tools off, while the plugins, hooks and command line stay on
 	DailyCap              int               `toml:"daily_cap"`                // model calls per host per day, default 40
 	Effort                map[string]string `toml:"effort"`                   // keys "claude-code", "codex" or "<host>/<model>"; value an effort level or "highest"
 	CodexIgnoreUserConfig bool              `toml:"codex_ignore_user_config"` // default false
@@ -77,7 +78,7 @@ type Config struct {
 
 // Default returns the config used when no file exists.
 func Default() Config {
-	return Config{Notice: NoticeStart, Updates: true, Commits: true, DailyCap: DefaultDailyCap, ReminderEvery: DefaultReminderEvery}
+	return Config{Notice: NoticeStart, Updates: true, Commits: true, MCP: true, DailyCap: DefaultDailyCap, ReminderEvery: DefaultReminderEvery}
 }
 
 // Load reads the config file. A missing file gives Default() and an error

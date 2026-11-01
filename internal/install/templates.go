@@ -105,6 +105,7 @@ func render(host, binary string) (map[string][]byte, error) {
 		return nil, err
 	}
 	files["plugins/eva-md/hooks/hooks.json"] = append(data, '\n')
+	files[mcpPath] = MCPManifest(host, binary)
 	return files, nil
 }
 

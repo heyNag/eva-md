@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -42,16 +43,22 @@ var beforeLock = func() {}
 // Options are what Write needs.
 type Options struct {
 	Config  config.Config    // the wiki and its instance
-	Dirs    paths.Dirs       // where the wiki lock is
+	Dirs    paths.Dirs       // where the wiki lock and the identity cache are
 	Version string           // eva-md's version, the map's author
 	Now     func() time.Time // the clock; time.Now when nil
+	Cwd     string           // the folder the write runs in, whose clone is tried first for the code a page cites
+
+	// verifyBudget, when set, bounds the check of the page's code sources in
+	// place of VerifyBudget; a test of that bound shortens it.
+	verifyBudget time.Duration
 }
 
 // Result is what a write did.
 type Result struct {
-	Page    string // systems/<slug>.md
-	Bytes   int64  // the page's size as saved
-	Systems int    // the system pages the map lists
+	Page    string   // systems/<slug>.md
+	Bytes   int64    // the page's size as saved
+	Systems int      // the system pages the map lists
+	Notes   []string // what the check of the page's code sources against local clones found
 }
 
 // Refusal is a write refused before anything was written. Each problem
@@ -114,12 +121,16 @@ func Write(ctx context.Context, o Options, slug string, replace bool, in io.Read
 	if len(problems) > 0 {
 		return Result{}, &Refusal{Problems: problems}
 	}
+	notes, err := verify(ctx, o, string(raw), pg)
+	if err != nil {
+		return Result{}, err
+	}
 	beforeLock()
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
 	actor := okfadapter.Actor("eva-md", o.Version)
-	r := Result{Page: "systems/" + slug + ".md"}
+	r := Result{Page: "systems/" + slug + ".md", Notes: notes}
 	err = w.Locked(func(lw *okfadapter.Wiki) error {
 		m, err := readMap(lw)
 		if err != nil {
@@ -227,6 +238,7 @@ func (pg page) set(c *okfadapter.Concept) {
 	}
 	c.Extra["repos"], c.Extra["aliases"] = pg.repos, pg.aliases
 	c.Extra["as_of"], c.Extra["state"] = pg.asOf, fixed["state"]
+	c.StaleAfter = pg.staleAfter
 	c.Body = "\n" + pg.body + "\n\n" + MapLink + "\n"
 }
 
@@ -302,21 +314,40 @@ func saveMap(w *okfadapter.Wiki, m *okfadapter.Page, body, actor string) error {
 }
 
 // MapEntry is a system page as the map and the index show it: its slug,
-// title, description, the project keys of its repos and its as_of day.
+// title, description, the project keys of its repos and its as_of day, and
+// the code it cites with the day to review it by, which the index leaves
+// out. Its repos are the page's own and those of its code sources.
 type MapEntry struct {
 	Slug, Title, Description, AsOf string
 	Repos                          []string
+	Code                           []coderef.Ref
+	ReviewBy                       string
 }
 
 func (pg page) entry() MapEntry {
-	return MapEntry{Slug: pg.slug, Title: clean(pg.title), Description: clean(pg.description), AsOf: pg.asOf, Repos: pg.repos}
+	code := codeRefs(pg.sources)
+	return MapEntry{Slug: pg.slug, Title: clean(pg.title), Description: clean(pg.description), AsOf: pg.asOf, Repos: withCode(pg.repos, code), Code: code, ReviewBy: pg.staleAfter}
+}
+
+// withCode returns repos with the repos of code added after them, each once.
+func withCode(repos []string, code []coderef.Ref) []string {
+	out := slices.Clone(repos)
+	for _, r := range code {
+		if !slices.Contains(out, r.Key) {
+			out = append(out, r.Key)
+		}
+	}
+	return out
 }
 
 // sep is what the map writes between a line's fields.
 const sep = " · "
 
-// line is the page's line on the map:
-// "- [<title>](<slug>.md): <description> · repos: <key>, <key> · as of <day>".
+// line is the page's line on the map: "- [<title>](<slug>.md): <description>
+// · repos: <key>, <key> · code: <ref>, <ref> · as of <day> · review by
+// <day>", each field after the description only when it has a value. Code
+// comes after repos, which list its repos, so it never follows the
+// description, whose end an older eva-md finds at the first field it knows.
 func (e MapEntry) line() string {
 	l := "- [" + linkText(e.Title) + "](" + e.Slug + ".md)"
 	if e.Description != "" {
@@ -325,8 +356,18 @@ func (e MapEntry) line() string {
 	if len(e.Repos) > 0 {
 		l += sep + "repos: " + strings.Join(e.Repos, ", ")
 	}
+	if len(e.Code) > 0 {
+		var refs []string
+		for _, r := range e.Code {
+			refs = append(refs, r.String())
+		}
+		l += sep + "code: " + strings.Join(refs, ", ")
+	}
 	if e.AsOf != "" {
 		l += sep + "as of " + e.AsOf
+	}
+	if e.ReviewBy != "" {
+		l += sep + "review by " + e.ReviewBy
 	}
 	return l
 }
@@ -381,16 +422,30 @@ func ParseMapLine(l string) (MapEntry, bool) {
 	for _, f := range fields {
 		if repos, ok := strings.CutPrefix(f, "repos: "); ok {
 			e.Repos = strings.Split(repos, ", ")
+		} else if code, ok := strings.CutPrefix(f, "code: "); ok {
+			for _, s := range strings.Split(code, ", ") {
+				if r, ok := coderef.FromMap(s); ok {
+					e.Code = append(e.Code, r)
+				}
+			}
 		} else if day, ok := strings.CutPrefix(f, "as of "); ok {
 			e.AsOf = day
+		} else if day, ok := strings.CutPrefix(f, "review by "); ok {
+			e.ReviewBy = day
 		}
 	}
 	return e, true
 }
 
-// named reports a field of a map line that line names: the repos or the day.
+// named reports a field of a map line that line names: the repos, the code,
+// the day or the review day.
 func named(f string) bool {
-	return strings.HasPrefix(f, "repos: ") || strings.HasPrefix(f, "as of ")
+	for _, name := range []string{"repos: ", "code: ", "as of ", "review by "} {
+		if strings.HasPrefix(f, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // separates reports whether a value would hold the map's separator on its
@@ -434,8 +489,16 @@ func systems(w *okfadapter.Wiki) []system {
 			e.Description = clean(c.Description)
 			as, _ := c.Extra["as_of"].(string)
 			e.AsOf = clean(as)
-			e.Repos = texts(c.Extra["repos"])
+			var sources []string
+			for _, s := range c.Sources {
+				sources = append(sources, s.Resource)
+			}
+			e.Code = codeRefs(sources)
+			e.Repos = withCode(texts(c.Extra["repos"]), e.Code)
 			e.aliases = texts(c.Extra["aliases"])
+			if _, err := time.Parse(time.DateOnly, c.StaleAfter); err == nil {
+				e.ReviewBy = c.StaleAfter
+			}
 		}
 		out = append(out, e)
 	}

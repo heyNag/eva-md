@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/inbox"
@@ -39,12 +41,13 @@ type SearchOptions struct {
 	Days    int              // the window in days for chats and thread pages; 0 for no limit
 	Limit   int              // hits to print, 1 to 50 (default 10)
 	Now     time.Time        // its location is the time zone hits are shown in
+	TopUp   bool             // the search may index what the index lacks for the next one (see topUp)
 }
 
 const (
 	searchFacts = "Lines marked [user] are the user's words; [assistant] lines are earlier suggestions, not decisions."
 	pageFacts   = "On page lines, [stated] and [accepted] rest on the user's words, [suggested] on the assistant's and [inferred] on neither; [suggested] and [inferred] lines are not decisions."
-	systemFacts = "[system] lines are notes an agent wrote from documentation and code, and [unverified] lines were not found in a source."
+	systemFacts = "[system] lines are notes an agent wrote from documentation and code, and [unverified] lines were not found in a source; \"code moved 14 commits\" counts the commits since the page's as_of that changed the code it cites."
 )
 
 // maxSearchLine is the longest inbox line decoded, as for eva-md show.
@@ -72,6 +75,12 @@ type source struct {
 	dir, name string
 	key       string // the project the folder must hold, when known
 	mod       time.Time
+	size      int64
+	ino       uint64
+	from      int64 // where a scan of its tail starts, after line lines, off the record or not
+	line      int
+	off       bool
+	to        int64 // where a scan of it ends, or 0 for its end
 }
 
 // unit is one text a search matches: an inbox entry or a line of a thread
@@ -87,7 +96,10 @@ type unit struct {
 	file            string // for the last tie-break
 	line            int
 	page            bool
-	system          bool // a system page's line, which has no branch
+	system          bool    // a system page's line, which has no branch
+	tool            bool    // an inbox tool line
+	score           float64 // its score, when scored is set: the index's
+	scored          bool
 }
 
 type hit struct {
@@ -100,17 +112,18 @@ type hit struct {
 	line, term                     int    // term: the one matched first
 	window                         string // text around the first match
 	before, after                  bool   // whether the window cut the text
+	score                          float64
 }
 
 // ranking keeps the best limit hits while counting every match.
 type ranking struct {
 	limit, total int
 	top          []hit // best first
+	about        bool  // total counts candidates of the index not read again
 }
 
 type scan struct {
 	q                          *query
-	store                      inbox.Store
 	all, any                   ranking
 	inbox, pages               bool // the sources in scope
 	files, unreadable, badDirs int
@@ -125,6 +138,8 @@ type scan struct {
 	pageBytes                  int64
 	badPages, badFolders       []string // the pages and wiki folders that could not be read
 	line, lower                []byte   // reused for every line
+	ix                         *indexState
+	moves                      map[string]coderef.Movement // how far each system page's code moved, for the hits shown
 }
 
 // Search finds earlier chat text in the inbox: prompts, replies, tool and
@@ -164,7 +179,10 @@ func Search(ctx context.Context, o SearchOptions) (string, error) {
 		scope[key] = o.Project.Key
 		scope[safeProject(identity.General())] = identity.GeneralKey
 	}
-	s := &scan{q: q, store: inbox.Store{Root: o.Dirs.Inbox()}, all: ranking{limit: o.Limit}, any: ranking{limit: o.Limit}, dirs: map[string]bool{}, inbox: o.Inbox || !o.Pages, pages: o.Pages || !o.Inbox}
+	s := &scan{q: q, all: ranking{limit: o.Limit}, any: ranking{limit: o.Limit}, dirs: map[string]bool{}, inbox: o.Inbox || !o.Pages, pages: o.Pages || !o.Inbox}
+	// The search index's statistics score page lines too, so it opens first.
+	s.openIndex(o, scope)
+	defer s.closeIndex()
 	// The pages go first: they are few, and their lines rank first.
 	if s.pages {
 		s.searchPages(ctx, o)
@@ -183,6 +201,7 @@ func Search(ctx context.Context, o SearchOptions) (string, error) {
 			if err != nil {
 				return "", err
 			}
+			sources = s.searchIndex(ctx, root, sources)
 			for _, src := range sources {
 				if s.cut = ctx.Err() != nil; s.cut {
 					break
@@ -192,9 +211,34 @@ func Search(ctx context.Context, o SearchOptions) (string, error) {
 					break
 				}
 			}
+			s.finishIndex(ctx, root, o, start)
 		}
 	}
+	s.readMoves(ctx, o)
 	return s.report(o, prefixes, time.Since(start)), nil
+}
+
+// readMoves reads how far each system page's code moved, from the code
+// status (see CodeMoves), once and only when a system page's line is among
+// the hits the report shows.
+func (s *scan) readMoves(ctx context.Context, o SearchOptions) {
+	if r, _ := s.shown(); slices.ContainsFunc(r.top, func(h hit) bool { return h.system }) {
+		s.moves = CodeMoves(ctx, Options{Dirs: o.Dirs, Config: o.Config})
+	}
+}
+
+// moved says how far the code of the system page a hit is on moved, as
+// "code moved 14 commits" or "code unchanged", or "" for a hit of another
+// kind and a page whose code the status didn't measure.
+func (s *scan) moved(h hit) string {
+	if !h.system {
+		return ""
+	}
+	slug, _, _ := strings.Cut(strings.TrimPrefix(h.ref, "systems/"), "#")
+	if m, ok := s.moves[slug]; ok {
+		return m.Words()
+	}
+	return ""
 }
 
 func newQuery(args []string) *query {
@@ -281,7 +325,7 @@ func (s *scan) list(root *os.Root, all bool, scope map[string]string) ([]source,
 			if info.ModTime().Before(s.q.since) {
 				continue
 			}
-			out = append(out, source{dir: dir.Name(), name: file.Name(), key: key, mod: info.ModTime()})
+			out = append(out, source{dir: dir.Name(), name: file.Name(), key: key, mod: info.ModTime(), size: info.Size(), ino: statIno(info)})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -308,7 +352,8 @@ func prefix(sid string) string {
 	return string(r)
 }
 
-// file scans one session file. Line numbers are physical and 1-based, as
+// file scans one session file, or only its tail from src.from when the
+// search index covers the rest. Line numbers are physical and 1-based, as
 // the inbox and eva-md show count them.
 func (s *scan) file(ctx context.Context, root *os.Root, src source) {
 	f, err := regular(root, filepath.Join(src.dir, src.name))
@@ -317,9 +362,14 @@ func (s *scan) file(ctx context.Context, root *os.Root, src source) {
 		return
 	}
 	defer f.Close()
-	r := bufio.NewReaderSize(f, 64<<10)
-	off := false
-	for n := 1; ; n++ {
+	s.tail(f, &src)
+	var rd io.Reader = f
+	if src.to > 0 {
+		rd = io.LimitReader(f, src.to-src.from)
+	}
+	r := bufio.NewReaderSize(rd, 64<<10)
+	off := src.off
+	for n := src.line + 1; ; n++ {
 		if ctx.Err() != nil {
 			s.cut = true
 			break
@@ -414,7 +464,10 @@ func (s *scan) entry(line []byte, n int, src source, off bool) bool {
 	if !s.q.since.IsZero() && (ts.IsZero() || ts.Before(s.q.since)) {
 		return off
 	}
-	s.match(unit{text: e.Text, shown: e.Text, ts: ts, role: speaker(e.Role), branch: e.Branch, project: e.Project, session: e.Session, file: src.dir + "/" + src.name, line: n})
+	if s.ix != nil && s.ix.read[src.dir+"/"+src.name][n] {
+		return off
+	}
+	s.match(unit{text: e.Text, shown: e.Text, ts: ts, role: speaker(e.Role), branch: e.Branch, project: e.Project, session: e.Session, file: src.dir + "/" + src.name, line: n, tool: e.Kind == "tool"})
 	return off
 }
 
@@ -460,23 +513,9 @@ func appendLower(dst, b []byte) []byte {
 
 // trusted applies readHistories' checks: an entry must belong to the file it
 // was read from, with a host eva-md captures and a session id free of
-// control and format characters.
+// control and format characters. The search index applies the same checks.
 func (s *scan) trusted(e inbox.Entry, src source) bool {
-	if e.Session == "" || e.Host != "codex" && e.Host != "claude-code" {
-		return false
-	}
-	for _, c := range e.Session {
-		if unicode.IsControl(c) || unicode.In(c, unicode.Cf) {
-			return false
-		}
-	}
-	if src.key != "" && e.Project != src.key {
-		return false
-	}
-	if dir, _ := paths.SafeName(e.Project); dir != src.dir {
-		return false
-	}
-	return filepath.Base(s.store.Path(e.Project, e.Host, e.Session)) == src.name
+	return inbox.Trusted(e, src.dir, src.name, src.key)
 }
 
 // match ranks one unit against the terms.
@@ -504,7 +543,7 @@ func (s *scan) match(u unit) {
 		r = &s.any
 	}
 	r.total++
-	h := hit{matched: matched, exact: s.q.exact(u.text, lower), page: u.page, ts: u.ts, file: u.file, line: u.line}
+	h := hit{matched: matched, exact: s.q.exact(u.text, lower), page: u.page, ts: u.ts, file: u.file, line: u.line, score: s.score(u)}
 	i := r.slot(&h)
 	if i < 0 {
 		return
@@ -594,7 +633,8 @@ func window(text string, at int) (string, bool, bool) {
 
 // better orders hits: more distinct terms, then an exact-case or phrase hit,
 // which together make the best matches, then page lines before inbox
-// entries, then newest. File and line only make the order total.
+// entries, then the higher score, which is 0 without the search index,
+// then newest. File and line only make the order total.
 func better(a, b *hit) bool {
 	switch {
 	case a.matched != b.matched:
@@ -603,6 +643,8 @@ func better(a, b *hit) bool {
 		return a.exact
 	case a.page != b.page:
 		return a.page
+	case a.score != b.score:
+		return a.score > b.score
 	case !a.ts.Equal(b.ts):
 		return a.ts.After(b.ts)
 	case a.file != b.file:
@@ -637,21 +679,31 @@ func speaker(role string) string {
 	return "unknown"
 }
 
-func (s *scan) report(o SearchOptions, prefixes map[string]int, took time.Duration) string {
-	r, some := s.all, false
-	if r.total == 0 {
-		r, some = s.any, true
+// shown is the ranking the report prints, and whether it is the fallback:
+// what holds every term, or, when nothing does, what holds any of them.
+func (s *scan) shown() (ranking, bool) {
+	if s.all.total == 0 {
+		return s.any, true
 	}
+	return s.all, false
+}
+
+func (s *scan) report(o SearchOptions, prefixes map[string]int, took time.Duration) string {
+	r, some := s.shown()
 	var lines []string
 	if r.total == 0 {
 		lines = append(lines, "No matches.")
 	} else {
 		lines = append(lines, s.label(some))
 		for _, h := range r.top {
-			lines = append(lines, hitLine(h, s.q.terms[h.term], o, prefixes))
+			lines = append(lines, hitLine(h, s.q.terms[h.term], o, prefixes, s.moved(h)))
 		}
 		if more := r.total - len(r.top); more > 0 {
-			lines = append(lines, fmt.Sprintf("%d more; refine with other terms", more))
+			about := ""
+			if r.about {
+				about = "about "
+			}
+			lines = append(lines, fmt.Sprintf("%s%d more; refine with other terms", about, more))
 		}
 	}
 	return strings.Join(append(lines, s.trailer(o, took)), "\n")
@@ -679,6 +731,7 @@ func (s *scan) label(some bool) string {
 	if s.systemCount > 0 {
 		facts += " " + systemFacts
 	}
+	order = s.rankedOrder(order)
 	if some {
 		return "eva.md search: " + what + " matching some of " + terms + " (none matched all), " + order + ". " + facts
 	}
@@ -688,8 +741,9 @@ func (s *scan) label(some bool) string {
 // hitLine starts with the speaker from the entry's role field, or the tag a
 // page line carries. Everything after it is on the same line, so no text can
 // start a line of its own. A page line's ref names its page and section,
-// which eva-md show opens. A system page's line has no branch.
-func hitLine(h hit, t term, o SearchOptions, prefixes map[string]int) string {
+// which eva-md show opens. A system page's line has no branch, and after its
+// ref says how far the code the page cites moved, when moved says it.
+func hitLine(h hit, t term, o SearchOptions, prefixes map[string]int, moved string) string {
 	when := "unknown"
 	if !h.ts.IsZero() {
 		layout := "2006-01-02 15:04"
@@ -713,7 +767,11 @@ func hitLine(h hit, t term, o SearchOptions, prefixes map[string]int) string {
 	if !h.system {
 		parts = append(parts, ident(h.branch, 80))
 	}
-	parts = append(parts, ident(ref, 600), snippet(h, t))
+	parts = append(parts, ident(ref, 600))
+	if moved != "" {
+		parts = append(parts, moved)
+	}
+	parts = append(parts, snippet(h, t))
 	return strings.Join(parts, " · ")
 }
 
@@ -783,6 +841,7 @@ func (s *scan) trailer(o SearchOptions, took time.Duration) string {
 	case s.cut:
 		notes = append(notes, "cut short by the time limit; older files were not searched")
 	}
+	notes = append(notes, s.indexNotes(o)...)
 	if s.unreadable > 0 {
 		notes = append(notes, fmt.Sprintf("%d %s unreadable", s.unreadable, plural(s.unreadable, "file")))
 	}

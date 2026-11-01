@@ -44,13 +44,25 @@ These are open problems in eva-md as the code stands: capture, resume, wiki upda
 - The footer is cut at 450 characters. With a long wiki path, branch name or binary path it leaves out the grep fallback first, then the thread id.
 - Source refs such as `s:<8 characters>#<line>` use the first 8 characters of the session id. Codex ids are time-ordered and can share them. `eva-md show` then reports the ref as ambiguous; the full session id in place of the 8 characters resolves it.
 - The brief's system pointers match a system's repos against this project only, not what the chat is about. They are the first 3 matches in the map's slug order, and a long binary path leaves room for fewer.
-- The system map is as current as the last `eva-md system write`. The brief doesn't say how many commits a system's repo has moved since its page was written.
+- The system map is as current as the last `eva-md system write`.
+- The brief counts only the commits of the project's own repo that a system cites, against the worktree's HEAD, so on a feature branch far behind main, code main changed reads as unchanged. Near its deadline, or when a count takes over 60 ms, it shows the page's day instead.
 - Many rules for all projects can push this project's own rules out of the rules block's 600 characters. A project rule that contradicts a rule for all projects is shown beside it; neither wins.
 - A refresh or resume brief shows every rule again, not only the one that changed.
 
 ## Search
 
-- `eva-md search` scans files with no index, so `--all` over a long history can take seconds. A term on every line costs about 0.25 s per 50 MB. At the 5-second limit the scan stops, prints what it found and says it was cut short; newer files are scanned first.
+- Without a search index, as before the first daily maintain or `eva-md index`, `eva-md search` scans every file, so `--all` over a long history can take seconds: a term on every line costs about 0.25 s per 50 MB. At the 5-second limit the scan stops, prints what it found and says it was cut short; newer files are scanned first. A search the index finds nothing for costs that full scan too.
+- In files the index covers, a term is found as a whole token or at the start of a token or of one of its camelCase or digit parts, from 3 characters; a shorter term only as a whole token. A match inside a word, such as `a<b` in `data<base`, or in text written without spaces, such as Chinese or Japanese, is found by the scan alone: in a file's newest, unindexed lines always, in indexed files only when the index finds nothing at all. Next to any other hit, such a match goes unseen.
+- A word of 3 or more characters matches at most the 256 tokens it starts that are in the most lines; a line holding only rarer ones is found only by the scan when the index finds nothing.
+- The exact-case or phrase tier is judged on the line itself, among the 200 best-scored candidates of the index (8 × `--limit` past 25). For a common word typed in capitals, a rarer hit in that case past them can rank below the others or be left out.
+- With a phrase, a term of 1 or 2 characters or one holding other characters than letters and digits, the count of candidates past those read again says "about N more": some may not match.
+- `eva-md search` indexes at most 16 MiB for the next search, so a large backlog waits for the daily maintain or `eva-md index`. The MCP server's search never tops up the index; only `eva-md search` does, and a search with no time limit, as a library call without a deadline, indexes nothing.
+- The first build of an existing inbox takes about 25 s per GB, and the index is expected to be 15 to 30% of the inbox; neither has been measured on a real inbox yet, and the doctor shows the real size.
+- With an index, hits of the same tier are ordered by score, and that order shifts as the inbox grows, since the statistics are pooled over it; page lines are scored with the inbox's statistics. Without one, as before the first build, they come newest first.
+- A session file rewritten in place and grown, so that where the index stopped no longer starts a line, is scanned whole and counted as one stale entry, so its new text is found, until the next `eva-md index`, daily maintain or `eva-md search` top-up indexes it whole again, under its next generation. One rewritten in place to the same size, with the same inode, or grown but with a line end still where the index stopped, is noticed only when its lines fail the check made on reading them, which counts them as stale in the trailer; until `eva-md index --rebuild`, its new text is not found through the index, and the index keeps the words of its old text.
+- Removing a session file from the inbox takes its words out of the index's segments in use only at the next `eva-md index` or daily maintenance, and the segment file that held them stays on disk until the first of those runs 10 minutes or more after; deleting the index folder removes them at once.
+- A query with more than 32 tokens, or a term with no letter or digit or with a run of them over 64 bytes, is searched by the scan alone.
+- A config with a wiki path but no instance starts no daily maintain, so its index waits for `eva-md index`.
 - Search reads a thread page's Now items and Timeline lines, not its summary or Last chat.
 - A project folder in the wiki whose now page is missing or unreadable is not searched; the trailer names it.
 - On `--all`, a page hit shows its wiki folder, not the project key an inbox hit shows; a system page hit shows `systems`.
@@ -71,6 +83,17 @@ These are open problems in eva-md as the code stands: capture, resume, wiki upda
 - A link to a system that has no page yet is refused until that page is written.
 - `eva-md show` of a page's last section includes the map link line.
 - A system write interrupted between its files leaves the map or the folder index stale, and a new page orphaned, until the next system write.
+- A count of commits says the cited paths changed, not that the page is wrong, and a page citing a whole repo counts every commit. Counts stop at 1000.
+- A path renamed or removed since the digest stops counting at that commit; `eva-md show` and `eva-md system status` report it gone at HEAD, while the pointers show only the count.
+- A cited commit that is not on the clone's HEAD, as one from another branch, is counted since the commit the two have in common.
+- A path cited with a typo, on a page written while no clone could check it, is reported as `cites a path its commit lacks` once a pass measures it.
+- With git older than 2.44, measuring code and the brief's live git in a partial clone fail rather than fetch, so they read as not checked (`git failed`) or as `Live git: unknown`. eva-md decides a clone may be partial from that clone's own config and `config.worktree`, so with an old git a promisor set only in the global config is not covered.
+- Clones are found only through the identity cache: a repo never chatted in on this Mac, or one whose clones all lack the cited commit (not fetched, rebased away or shallow), reads as not checked, and a write then checks none of its paths. Of several clones the newest entry is tried first, which is when a hook last resolved the worktree with a change, not necessarily the clone in use; the clone measured is named.
+- The counts in the prompt pointers, system pages' search hits and `eva_status` are as of the last code status, taken by the day's maintenance or `eva-md system status`; `eva-md show` and system status measure live.
+- The startup brief's pointer counts live, so for a path the cited commit lacks, or a commit off the branch with nothing counted since the fork, it says `code unchanged` until a code status has measured the page; for a commit off the branch also when that status was taken at another HEAD, or when the brief has no HEAD from live git, as in a new chat's footer brief, which runs no live git.
+- Pages written before the map carried code have no code on the map until they are written again, so the brief and the prompt pointers show their day; the doctor counts them.
+- `stale_after` is a day the agent sets, not a check of the documents: it can lapse on a page that is still right.
+- `eva-md show` and `eva-md system status` print the local clone's folder, and the code status keeps it, in eva-md's state folder only.
 
 ## Per-prompt pointers
 
@@ -81,7 +104,7 @@ These are open problems in eva-md as the code stands: capture, resume, wiki upda
 - Past the index's bounds, the aliases of the pages with the oldest `as_of` are left out first.
 - A page is pointed at once per chat, even after a compaction.
 - Program-run chats, chats off the record and prompts you didn't type get no pointers and no reminder.
-- With a long install path, a pointer loses its description, and the reminder is shorter or not sent at all.
+- With a long install path, a pointer loses its description, then its note on the code, and the reminder is shorter or not sent at all.
 
 ## Background update
 
@@ -157,6 +180,22 @@ These are open problems in eva-md as the code stands: capture, resume, wiki upda
 - Codex keeps its hook approvals after uninstall, so a reinstall with identical hooks may not ask for approval again.
 - An upgrade that changes the plugin folders re-runs each host's add command over the installed plugin. When a host refuses that, install accepts a registration that still verifies, since both hosts load a local plugin's folder in place; this has been checked with fake hosts only.
 
+## MCP server
+
+- Each open chat keeps one idle `eva-md mcp` process, of about 13 MB resident, which exits with the chat.
+- Tool calls run one at a time, so calls sent together wait for the ones before them: about 5 seconds for a search or a show and 3 for a status, and at most 6 and 4 when the call before is stuck, its deadline plus the one-second grace. At most 64 calls wait behind the one running; a further call is answered at once with the error "eva-md: too many calls are waiting; try again".
+- A call's default scope is the folder the host started the server in. On Codex that may not be the project; the first line then says the general area was searched, and the agent must pass `cwd`.
+- A whole page over 24 KB is cut, or a whole system page over 25 KB, where `eva-md show` prints up to 2 MiB; the note names the sections to ask for instead.
+- The instructions reflect the state at the chat's start, and Codex may not show them at all, so on Codex a lapse of hook trust reaches the agent only through `eva_status`.
+- A warning about the hooks waits up to 1.5 s for the chat's own SessionStart hook. In a folder whose chats aren't captured, such as one the config excludes, that hook writes no heartbeat, so when the host's hooks never ran, or last ran over 7 days ago, the server waits that long and then warns. The same wait comes at every Codex chat start while its hooks await approval, as after an install or an upgrade that changes the plugin, until they are approved in Codex's `/hooks`; since Codex may not show the instructions at all, there the wait may buy nothing. The doctor's probe never waits: it names itself to the server, so a fresh install with no chat yet doesn't slow the doctor's `mcp server` row.
+- Claude Code may ask permission the first time each tool is used. eva-md never writes host settings: to allow the tools, add `mcp__plugin_eva-md_eva-md__*` to `permissions.allow` in your own Claude settings.
+- On Claude Code the tools may be deferred behind ToolSearch; the instructions name them for it.
+- `mcp = false` refuses calls at once, but Claude Code keeps the tool list it read until the next chat.
+- The doctor's probe proves that the installed binary answers as an MCP server, not that a host connected it; whether a host loaded the server can't be seen from the command line.
+- eva-md's own MCP calls are captured as tool lines, with their refs, folders and bounds but never their terms or results.
+- `eva_status` counts the bytes past each session's watermark as a pending update, the current chat's own included, as `eva-md status` counts them: only a rest the update already marked as waiting, with nothing added since, is left out.
+- On a host that doesn't defer them, the tool list costs about 500 tokens a chat (1,956 bytes), and the instructions up to about 150.
+
 ## Health check
 
 - Chats in excluded, temporary or wiki folders write no heartbeat but do create host transcripts. The capture-freshness check can then report a false FAIL and a false "no matching capture heartbeat" notice.
@@ -164,4 +203,5 @@ These are open problems in eva-md as the code stands: capture, resume, wiki upda
 - The start-of-chat notice reads at most 64 KB of each day's run log and 16 KB of each month's commit records, so on a very busy day it can miss an older failure.
 - The status backlog counts only each project's 64 newest session files and stops listing after 4,096 entries, saying "at least".
 - The doctor's names check waits up to a minute for the wiki lock, whatever the doctor's own time limit.
+- The search index row checks that the segments each manifest names are there, at their recorded size. Damage inside a segment is found by the next search, which scans that folder and says so, or by the next catch-up, which builds the folder again.
 - The hook failure count misses runs whose payload can't be read, and counts only the past 7 days. Two runs of one event that end together may each keep only their own run in the heartbeat, which loses successes and failures alike. A capture that runs out of time records its failure after its output, up to 100 ms past its deadline.

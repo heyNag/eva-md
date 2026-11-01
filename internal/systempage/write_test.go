@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
@@ -26,12 +27,16 @@ import (
 
 // Tests check what a write does, not how fast the machine runs git: the time
 // limit on identity's git calls, which protects a hook from slow git, is
-// raised for every test, before any test runs.
+// raised for every test, before any test runs, and so are the write's check
+// of a page's code and coderef's wait for git's output. The test of the
+// check's own bound passes a shorter one in Options.
 func TestMain(m *testing.M) {
 	identity.Timeout, identity.WaitDelay = time.Minute, time.Minute
 	wikigit.GitTimeout, wikigit.CommitTimeout, wikigit.PushTimeout, wikigit.WaitDelay = 10*time.Minute, 10*time.Minute, 10*time.Minute, 10*time.Minute
 	wikiinit.GitTimeout = 10 * time.Minute
 	okfadapter.LockTimeout = 10 * time.Minute
+	VerifyBudget, VerifyCall = 10*time.Minute, 10*time.Minute
+	coderef.WaitDelay = 10 * time.Minute
 	os.Exit(m.Run())
 }
 
@@ -151,7 +156,7 @@ func TestWriteAndMap(t *testing.T) {
 	want := []string{
 		"- [Billing](billing.md): Issues invoices · repos: local-billing-a1b2c3 · as of 2026-10-29",
 		"- [Billing API](billing-api.md): Serves invoices · repos: gitlab.acme.internal__fin__billing-api · as of 2026-10-29",
-		"- [Orders service](orders.md): Takes, prices and tracks customer orders · repos: github.com__acme__orders · as of 2026-10-30",
+		"- [Orders service](orders.md): Takes, prices and tracks customer orders · repos: github.com__acme__orders · code: github.com__acme__orders@4e2bf4c:internal/orders/service.go · as of 2026-10-30",
 		"- [Payments](payments.md): Charges cards and pays out · repos: github.com__acme__payments · as of 2026-10-29",
 	}
 	if !reflect.DeepEqual(lines, want) {

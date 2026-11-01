@@ -764,7 +764,9 @@ func dirty(ctx context.Context, folder string) bool {
 // peekRemote reads what remote holds, from a shallow clone in a temporary
 // folder that it removes: "" for an empty repo, or the instance of the eva
 // wiki on it. A repo with other content, or with a wiki whose schema init
-// refuses, is refused, so setup never clones one into the wiki folder.
+// refuses, is refused, so setup never clones one into the wiki folder. A git
+// that runs out of time fails the peek, so a repo that is slow to read is
+// never taken for an empty one or one with other content.
 func peekRemote(ctx context.Context, remote string) (string, error) {
 	tmp, err := os.MkdirTemp("", "eva-md-setup-")
 	if err != nil {
@@ -773,14 +775,24 @@ func peekRemote(ctx context.Context, remote string) (string, error) {
 	defer os.RemoveAll(tmp)
 	dir := filepath.Join(tmp, "repo")
 	if _, err := wikigit.Run(ctx, peekCloneTimeout, tmp, "clone", "--no-local", "--depth", "1", "--no-checkout", "--", remote, dir); err != nil {
+		if outOfTime(err) {
+			return "", errPeekOutOfTime
+		}
 		return "", errors.New("git couldn't read this repo; check its address and that git can sign in to it")
 	}
 	if _, err := wikigit.Run(ctx, setupGitTimeout, dir, "rev-parse", "--verify", "HEAD"); err != nil {
+		if outOfTime(err) {
+			return "", errPeekOutOfTime
+		}
 		return "", nil
 	}
 	// Only the schema is checked out. A symlinked .eva-md is refused, as
 	// init refuses it.
-	if _, err := wikigit.Run(ctx, setupGitTimeout, dir, "checkout", "HEAD", "--", ".eva-md/schema.toml"); err == nil {
+	_, err = wikigit.Run(ctx, setupGitTimeout, dir, "checkout", "HEAD", "--", ".eva-md/schema.toml")
+	if outOfTime(err) {
+		return "", errPeekOutOfTime
+	}
+	if err == nil {
 		if info, err := os.Lstat(filepath.Join(dir, ".eva-md")); err == nil && info.IsDir() {
 			if schema, err := config.LoadSchema(filepath.Join(dir, ".eva-md", "schema.toml")); err == nil && schema.Instance != "" {
 				if schema.SchemaVersion != 1 || schema.OKFSpec != "0.2" {
@@ -791,6 +803,17 @@ func peekRemote(ctx context.Context, remote string) (string, error) {
 		}
 	}
 	return "", errors.New("this repo has content but isn't an eva wiki; use an empty private repo, or the repo of your eva wiki")
+}
+
+// errPeekOutOfTime is the peek of a repo that git didn't finish reading in
+// time, or that an interrupt stopped.
+var errPeekOutOfTime = errors.New("git didn't finish reading this repo in time; try again")
+
+// outOfTime reports whether a git command setup ran failed because its time
+// ran out or its context was cancelled, not because of what the repo holds.
+func outOfTime(err error) bool {
+	var e *wikigit.Error
+	return errors.As(err, &e) && e.Class == wikigit.ClassTimeout
 }
 
 // sameRepo reports whether two remotes name the same repo.
