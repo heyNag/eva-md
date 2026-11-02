@@ -81,7 +81,7 @@ const cwdProperty = `"cwd":{"type":"string","description":"The project's folder.
 var tools = []tool{
 	{
 		Name:        "eva_search",
-		Description: "Find earlier chat text and wiki page lines (threads, systems) by terms. Hits carry refs for eva_show. On a miss, retry with other words, file names or dates.",
+		Description: "Find earlier chats and wiki page lines (threads, systems, knowledge) by terms. Hits carry refs for eva_show. On a miss, retry with other words, paths or dates.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"terms":{"type":"array","items":{"type":"string","minLength":1,"maxLength":256},"minItems":1,"maxItems":16,"description":"Words; an item with a space is a phrase."},` +
 			`"all":{"type":"boolean","description":"Search every project."},` +
@@ -92,7 +92,7 @@ var tools = []tool{
 	},
 	{
 		Name:        "eva_show",
-		Description: "Read a wiki page or section (systems/map, systems/<slug>, <thread>#Now, #Timeline, #YYYY-MM-DD, #Heading) or a source ref s:<id>#<line> from eva_search.",
+		Description: "Read a wiki page or section (systems/map, knowledge/map, <thread>#Now, #Timeline, #YYYY-MM-DD, #Heading) or a source ref s:<id>#<line> from eva_search.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"ref":{"type":"string","minLength":1,"maxLength":1024,"description":"A ref eva_search printed, or page#section."},` +
 			`"last":{"type":"integer","minimum":1,"description":"#Timeline only: newest N date groups."},` +
@@ -102,7 +102,7 @@ var tools = []tool{
 	},
 	{
 		Name:        "eva_status",
-		Description: "This project's memory: thread page and its Now date, pending update, systems, hook and update health, what to read next.",
+		Description: "This project's memory: thread page and its Now date, pending update, systems, knowledge, hook and update health, what to read next.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` + cwdProperty + `},"additionalProperties":false}`),
 		Annotations: readOnly,
 	},

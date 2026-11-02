@@ -1,6 +1,6 @@
 # Known limitations
 
-These are open problems in eva-md as the code stands: capture, resume, search and its index, wiki updates, system pages and their code status, standing rules, pointers, the daily commit and push, setup, install, the MCP server and the health check. Parts still planned are described in [design.md](design.md), not here. What has been verified is in [verification.md](verification.md); the background update, the daily commit, system pages and their code status, standing rules, pointers and the MCP server are checked offline only.
+These are open problems in eva-md as the code stands: capture, resume, search and its index, wiki updates, system pages and their code status, standing rules, knowledge pages and recall, pointers, the daily commit and push, setup, install, the MCP server and the health check. Parts still planned are described in [design.md](design.md), not here. What has been verified is in [verification.md](verification.md); the background update, the daily commit, system pages and their code status, standing rules, knowledge pages and recall, pointers and the MCP server are checked offline only.
 
 ## Redaction
 
@@ -76,6 +76,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - A session with two capture files, as when a chat is resumed in another project's folder, is printed with its full id, and `eva-md show` reports even that ref as ambiguous when both files have the line.
 - `--all` reads every project folder in the inbox, including a project excluded in the config after its chats were captured. Excluding a project stops capture; it does not remove earlier captures.
 - The default scope includes the general area for the whole window, while the brief only counts a general-area chat less than 12 hours old.
+- A path is read in the project's repo, so in another project's folder a relative path finds a page citing that folder only with `--all`. An absolute path outside the project's worktree, such as one through a symlink to it or in another clone, is matched by its end, so a folder of the same name that another repo's page cites is found too.
 
 ## System pages
 
@@ -96,6 +97,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - Pages written before the map carried code have no code on the map until they are written again, so the brief and the prompt pointers show their day; the doctor counts them.
 - `stale_after` is a day the agent sets, not a check of the documents: it can lapse on a page that is still right.
 - `eva-md show` and `eva-md system status` print the local clone's folder, and the code status keeps it, in eva-md's state folder only.
+- `eva-md show` and `eva_show` name the system pages that link to a page from those pages' links alone: a thread page that names the system, or a link in a code span, doesn't count, and at most 2,000 pages are read.
 
 ## Per-prompt pointers
 
@@ -107,6 +109,28 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - A page is pointed at once per chat, even after a compaction.
 - Program-run chats, chats off the record and prompts you didn't type get no pointers and no reminder.
 - With a long install path, a pointer loses its description, then its note on the code, and the reminder is shorter or not sent at all.
+
+## Knowledge pages and recall
+
+- Whether a statement would still matter in six months and can't be worked out from the code is the model's judgment. Code checks its refs, speaker tag, kind, dates, grounding, duplicates and secrets, not the bar itself, so a page can hold something trivial, and something lasting can stay only in the Timeline.
+- A pass promotes only from the batch it processes: a statement can cite only that batch's entries. A fact the user settled across two chats processed apart is promoted only when one batch states it, and chats a pass covered before knowledge pages existed are never promoted.
+- A statement tagged stated or accepted, of any kind, must hold at least half its distinctive words in the user's own words, so one the model words differently, such as the gist of a long instruction, is refused, and so is an assistant's proposal the user accepted in a few words such as "yes, do that": the accepting prompt must say it. A drop needs the user's own words to name the entry, so "forget that" alone drops nothing. A title cut at 80 characters inside a path or identifier becomes a grounding miss, and the add is refused.
+- When the recall index is missing or out of date, as after a page is locked by hand, the update's input and its near-duplicate checks see only what the index lists, until the doctor or the daily maintain builds it again. The save still refuses an exact duplicate and never writes a locked page.
+- Knowledge pages are saved before the thread page. When the thread page's save then fails, a supersede or drop already saved loses its Timeline line: the retry finds the page already changed, as for rules.
+- Recall matches words, not meaning. There is no stemming, so "dependency" doesn't match a title that says "dependencies", and a paraphrase gets nothing. Three rare words in common can recall an unrelated fact.
+- The recall rule and its floor, 2.5, were tuned on 62 labelled prompts at indexes of 1 to 500 rows built from 36 fixture rows, where they give 100% precision and about 90% recall at every size, not on real use. A prompt that shares only two words with a fact recalls it only when they are the fact's whole title: two words of a longer title can't tell a fact from a near miss such as "lock screen timeout" against "Wiki lock timeout", so a prompt needs a third word of such a fact. A term's weight depends on the share of rows that hold it, not on their number, but how rare a word is in a few rows says little about how rare it is in use.
+- A fact of another project is recalled too, ranked below the project's own and those for all projects only among equal scores.
+- The recall index holds at most 512 KiB. Past it, the pages with the oldest `as_of` are neither recalled, listed in the brief nor shown to the update, whose near-duplicate check then misses them; search still finds them, and the doctor says how many were left out.
+- A fact is recalled once a chat, and a compaction keeps that; only a startup or clear brief lets it come again. There is no cap on facts a chat beyond that.
+- A recalled line shows the project key the fact was learned in, such as `github.com__acme__billing`, not the project's folder name; a fact of every project shows `all projects` instead.
+- The brief lists at most 3 constraints, the newest first; older ones are found only by search or `eva-md show knowledge/map`. A constraint for all projects counts in every project's brief.
+- A page of the general area cites no code, and neither does one written from a batch without a commit, so a path search doesn't find it by its code.
+- Search reads a knowledge page's statement and code, not its History.
+- A map a person locked or verified, or one that can't be read as a map, stays out of date; the doctor reports it and passes.
+- A supersede narrows a page for all projects to the chat's project only on words that name all projects under a negation, such as "not in all my projects", or on a few fixed phrases such as "only this project" or "just this repo"; other wording, such as "here", keeps it for all projects.
+- A page a person edited past what eva-md reads back is listed and recalled read-only from a lenient read, so its statement is what that read finds: the first statement line with its tag, or else the first without one, or else the description. The update never changes it until a person restores its form.
+- Once a person removes `knowledge/`, the recall index stays as its header alone, so the doctor keeps a knowledge row that counts no pages.
+- Nothing shows `recall = false`: the doctor and `eva-md status` don't report the switch.
 
 ## Background update
 
@@ -165,6 +189,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - A first commit that wasn't pushed (`--no-push`, or a no at setup's push question) is pushed by the next daily commit that has changes, or by `eva-md commit --push-only`, which pushes without setting an upstream.
 - `eva-md init` with the remote out of reach fails, rather than leaving its push pending; running it again once the host is reachable works.
 - A refused `--push-only` run is read by the doctor as a commit run.
+- log.md records that a page was created or changed, once a day for each page, not what changed in it; git holds that. A log that is a link, missing or over 16 MiB gets no new lines, and nothing says so.
 
 ## Setup
 
@@ -183,6 +208,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 ## Install and uninstall
 
 - Codex keeps its hook approvals after uninstall, so a reinstall with identical hooks may not ask for approval again.
+- The upgrade that adds the recall skill changes both plugin folders, so Codex asks for approval of eva-md's hooks in `/hooks` once more, and its hooks capture nothing until then.
 - An upgrade that changes the plugin folders re-runs each host's add command over the installed plugin. When a host refuses that, install accepts a registration that still verifies, since both hosts load a local plugin's folder in place; this has been checked with fake hosts only.
 
 ## MCP server
@@ -190,7 +216,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - Each open chat keeps one idle `eva-md mcp` process, of about 13 MB resident, which exits with the chat.
 - Tool calls run one at a time, so calls sent together wait for the ones before them: about 5 seconds for a search or a show and 3 for a status, and at most 6 and 4 when the call before is stuck, its deadline plus the one-second grace. At most 64 calls wait behind the one running; a further call is answered at once with the error "eva-md: too many calls are waiting; try again".
 - A call's default scope is the folder the host started the server in. On Codex that may not be the project; the first line then says the general area was searched, and the agent must pass `cwd`.
-- A whole page over 24 KB is cut, or a whole system page over 25 KB, where `eva-md show` prints up to 2 MiB; the note names the sections to ask for instead.
+- A whole page over 24 KB is cut, or a whole system page over 25 KB, where `eva-md show` prints up to 2 MiB; the note names the sections to ask for instead. The knowledge map has none, so past 24 KB, about 170 to 220 pages, `eva_show` keeps its oldest lines, and the note gives the command that prints it whole and `eva_search`.
 - The instructions reflect the state at the chat's start, and Codex may not show them at all, so on Codex a lapse of hook trust reaches the agent only through `eva_status`.
 - A warning about the hooks waits up to 1.5 s for the chat's own SessionStart hook. In a folder whose chats aren't captured, such as one the config excludes, that hook writes no heartbeat, so when the host's hooks never ran, or last ran over 7 days ago, the server waits that long and then warns. The same wait comes at every Codex chat start while its hooks await approval, as after an install or an upgrade that changes the plugin, until they are approved in Codex's `/hooks`; since Codex may not show the instructions at all, there the wait may buy nothing. The doctor's probe never waits: it names itself to the server, so a fresh install with no chat yet doesn't slow the doctor's `mcp server` row.
 - Claude Code may ask permission the first time each tool is used. eva-md never writes host settings: to allow the tools, add `mcp__plugin_eva-md_eva-md__*` to `permissions.allow` in your own Claude settings.
@@ -199,7 +225,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - The doctor's probe proves that the installed binary answers as an MCP server, not that a host connected it; whether a host loaded the server can't be seen from the command line.
 - eva-md's own MCP calls are captured as tool lines, with their refs, folders and bounds but never their terms or results.
 - `eva_status` counts the bytes past each session's watermark as a pending update, the current chat's own included, as `eva-md status` counts them: only a rest the update already marked as waiting, with nothing added since, is left out.
-- On a host that doesn't defer them, the tool list costs about 500 tokens a chat (1,956 bytes), and the instructions up to about 150.
+- On a host that doesn't defer them, the tool list costs about 500 tokens a chat (1,968 bytes), and the instructions up to about 150.
 
 ## Health check
 

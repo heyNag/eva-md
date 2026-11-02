@@ -16,6 +16,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/identity"
+	"github.com/heyNag/eva-md/internal/knowledgepage"
 	"github.com/heyNag/eva-md/internal/resume"
 	"github.com/heyNag/eva-md/internal/systempage"
 )
@@ -295,6 +296,11 @@ func show(ctx context.Context, s *server, a arguments) result {
 	if err != nil {
 		return failure(callError(err))
 	}
+	// After a system page, as eva-md show prints on stderr, the pages that
+	// link to it.
+	if line := resume.LinkedFrom(ctx, c, ref); line != "" {
+		out = strings.TrimSuffix(out, "\n") + "\n\n" + line
+	}
 	// The cap is on the text under the label. A whole system page may take
 	// what a saved page can hold, a little over system write's 24 KB cap for
 	// the lines it adds, so a page it saved comes back whole.
@@ -306,10 +312,18 @@ func show(ctx context.Context, s *server, a arguments) result {
 		return text(showLabel + "\n" + out)
 	}
 	out = showLabel + "\n" + out
+	bin := filepath.Join(s.Dirs.Share, "bin", "eva-md")
 	hint := func(string) string {
-		return "the text goes on; " + filepath.Join(s.Dirs.Share, "bin", "eva-md") + " show " + shellQuote(ref) + " prints it whole"
+		return "the text goes on; " + bin + " show " + shellQuote(ref) + " prints it whole"
 	}
-	if section == "" && !strings.HasPrefix(ref, "s:") {
+	switch {
+	case strings.TrimSuffix(page, ".md") == knowledgepage.MapRef:
+		// The map is one list, oldest page first, with no section to ask
+		// for: the rest is the newest pages.
+		hint = func(string) string {
+			return "the newest pages are in the rest; " + bin + " show " + shellQuote(ref) + " prints it whole, and eva_search finds a knowledge page by its words"
+		}
+	case section == "" && !strings.HasPrefix(ref, "s:"):
 		hint = func(rest string) string { return sections(out, rest, page) }
 	}
 	return text(capText(out, limit+len(showLabel)+1, hint))
@@ -389,7 +403,7 @@ func callError(err error) string {
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return "eva-md: the call passed its time limit"
 	case errors.Is(err, fs.ErrNotExist):
-		return "eva-md: no such page or file; eva_search finds refs, and systems/map lists the system pages"
+		return "eva-md: no such page or file; eva_search finds refs, systems/map lists the system pages and knowledge/map the knowledge pages"
 	}
 	return "eva-md: " + strings.TrimPrefix(err.Error(), "resume: ")
 }

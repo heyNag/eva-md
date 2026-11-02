@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -75,8 +76,9 @@ type Wiki struct {
 	root     string // symlink-resolved absolute path
 	lockDir  string
 	lockPath string
-	held     bool          // the wiki lock is held for this Wiki (see Locked)
-	lockWait time.Duration // when set, the wait for the wiki lock in place of LockTimeout; only tests set it
+	held     bool             // the wiki lock is held for this Wiki (see Locked)
+	lockWait time.Duration    // when set, the wait for the wiki lock in place of LockTimeout; only tests set it
+	now      func() time.Time // when set, the clock log.md's dates come from; only tests set it
 }
 
 // Open opens the wiki at root. It resolves symlinks and requires a root
@@ -174,7 +176,11 @@ func (w *Wiki) Create(id string, c *okf.Concept, actor string) error {
 	if err := okf.SaveConcept(w.root, &cp, opts); err != nil {
 		return fmt.Errorf("okfadapter: create %s: %w", rel, err)
 	}
-	return syncUp(w.root, filepath.Dir(full))
+	if err := syncUp(w.root, filepath.Dir(full)); err != nil {
+		return err
+	}
+	w.logChange("Creation", fmt.Sprintf("Documented concept `%s` (%s).", rel, cp.Title))
+	return nil
 }
 
 // Update rewrites an existing page under the wiki lock. It re-reads the page
@@ -226,7 +232,58 @@ func (w *Wiki) Update(id, expectHash string, render func(*okf.Concept) error, ac
 	if err := syncDir(filepath.Dir(full)); err != nil {
 		return true, err
 	}
+	w.logChange("Update", fmt.Sprintf("Updated concept `%s`.", rel))
 	return true, nil
+}
+
+// maxLog bounds the log.md logChange reads and writes again.
+const maxLog = 16 << 20
+
+// logChange records a page write in log.md as okf's own log words it,
+// "* **<kind>**: <text>", under a group of the local date, "## YYYY-MM-DD",
+// at the end of the file: eva-md's log runs oldest first, so the union merge
+// .gitattributes sets keeps both sides' lines. The same line is kept once a
+// day. It runs under the wiki lock Create and Update hold. A log that is
+// missing, is no regular file, is over maxLog or can't be written is left as
+// it is: the page write stands, and git keeps the history anyway.
+func (w *Wiki) logChange(kind, text string) {
+	raw, err := readNoFollow(filepath.Join(w.root, "log.md"), maxLog)
+	if err != nil {
+		return
+	}
+	now := time.Now
+	if w.now != nil {
+		now = w.now
+	}
+	entry := strings.Join(strings.Fields("* **"+kind+"**: "+text), " ")
+	if data := appendLog(string(raw), now().Format("2006-01-02"), entry); data != string(raw) {
+		_ = writeInRoot(w.root, "log.md", []byte(data))
+	}
+}
+
+// appendLog adds entry to log's last group when that group is day's and
+// doesn't hold it yet, or ends log with a new group for day.
+func appendLog(log, day, entry string) string {
+	heading := "## " + day
+	lines := strings.Split(strings.TrimRight(log, "\n"), "\n")
+	last := -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, "## ") {
+			last = i
+		}
+	}
+	if last >= 0 && strings.TrimRight(lines[last], "\r") == heading {
+		for _, l := range lines[last+1:] {
+			if strings.TrimRight(l, "\r") == entry {
+				return log
+			}
+		}
+		return strings.TrimRight(log, "\n") + "\n" + entry + "\n"
+	}
+	if strings.TrimSpace(log) == "" {
+		return heading + "\n" + entry + "\n"
+	}
+	return strings.TrimRight(log, "\n") + "\n\n" + heading + "\n" + entry + "\n"
 }
 
 // WriteFile writes a wiki file that is not a concept page, such as an
@@ -569,6 +626,75 @@ func IsLocked(c *Concept) bool {
 	case string:
 		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "true", "yes", "on":
+			return true
+		}
+	}
+	return false
+}
+
+// IsVerified reports a page a person verified: okf read a verified entry,
+// or its frontmatter has a top-level verified key with a value that isn't
+// empty, inline or in the lines under it. okf reads entries only from a
+// flow mapping or a list of mappings, and drops the key when it writes a
+// page, so verified: true, a plain value or a block mapping count too.
+func IsVerified(pg *Page) bool {
+	return len(pg.Concept.Verified) > 0 || VerifiedIn(pg.Raw)
+}
+
+// VerifiedIn reports whether a page's raw text has a top-level verified key
+// in its frontmatter with a value that isn't empty: an inline value other
+// than an empty string, null, ~, [] or {}, or a line under the key that
+// isn't blank.
+// Its keys are read as okf reads them, unquoted.
+func VerifiedIn(raw []byte) bool {
+	front, _, ok := okf.ExtractFrontmatter(string(raw))
+	if !ok {
+		return false
+	}
+	in := false // the lines under a verified key
+	for _, l := range strings.Split(front, "\n") {
+		l = strings.TrimRight(l, "\r")
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if strings.HasPrefix(l, " ") || strings.HasPrefix(l, "\t") || in && strings.HasPrefix(l, "-") {
+			if in {
+				return true
+			}
+			continue
+		}
+		key, value, ok := strings.Cut(l, ":")
+		in = false
+		if !ok || strings.Trim(strings.TrimSpace(key), `"'`) != "verified" {
+			continue
+		}
+		switch v := strings.TrimSpace(value); v {
+		case "", `""`, "''", "null", "~", "[]", "{}":
+			in = v == ""
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// reservedKey is a line okf refuses inside a --- block of a body: a key okf
+// checks, quoted or not, before a colon, in any case.
+var reservedKey = regexp.MustCompile(`(?i)^\s*["']?(verified|governance|generated|type|status|code_refs|stale_after)["']?\s*:`)
+
+// SmugglesFrontmatter reports a body okf's save refuses: a line that trims
+// to --- opens or closes a block, and a line in such a block, once trimmed,
+// starts with a reserved key and a colon, code fences or not. A writer that
+// keeps a person's text checks it before the write, so the save never fails
+// on it.
+func SmugglesFrontmatter(body string) bool {
+	in := false
+	for _, l := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(l)
+		switch {
+		case t == "---":
+			in = !in
+		case in && t != "" && reservedKey.MatchString(t):
 			return true
 		}
 	}

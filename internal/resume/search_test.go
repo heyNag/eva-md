@@ -86,7 +86,7 @@ func sameHitsOK(t *testing.T, terms []string, scanned, indexed string) bool {
 	rankOf := func(line string) rank {
 		snippet := line[strings.LastIndex(line, " · ")+len(" · "):]
 		lower := strings.ToLower(snippet)
-		r := rank{exact: q.exact(snippet, lower), page: pageHitShape.MatchString(line)}
+		r := rank{exact: q.exact(snippet, lower, false), page: pageHitShape.MatchString(line)}
 		for _, t := range q.terms {
 			if find(lower, t.lower, t.token) >= 0 {
 				r.matched++
@@ -146,7 +146,7 @@ var (
 	hitShape = regexp.MustCompile(`^\[(user|assistant|tool|plan)\] \d{4}-\d\d-\d\d \d\d:\d\d · `)
 	// pageHitShape is a page line's hit: its tag, then the time of the prompt
 	// it cites, its page's as_of or its group's day.
-	pageHitShape = regexp.MustCompile(`^\[(stated|accepted|suggested|observed|inferred|untagged|system|unverified)\] (\d{4}-\d\d-\d\d( \d\d:\d\d)?|unknown) · `)
+	pageHitShape = regexp.MustCompile(`^\[(stated|accepted|suggested|observed|inferred|untagged|system|unverified|knowledge|retired)\] (\d{4}-\d\d-\d\d( \d\d:\d\d)?|unknown) · `)
 	refShape     = regexp.MustCompile(`s:[^ ]+#\d+`)
 )
 

@@ -120,6 +120,14 @@ func encode(t testing.TB, o output) []byte {
 	if o.Rules == nil {
 		o.Rules = []ruleOp{}
 	}
+	if o.Knowledge == nil {
+		o.Knowledge = []knowledgeOp{}
+	}
+	for i := range o.Knowledge {
+		if o.Knowledge[i].Paths == nil {
+			o.Knowledge[i].Paths = []string{}
+		}
+	}
 	for i := range o.Items {
 		if o.Items[i].Refs == nil {
 			o.Items[i].Refs = []int{}

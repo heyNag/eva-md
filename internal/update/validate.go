@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/inbox"
+	"github.com/heyNag/eva-md/internal/knowledgepage"
 	"github.com/heyNag/eva-md/internal/redact"
 	"github.com/heyNag/eva-md/internal/threadpage"
 )
@@ -16,23 +17,24 @@ import (
 // Report counts what Validate changed or found, for the run log. It holds
 // counts only, never entry or output text.
 type Report struct {
-	BadRefs      int        `json:"bad_refs"`     // refs outside the batch, or past a line's fifth, removed
-	Downgraded   int        `json:"downgraded"`   // tags the citations didn't support, changed
-	Unattributed int        `json:"unattributed"` // of those, stated or accepted claims that cite no user prompt, made inferred
-	Pasted       int        `json:"pasted"`       // of those, stated or accepted claims whose user text is pasted, made inferred
-	Proposals    int        `json:"proposals"`    // decisions without the user's tag, filed as questions
-	Dates        int        `json:"dates"`        // lines left out for a date no cited entry holds
-	Carried      int        `json:"carried"`      // the page's ids the output gave no action, kept as they were
-	Ignored      int        `json:"ignored"`      // operations on ids not on the page, or second ones on an id
-	Refused      int        `json:"refused"`      // operations a rule refused; their items stay as they were
-	Stale        int        `json:"stale"`        // supersessions without a user prompt as new as the item, refused
-	Restatements int        `json:"restatements"` // supersessions that restate the item, refused
-	Replace      int        `json:"replace"`      // supersessions turned into an add and a "does X replace Y?" line
-	Duplicates   int        `json:"duplicates"`   // adds and Timeline lines already on the page, left out
-	Misses       Misses     `json:"misses"`       // code-like tokens nothing in the batch holds
-	Unknowns     int        `json:"unknowns"`     // what the model listed as unclear
-	KeptNow      bool       `json:"kept_now"`     // the out-of-order guard kept the Now
-	Rules        RuleCounts `json:"rules"`        // what became of the output's rule changes
+	BadRefs      int             `json:"bad_refs"`     // refs outside the batch, or past a line's fifth, removed
+	Downgraded   int             `json:"downgraded"`   // tags the citations didn't support, changed
+	Unattributed int             `json:"unattributed"` // of those, stated or accepted claims that cite no user prompt, made inferred
+	Pasted       int             `json:"pasted"`       // of those, stated or accepted claims whose user text is pasted, made inferred
+	Proposals    int             `json:"proposals"`    // decisions without the user's tag, filed as questions
+	Dates        int             `json:"dates"`        // lines left out for a date no cited entry holds
+	Carried      int             `json:"carried"`      // the page's ids the output gave no action, kept as they were
+	Ignored      int             `json:"ignored"`      // operations on ids not on the page, or second ones on an id
+	Refused      int             `json:"refused"`      // operations a rule refused; their items stay as they were
+	Stale        int             `json:"stale"`        // supersessions without a user prompt as new as the item, refused
+	Restatements int             `json:"restatements"` // supersessions that restate the item, refused
+	Replace      int             `json:"replace"`      // supersessions turned into an add and a "does X replace Y?" line
+	Duplicates   int             `json:"duplicates"`   // adds and Timeline lines already on the page, left out
+	Misses       Misses          `json:"misses"`       // code-like tokens nothing in the batch holds
+	Unknowns     int             `json:"unknowns"`     // what the model listed as unclear
+	KeptNow      bool            `json:"kept_now"`     // the out-of-order guard kept the Now
+	Rules        RuleCounts      `json:"rules"`        // what became of the output's rule changes
+	Knowledge    KnowledgeCounts `json:"knowledge"`    // what became of the output's knowledge changes
 }
 
 // Misses counts, by class, the code-like tokens and the numbers with units
@@ -80,12 +82,20 @@ const replaceCode = "replace question"
 // in the Report; docs/design.md "Validation" lists the rules. Every operation
 // names an id on the page, once; only stated and accepted items are
 // decisions; every string is redacted again and capped, and Apply's renderer
-// escapes its structure.
+// escapes its structure. The knowledge changes it keeps go to checkOutput's
+// caller, which saves them with knowledgepage.Save.
 func Validate(data []byte, b Batch, page threadpage.Page) (threadpage.Update, Report, error) {
+	u, _, r, err := checkOutput(data, b, page)
+	return u, r, err
+}
+
+// checkOutput is Validate with the knowledge changes it keeps (see
+// knowledge), which knowledgepage.Save makes.
+func checkOutput(data []byte, b Batch, page threadpage.Page) (threadpage.Update, []knowledgepage.Op, Report, error) {
 	v := newValidator(b, page)
 	out, err := parseOutput(data, len(v.order)+maxAdds)
 	if err != nil {
-		return threadpage.Update{}, Report{}, err
+		return threadpage.Update{}, nil, Report{}, err
 	}
 	// The out-of-order guard: a session older than the page appends its
 	// Timeline lines and leaves the Now alone.
@@ -95,14 +105,15 @@ func Validate(data []byte, b Batch, page threadpage.Page) (threadpage.Update, Re
 	v.events(out.Timeline)
 	v.done(out.Done)
 	v.rules(out.Rules)
+	v.knowledge(out.Knowledge)
 	v.u.Summary = v.free(scrubText(out.Summary, threadpage.SummaryCap))
 	v.u.LastChat = v.free(scrub(out.LastChat, lastChatCap))
 	v.report.Unknowns = len(out.Unknowns)
 	if err := v.verdict(); err != nil {
-		return threadpage.Update{}, v.report, err
+		return threadpage.Update{}, nil, v.report, err
 	}
 	v.u.Date = v.date()
-	return v.u, v.report, nil
+	return v.u, v.kOps, v.report, nil
 }
 
 // validator holds one Validate's state.
@@ -125,8 +136,12 @@ type validator struct {
 	newest   time.Time       // the batch's newest entry that isn't an event
 	hay      string          // what grounds a code-like token, lowercased
 	rulesOn  map[string]heldRule
-	ruleKeys map[bool]map[string]bool // normalized rule texts by page, general or not, for duplicates
-	ruleN    map[bool]int             // rules by page, for the cap
+	ruleKeys map[bool]map[string]bool     // normalized rule texts by page, general or not, for duplicates
+	ruleN    map[bool]int                 // rules by page, for the cap
+	kShown   map[string]knowledgepage.Row // the knowledge on file the input showed, by id
+	kKeys    map[string]bool              // normalized statements of the knowledge on file that applies to the project and of this output's, for duplicates
+	kOn      map[string]bool              // those statements as written, for near duplicates
+	kOps     []knowledgepage.Op           // the knowledge changes kept
 }
 
 // heldRule is a standing rule on file, with its page.
@@ -194,6 +209,15 @@ func newValidator(b Batch, page threadpage.Page) *validator {
 		}
 		for _, it := range threadpage.HeldRules(p, general) {
 			v.rulesOn[it.ID] = heldRule{it, general}
+		}
+	}
+	v.kShown, v.kKeys, v.kOn = map[string]knowledgepage.Row{}, map[string]bool{}, map[string]bool{}
+	for _, r := range b.Knowledge.Rows {
+		if b.Knowledge.applies(r) {
+			v.kKeys[normalize(r.Statement)], v.kOn[r.Statement] = true, true
+		}
+		if slices.Contains(b.Knowledge.Shown, r.ID) {
+			v.kShown[r.ID] = r
 		}
 	}
 	return v

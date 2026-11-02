@@ -193,7 +193,7 @@ func readOld(w *okfadapter.Wiki, slug string, replace bool) (*okfadapter.Page, e
 		return nil, refuse("the page exists; read it with eva-md show systems/" + slug + ", merge, and write it again with --replace")
 	case err != nil:
 		return nil, refuse("the page on disk can't be read as a wiki page; fix or remove it by hand")
-	case len(pg.Concept.Verified) > 0:
+	case okfadapter.IsVerified(pg):
 		return nil, refuse("a person marked the page verified; eva-md leaves it as it is")
 	case okfadapter.IsLocked(pg.Concept):
 		return nil, refuse("a person locked the page; eva-md leaves it as it is")

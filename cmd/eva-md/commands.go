@@ -131,6 +131,9 @@ func runShow(ctx context.Context, d paths.Dirs, c config.Config, args []string, 
 	}
 	fmt.Fprintln(out, text)
 	showCode(ctx, d, c, refs[0], errOut)
+	if line := resume.LinkedFrom(ctx, c, refs[0]); line != "" {
+		fmt.Fprintln(errOut, line)
+	}
 	return 0
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -504,7 +505,9 @@ func git(t *testing.T, root string, args ...string) string {
 	return string(out)
 }
 
-func TestSaveExactlyOneFileAndNoOpGitDiff(t *testing.T) {
+// A save writes the page and its line in eva-md's log.md, never okf's index
+// or log updates, and a save that changes nothing leaves git's diff empty.
+func TestSaveWritesOnlyThePageAndTheLog(t *testing.T) {
 	w := testWiki(t)
 	p := mustCreate(t, w, "page", concept("Page", "Original"))
 	git(t, w.root, "init", "--quiet")
@@ -513,10 +516,10 @@ func TestSaveExactlyOneFileAndNoOpGitDiff(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("Update = %v, %v", changed, err)
 	}
-	if diff := git(t, w.root, "diff", "--name-only"); diff != "page.md\n" {
+	if diff := git(t, w.root, "diff", "--name-only"); diff != "log.md\npage.md\n" {
 		t.Fatalf("save changed files: %q", diff)
 	}
-	git(t, w.root, "add", "--", "page.md")
+	git(t, w.root, "add", "--", "page.md", "log.md")
 	p, err = w.Read(p.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -528,7 +531,92 @@ func TestSaveExactlyOneFileAndNoOpGitDiff(t *testing.T) {
 	if diff := git(t, w.root, "diff", "--exit-code"); diff != "" {
 		t.Fatalf("no-op git diff = %q", diff)
 	}
-	t.Log("changed save: git diff --name-only = page.md; repeated update: git diff --exit-code is empty")
+	t.Log("changed save: git diff --name-only = log.md, page.md; repeated update: git diff --exit-code is empty")
+}
+
+// Each page write records one line in log.md as okf words its own lines,
+// under the local date's group at the end of the file: a creation with the
+// page's title on one line, a change without it, never a save that changed
+// nothing, even on a day the log has no line for, and the same line once a
+// day. A new day starts a group. A log
+// that is a link, or missing, is left as it is, and the page write stands.
+func TestWritesKeepTheLogCurrent(t *testing.T) {
+	w := testWiki(t)
+	logFile := filepath.Join(w.root, "log.md")
+	initial := string(mustRead(t, logFile))
+	day := time.Date(2031, 5, 6, 23, 30, 0, 0, time.Local)
+	w.now = func() time.Time { return day }
+	p := mustCreate(t, w, "general/threads/default", concept("Default  thread", "First"))
+	change := func(body string) bool {
+		t.Helper()
+		cur, err := w.Read(p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed, err := w.Update(p.ID, cur.Hash, func(c *Concept) error { c.Body = body; return nil }, "codex/test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return changed
+	}
+	if !change("Second") || !change("Third") || change("Third") {
+		t.Fatal("a save changed nothing, or a change saved nothing")
+	}
+	day = day.Add(time.Hour)
+	if !change("Fourth") {
+		t.Fatal("the next day's change saved nothing")
+	}
+	// A save that changes nothing on a day the log has no line for writes
+	// none, so no group of its own either.
+	day = day.Add(24 * time.Hour)
+	if change("Fourth") {
+		t.Fatal("a save on a new day that changed nothing saved")
+	}
+	want := initial + "\n## 2031-05-06\n* **Creation**: Documented concept `general/threads/default.md` (Default thread).\n" +
+		"* **Update**: Updated concept `general/threads/default.md`.\n\n## 2031-05-07\n* **Update**: Updated concept `general/threads/default.md`.\n"
+	if got := string(mustRead(t, logFile)); got != want {
+		t.Fatalf("log:\n%s\nwant:\n%s", got, want)
+	}
+	target := filepath.Join(t.TempDir(), "elsewhere.md")
+	if err := os.WriteFile(target, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(logFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, logFile); err != nil {
+		t.Fatal(err)
+	}
+	if !change("Fifth") || string(mustRead(t, target)) != "outside\n" {
+		t.Fatal("the save failed, or wrote through the log's link")
+	}
+	if fi, err := os.Lstat(logFile); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the log's link was replaced: %v", err)
+	}
+	if err := os.Remove(logFile); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(logFile); !change("Sixth") || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the save failed, or a missing log was created: %v", err)
+	}
+}
+
+// appendLog adds to the last group when it is the day's, ends the file with
+// a new group otherwise, and keeps a line the group holds once, whatever the
+// file's line endings or last newline.
+func TestAppendLog(t *testing.T) {
+	const entry = "* **Update**: Updated concept `a.md`."
+	for _, c := range []struct{ log, want string }{
+		{"", "## 2031-05-06\n" + entry + "\n"},
+		{"## 2031-05-05\n* **Creation**: x.", "## 2031-05-05\n* **Creation**: x.\n\n## 2031-05-06\n" + entry + "\n"},
+		{"## 2031-05-06\r\n* **Creation**: x.\r\n", "## 2031-05-06\r\n* **Creation**: x.\r\n" + entry + "\n"},
+		{"## 2031-05-06\n" + entry + "\r\n", "## 2031-05-06\n" + entry + "\r\n"},
+		{"## 2031-05-06\n" + entry + "\n\n## 2031-05-05\n", "## 2031-05-06\n" + entry + "\n\n## 2031-05-05\n\n## 2031-05-06\n" + entry + "\n"},
+	} {
+		if got := appendLog(c.log, "2031-05-06", entry); got != c.want {
+			t.Errorf("appendLog(%q) = %q, want %q", c.log, got, c.want)
+		}
+	}
 }
 
 // This helper is a real child process, so killing it does not run Go defers.
@@ -649,4 +737,62 @@ func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 		t.Fatalf("lock was not released after SIGKILL: %v", err)
 	}
 	t.Log("SIGKILL interrupted observed .tmp-okf-* save; page remains complete; git add . stages no temporary files; lock released")
+}
+
+// A person verifies a page in any form YAML allows, not only the flow
+// mapping or list okf reads entries from: a plain value or a block mapping
+// counts too, and an empty value doesn't.
+func TestIsVerified(t *testing.T) {
+	head := "---\ntype: thread\ntitle: Page\n"
+	for _, tc := range []struct {
+		front string
+		want  bool
+	}{
+		{"", false},
+		{"verified: { by: human/fixture, at: \"2026-10-29T10:00:00Z\" }\n", true},
+		{"verified: true\n", true},
+		{"verified: human/fixture\n", true},
+		{"\"verified\": yes\n", true},
+		{"verified:\n  by: human/fixture\n  at: \"2026-10-29T10:00:00Z\"\n", true},
+		{"verified:\n  - by: human/fixture\n", true},
+		{"verified:\nstatus: stable\n", false},
+		{"verified: \"\"\n", false},
+		{"verified: []\n", false},
+		{"notes:\n  verified: true\n", false},
+	} {
+		raw := []byte(head + tc.front + "---\n\nBody.\n")
+		c, err := okf.ParseConcept("page.md", string(raw))
+		if err != nil {
+			t.Fatalf("%q: %v", tc.front, err)
+		}
+		if got := IsVerified(&Page{Concept: c, Raw: raw}); got != tc.want {
+			t.Errorf("%q: verified %v, want %v", tc.front, got, tc.want)
+		}
+	}
+	if VerifiedIn([]byte("no frontmatter\nverified: true\n")) {
+		t.Error("a page without frontmatter is verified")
+	}
+}
+
+// SmugglesFrontmatter refuses what okf's save refuses, so a writer can pass
+// over a page instead of failing on it.
+func TestSmugglesFrontmatter(t *testing.T) {
+	w := testWiki(t)
+	p := mustCreate(t, w, "page", concept("Page", "Initial"))
+	for _, tc := range []struct {
+		body string
+		want bool
+	}{
+		{"# Notes\n\n---\nstatus: manually noted\n---\n", true},
+		{"## Notes\nAgreed.\n\n---\n\nStatus: confirmed with the team.\n", true},
+		{"```yaml\n---\n  'Type': x\n```\n", true},
+		{"## Notes\n\n---\n\nA plain line.\n---\nstatus: after the block\n", false},
+		{"# Notes\n\n***\nstatus: manually noted\n***\n", false},
+	} {
+		_, err := w.Update(p.ID, p.Hash, func(c *Concept) error { c.Body = tc.body; return nil }, "codex/test")
+		if refused := err != nil && strings.Contains(err.Error(), "cannot smuggle"); refused != tc.want || SmugglesFrontmatter(tc.body) != tc.want {
+			t.Errorf("%q: okf refused %v (%v), SmugglesFrontmatter %v, want %v", tc.body, refused, err, SmugglesFrontmatter(tc.body), tc.want)
+		}
+		p, _ = w.Read("page")
+	}
 }

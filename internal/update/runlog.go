@@ -77,7 +77,7 @@ type Record struct {
 	Outcome           string  `json:"outcome"`
 	Reason            string  `json:"reason,omitempty"`
 	ChunkBytes        int     `json:"chunk_bytes"` // the input built for the model
-	Pages             int     `json:"pages"`       // thread pages saved
+	Pages             int     `json:"pages"`       // pages saved: knowledge, rules and thread pages
 	DurationMS        int64   `json:"duration_ms"` // the model call, retries included
 	TokensIn          int     `json:"tokens_in"`
 	TokensOut         int     `json:"tokens_out"`

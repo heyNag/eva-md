@@ -27,8 +27,9 @@ import (
 const attemptsKept = 14
 
 // runMaintain runs eva-md maintain [--push-only], the daily job the first
-// hook event of a day spawns detached: the day's commit and push, unless
-// commits = false in the config, then the lint, which writes
+// hook event of a day spawns detached: the files built from the knowledge
+// pages, when they are out of date (see knowledgeStep), the day's commit and
+// push, unless commits = false in the config, then the lint, which writes
 // <state>/lint.json, the code status of the system pages (see codeStep),
 // and the removal of attempt markers older than 14 days.
 // With --push-only, which a chat start spawns while a push is pending, it
@@ -74,7 +75,13 @@ func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int 
 		pruneAttempts(dirs.State, time.Now())
 		return code
 	}
-	code := commitStep(ctx, c, dirs, *pushOnly, out, errOut)
+	code := 0
+	if !*pushOnly {
+		code = knowledgeStep(c, dirs, out, errOut)
+	}
+	if commitStep(ctx, c, dirs, *pushOnly, out, errOut) != 0 {
+		code = 1
+	}
 	if *pushOnly {
 		return code
 	}

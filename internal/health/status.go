@@ -25,7 +25,8 @@ const (
 
 // Status is eva-md status: the doctor's local checks, without asking the
 // hosts or the doctor's repair, then what the wiki and the inbox hold: its
-// projects and threads, and the sessions whose entries wait for an update.
+// projects, threads and knowledge pages, and the sessions whose entries
+// wait for an update.
 func Status(ctx context.Context, d paths.Dirs, module string) Report {
 	r := inspect(ctx, d, module, false, false)
 	c, err := config.LoadContext(ctx, d.ConfigFile())
@@ -37,8 +38,8 @@ func Status(ctx context.Context, d paths.Dirs, module string) Report {
 	return r
 }
 
-// inspectContents counts the wiki's project folders and thread pages from
-// folder listings, never reading a page.
+// inspectContents counts the wiki's project folders, thread pages and
+// knowledge pages from folder listings, never reading a page.
 func inspectContents(r *Report, c config.Config) {
 	threads := countPages(filepath.Join(c.WikiPath, "general", "threads"))
 	entries, err := os.ReadDir(filepath.Join(c.WikiPath, "projects"))
@@ -58,7 +59,8 @@ func inspectContents(r *Report, c config.Config) {
 		projects++
 		threads += countPages(filepath.Join(c.WikiPath, "projects", e.Name(), "threads"))
 	}
-	r.add("wiki contents", "PASS", fmt.Sprintf("%s%d %s, %d %s", more, projects, plural(projects, "project", "projects"), threads, plural(threads, "thread", "threads")), "")
+	k := countKnowledge(c)
+	r.add("wiki contents", "PASS", fmt.Sprintf("%s%d %s, %d %s, %d knowledge %s", more, projects, plural(projects, "project", "projects"), threads, plural(threads, "thread", "threads"), k, plural(k, "page", "pages")), "")
 }
 
 // countPages counts the thread pages of a threads folder: its Markdown

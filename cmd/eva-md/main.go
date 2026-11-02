@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/health"
 	"github.com/heyNag/eva-md/internal/hook"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -22,7 +23,12 @@ import (
 // version is set at release time with -ldflags '-X main.version=...'.
 var version = "0.1.0-dev"
 
-func main() { os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
+func main() {
+	// The doctor's repairs write the version as the author of what they
+	// build again.
+	health.Version = version
+	os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
 
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 0 {

@@ -80,6 +80,29 @@ func evaIn(t *testing.T, page string, args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
+// eva-md show names, on stderr after any code lines, the system pages that
+// link to the page shown, while stdout stays the page as saved.
+func TestShowNamesTheLinkingPages(t *testing.T) {
+	_, wiki, _, _ := codeWiki(t)
+	if code, _, errOut := evaIn(t, ordersPage("https://docs.example.com/eng/orders v2"), "system", "write", "orders"); code != 0 || errOut != "" {
+		t.Fatalf("write orders: %d %q", code, errOut)
+	}
+	billing := strings.NewReplacer("title: Orders", "title: Billing", "aliases: [OrdersSync]\n", "", "Orders in short.", "Billing bills [orders](orders.md).").Replace(ordersPage("https://docs.example.com/eng/billing v2"))
+	if code, _, errOut := evaIn(t, billing, "system", "write", "billing"); code != 0 || errOut != "" {
+		t.Fatalf("write billing: %d %q", code, errOut)
+	}
+	saved, err := os.ReadFile(filepath.Join(wiki, "systems", "orders.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errOut := evaMD(t, "show", "systems/orders"); code != 0 || out != string(saved)+"\n" || errOut != "eva.md: systems/orders: linked from systems/billing\n" {
+		t.Fatalf("show: %d %q\nstderr %q", code, out, errOut)
+	}
+	if code, _, errOut := evaMD(t, "show", "systems/billing"); code != 0 || errOut != "" {
+		t.Fatalf("no page links to billing: %d %q", code, errOut)
+	}
+}
+
 // One chain, end to end: a page written in a clone has its code checked
 // there; once the clone moves two commits, the brief's pointer, system
 // status, eva-md show's stderr and the doctor's row all say so, while show's

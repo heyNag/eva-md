@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/identity"
+	"github.com/heyNag/eva-md/internal/knowledgepage"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/resume"
 	"github.com/heyNag/eva-md/internal/session"
@@ -185,6 +187,7 @@ func (r *run) plan(ctx context.Context, c *chatFile) (plan, error) {
 	}
 	o := r.options(ctx, c, p.area, p.thread, g, host, sid)
 	o.Rules = p.rules.set(p.area)
+	o.Knowledge = KnowledgeSet{Rows: r.knowledgeRows(p.label), Project: p.area.key(), Head: c.heads[g.branch]}
 	if p.batch, err = Build(g.entries, p.thread.page, o); err != nil {
 		return p, err
 	}
@@ -362,13 +365,16 @@ func (r *run) stop(reason string) {
 }
 
 // call runs the model on the batch, validates its answer and saves the
-// pages, and reports whether the drain goes on. The rules pages are saved
-// before the thread page, so a save that fails leaves the thread page for
-// the pass that runs the batch again, whose rule changes then find
-// themselves on file. The watermark moves to exactly the end of the batch
-// once the output validates, whether or not a page changed, and only after
-// the pages' folders are synced when they did. It is saved as it stands
-// before the call, so a watermark that can't be saved costs no call.
+// pages, and reports whether the drain goes on. The knowledge pages, then
+// the rules pages, are saved before the thread page, so a save that fails
+// leaves the thread page for the pass that runs the batch again, whose
+// knowledge and rule changes then find themselves on file. A knowledge
+// change the save passes over, such as one on a page a person locked, is
+// logged and leaves no Timeline line. The watermark moves to exactly the
+// end of the batch once the output validates, whether or not a page
+// changed, and only after the pages' folders are synced when they did. It
+// is saved as it stands before the call, so a watermark that can't be saved
+// costs no call.
 func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 	if err := c.b.touch(); err != nil {
 		r.fail(p.label, err)
@@ -390,7 +396,7 @@ func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 	if res.Reason != "" {
 		return r.failed(c, p, rec, res.Reason, retry)
 	}
-	u, report, err := Validate(res.Output, p.batch, p.thread.page)
+	u, known, report, err := checkOutput(res.Output, p.batch, p.thread.page)
 	if err != nil {
 		return r.failed(c, p, rec, ReasonInvalidOutput, retry)
 	}
@@ -400,6 +406,16 @@ func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 	u.LastChat = lastChat(u, actor, newest)
 	f := facts{asOf: worked, head: c.heads[p.thread.branch], model: res.Model, modelNote: res.ModelNote, parent: p.parent,
 		source: sourceRef(p.batch.Session, p.batch.FullRef), project: p.area.slug, writer: okfadapter.Actor("eva-md", r.j.Version), actor: actor}
+	saved, err := saveKnowledge(r.w, known, knowledgepage.SaveMeta{Project: p.batch.Knowledge.Project, Commit: p.batch.Knowledge.Head,
+		Actor: actor, Version: r.j.Version, Now: r.j.now})
+	for _, s := range saved.Skipped {
+		r.j.logf("%s: knowledge %s; left as it is", p.label, s)
+	}
+	if err != nil {
+		return r.saveFailed(c, p, rec, err, retry)
+	}
+	report.Knowledge.settle(known, saved)
+	u.Events = withoutTrails(u.Events, saved.Skipped)
 	rules, kept, err := saveRules(r.w, p.area, p.rules, u.Rules, f)
 	for _, page := range kept {
 		r.j.logf("%s: rules page %s left as it is", p.label, page)
@@ -415,10 +431,10 @@ func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 		return r.saveFailed(c, p, rec, err, retry)
 	}
 	rec.Outcome = OutcomeNoChange
-	if changed || len(rules) > 0 {
+	if changed || len(rules) > 0 || saved.Pages > 0 {
 		rec.Outcome = OutcomeOK
 	}
-	if rec.Pages = len(rules); wrote {
+	if rec.Pages = len(rules) + saved.Pages; wrote {
 		rec.Pages++
 	}
 	if rec.Pages > 0 {
@@ -432,6 +448,25 @@ func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 	}
 	r.record(rec)
 	return true
+}
+
+// knowledgeRows reads the recall index for a pass. A wiki without one has no
+// knowledge on file; one that can't be read is logged and shows none, and
+// knowledgepage.Save still finds an exact duplicate on the pages.
+func (r *run) knowledgeRows(label string) []knowledgepage.Row {
+	rows, err := knowledgepage.ReadIndexAt(r.w.Root())
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.j.logf("%s: the knowledge index was not read: %v", label, err)
+	}
+	return rows
+}
+
+// saveKnowledge makes a pass's knowledge changes, when it has any.
+func saveKnowledge(w *okfadapter.Wiki, ops []knowledgepage.Op, meta knowledgepage.SaveMeta) (knowledgepage.Result, error) {
+	if len(ops) == 0 {
+		return knowledgepage.Result{}, nil
+	}
+	return knowledgepage.Save(w, ops, meta)
 }
 
 // saveFailed records a pass whose save failed, by the reason saveFailure

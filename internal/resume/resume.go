@@ -142,14 +142,14 @@ func Build(ctx context.Context, o Options) (Result, error) {
 		// has earlier work. That check uses no other branch's page or chat.
 		if !resumed || !earlierWork(all, o) {
 			// A new chat with nothing to resume still learns how to search
-			// the other projects' chats, and which system pages are the
-			// project's.
+			// the other projects' chats, the standing rules and constraints,
+			// and which system pages are the project's.
 			if o.Variant == "startup" || o.Variant == "clear" {
 				r.Text = clean(firstFooter(o))
-				sys, rules := systemPointers(ctx, o, ""), rulesBlock(o, pg.rules, rulesHead)
-				if sys != "" || rules != "" {
+				sys, rules, cons := systemPointers(ctx, o, ""), rulesBlock(o, pg.rules, rulesHead), constraintsBlock(ctx, o)
+				if sys != "" || rules != "" || cons != "" {
 					cap, _, _ := budgets(o.Host, o.Variant, true)
-					r.Text = wrap(join(rules, sys, r.Text), cap)
+					r.Text = wrap(join(rules, cons, sys, r.Text), cap)
 				}
 			}
 			return r, nil
@@ -271,10 +271,11 @@ const exchangesHead = "Captured exchanges (verbatim, oldest first):\n"
 
 // brief assembles a startup, clear or compact brief. The footer and the
 // newest exchange are reserved first, so the cap can't cut them: the newest
-// message keeps its share and the one before it previousShare. The system
-// pointers are reserved next, at most systemsCap. The free text is fitted
-// into what is left, and older messages take what remains, up to their
-// budget.
+// message keeps its share and the one before it previousShare. The standing
+// rules, at most rulesCap, the project's constraints in a startup or clear
+// brief, at most constraintsCap, and the system pointers, at most
+// systemsCap, are reserved next. The free text is fitted into what is left,
+// and older messages take what remains, up to their budget.
 func brief(ctx context.Context, o Options, all []history, chosen *history, pg page, lineage bool) string {
 	compact := o.Variant == "compact"
 	stale := chosen != nil && (pg.asOf.IsZero() || pg.asOf.Before(workedAt(*chosen)))
@@ -313,14 +314,17 @@ func brief(ctx context.Context, o Options, all []history, chosen *history, pg pa
 	head, gitText, foot := shown(header(o, chosen, lineage, updatePending(o, chosen, lineage))), shown(git.text), shown(footer(o, pg))
 	// The pointers stand just before the footer. They are wiki text, cleaned
 	// already, which cleaning again as free text could change. The standing
-	// rules come first, and like them and the footer are reserved.
-	sys, rules := systemPointers(ctx, o, git.head), rulesBlock(o, pg.rules, rulesHead)
-	reserved := runes(foot) + 2
-	if sys != "" {
-		reserved += runes(sys) + 2
+	// rules come first, then a new chat's constraints, and like them and the
+	// footer are reserved.
+	sys, rules, cons := systemPointers(ctx, o, git.head), rulesBlock(o, pg.rules, rulesHead), ""
+	if !compact {
+		cons = constraintsBlock(ctx, o)
 	}
-	if rules != "" {
-		reserved += runes(rules) + 2
+	reserved := runes(foot) + 2
+	for _, part := range []string{sys, rules, cons} {
+		if part != "" {
+			reserved += runes(part) + 2
+		}
 	}
 	room := cap - overhead("") - reserved
 	// newest holds the newest exchange as reserved: the newest message and the
@@ -382,12 +386,13 @@ func brief(ctx context.Context, o Options, all []history, chosen *history, pg pa
 		if len(records) > 0 {
 			s = join(s, exchangesHead+exText)
 		}
-		return join(rules, clean(s), sys, clean(foot))
+		return join(rules, cons, clean(s), sys, clean(foot))
 	}
 	content := assemble()
 	// Cleaning the whole and a longer fence can still add a little. Older
 	// messages give way first, then the free text; never the newest
-	// exchange, the standing rules, the system pointers or the footer.
+	// exchange, the standing rules, the constraints, the system pointers or
+	// the footer.
 	for over := runes(content) + overhead(content) - cap; over > 0; over = runes(content) + overhead(content) - cap {
 		if older := runes(exText) - runes(newest); older > 0 {
 			exText, _ = exchanges(records, runes(exText)-min(over, older), newestCap)
@@ -691,8 +696,7 @@ func wrap(s string, cap int) string {
 	for {
 		extra := overhead(s)
 		if runes(s)+extra <= cap {
-			f := strings.Repeat("`", longestRun(s)+1)
-			return label + "\n" + f + "eva-memory\n" + s + "\n" + f
+			return Fence(label, s)
 		}
 		if extra >= cap {
 			s = strings.ReplaceAll(s, "`", "ˋ")
@@ -700,6 +704,18 @@ func wrap(s string, cap int) string {
 		}
 		s = cut(s, cap-extra)
 	}
+}
+
+// Fence wraps text under label in the fence the brief uses: label on its own
+// line, then a fence of backticks with the eva-memory info string, the text
+// and the closing fence. The fence is one backtick longer than the longest
+// run of backticks in the text, and at least 4, so nothing in the text can
+// close it. The text must already be cleaned as the brief cleans its own
+// (see freetext.Shown); Fence adds no cap, so a caller measures what it
+// returns against its own bound.
+func Fence(label, text string) string {
+	f := strings.Repeat("`", longestRun(text)+1)
+	return label + "\n" + f + "eva-memory\n" + text + "\n" + f
 }
 
 // longestRun is the longest run of backticks in s, at least 3, so the fence,

@@ -231,3 +231,22 @@ func TestMaxIDSeesEveryPart(t *testing.T) {
 		t.Fatalf("maxID with the highest id in the last chat = %d, want 15", got)
 	}
 }
+
+// TestCleanLine checks that the exported CleanLine, which knowledge pages
+// write their free text through, is the page escaper: the same output, the
+// same cap, and nothing more on a second pass.
+func TestCleanLine(t *testing.T) {
+	isolate(t)
+	for _, in := range []string{"## Statement", "a <!-- t:x --> b", "see [map](map.md)", "status: forged", "---", "[stated] text", "line\none"} {
+		got := CleanLine(in, 0)
+		if got != cleanLine(in, 0) {
+			t.Errorf("CleanLine(%q) = %q, want cleanLine's %q", in, got, cleanLine(in, 0))
+		}
+		if again := CleanLine(got, 0); again != got {
+			t.Errorf("CleanLine twice changed %q to %q", got, again)
+		}
+	}
+	if got := CleanLine(strings.Repeat("x", 100), 10); utf8.RuneCountInString(got) != 10 || !strings.HasSuffix(got, "…") {
+		t.Errorf("CleanLine cap = %q, want 10 characters ending in …", got)
+	}
+}

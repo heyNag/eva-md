@@ -1,6 +1,7 @@
 // Package health reports observable local state without model calls. Its
-// one repair writes the names index of the system pages again (see
-// inspectNames).
+// two repairs write the names index of the system pages again (see
+// inspectNames) and build the files made from the knowledge pages again
+// (see inspectKnowledge).
 package health
 
 import (
@@ -137,8 +138,9 @@ type hookRun struct {
 
 // Inspect checks disk state and optionally queries native hosts, as eva-md
 // doctor does. It never authenticates, starts a model, changes trust or
-// writes host settings; its one repair is the names index (see
-// inspectNames).
+// writes host settings; its two repairs are the names index (see
+// inspectNames) and the files built from the knowledge pages (see
+// inspectKnowledge).
 func Inspect(ctx context.Context, d paths.Dirs, module string, hosts bool) Report {
 	return inspect(ctx, d, module, hosts, true)
 }
@@ -198,7 +200,7 @@ func inspect(ctx context.Context, d paths.Dirs, module string, hosts, repair boo
 		inspectHosts(ctx, &r, d, inventoryTimeout)
 		inspectMCPServer(ctx, &r, d)
 	}
-	inspectBackground(&r, d, c, now)
+	inspectBackground(&r, d, c, now, repair)
 	return r
 }
 
@@ -302,9 +304,9 @@ var refreshNames = systempage.RefreshNames
 
 // inspectNames checks the names index the prompt hook reads. With repair it
 // writes the index again from the system pages when it is missing,
-// unreadable or out of date, the doctor's one repair, waiting for the wiki's
-// lock as any write does; without, it only says so. A wiki without system
-// pages has nothing to check.
+// unreadable or out of date, one of the doctor's two repairs, waiting for
+// the wiki's lock as any write does; without, it only says so. A wiki
+// without system pages has nothing to check.
 func inspectNames(ctx context.Context, r *Report, d paths.Dirs, c config.Config, repair bool) {
 	n, err := refreshNames(ctx, systempage.Options{Config: c, Dirs: d}, repair)
 	switch {

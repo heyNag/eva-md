@@ -65,7 +65,7 @@ func resumeContext(ctx context.Context, host string, p payload, env Env, project
 	if !ok {
 		return ""
 	}
-	s, lines, changed := nextState(ctx, markers, host, p, env, b)
+	s, lines, changed := nextState(ctx, markers, host, p, env, project.Key, b)
 	// The briefed marker is saved first, and only with markerReserve to spare,
 	// so a brief lost to the deadline is retried on the next prompt and the
 	// chat's state records nothing of it. The state follows, saved in place

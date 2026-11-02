@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -48,6 +49,7 @@ const (
 	searchFacts = "Lines marked [user] are the user's words; [assistant] lines are earlier suggestions, not decisions."
 	pageFacts   = "On page lines, [stated] and [accepted] rest on the user's words, [suggested] on the assistant's and [inferred] on neither; [suggested] and [inferred] lines are not decisions."
 	systemFacts = "[system] lines are notes an agent wrote from documentation and code, and [unverified] lines were not found in a source; \"code moved 14 commits\" counts the commits since the page's as_of that changed the code it cites."
+	codeFacts   = "\"code:\" lines name the code a page cites; a path finds the pages that cite it or a folder holding it."
 )
 
 // maxSearchLine is the longest inbox line decoded, as for eva-md show.
@@ -59,10 +61,140 @@ var recordMarker = []byte(`_record"`)
 
 type term struct {
 	text, lower string
-	needle      []byte // lower, for the byte prefilter
-	token       bool   // under 3 characters: only whole tokens match
-	filter      bool   // false when encoding/json may escape part of it
+	needle      []byte   // lower, for the byte prefilter
+	token       bool     // under 3 characters: only whole tokens match
+	filter      bool     // false when encoding/json may escape part of it
+	path        pathTerm // the term read as a path, when it is one
 }
+
+// pathTerm is a term read as a path: one with a slash and no space,
+// cleaned, with its lower case beside it.
+type pathTerm struct {
+	text, lower string
+	abs         bool
+}
+
+// asPath reads a term as a path, or returns the zero pathTerm for a term
+// that is none, or that leaves the repo it is read in.
+func asPath(text string) pathTerm {
+	if !strings.Contains(text, "/") || strings.Contains(text, " ") {
+		return pathTerm{}
+	}
+	p := path.Clean(text)
+	if p == "/" || p == ".." || strings.HasPrefix(p, "../") {
+		return pathTerm{}
+	}
+	return pathTerm{text: p, lower: strings.ToLower(p), abs: strings.HasPrefix(p, "/")}
+}
+
+// citedPath is one code source on a system or knowledge page's code line:
+// where it starts in the lowered line and where its repo and commit end
+// there, the project key of its repo, and the path it cites, "" for the
+// whole repo, with its lower case.
+type citedPath struct {
+	at, repo         int
+	key, path, lower string
+}
+
+// cite returns the citedPath of a code source that starts at byte at of the
+// lowered code line, r being what coderef.Parse read of it.
+func cite(at int, source string, r coderef.Ref) citedPath {
+	head := source
+	if r.Path != "" {
+		// The path follows the commit's colon; Parse reads the last commit.
+		if i := strings.LastIndex(source, "@"+r.Commit+":"); i >= 0 {
+			head = source[:i+1+len(r.Commit)]
+		}
+	}
+	return citedPath{at: at, repo: at + len(strings.ToLower(head)), key: r.Key, path: r.Path, lower: strings.ToLower(r.Path)}
+}
+
+// inRepo returns where, in a code line's lowered text, the first source whose
+// repo and commit hold term t as text starts its hit, and whether one does
+// in the case typed; or -1. A path term finds a page that cites a repo by
+// the repo's name, but a cited path only as a path (see codeScope).
+func inRepo(text, lower string, code []citedPath, t term) (int, bool) {
+	at, exact := -1, false
+	for _, cp := range code {
+		i := find(lower[cp.at:cp.repo], t.lower, t.token)
+		if i < 0 {
+			continue
+		}
+		if at < 0 {
+			at = cp.at + i
+		}
+		exact = exact || find(text[origin(text, cp.at):origin(text, cp.repo)], t.text, t.token) >= 0
+	}
+	return at, exact
+}
+
+// codeScope is where a path term is read: in the project's repo, by its key
+// and its worktree's root, or with --all in any repo a page cites a folder
+// or a file of.
+type codeScope struct {
+	key, root string
+	all       bool
+}
+
+// within returns where, in a code line's lowered text, the first source that
+// holds path p starts, and whether one holds it in the case typed; or -1.
+func (c codeScope) within(code []citedPath, p pathTerm) (int, bool) {
+	at, exact := -1, false
+	if p.text == "" {
+		return at, exact
+	}
+	for _, cp := range code {
+		ok, ex := c.holds(cp, p)
+		if !ok {
+			continue
+		}
+		if at < 0 {
+			at = cp.at
+		}
+		exact = exact || ex
+	}
+	return at, exact
+}
+
+// holds reports whether a cited source holds path p, ignoring case, and
+// whether it does in the case typed. A relative path is read in the
+// project's repo, where a page that cites the whole repo holds it too, or
+// with --all in any repo's cited folder or file. An absolute path in the
+// project's worktree is read relative to it, and any other by its end, as
+// when it names a folder a page cites inside another clone. A whole-repo
+// source is never a hit in the case typed, so a page citing the very folder
+// ranks first.
+func (c codeScope) holds(cp citedPath, p pathTerm) (bool, bool) {
+	rel, lower, mine := p.text, p.lower, false
+	if p.abs {
+		r, ok := strings.CutPrefix(p.text, c.root+"/")
+		if c.key == "" || c.root == "" || !ok {
+			if cp.path == "" {
+				return false, false
+			}
+			found := endsIn(p.lower, cp.lower)
+			return found, found && endsIn(p.text, cp.path)
+		}
+		rel, lower, mine = r, strings.ToLower(r), true
+	}
+	if c.key == "" || cp.key != c.key {
+		if mine || !c.all || cp.path == "" {
+			return false, false
+		}
+	}
+	if cp.path == "" {
+		return true, false
+	}
+	found := under(lower, cp.lower)
+	return found, found && under(rel, cp.path)
+}
+
+// under reports whether path p is cited path c or lies in the folder c.
+func under(p, c string) bool { return p == c || strings.HasPrefix(p, c+"/") }
+
+// endsIn reports whether absolute path p ends with cited path c, or holds it
+// as a folder.
+func endsIn(p, c string) bool { return strings.HasSuffix(p, "/"+c) || strings.Contains(p, "/"+c+"/") }
 
 type query struct {
 	terms  []term // as given
@@ -84,7 +216,7 @@ type source struct {
 }
 
 // unit is one text a search matches: an inbox entry or a line of a thread
-// page or a system page.
+// page, a system page or a knowledge page.
 type unit struct {
 	text, shown     string // text is matched; shown, which starts with text, is what a snippet is cut from
 	ts              time.Time
@@ -97,20 +229,24 @@ type unit struct {
 	line            int
 	page            bool
 	system          bool    // a system page's line, which has no branch
+	knowledge       bool    // a knowledge page's line, which has no branch either
 	tool            bool    // an inbox tool line
 	score           float64 // its score, when scored is set: the index's
 	scored          bool
+	code            []citedPath // a system or knowledge page's code line: the sources a path may lie in
 }
 
 type hit struct {
 	matched                        int
-	exact, page, day, system       bool
+	exact, page, day, system, code bool // code: a page's code line
+	knowledge                      bool
 	ts                             time.Time
 	role, branch, project, session string
 	ref                            string // a page line's page id and section
 	file                           string // folder and name, the last tie-break
 	line, term                     int    // term: the one matched first
 	window                         string // text around the first match
+	anchor                         string // the code source that holds a path term, when that was the first match
 	before, after                  bool   // whether the window cut the text
 	score                          float64
 }
@@ -135,19 +271,24 @@ type scan struct {
 	unproved                   string // the project's folder, when no now page shows it is the project's
 	cutPages                   bool   // the time limit ended the scan among the pages
 	pageCount, systemCount     int    // the thread pages and the system pages scanned
+	knowledgeCount             int    // ... and the knowledge pages
 	pageBytes                  int64
 	badPages, badFolders       []string // the pages and wiki folders that could not be read
 	line, lower                []byte   // reused for every line
 	ix                         *indexState
 	moves                      map[string]coderef.Movement // how far each system page's code moved, for the hits shown
+	here                       codeScope                   // where a path term is read
 }
 
 // Search finds earlier chat text in the inbox: prompts, replies, tool and
 // plan lines, never events and never anything said off the record. It also
 // searches the Now items and Timeline lines of the wiki's thread pages, and
-// the descriptions and section lines of its system pages. It reads one file
-// at a time, line by line: the pages first, then the inbox files newest
-// first, decoding only inbox lines that can hold every term.
+// the names, descriptions, cited code and section lines of its system pages,
+// and the statements and cited code of its knowledge pages, where a path
+// also finds the pages that cite it or a folder holding it. It reads one
+// file at a time, line by line, a knowledge page whole: the pages first,
+// then the inbox files newest first, decoding only inbox lines that can hold
+// every term.
 // Only when nothing holds every term does it fall back to what holds any of
 // them. Running out of time ends the scan early, which the trailer says;
 // that is not an error.
@@ -180,6 +321,13 @@ func Search(ctx context.Context, o SearchOptions) (string, error) {
 		scope[safeProject(identity.General())] = identity.GeneralKey
 	}
 	s := &scan{q: q, all: ranking{limit: o.Limit}, any: ranking{limit: o.Limit}, dirs: map[string]bool{}, inbox: o.Inbox || !o.Pages, pages: o.Pages || !o.Inbox}
+	s.here.all = o.All
+	if o.Project.Key != "" && o.Project.Key != identity.GeneralKey {
+		s.here.key = o.Project.Key
+		if filepath.IsAbs(o.Project.Root) {
+			s.here.root = filepath.Clean(o.Project.Root)
+		}
+	}
 	// The search index's statistics score page lines too, so it opens first.
 	s.openIndex(o, scope)
 	defer s.closeIndex()
@@ -252,7 +400,7 @@ func newQuery(args []string) *query {
 			continue
 		}
 		seen[lower] = true
-		t := term{text: text, lower: lower, needle: []byte(lower), token: utf8.RuneCountInString(text) < 3, filter: !escapable(text)}
+		t := term{text: text, lower: lower, needle: []byte(lower), token: utf8.RuneCountInString(text) < 3, filter: !escapable(text), path: asPath(text)}
 		q.terms = append(q.terms, t)
 		if t.filter {
 			q.filter = append(q.filter, t)
@@ -518,18 +666,33 @@ func (s *scan) trusted(e inbox.Entry, src source) bool {
 	return inbox.Trusted(e, src.dir, src.name, src.key)
 }
 
-// match ranks one unit against the terms.
+// match ranks one unit against the terms. On a system or knowledge page's
+// code line a path term matches a cited path only where a source holds it
+// as a path (see codeScope), never as text, so the scope and a folder's
+// bounds hold for the cited folder itself and for a prefix of its name; it
+// still matches a source's repo and commit as text (see inRepo). A hit in
+// the case typed counts as an exact hit.
 func (s *scan) match(u unit) {
 	lower := strings.ToLower(u.text)
-	matched, first, which := 0, -1, 0
+	matched, first, which, exactPath, viaPath := 0, -1, 0, false, false
 	for i, t := range s.q.terms {
-		at := find(lower, t.lower, t.token)
+		at, via := -1, false
+		if u.code != nil && t.path.text != "" {
+			var exact bool
+			if at, exact = inRepo(u.text, lower, u.code, t); at < 0 {
+				at, exact = s.here.within(u.code, t.path)
+				via = at >= 0
+			}
+			exactPath = exactPath || exact
+		} else {
+			at = find(lower, t.lower, t.token)
+		}
 		if at < 0 {
 			continue
 		}
 		matched++
 		if first < 0 || at < first {
-			first, which = at, i
+			first, which, viaPath = at, i, via
 		}
 	}
 	r := &s.all
@@ -543,17 +706,21 @@ func (s *scan) match(u unit) {
 		r = &s.any
 	}
 	r.total++
-	h := hit{matched: matched, exact: s.q.exact(u.text, lower), page: u.page, ts: u.ts, file: u.file, line: u.line, score: s.score(u)}
+	h := hit{matched: matched, exact: exactPath || s.q.exact(u.text, lower, u.code != nil), page: u.page, ts: u.ts, file: u.file, line: u.line, score: s.score(u)}
 	i := r.slot(&h)
 	if i < 0 {
 		return
 	}
-	h.day, h.system, h.role, h.branch, h.project, h.session, h.ref, h.term = u.day, u.system, u.role, u.branch, u.project, u.session, u.ref, which
+	h.day, h.system, h.knowledge, h.code, h.role, h.branch, h.project, h.session, h.ref, h.term = u.day, u.system, u.knowledge, u.code != nil, u.role, u.branch, u.project, u.session, u.ref, which
 	if h.branch == "" {
 		h.branch = "default"
 	}
 	// text starts shown, so an offset in one is the same in the other.
 	h.window, h.before, h.after = window(u.shown, origin(u.text, first))
+	if viaPath {
+		// The source that holds the path, which the snippet shows.
+		h.anchor, _, _ = strings.Cut(u.text[origin(u.text, first):], ", ")
+	}
 	r.insert(i, h)
 }
 
@@ -584,9 +751,12 @@ func edge(s string, start, end int) bool {
 func alnum(r rune) bool { return unicode.IsLetter(r) || unicode.IsNumber(r) }
 
 // exact reports a hit on a term in the case it was typed, or on all the terms
-// together as one phrase.
-func (q *query) exact(text, lower string) bool {
+// together as one phrase. On a code line, match judges a path term.
+func (q *query) exact(text, lower string, code bool) bool {
 	for _, t := range q.terms {
+		if code && t.path.text != "" {
+			continue
+		}
 		if find(text, t.text, t.token) >= 0 {
 			return true
 		}
@@ -719,8 +889,13 @@ func (s *scan) label(some bool) string {
 	terms := cut(strings.Join(names, " "), 300)
 	what, order, facts := "earlier chat text", "best matches first, then newest", searchFacts
 	pages := "thread page lines"
-	if s.systemCount > 0 {
+	switch {
+	case s.systemCount > 0 && s.knowledgeCount > 0:
+		pages = "thread, system and knowledge page lines"
+	case s.systemCount > 0:
 		pages = "thread and system page lines"
+	case s.knowledgeCount > 0:
+		pages = "thread and knowledge page lines"
 	}
 	switch {
 	case s.wiki && s.inbox:
@@ -730,6 +905,13 @@ func (s *scan) label(some bool) string {
 	}
 	if s.systemCount > 0 {
 		facts += " " + systemFacts
+	}
+	r, _ := s.shown()
+	if slices.ContainsFunc(r.top, func(h hit) bool { return h.knowledge }) {
+		facts += " " + knowledgeFacts
+	}
+	if slices.ContainsFunc(r.top, func(h hit) bool { return h.code }) {
+		facts += " " + codeFacts
 	}
 	order = s.rankedOrder(order)
 	if some {
@@ -764,7 +946,7 @@ func hitLine(h hit, t term, o SearchOptions, prefixes map[string]int, moved stri
 	if o.All {
 		parts = append(parts, ident(h.project, 120))
 	}
-	if !h.system {
+	if !h.system && !h.knowledge {
 		parts = append(parts, ident(h.branch, 80))
 	}
 	parts = append(parts, ident(ref, 600))
@@ -792,7 +974,11 @@ func snippet(h hit, t term) string {
 		text = cleanPage(h.window)
 	}
 	s := oneLine(escape(text), 1<<20)
-	at := max(locate(s, t), 0)
+	at := locate(s, t)
+	if at < 0 && h.anchor != "" {
+		at = strings.Index(s, h.anchor)
+	}
+	at = max(at, 0)
 	r := []rune(s)
 	const width = 198 // leaves room for both cut marks
 	i := utf8.RuneCountInString(s[:at])
@@ -810,8 +996,8 @@ func snippet(h hit, t term) string {
 
 // trailer says what was scanned, and names what could not be: an
 // unreadable page or wiki folder is never left to look like a page with no
-// hits. The system pages are counted beside the thread pages, when there
-// are any.
+// hits. The system pages and the knowledge pages are counted beside the
+// thread pages, when there are any.
 func (s *scan) trailer(o SearchOptions, took time.Duration) string {
 	window := "all dates"
 	if o.Days > 0 {
@@ -822,12 +1008,19 @@ func (s *scan) trailer(o SearchOptions, took time.Duration) string {
 		scanned = append(scanned, fmt.Sprintf("%d %s (%.1f MB) in %d %s", s.files, plural(s.files, "file"), float64(s.bytes)/1e6, len(s.dirs), plural(len(s.dirs), "project")))
 	}
 	// "in 1 project and 2 thread pages", or a list: "in 1 project, 2 thread
-	// pages and 1 system page".
+	// pages, 1 system page and 3 knowledge pages".
 	and := " and "
 	if s.wiki || !s.inbox {
-		pages := fmt.Sprintf("%d thread %s", s.pageCount, plural(s.pageCount, "page"))
+		counts := []string{fmt.Sprintf("%d thread %s", s.pageCount, plural(s.pageCount, "page"))}
 		if s.systemCount > 0 {
-			pages += fmt.Sprintf(" and %d system %s", s.systemCount, plural(s.systemCount, "page"))
+			counts = append(counts, fmt.Sprintf("%d system %s", s.systemCount, plural(s.systemCount, "page")))
+		}
+		if s.knowledgeCount > 0 {
+			counts = append(counts, fmt.Sprintf("%d knowledge %s", s.knowledgeCount, plural(s.knowledgeCount, "page")))
+		}
+		pages := counts[len(counts)-1]
+		if n := len(counts); n > 1 {
+			pages = strings.Join(counts[:n-1], ", ") + " and " + pages
 			and = ", "
 		}
 		scanned = append(scanned, fmt.Sprintf("%s (%.1f MB)", pages, float64(s.pageBytes)/1e6))

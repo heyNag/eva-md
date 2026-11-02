@@ -693,20 +693,24 @@ func TestUpdatesFalsePauses(t *testing.T) {
 
 // A locked, human-verified or damaged page is never written: the pass is
 // skipped with its reason and no call, and the watermark still moves. A
-// page is locked by true, yes or on in any case, as system write reads it.
+// page is locked by true, yes or on in any case, as system write reads it,
+// and verified by any value YAML allows, not only the forms okf reads.
 func TestProtectedPagesAreSkipped(t *testing.T) {
 	body := threadpage.Render(threadpage.Page{Title: "eva-md · main", Now: threadpage.Now{Summary: "Hand written."}})
 	for _, tc := range []struct {
 		reason string
 		edit   func(*okfadapter.Concept)
+		front  string // frontmatter a person adds by hand, before status
 	}{
-		{ReasonLocked, func(c *okfadapter.Concept) { c.Extra["locked"] = true }},
-		{ReasonLocked, func(c *okfadapter.Concept) { c.Extra["locked"] = "yes" }},
-		{ReasonLocked, func(c *okfadapter.Concept) { c.Extra["locked"] = "On" }},
+		{ReasonLocked, func(c *okfadapter.Concept) { c.Extra["locked"] = true }, ""},
+		{ReasonLocked, func(c *okfadapter.Concept) { c.Extra["locked"] = "yes" }, ""},
+		{ReasonLocked, func(c *okfadapter.Concept) { c.Extra["locked"] = "On" }, ""},
 		{ReasonVerified, func(c *okfadapter.Concept) {
 			c.Verified = []okfadapter.Verified{{By: "human:alex", At: "2026-01-13T09:00:00Z"}}
-		}},
-		{ReasonDamaged, func(c *okfadapter.Concept) { c.Body = "\n## Now\n" + threadpage.NowStart + "\nNo end marker.\n" }},
+		}, ""},
+		{ReasonVerified, func(*okfadapter.Concept) {}, "verified: true\n"},
+		{ReasonVerified, func(*okfadapter.Concept) {}, "verified:\n  by: human:alex\n  at: \"2026-01-13T09:00:00Z\"\n"},
+		{ReasonDamaged, func(c *okfadapter.Concept) { c.Body = "\n## Now\n" + threadpage.NowStart + "\nNo end marker.\n" }, ""},
 	} {
 		t.Run(tc.reason, func(t *testing.T) {
 			e := newEnv(t)
@@ -714,6 +718,13 @@ func TestProtectedPagesAreSkipped(t *testing.T) {
 			tc.edit(pg)
 			if err := e.wiki().Create(testPage, pg, okfadapter.Actor("human", "alex")); err != nil {
 				t.Fatal(err)
+			}
+			if tc.front != "" {
+				name := filepath.Join(e.cfg.WikiPath, testPage+".md")
+				data, _ := os.ReadFile(name)
+				if err := os.WriteFile(name, []byte(strings.Replace(string(data), "\nstatus: ", "\n"+tc.front+"status: ", 1)), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			raw, _ := os.ReadFile(filepath.Join(e.cfg.WikiPath, testPage+".md"))
 			c := newChat("3f2a91c0-0"+tc.reason, start)

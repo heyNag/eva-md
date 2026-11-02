@@ -65,7 +65,7 @@ func pointersWithin(ctx context.Context, o Options, head string, clock *codeCloc
 		return ""
 	}
 	bin := filepath.Join(o.Dirs.Share, "bin", "eva-md")
-	last := asShown(fmt.Sprintf("System map: %d %s: %s show systems/map", len(entries), plural(len(entries), "system"), bin))
+	last := AsShown(fmt.Sprintf("System map: %d %s: %s show systems/map", len(entries), plural(len(entries), "system"), bin))
 	if last == "" || runes(last) > systemsCap {
 		return ""
 	}
@@ -79,7 +79,7 @@ func pointersWithin(ctx context.Context, o Options, head string, clock *codeCloc
 		if !slices.Contains(e.Repos, o.Project.Key) {
 			continue
 		}
-		if line := asShown(pointer(e, codeNote(ctx, o, e, head, clock, saved), bin, min(pointerCap, left-1))); line != "" {
+		if line := AsShown(pointer(e, codeNote(ctx, o, e, head, clock, saved), bin, min(pointerCap, left-1))); line != "" {
 			lines = append(lines, line)
 			left -= runes(line) + 1
 		}
@@ -195,9 +195,12 @@ func (c *codeClock) count(ctx context.Context, root string, group []coderef.Ref)
 	return m, err == nil
 }
 
-// asShown returns line when cleaning it as wiki text leaves it as it is, and
-// "" otherwise.
-func asShown(line string) string {
+// AsShown returns a line of wiki text when cleaning it as the brief cleans
+// page text (see cleanPage) leaves it as it is, and "" otherwise: the brief
+// judges its system and constraint lines this way, and the prompt hook its
+// recall lines. A redaction of what the daily commit's scan reads as an
+// identifier, such as a long branch name, leaves the line as it is.
+func AsShown(line string) string {
 	if cleanPage(line) != line {
 		return ""
 	}
@@ -321,8 +324,12 @@ func (s *scan) listSystems(root *os.Root) []pageSource {
 	return pages
 }
 
-// systemFile scans one system page a line at a time: the description and
-// as_of in its frontmatter, then each line of its sections, which end where
+// maxFront bounds the frontmatter of a system page search reads; system
+// write saves a whole page in 24 KB.
+const maxFront = 64 << 10
+
+// systemFile scans one system page a line at a time: its frontmatter, read
+// whole (see systemFront), then each line of its sections, which end where
 // eva-md show ends them, except the map's link code ends every page with. A
 // line's ref names its section by its anchor, one word to a shell. A page
 // that fails to open or read is named as unreadable.
@@ -336,8 +343,8 @@ func (s *scan) systemFile(ctx context.Context, root *os.Root, src pageSource, lo
 	r := bufio.NewReaderSize(f, 64<<10)
 	var o outline
 	var asOf time.Time
-	description, at := "", 0
-	front, section := false, ""
+	var front []string
+	frontSize, inFront, section := 0, false, ""
 	for n := 1; ; n++ {
 		if ctx.Err() != nil {
 			s.cut = true
@@ -358,20 +365,17 @@ func (s *scan) systemFile(ctx context.Context, root *os.Root, src pageSource, lo
 		text := string(line)
 		switch bare := strings.TrimRight(text, "\r"); {
 		case n == 1 && bare == "---":
-			front = true
+			inFront = true
 			continue
-		case front && bare == "---":
-			front = false
-			if description != "" {
-				s.systemUnit(description, src.id, "system", asOf, src, at)
-			}
+		case inFront && bare == "---":
+			inFront = false
+			fm := systempage.ReadFront(front)
+			asOf, _ = time.ParseInLocation(time.DateOnly, fm.AsOf, loc)
+			s.systemFront(fm, src, asOf)
 			continue
-		case front:
-			switch key, value, _ := frontValue(bare); key {
-			case "description":
-				description, at = value, n
-			case "as_of":
-				asOf, _ = time.ParseInLocation(time.DateOnly, value, loc)
+		case inFront:
+			if frontSize += len(bare) + 1; frontSize <= maxFront {
+				front = append(front, bare)
 			}
 			continue
 		}
@@ -399,4 +403,60 @@ func (s *scan) systemFile(ctx context.Context, root *os.Root, src pageSource, lo
 // unverified, stands where an inbox hit's speaker does.
 func (s *scan) systemUnit(text, ref, tag string, asOf time.Time, src pageSource, n int) {
 	s.match(unit{text: text, shown: text, ts: asOf, day: true, role: tag, project: src.folder, ref: ref, file: src.rel, line: n, page: true, system: true})
+}
+
+// systemFront matches what a system page's frontmatter says, at the page's
+// ref: its names and description as one line, "<title> (also <alias>,
+// <alias>): <description>", and the code it cites as another, "code:
+// <source>, <source>", which a path also matches when it lies in a folder or
+// a file the page cites (see codeScope). Each is numbered by its key's line.
+func (s *scan) systemFront(f systempage.Front, src pageSource, asOf time.Time) {
+	line := func(key string) int {
+		if n, ok := f.Line[key]; ok {
+			return n + 1 // the frontmatter starts on the file's second line
+		}
+		return 0
+	}
+	if text := frontNames(f); text != "" {
+		n := line("title")
+		if f.Title == "" {
+			n = line("description")
+		}
+		s.systemUnit(text, src.id, "system", asOf, src, n)
+	}
+	if len(f.Code) == 0 {
+		return
+	}
+	text := "code:"
+	var code []citedPath
+	for i, c := range f.Code {
+		if i > 0 {
+			text += ","
+		}
+		text += " "
+		code = append(code, cite(len(strings.ToLower(text)), c.Source, c.Ref))
+		text += c.Source
+	}
+	s.match(unit{text: text, shown: text, ts: asOf, day: true, role: "system", project: src.folder, ref: src.id, file: src.rel, line: line("sources"), page: true, system: true, code: code})
+}
+
+// frontNames is a system page's title, its aliases and its description on
+// one line, as much of it as the page has.
+func frontNames(f systempage.Front) string {
+	name := f.Title
+	if len(f.Aliases) > 0 {
+		also := "also " + strings.Join(f.Aliases, ", ")
+		if name == "" {
+			name = "(" + also + ")"
+		} else {
+			name += " (" + also + ")"
+		}
+	}
+	switch {
+	case name == "":
+		return f.Description
+	case f.Description == "":
+		return name
+	}
+	return name + ": " + f.Description
 }

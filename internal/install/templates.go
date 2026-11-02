@@ -11,7 +11,7 @@ import (
 // Plugin bytes intentionally contain no binary version or timestamp. Codex
 // trusts the plugin's contents, while binary-only updates keep that trust.
 //
-//go:embed templates/*.json templates/icon.png templates/digest-skill.md
+//go:embed templates/*.json templates/icon.png templates/digest-skill.md templates/recall-skill.md
 var templates embed.FS
 
 // iconPath is where both plugins keep their icon, the 🧠 emoji. Codex shows
@@ -23,6 +23,10 @@ const iconPath = "plugins/eva-md/assets/icon.png"
 // skills: Claude Code scans skills/ by default, and the Codex manifest names
 // it in its skills field.
 const skillPath = "plugins/eva-md/skills/eva-md-digest/SKILL.md"
+
+// recallSkillPath is the recall skill, which tells the agent when and how to
+// look in memory, beside the digest skill.
+const recallSkillPath = "plugins/eva-md/skills/eva-md-recall/SKILL.md"
 
 const managed = ".eva-md-managed"
 const managedContents = "eva-md marketplace v1\n"
@@ -45,17 +49,20 @@ func render(host, binary string) (map[string][]byte, error) {
 		return nil, err
 	}
 	files[iconPath] = icon
-	skill, err := templates.ReadFile("templates/digest-skill.md")
-	if err != nil {
-		return nil, err
-	}
-	// The skill runs the binary by the same path as the hooks, and says
-	// which host writes the page.
+	// The skills run the binary by the same path as the hooks, and the
+	// digest skill says which host writes the page.
 	author := "claude-code"
 	if host == "codex" {
 		author = "codex"
 	}
-	files[skillPath] = []byte(strings.NewReplacer("{{bin}}", shellQuote(binary), "{{host}}", author).Replace(string(skill)))
+	fill := strings.NewReplacer("{{bin}}", shellQuote(binary), "{{host}}", author)
+	for path, name := range map[string]string{skillPath: "digest-skill.md", recallSkillPath: "recall-skill.md"} {
+		skill, err := templates.ReadFile("templates/" + name)
+		if err != nil {
+			return nil, err
+		}
+		files[path] = []byte(fill.Replace(string(skill)))
+	}
 	type event struct {
 		name, matcher string
 		timeout       int

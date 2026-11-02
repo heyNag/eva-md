@@ -3,6 +3,7 @@ package update
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/freetext"
 	"github.com/heyNag/eva-md/internal/inbox"
+	"github.com/heyNag/eva-md/internal/knowledgepage"
 	"github.com/heyNag/eva-md/internal/threadpage"
 )
 
@@ -146,6 +148,7 @@ type Options struct {
 	FullRef      bool            // another session file starts with this session's first 8 characters
 	Continued    bool            // the last pass over this file stopped with More: the rest of a group that passed the size check
 	Rules        RuleSet         // the standing rules on file
+	Knowledge    KnowledgeSet    // the knowledge on file
 }
 
 // Batch is one pass's input for the model, with what Validate checks the
@@ -163,6 +166,7 @@ type Batch struct {
 	AsOf          time.Time
 	FullRef       bool
 	Rules         RuleSet
+	Knowledge     KnowledgeSet // with Shown, the ids the input lists
 }
 
 // Numbered is one numbered entry of a batch, as a citation of it is checked.
@@ -188,7 +192,9 @@ const (
 	minChars      = 600      // the prompts, replies, tool and plan lines and host summaries of a group
 	commitsShown  = 5
 	timelineShown = 5
-	contextCap    = 600 // one line of page context
+	contextCap    = 600  // one line of page context
+	knownShown    = 12   // lines of knowledge on file
+	knownChars    = 2400 // characters of those lines in all
 )
 
 // indent starts every line of an entry's text after its first, so only the
@@ -218,10 +224,11 @@ const cutMark = "\n" + indent + "[… cut …]\n" + indent
 // and at least one, and End says where the next pass starts.
 //
 // The input opens with the branch and its last 5 commit subjects, the page's
-// Now items with their ids, kinds, tags and refs, its last 5 Timeline lines
-// with their dates and, for a new thread, the parent's Now items. The page's
-// summary and last chat are left out: the model writes them afresh from the
-// entries.
+// Now items with their ids, kinds, tags and refs, the standing rules and the
+// knowledge on file that bears on the entries (see knowledgeLines), its last
+// 5 Timeline lines with their dates and, for a new thread, the parent's Now
+// items. The page's summary and last chat are left out: the model writes
+// them afresh from the entries.
 func Build(entries []Entry, page threadpage.Page, o Options) (Batch, error) {
 	host, session, err := owner(entries)
 	if err != nil {
@@ -231,7 +238,7 @@ func Build(entries []Entry, page threadpage.Page, o Options) (Batch, error) {
 	if !substantial(kept, o.Continued, ended(entries)) {
 		return Batch{}, ErrTooSmall
 	}
-	b := Batch{Host: host, Session: session, Branch: o.Branch, Commits: o.Commits, AsOf: o.AsOf, FullRef: o.FullRef, Rules: o.Rules}
+	b := Batch{Host: host, Session: session, Branch: o.Branch, Commits: o.Commits, AsOf: o.AsOf, FullRef: o.FullRef, Rules: o.Rules, Knowledge: o.Knowledge}
 	// Last is the session's newest work, not the chunk's, so the first chunk
 	// of a session newer than the page isn't taken for an older session.
 	for _, e := range kept {
@@ -265,7 +272,9 @@ func Build(entries []Entry, page threadpage.Page, o Options) (Batch, error) {
 	if !b.More {
 		b.End, b.Off = entries[len(entries)-1].End, off
 	}
-	b.Input = []byte(pageContext(page, o) + "New entries, oldest first:\n" + body.String())
+	var known []string
+	known, b.Knowledge.Shown = knowledgeLines(o.Knowledge, b.Entries)
+	b.Input = []byte(pageContext(page, o, known) + "New entries, oldest first:\n" + body.String())
 	return b, nil
 }
 
@@ -647,9 +656,10 @@ func tailOf(s string, n int) string {
 var hidden = regexp.MustCompile(`<!--.*?-->`)
 
 // pageContext writes what the model sees besides the entries: the branch and
-// its commits, the page's Now items, its last Timeline lines and a new
-// thread's parent Now items.
-func pageContext(p threadpage.Page, o Options) string {
+// its commits, the page's Now items, the standing rules and the knowledge
+// lines on file, its last Timeline lines and a new thread's parent Now
+// items.
+func pageContext(p threadpage.Page, o Options, known []string) string {
 	var b strings.Builder
 	b.WriteString(oneLine("Branch: "+o.Branch) + "\n")
 	commits := o.Commits[:min(len(o.Commits), commitsShown)]
@@ -666,6 +676,7 @@ func pageContext(p threadpage.Page, o Options) string {
 	}
 	section(&b, "Now items on this page, by id (give each id an action)", items, nil)
 	section(&b, "Standing rules on file, by id", ruleLines(o.Rules), nil)
+	section(&b, "Knowledge on file, by id (supersede or drop rather than repeat)", known, nil)
 	section(&b, "Last Timeline lines, oldest first, with their dates", lastLines(p.Timeline, timelineShown), func(s string) string {
 		return "- " + strings.TrimSpace(hidden.ReplaceAllString(s, ""))
 	})
@@ -754,6 +765,76 @@ func ruleLines(s RuleSet) []string {
 		}
 	}
 	return out
+}
+
+// knowledgeLines picks the knowledge on file the model sees: the rows of the
+// recall index that share the most content tokens with the batch's entries,
+// the newest first among equal ones, at most 12 lines and 2,400 characters,
+// each "- <id> <kind> for this project: <statement>", "for all projects" or
+// "from <project key>" for another project's. A page a person locked or
+// verified, and another project's own, is marked "(read-only)" after its
+// id. A row that shares no token is left out. It returns the lines and the
+// ids they show, which are the only ones an operation may name. Every row
+// that applies to the project stays in the duplicate checks.
+func knowledgeLines(k KnowledgeSet, entries []Numbered) (lines, ids []string) {
+	texts := make([]string, len(entries))
+	for i, e := range entries {
+		texts[i] = e.Text
+	}
+	batch := contentTokens(strings.Join(texts, "\n"))
+	type candidate struct {
+		row   knowledgepage.Row
+		id, n int
+	}
+	var list []candidate
+	for _, r := range k.Rows {
+		id, ok := knowledgepage.ParseID(r.ID)
+		if !ok {
+			continue
+		}
+		n := 0
+		for t := range contentTokens(r.Title + "\n" + r.Statement) {
+			if batch[t] {
+				n++
+			}
+		}
+		if n > 0 {
+			list = append(list, candidate{r, id, n})
+		}
+	}
+	slices.SortStableFunc(list, func(a, b candidate) int {
+		return cmp.Or(cmp.Compare(b.n, a.n), strings.Compare(b.row.AsOf, a.row.AsOf), b.row.At.Compare(a.row.At), cmp.Compare(b.id, a.id))
+	})
+	chars := 0
+	for _, c := range list {
+		if len(lines) == knownShown {
+			break
+		}
+		l := knownLine(c.row, k.project())
+		n := utf8.RuneCountInString(oneLine(l))
+		if chars+n > knownChars || slices.Contains(ids, c.row.ID) {
+			continue
+		}
+		chars += n
+		lines, ids = append(lines, l), append(ids, c.row.ID)
+	}
+	return lines, ids
+}
+
+// knownLine is a row of the recall index as the model sees it.
+func knownLine(r knowledgepage.Row, project string) string {
+	where := "from " + r.Project
+	switch {
+	case r.Scope == knowledgepage.ScopeAll:
+		where = "for all projects"
+	case r.Project == project:
+		where = "for this project"
+	}
+	id := r.ID
+	if r.ReadOnly || r.Scope != knowledgepage.ScopeAll && r.Project != project {
+		id += " (read-only)"
+	}
+	return "- " + id + " " + r.Kind + " " + where + ": " + r.Statement
 }
 
 // lastLines returns the Timeline's last n lines, oldest first, each as

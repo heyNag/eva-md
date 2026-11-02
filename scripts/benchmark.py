@@ -315,6 +315,7 @@ def main():
         mcp_starts,mcp_exits,mcp_searches,mcp_shows,mcp_statuses=mcp_timings(binary,env,cwd)
         p95=lambda values: sorted(values)[int((len(values)-1)*.95)]
         code=code_scenarios(hook,cwd,wiki,state,sample["project"])
+        recalled=recall_scenario(hook,wiki)
         report={"offline":True,"isolated_home":True,"cross_host_resume":True,"inbox_bytes":files[0].stat().st_size,
                 "capture_samples":len(capture),"capture_p95_ms":round(p95(capture),3),
                 "startup_samples":len(startup),"startup_p95_ms":round(p95(startup),3),
@@ -324,6 +325,9 @@ def main():
                 "prompt_after_brief_target_met":p95(prompts)<50,
                 "prompt_with_pointers_samples":len(pointed),"prompt_with_pointers_p95_ms":round(p95(pointed),3),
                 "prompt_with_pointers_target_met":p95(pointed)<50,
+                "recall_index_rows":recalled["rows"],"recall_index_bytes":recalled["bytes"],
+                "prompt_with_recall_samples":len(recalled["prompts"]),"prompt_with_recall_p95_ms":round(p95(recalled["prompts"]),3),
+                "prompt_with_recall_target_met":p95(recalled["prompts"])<50,
                 "capture_with_spawn_samples":len(stop_spawn),"capture_with_spawn_p95_ms":round(p95(stop_spawn),3),
                 "capture_with_spawn_target_met":p95(stop_spawn)<50,
                 "session_end_samples":len(ends),"session_end_p95_ms":round(p95(ends),3),
@@ -405,6 +409,47 @@ def code_scenarios(hook, cwd, wiki, state, key):
             raise RuntimeError("a prompt naming three systems did not get three pointers saying their code moved")
         prompts.append(elapsed)
     return {"brief":briefs,"prompts":prompts}
+
+
+def recall_scenario(hook, wiki):
+    """Times prompts that recall knowledge. The recall index is full: active
+    facts near its 512 KiB bound, each titled by its own number, desk and
+    route. Each chat starts untimed and gets four prompts, each asking about
+    three facts it has not had by their numbers, desks and routes, so every
+    prompt reads and scores the whole index, beside the full names index
+    above, and must get the three facts in one fenced block."""
+    lines=["# eva-md knowledge index 1\n"]
+    size,n=len(lines[0]),0
+    while True:
+        statement=("Settlement batches for quartz %04d close at noon UTC; late entries roll to the next business day and are "
+                   "flagged for review by the ledger team."%(n+1))
+        line="\t".join(["k%d"%(n+1),"fact","observed","project","github.com__example__ledger","2026-10-28",
+                        "2026-10-28T10:00:00+07:00","","Quartz %04d settlement cutoff, desk D%04d, route R%04d"%((n+1,)*3),statement,
+                        "internal/quartz%04d"%(n+1)])+"\n"
+        if size+len(line.encode())>512<<10:
+            break
+        lines.append(line)
+        size,n=size+len(line.encode()),n+1
+    text="".join(lines)
+    if not 500<<10<=len(text.encode())<=512<<10:
+        raise RuntimeError("the recall index is not near its bound")
+    index=wiki/".eva-md/knowledge.tsv"
+    index.write_text(text);index.chmod(0o600)
+    prompts=[]
+    for c in range(25):
+        hook("codex","SessionStart","m1-recall-%d"%c,source="startup")
+        for k in range(4):
+            numbers=[c*12+k*3+m+1 for m in range(3)]
+            prompt=("When do the quartz %04d, %04d and %04d settlement batches close at desks D%04d, D%04d and D%04d on routes "
+                    "R%04d, R%04d and R%04d, and where do late entries go?")%tuple(numbers*3)
+            output,elapsed=hook("codex","UserPromptSubmit","m1-recall-%d"%c,turn_id=str(k),prompt=prompt)
+            value=json.loads(output)
+            context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
+            if not context.startswith("eva.md knowledge: ") or "\n````eva-memory\n" not in context or len(context)>900 or \
+               any("\nk%d · fact [observed] · github.com__example__ledger · 2026-10-28: "%m not in context for m in numbers):
+                raise RuntimeError("a prompt about three facts did not get them fenced")
+            prompts.append(elapsed)
+    return {"prompts":prompts,"rows":n,"bytes":len(text.encode())}
 
 
 if __name__=="__main__":

@@ -19,7 +19,7 @@ Lessons that carry over:
 
 ## Decisions
 
-Some decisions cover parts that are not built yet, such as knowledge pages. [design.md](design.md) marks those parts as planned or as the next phase.
+Some decisions cover parts that are not built yet. [design.md](design.md) marks those parts as planned.
 
 1. **Platform separate from the wiki.**
    - eva.md is only the platform: tools, plugins and schema.

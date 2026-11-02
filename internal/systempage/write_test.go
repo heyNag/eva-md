@@ -271,6 +271,8 @@ func TestReplace(t *testing.T) {
 
 	for _, tc := range []struct{ old, new, want string }{
 		{"status: stable\n", "verified: { by: human:alex, at: \"2026-10-31T08:00:00Z\" }\nstatus: stable\n", "a person marked the page verified"},
+		{"status: stable\n", "verified: true\nstatus: stable\n", "a person marked the page verified"},
+		{"status: stable\n", "verified:\n  by: human:alex\n  at: \"2026-10-31T08:00:00Z\"\nstatus: stable\n", "a person marked the page verified"},
 		{"state: \"active\"\n", "locked: true\nstate: \"active\"\n", "a person locked the page"},
 		{"state: \"active\"\n", "locked: yes\nstate: \"active\"\n", "a person locked the page"},
 		{"---\ntype: system\n", "type: system\n", "the page on disk can't be read as a wiki page"},

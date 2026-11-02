@@ -44,8 +44,11 @@ func TestDryRunIsByteIdenticalAndShowsNoValues(t *testing.T) {
 		"\n  claude -p --safe-mode --tools '' --strict-mcp-config --no-session-persistence --permission-prompts none --effort max --system-prompt '<the rules below>' --output-format json --json-schema '<the schema below>'",
 		"SSL_CERT_FILE", "EVA_MD_INNER", "== Rules ==\n" + Rules, "== Input ==\nBranch: main\n", "[1] user 2026-01-14 10:01: Plan the amber step 0.",
 		"== Schema ==\n{\"type\":\"object\"",
-		// The rules of version 2: sharper Now items and standing rules.
-		"== Rules ==\neva-md update rules, version 2.\n", "Make every Now item concrete and specific", "Standing rules on file, by id: none.\n", `"rules":{"type":"array","maxItems":10`,
+		// The rules of version 3: sharper Now items, standing rules and
+		// knowledge.
+		"== Rules ==\neva-md update rules, version 3.\n", "Make every Now item concrete and specific", "Standing rules on file, by id: none.\n", `"rules":{"type":"array","maxItems":10`,
+		"\nknowledge: lasting facts, decisions, procedures and constraints", "Knowledge on file, by id (supersede or drop rather than repeat): none.\n",
+		`"knowledge":{"type":"array","maxItems":10,"description":"At most 5 are kept."`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("dry run lacks %q:\n%s", want, got)

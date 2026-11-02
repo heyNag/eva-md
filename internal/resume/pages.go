@@ -19,21 +19,24 @@ import (
 	"github.com/heyNag/eva-md/internal/threadpage"
 )
 
-// pageSource is one thread page or system page in a search's scope.
+// pageSource is one thread page, system page or knowledge page in a
+// search's scope.
 type pageSource struct {
-	rel, id string // its path in the wiki, and its page id: the path without ".md"
-	folder  string // "general", the project's slug, or "systems"
-	name    string // its file name without ".md", the branch when the page names none
-	mod     time.Time
-	system  bool // a system page
+	rel, id   string // its path in the wiki, and its page id: the path without ".md"
+	folder    string // "general", the project's slug, "systems" or "knowledge"
+	name      string // its file name without ".md", the branch when the page names none
+	mod       time.Time
+	system    bool // a system page
+	knowledge bool // a knowledge page
 }
 
 // searchPages scans the thread pages in scope: the project's and the
 // general area's, or every project's with All. The project's folder is found
 // as the brief finds it, through a now page; when none is found and the
 // project's own folder holds threads, the trailer says they were not
-// searched. The system pages, global to the wiki, are in every scope. Each
-// page is read on its own, line by line, newest first; the wiki is never
+// searched. The system pages and the knowledge pages, global to the wiki,
+// are in every scope. Each page is read on its own, newest first, a thread
+// or system page line by line and a knowledge page whole; the wiki is never
 // loaded whole.
 func (s *scan) searchPages(ctx context.Context, o SearchOptions) {
 	if o.Config.WikiPath == "" {
@@ -77,6 +80,7 @@ func (s *scan) searchPages(ctx context.Context, o SearchOptions) {
 		pages = append(pages, s.listPages(root, folder)...)
 	}
 	pages = append(pages, s.listSystems(root)...)
+	pages = append(pages, s.listKnowledge(root)...)
 	sort.Slice(pages, func(i, j int) bool {
 		if !pages[i].mod.Equal(pages[j].mod) {
 			return pages[i].mod.After(pages[j].mod)
@@ -88,6 +92,8 @@ func (s *scan) searchPages(ctx context.Context, o SearchOptions) {
 		case s.cut:
 		case src.system:
 			s.systemFile(ctx, root, src, o.Now.Location())
+		case src.knowledge:
+			s.knowledgeFile(root, src, o.Now.Location())
 		default:
 			s.pageFile(ctx, root, src, o.Now.Location())
 		}

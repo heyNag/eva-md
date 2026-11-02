@@ -324,12 +324,16 @@ func TestWikiInstanceAndProjectGuards(t *testing.T) {
 	o := fixture(t)
 	capture(t, o, "codex", "source-session", "main", o.Now.Add(-time.Hour), "safe raw history")
 	wiki(t, o, o.Now, "PRIVATE WIKI TEXT")
+	writeIndex(t, o, indexRow("k4", "constraint", "project", o.Project.Key, "2026-10-28", "No mocks", "Tests never mock the database"))
+	if r, err := Build(context.Background(), o); err != nil || len(constraintLines(r.Text)) != 1 {
+		t.Fatalf("the wiki's own constraint: %v %s", err, r.Text)
+	}
 	o.Config.Instance = "personal-instance"
 	if err := config.SaveSchema(filepath.Join(o.Config.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{Instance: "work-instance", SchemaVersion: 1}); err != nil {
 		t.Fatal(err)
 	}
 	r, err := Build(context.Background(), o)
-	if err != nil || strings.Contains(r.Text, "PRIVATE WIKI") || !strings.Contains(r.Text, "safe raw history") {
+	if err != nil || strings.Contains(r.Text, "PRIVATE WIKI") || strings.Contains(r.Text, "Constraint: ") || !strings.Contains(r.Text, "safe raw history") {
 		t.Fatalf("instance guard: %v %s", err, r.Text)
 	}
 	o.Config.Instance = ""
@@ -343,7 +347,7 @@ func TestWikiInstanceAndProjectGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err = Build(context.Background(), o)
-	if err != nil || strings.Contains(r.Text, "PRIVATE WIKI") {
+	if err != nil || strings.Contains(r.Text, "PRIVATE WIKI") || strings.Contains(r.Text, "Constraint: ") {
 		t.Fatal("missing root index bypassed")
 	}
 }

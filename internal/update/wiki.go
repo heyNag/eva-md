@@ -66,6 +66,15 @@ type area struct {
 
 func (a area) general() bool { return a.dir == identity.GeneralKey }
 
+// key is the project key the area's knowledge is learned in: the project's,
+// or the general area's.
+func (a area) key() string {
+	if a.general() || a.project.Key == "" {
+		return identity.GeneralKey
+	}
+	return a.project.Key
+}
+
 // threadID is the page id of a branch's thread in the area.
 func (a area) threadID(branch string) string {
 	if a.general() {
@@ -230,7 +239,7 @@ func readThread(w *okfadapter.Wiki, a area, branch string) (thread, error) {
 	switch {
 	case okfadapter.IsLocked(c):
 		t.skip = ReasonLocked
-	case len(c.Verified) > 0:
+	case okfadapter.IsVerified(pg):
 		t.skip = ReasonVerified
 	case c.Type != "thread":
 		t.skip = ReasonDamaged
@@ -441,7 +450,7 @@ func readRules(w *okfadapter.Wiki, a area, general bool) (rulesPage, error) {
 	switch {
 	case okfadapter.IsLocked(c):
 		rp.skip = ReasonLocked
-	case len(c.Verified) > 0:
+	case okfadapter.IsVerified(pg):
 		rp.skip = ReasonVerified
 	case c.Type != "rules":
 		rp.skip = ReasonDamaged

@@ -59,20 +59,31 @@ func TestSchemaIsStrict(t *testing.T) {
 		}
 	}
 	objects("output", root)
-	if count != 5 {
-		t.Errorf("%d objects, want 5: the output, a done line, an item, a Timeline line and a rule", count)
+	if count != 6 {
+		t.Errorf("%d objects, want 6: the output, a done line, an item, a Timeline line, a rule and a knowledge change", count)
 	}
 	props := root["properties"].(map[string]any)
 	item := props["items"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
 	line := props["timeline"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
 	rule := props["rules"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+	known := props["knowledge"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
 	for _, key := range []string{"id", "text", "reason"} {
 		if got := rule[key].(map[string]any)["type"]; !slices.Equal(toStrings(got), []string{"string", "null"}) {
 			t.Errorf("rules %s type = %v, want string or null", key, got)
 		}
 	}
-	if refs := rule["refs"].(map[string]any); refs["minItems"] != float64(1) || refs["maxItems"] != float64(maxRefs) {
-		t.Errorf("rule refs bounds %v", refs)
+	for _, key := range []string{"id", "title", "text", "reason"} {
+		if got := known[key].(map[string]any)["type"]; !slices.Equal(toStrings(got), []string{"string", "null"}) {
+			t.Errorf("knowledge %s type = %v, want string or null", key, got)
+		}
+	}
+	for name, refs := range map[string]map[string]any{"rule": rule["refs"].(map[string]any), "knowledge": known["refs"].(map[string]any)} {
+		if refs["minItems"] != float64(1) || refs["maxItems"] != float64(maxRefs) {
+			t.Errorf("%s refs bounds %v", name, refs)
+		}
+	}
+	if paths := known["paths"].(map[string]any); paths["maxItems"] != float64(3) || paths["items"].(map[string]any)["type"] != "string" {
+		t.Errorf("knowledge paths %v", paths)
 	}
 	enum := func(m map[string]any, key string) []string {
 		var out []string
@@ -87,12 +98,14 @@ func TestSchemaIsStrict(t *testing.T) {
 		{enum(item, "kind"), itemKinds}, {enum(item, "action"), actions}, {enum(item, "tag"), tagNames},
 		{enum(line, "kind"), lineKinds}, {enum(line, "tag"), tagNames},
 		{enum(rule, "action"), ruleActions}, {enum(rule, "tag"), tagNames},
+		{enum(known, "action"), []string{"add", "supersede", "drop"}}, {enum(known, "kind"), []string{"fact", "decision", "procedure", "constraint"}},
+		{enum(known, "tag"), tagNames}, {enum(known, "scope"), []string{"project", "all"}},
 	} {
 		if !slices.Equal(c.got, c.want) {
 			t.Errorf("enum %v, want %v", c.got, c.want)
 		}
 	}
-	bounds := map[string]float64{"done": maxDone, "items": maxAdds, "timeline": maxTimeline, "unknowns": maxUnknowns, "rules": maxRules}
+	bounds := map[string]float64{"done": maxDone, "items": maxAdds, "timeline": maxTimeline, "unknowns": maxUnknowns, "rules": maxRules, "knowledge": 10}
 	for key, want := range bounds {
 		if got := props[key].(map[string]any)["maxItems"]; got != want {
 			t.Errorf("%s maxItems = %v, want %v", key, got, want)
@@ -189,7 +202,7 @@ func TestParseOutputIsStrict(t *testing.T) {
 		t.Errorf("error %q", err)
 	}
 	// The rules list is as strict as the rest, and only an answer shaped by
-	// rules version 1, as good is, may leave it out.
+	// rules version 1, as good is, may leave it out, with the knowledge list.
 	rule := `{"id":null,"action":"add","text":"Never mock the database","tag":"stated","refs":[1],"reason":null}`
 	rules := func(list string) string { return strings.TrimSuffix(good, "}") + `,"rules":[` + list + `]}` }
 	out, err = parseOutput([]byte(rules(rule+`,{"id":"r2","action":"drop","text":null,"tag":"stated","refs":[2,3],"reason":"the user changed it"}`)), maxAdds)
@@ -213,5 +226,40 @@ func TestParseOutputIsStrict(t *testing.T) {
 		if _, err := parseOutput([]byte(bad), maxAdds); !errors.Is(err, ErrRejected) {
 			t.Errorf("%s: err = %v, want a rejection", name, err)
 		}
+	}
+	// So is the knowledge list. An answer shaped by rules version 2 leaves
+	// it out; one that holds it holds the rules too.
+	known := `{"id":null,"action":"add","kind":"decision","title":"Inbox format","text":"Use JSONL for the inbox","tag":"stated","refs":[1],"scope":"project","reason":null,"paths":["internal/inbox"]}`
+	knowledge := func(list string) string { return strings.TrimSuffix(rules(rule), "}") + `,"knowledge":[` + list + `]}` }
+	out, err = parseOutput([]byte(knowledge(known+`,{"id":"k3","action":"drop","kind":"fact","title":null,"text":null,"tag":"stated","refs":[2],"scope":"all","reason":"the user moved on","paths":[]}`)), maxAdds)
+	if err != nil || len(out.Rules) != 1 || len(out.Knowledge) != 2 || out.Knowledge[0].ID != nil || *out.Knowledge[0].Title != "Inbox format" ||
+		!slices.Equal(out.Knowledge[0].Paths, []string{"internal/inbox"}) || *out.Knowledge[1].ID != "k3" || out.Knowledge[1].Action != "drop" ||
+		out.Knowledge[1].Text != nil || out.Knowledge[1].Scope != "all" || *out.Knowledge[1].Reason != "the user moved on" {
+		t.Fatalf("knowledge parsed %+v, %v", out.Knowledge, err)
+	}
+	if out, err = parseOutput([]byte(rules(rule)), maxAdds); err != nil || len(out.Rules) != 1 || out.Knowledge != nil {
+		t.Fatalf("a version 2 answer: %+v, %v", out, err)
+	}
+	for name, bad := range map[string]string{
+		"null knowledge":          strings.TrimSuffix(rules(rule), "}") + `,"knowledge":null}`,
+		"knowledge without rules": strings.TrimSuffix(good, "}") + `,"knowledge":[]}`,
+		"unknown action":          knowledge(strings.Replace(known, `"add"`, `"edit"`, 1)),
+		"unknown kind":            knowledge(strings.Replace(known, `"decision"`, `"rule"`, 1)),
+		"unknown scope":           knowledge(strings.Replace(known, `"project"`, `"team"`, 1)),
+		"no refs":                 knowledge(strings.Replace(known, `[1]`, `[]`, 1)),
+		"null paths":              knowledge(strings.Replace(known, `["internal/inbox"]`, `null`, 1)),
+		"4 paths":                 knowledge(strings.Replace(known, `["internal/inbox"]`, `["a","b","c","d"]`, 1)),
+		"path not text":           knowledge(strings.Replace(known, `["internal/inbox"]`, `[3]`, 1)),
+		"missing key":             knowledge(strings.Replace(known, `,"paths":["internal/inbox"]`, ``, 1)),
+		"extra key":               knowledge(strings.Replace(known, `"reason":null`, `"reason":null,"until":null`, 1)),
+		"11 changes":              knowledge(many(known, 11)),
+		"other key left out":      strings.Replace(knowledge(known), `"unknowns":["u"],`, ``, 1),
+	} {
+		if _, err := parseOutput([]byte(bad), maxAdds); !errors.Is(err, ErrRejected) {
+			t.Errorf("%s: err = %v, want a rejection", name, err)
+		}
+	}
+	if _, err := parseOutput([]byte(knowledge(many(known, 10))), maxAdds); err != nil {
+		t.Errorf("10 knowledge changes rejected: %v", err)
 	}
 }

@@ -10,12 +10,14 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/heyNag/eva-md/internal/coderef"
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/knowledgepage"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/session"
 	"github.com/heyNag/eva-md/internal/systempage"
@@ -46,12 +48,19 @@ const (
 const promptsMarker = "prompts"
 
 // promptState is a chat's state across its prompts: how many it has had,
-// how many pointers they were sent, and the system pages pointed at in it,
-// by its briefs or its prompts.
+// how many pointers and recalled facts they were sent, and the system and
+// knowledge pages pointed at or recalled in it, by its briefs or its
+// prompts.
 type promptState struct {
 	Prompts  int      `json:"prompts"`
 	Pointers int      `json:"pointers,omitempty"`
+	Recalled int      `json:"recalled,omitempty"`
 	Pages    []string `json:"pages,omitempty"`
+}
+
+// empty reports whether s is a new chat's state.
+func (s promptState) empty() bool {
+	return s.Prompts == 0 && s.Pointers == 0 && s.Recalled == 0 && len(s.Pages) == 0
 }
 
 // readState reads the chat's state. A marker that isn't one reads as a new
@@ -83,7 +92,7 @@ func (s *promptState) point(pages ...string) bool {
 // startup or a clear, starts the state over too, since a host may keep a
 // session's id across a clear. It saves nothing, and reads the state only
 // when it may change.
-func nextState(ctx context.Context, markers session.Markers, host string, p payload, env Env, b briefed) (promptState, []string, bool) {
+func nextState(ctx context.Context, markers session.Markers, host string, p payload, env Env, project string, b briefed) (promptState, []string, bool) {
 	pages := briefPages(b.text)
 	if p.Event != "UserPromptSubmit" && len(pages) == 0 && !b.fresh {
 		return promptState{}, nil, false
@@ -93,14 +102,14 @@ func nextState(ctx context.Context, markers session.Markers, host string, p payl
 		return promptState{}, nil, false
 	}
 	changed := false
-	if b.fresh && (s.Prompts > 0 || len(s.Pages) > 0) {
+	if b.fresh && !s.empty() {
 		s, changed = promptState{}, true
 	}
 	changed = s.point(pages...) || changed
 	if p.Event != "UserPromptSubmit" {
 		return s, nil, changed
 	}
-	return s, promptLines(ctx, env, p.Prompt, b.brief, &s), true
+	return s, promptLines(ctx, env, project, p.Prompt, b.brief, &s), true
 }
 
 // saveState saves the chat's state in place, with one open and write and
@@ -156,7 +165,12 @@ func saveState(ctx context.Context, markers session.Markers, host, id string, s 
 // command is no pointer, and the brief indents every quoted line.
 var briefShow = regexp.MustCompile(`(?m)^System: .* show (systems/[a-z][a-z0-9-]{1,63})$`)
 
-// briefPages lists the system pages a brief's text points at.
+// briefConstraint is how a brief lists a constraint's knowledge page: a
+// line that starts "Constraint: " and ends with the command.
+var briefConstraint = regexp.MustCompile(`(?m)^Constraint: .* show (knowledge/k[1-9][0-9]{0,8})$`)
+
+// briefPages lists the system pages a brief's text points at and the
+// knowledge pages it lists, which the chat's prompts then never get again.
 func briefPages(text string) []string {
 	var out []string
 	for _, m := range briefShow.FindAllStringSubmatch(text, -1) {
@@ -164,16 +178,29 @@ func briefPages(text string) []string {
 			out = append(out, m[1])
 		}
 	}
+	for _, m := range briefConstraint.FindAllStringSubmatch(text, -1) {
+		if _, ok := knowledgepage.ParseID(m[1]); ok {
+			out = append(out, m[1])
+		}
+	}
 	return out
 }
 
 // promptLines counts the prompt in s and returns the lines it gets beside
-// any brief or refresh: pointers to the system pages it names, or else the
-// reminder, when it is due. A prompt that carries a brief gets no reminder,
-// since the brief's footer says the same.
-func promptLines(ctx context.Context, env Env, prompt string, brief bool, s *promptState) []string {
+// any brief or refresh: pointers to the system pages it names, then the
+// block of facts it recalls, a blank line apart, or else the reminder, when
+// it is due. A prompt that carries a brief gets no reminder, since the
+// brief's footer says the same. The wiki's instance is checked at most once.
+func promptLines(ctx context.Context, env Env, project, prompt string, brief bool, s *promptState) []string {
 	s.Prompts++
-	lines, systems := pointers(ctx, env, prompt, s)
+	instance := sync.OnceValue(func() bool { return instanceOf(env.Config) })
+	lines, systems := pointers(ctx, env, prompt, s, instance)
+	if block := recall(ctx, env, project, prompt, s, instance); block != "" {
+		if len(lines) > 0 {
+			block = "\n" + block
+		}
+		lines = append(lines, block)
+	}
 	if len(lines) == 0 && !brief && reminderDue(env.Config.ReminderEvery, s.Prompts) {
 		if line := reminder(env.Dirs, systems); line != "" {
 			lines = append(lines, line)
@@ -209,7 +236,7 @@ func reminder(dirs paths.Dirs, systems bool) string {
 // reports whether the wiki has system pages, by a names index that lists
 // one. A wiki that is missing, is not the config's instance or has no index
 // gets none.
-func pointers(ctx context.Context, env Env, prompt string, s *promptState) ([]string, bool) {
+func pointers(ctx context.Context, env Env, prompt string, s *promptState, instance func() bool) ([]string, bool) {
 	c := env.Config
 	if c.WikiPath == "" || ctx.Err() != nil {
 		return nil, false
@@ -223,7 +250,7 @@ func pointers(ctx context.Context, env Env, prompt string, s *promptState) ([]st
 	}
 	defer root.Close()
 	index := readNames(root)
-	if len(index) == 0 || !instanceOf(c) {
+	if len(index) == 0 || !instance() {
 		return nil, false
 	}
 	bin := filepath.Join(env.Dirs.Share, "bin", "eva-md")

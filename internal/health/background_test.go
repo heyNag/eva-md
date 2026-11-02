@@ -450,7 +450,7 @@ func TestStatusRows(t *testing.T) {
 		}
 	}
 	r := Status(t.Context(), d, "v0.7.2")
-	if row := findRow(t, r, "wiki contents"); row.Status != "PASS" || row.Detail != "2 projects, 4 threads" {
+	if row := findRow(t, r, "wiki contents"); row.Status != "PASS" || row.Detail != "2 projects, 4 threads, 0 knowledge pages" {
 		t.Fatalf("contents: %+v", row)
 	}
 	if row := findRow(t, r, "update backlog"); row.Status != "PASS" || row.Detail != "1 session waits for an update" {

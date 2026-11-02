@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -441,7 +442,7 @@ func TestSearchFindsSystemLines(t *testing.T) {
 	}
 	for _, c := range []struct{ terms, want string }{
 		{"retry twice", "[unverified] 2026-10-28 · systems/orders#Unverified · - Orders may retry a payment twice."},
-		{"pays out", "[system] 2026-10-27 · systems/payments · Charges cards and pays out"},
+		{"pays out", "[system] 2026-10-27 · systems/payments · Payments: Charges cards and pays out"},
 		{"refresh-worker ENG-1234", "[system] 2026-10-28 · systems/orders#Interfaces · - Branch `PROJ-123-local-token-refresh-worker-c9a8c7f1e2d3b4a5` deploys it; tracked in ENG-1234."},
 		{"payments.md", "[system] 2026-10-28 · systems/orders#Depends-on · - [Payments](payments.md)"},
 	} {
@@ -479,6 +480,105 @@ func TestSearchFindsSystemLines(t *testing.T) {
 	}
 	if got := hits(t, search(t, withPages(o, "quince"))); len(got) != 2 || got[0] != "[system] 2026-06-01 · systems/archive#Summary · Archive keeps quince records." {
 		t.Fatalf("an old page:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// Search finds a system page by its title and aliases, on one line with its
+// description, and by the code it cites: a path finds the pages that cite
+// it, or a folder holding it, in the project's repo, where a page citing the
+// whole repo holds every path, and with --all in any repo's cited folder or
+// file. A path is cleaned first. An absolute path in the project's worktree
+// is read relative to it, and any other by its end. A page citing the very
+// folder in the case typed ranks above one citing the whole repo; a folder
+// is no prefix of a longer name. The text of a code line never matches a
+// path, so this holds for the cited folder itself and a prefix of its name
+// too, while a repo's name finds the pages that cite it. The snippet shows
+// the source that holds the path, and the label says what a code line is
+// only when one is shown.
+func TestSearchFindsSystemPagesByNameAndCode(t *testing.T) {
+	o := fixture(t)
+	so := systemsWiki(t, &o)
+	o.Project.Root = "/work/resume"
+	page := func(title, description, asOf, repo, extra string, sources ...string) string {
+		var cited strings.Builder
+		for _, s := range sources {
+			cited.WriteString("  - resource: \"" + s + "\"\n")
+		}
+		return "---\ntype: system\ntitle: " + title + "\ndescription: " + description + "\nstatus: stable\n" +
+			"generated: { by: claude-code/claude-opus-5-5 }\nsources:\n" + cited.String() + "repos: [" + repo + "]\n" + extra +
+			"as_of: " + asOf + "\nstate: active\n---\n\n## Summary\n" + title + " in short.\n"
+	}
+	legacy := []string{}
+	for i := range 10 {
+		legacy = append(legacy, fmt.Sprintf("github.com/team/resume@4e2bf4c:legacy/module-%02d-with-a-long-name", i))
+	}
+	for _, p := range []struct{ slug, text string }{
+		{"orders", page("Orders", "Takes, prices and tracks customer orders", "2026-10-28", "github.com/team/resume", "aliases: [OMS, order-api]\n",
+			"https://docs.example.com/eng/orders v4", "github.com/team/resume@4e2bf4c:internal/orders", "github.com/team/resume@4e2bf4c:api/orders.proto")},
+		{"gateway", page("Gateway", "Fronts every request", "2026-10-27", "github.com/team/resume", "", "git@github.com:team/resume.git@4e2bf4c")},
+		{"ledger", page("Ledger", "Keeps the books", "2026-10-26", "github.com/acme/ledger", "", "github.com/acme/ledger@1a2b3c4:internal/orders")},
+		{"monolith", page("Monolith", "Holds the old code", "2026-10-25", "github.com/team/resume", "", append(legacy, "github.com/team/resume@4e2bf4c:services/billing")...)},
+	} {
+		if _, err := systempage.Write(context.Background(), so, p.slug, false, strings.NewReader(p.text)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const (
+		names   = "[system] 2026-10-28 · systems/orders · Orders (also OMS, order-api): Takes, prices and tracks customer orders"
+		orders  = "[system] 2026-10-28 · systems/orders · code: github.com/team/resume@4e2bf4c:internal/orders, github.com/team/resume@4e2bf4c:api/orders.proto"
+		gateway = "[system] 2026-10-27 · systems/gateway · code: git@github.com:team/resume.git@4e2bf4c"
+		ledger  = "[system] 2026-10-26 · systems/ledger · code: github.com/acme/ledger@1a2b3c4:internal/orders"
+	)
+	for _, c := range []struct {
+		terms []string
+		want  []string
+	}{
+		{[]string{"OMS"}, []string{names}},
+		{[]string{"order-api"}, []string{names}},
+		{[]string{"internal/orders/service.go"}, []string{orders, gateway}},
+		{[]string{"internal/orders"}, []string{orders, gateway}},
+		{[]string{"internal/order"}, []string{gateway}},
+		{[]string{"github.com/acme/ledger"}, []string{ledger, gateway}},
+		{[]string{"Internal/Orders/service.go"}, []string{orders, gateway}},
+		{[]string{"./internal/orders/"}, []string{orders, gateway}},
+		{[]string{"api/orders.proto"}, []string{orders, gateway}},
+		{[]string{"internal/ordersx/a.go"}, []string{gateway}},
+		{[]string{"/work/resume/internal/orders/service.go"}, []string{orders, gateway}},
+		{[]string{"/elsewhere/ledger/internal/orders/x.go"}, []string{orders, ledger}},
+	} {
+		out := search(t, withPages(o, c.terms...))
+		if got := hits(t, out); !slices.Equal(got, c.want) {
+			t.Fatalf("%q:\n%s", c.terms, out)
+		}
+		if code := c.want[0] != names; strings.Contains(out, codeFacts) != code {
+			t.Fatalf("%q: the label says what a code line is: %v\n%s", c.terms, !code, out)
+		}
+	}
+	out := search(t, withPages(o, "services/billing/api.go"))
+	if got := hits(t, out); len(got) != 2 || !strings.HasPrefix(got[0], "[system] 2026-10-25 · systems/monolith · …") || !strings.Contains(got[0], "@4e2bf4c:services/billing") || got[1] != gateway {
+		t.Fatalf("a source far along the line:\n%s", out)
+	}
+	// In another project a relative path names no repo the pages cite, and
+	// with --all it lies in any repo's cited folder, never a whole repo.
+	other := o
+	other.Project = identity.Project{Kind: identity.KindRepo, Key: "github.com__team__other", Slug: "other", Remote: "github.com/team/other", Branch: "main"}
+	for _, path := range []string{"internal/orders/service.go", "internal/orders", "internal/order"} {
+		if out := search(t, withPages(other, path)); !strings.HasPrefix(out, "No matches.") {
+			t.Fatalf("another project, %s:\n%s", path, out)
+		}
+	}
+	want := []string{strings.Replace(orders, " · systems/", " · systems · systems/", 1), strings.Replace(ledger, " · systems/", " · systems · systems/", 1)}
+	for _, path := range []string{"internal/orders/service.go", "internal/orders"} {
+		every := withPages(other, path)
+		every.All = true
+		if out := search(t, every); !slices.Equal(hits(t, out), want) {
+			t.Fatalf("--all, %s:\n%s", path, out)
+		}
+	}
+	every := withPages(other, "internal/order")
+	every.All = true
+	if out := search(t, every); !strings.HasPrefix(out, "No matches.") {
+		t.Fatalf("--all, a prefix:\n%s", out)
 	}
 }
 
@@ -530,7 +630,7 @@ func TestSearchSystemPagesInEveryScope(t *testing.T) {
 	general.Project = identity.General()
 	for name, so := range map[string]SearchOptions{"project": withPages(o, "charges", "cards"), "general": withPages(general, "charges", "cards")} {
 		got := hits(t, search(t, so))
-		if len(got) != 2 || got[0] != hit || got[1] != "[system] 2026-10-27 · systems/payments · Charges cards and pays out" {
+		if len(got) != 2 || got[0] != hit || got[1] != "[system] 2026-10-27 · systems/payments · Payments: Charges cards and pays out" {
 			t.Fatalf("%s:\n%s", name, strings.Join(got, "\n"))
 		}
 	}

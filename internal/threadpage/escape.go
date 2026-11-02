@@ -23,6 +23,13 @@ var (
 	refPattern = regexp.MustCompile(`^s:\S+#[0-9]+$`)
 )
 
+// CleanLine returns s as one line escaped as a page line's free text is, of
+// at most n characters, or of any length when n is 0: other page families,
+// such as knowledge pages, write their free text through it, so it can't
+// forge a heading, a fence, a comment, a link, a tag or a frontmatter key.
+// Cleaning twice changes nothing.
+func CleanLine(s string, n int) string { return cleanLine(s, n) }
+
 // cleanLine returns s as one escaped line of at most n characters, or of any
 // length when n is 0.
 func cleanLine(s string, n int) string {

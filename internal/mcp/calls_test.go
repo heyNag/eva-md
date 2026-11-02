@@ -306,7 +306,8 @@ func TestMissingAndUnreadableConfig(t *testing.T) {
 }
 
 // eva_show prints a whole system page, the Now, the Timeline with last and
-// since, a day and a section by its anchor, each under the label.
+// since, a day and a section by its anchor, each under the label, and after
+// a system page the system pages that link to it.
 func TestShowPagesAndSections(t *testing.T) {
 	f := newFixture(t)
 	f.wiki(t)
@@ -318,7 +319,8 @@ func TestShowPagesAndSections(t *testing.T) {
 		args       map[string]any
 		want, miss string
 	}{
-		{map[string]any{"ref": "systems/orders-api"}, showLabel + "\n" + strings.TrimSuffix(string(page), "\n"), ""},
+		{map[string]any{"ref": "systems/orders-api"}, showLabel + "\n" + strings.TrimSuffix(string(page), "\n"), "linked from"},
+		{map[string]any{"ref": "systems/billing"}, "Billing sends invoices.\n\neva.md: systems/billing: linked from systems/orders-api", ""},
 		{map[string]any{"ref": "systems/orders-api#Depends-on"}, showLabel + "\n## Depends on\n- [Billing](billing.md)", "## Unverified"},
 		{map[string]any{"ref": "projects/orders/threads/main#Now"}, "Wire the retry queue", "### " + f.day(1)},
 		{map[string]any{"ref": "projects/orders/threads/main#Timeline", "last": 1}, "### " + f.day(1), ""},
@@ -330,8 +332,24 @@ func TestShowPagesAndSections(t *testing.T) {
 			t.Fatalf("%v:\n%s", tc.args, got)
 		}
 	}
-	if r := f.call(t, "eva_show", map[string]any{"ref": "systems/nothing-here"}); !r.IsError || !strings.HasPrefix(r.Content[0].Text, "eva-md: no such page or file;") {
+	if r := f.call(t, "eva_show", map[string]any{"ref": "systems/nothing-here"}); !r.IsError || r.Content[0].Text != "eva-md: no such page or file; eva_search finds refs, systems/map lists the system pages and knowledge/map the knowledge pages" {
 		t.Fatalf("a missing page: %+v", r)
+	}
+	// A knowledge page, its Statement and its History, with no line of the
+	// pages that link to it.
+	writeFile(t, filepath.Join(f.c.WikiPath, "knowledge", "k1.md"), "---\ntype: knowledge\ntitle: Inbox format\ndescription: The inbox stores JSONL per session and day\nstatus: stable\n"+
+		"as_of: \"2026-10-28\"\nkind: \"decision\"\nproject: \""+f.project.Key+"\"\nscope: \"project\"\nstate: \"active\"\n---\n\n"+
+		"## Statement\nThe inbox stores JSONL per session and day [stated] s:4b5c6d7e#3\n\n"+
+		"## History\n- ~~The inbox stores JSONL per session~~ → The inbox stores JSONL per session and day (superseded 2026-10-28) [stated] s:4b5c6d7e#3\n\n"+
+		"Part of the [knowledge map](map.md).\n")
+	for ref, want := range map[string]string{
+		"knowledge/k1":           "\n## Statement\nThe inbox stores JSONL per session and day [stated] s:4b5c6d7e#3\n\n## History\n",
+		"knowledge/k1#Statement": showLabel + "\n## Statement\nThe inbox stores JSONL per session and day [stated] s:4b5c6d7e#3",
+		"knowledge/k1#History":   showLabel + "\n## History\n- ~~The inbox stores JSONL per session~~ → The inbox stores JSONL per session and day (superseded 2026-10-28) [stated] s:4b5c6d7e#3\n\nPart of the [knowledge map](map.md).",
+	} {
+		if got := f.answer(t, "eva_show", map[string]any{"ref": ref}); !strings.Contains(got, want) || strings.Contains(got, "linked from") || strings.HasSuffix(ref, "#Statement") && got != want {
+			t.Fatalf("%s:\n%s", ref, got)
+		}
 	}
 }
 
@@ -355,6 +373,27 @@ func TestShowCutsALongPage(t *testing.T) {
 	kept := strings.TrimPrefix(got[:len(got)-len(note[0])], showLabel+"\n")
 	if !strings.HasPrefix(b.String(), kept+"\n") {
 		t.Fatal("the page was not cut at a line end")
+	}
+}
+
+// The knowledge map past 24 KB, one list with no section to ask for, is cut
+// with a note that says how to get the rest: the command that prints it
+// whole, and search.
+func TestShowCutsALongKnowledgeMap(t *testing.T) {
+	f := newFixture(t)
+	f.wiki(t)
+	var b strings.Builder
+	b.WriteString("---\ntype: map\ntitle: Knowledge map\ndescription: Every knowledge page, one line each\n---\n\n# Knowledge map\n\n")
+	for i := 1; b.Len() < 40<<10; i++ {
+		fmt.Fprintf(&b, "- [Nightly export fact %d](k%d.md): fact · this project · %s · as of 2026-10-28\n", i, i, f.project.Key)
+	}
+	writeFile(t, filepath.Join(f.c.WikiPath, "knowledge", "map.md"), b.String())
+	hint := "the newest pages are in the rest; " + filepath.Join(f.s.Dirs.Share, "bin", "eva-md") + " show 'knowledge/map' prints it whole, and eva_search finds a knowledge page by its words]"
+	for _, ref := range []string{"knowledge/map", "knowledge/map.md"} {
+		got := f.answer(t, "eva_show", map[string]any{"ref": ref})
+		if len(got) > showCap+len(showLabel)+1 || !strings.Contains(got, "\n- [Nightly export fact 1](k1.md): ") || !strings.HasSuffix(got, " KB left; "+strings.Replace(hint, "'knowledge/map'", "'"+ref+"'", 1)) {
+			t.Fatalf("%s: %d bytes:\n%s", ref, len(got), got[max(len(got)-400, 0):])
+		}
 	}
 }
 
@@ -428,7 +467,7 @@ func TestSearchIsCutAtItsCap(t *testing.T) {
 // systems, the hooks, the updates, the notice and what to read next.
 func TestStatus(t *testing.T) {
 	f := newFixture(t)
-	if out := f.answer(t, "eva_status", nil); !strings.HasPrefix(out, "scope: "+f.project.Key+" · branch main · thread projects/orders/threads/main\nthread page: the wiki is unreadable\n") || !strings.Contains(out, "\nsystems: no system pages\n") {
+	if out := f.answer(t, "eva_status", nil); !strings.HasPrefix(out, "scope: "+f.project.Key+" · branch main · thread projects/orders/threads/main\nthread page: the wiki is unreadable\n") || !strings.Contains(out, "\nsystems: no system pages\nknowledge: the wiki is unreadable\n") {
 		t.Fatalf("no wiki yet:\n%s", out)
 	}
 	f.wiki(t)
@@ -449,6 +488,7 @@ func TestStatus(t *testing.T) {
 		"thread page: projects/orders/threads/main, Now as of " + asOf + " (1 decision in force, 1 next step, 1 open question); standing rules: 1 for this project, 1 for all projects",
 		"pending update: 1 session, about 12 KB unprocessed",
 		"systems for this project: orders-api (the map lists 2)",
+		"knowledge: none yet",
 		"hooks: claude-code not installed, codex ran 3 hours ago; Codex hooks await approval in /hooks",
 		"updates: claude-code not installed, codex none today or yesterday; no daily commit yet",
 		"notice: review its hooks in Codex /hooks; run eva-md doctor to verify.",
@@ -471,6 +511,32 @@ func TestStatus(t *testing.T) {
 // eva_status says how far the code each of the project's systems cites
 // moved, as the prompt pointers say it, from the code status; a status taken
 // at other commits than the map's line cites says nothing of it.
+// eva_status counts the knowledge pages the recall index lists and the
+// constraints that hold for the project, and names the knowledge map among
+// what to read once it exists.
+func TestStatusCountsKnowledge(t *testing.T) {
+	f := newFixture(t)
+	f.wiki(t)
+	row := func(id, kind, scope, project string) string {
+		return strings.Join([]string{id, kind, "stated", scope, project, "2026-10-28", "", "", "A title", "A statement", ""}, "\t") + "\n"
+	}
+	writeFile(t, filepath.Join(f.c.WikiPath, ".eva-md", "knowledge.tsv"), "# eva-md knowledge index 1\n"+
+		row("k1", "constraint", "project", f.project.Key)+row("k2", "constraint", "all", "github.com__team__billing")+
+		row("k3", "constraint", "project", "github.com__team__billing")+row("k4", "fact", "project", f.project.Key))
+	out := f.answer(t, "eva_status", nil)
+	if !strings.Contains(out, "\nknowledge: 4 pages, 2 constraints for this project\nhooks: ") || strings.Contains(out, "knowledge/map") {
+		t.Fatalf("knowledge:\n%s", out)
+	}
+	writeFile(t, filepath.Join(f.c.WikiPath, "knowledge", "map.md"), "---\ntype: map\ntitle: Knowledge map\n---\n\n# Knowledge map\n")
+	if out := f.answer(t, "eva_status", nil); !strings.HasSuffix(out, " · eva_show systems/map · eva_show knowledge/map") {
+		t.Fatalf("the map:\n%s", out)
+	}
+	writeFile(t, filepath.Join(f.c.WikiPath, ".eva-md", "knowledge.tsv"), "# eva-md knowledge index 1\n"+row("k4", "fact", "project", f.project.Key))
+	if out := f.answer(t, "eva_status", nil); !strings.Contains(out, "\nknowledge: 1 page, 0 constraints for this project\n") {
+		t.Fatalf("one page:\n%s", out)
+	}
+}
+
 func TestStatusSaysHowFarTheCodeMoved(t *testing.T) {
 	f := newFixture(t)
 	f.wiki(t)

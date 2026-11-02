@@ -54,7 +54,7 @@ var (
 var wikiLockWait = 60 * time.Second
 
 // commitPaths are the parts of the wiki a commit stages.
-var commitPaths = []string{"projects", "general", "systems", "index.md", "log.md", "README.md", ".eva-md"}
+var commitPaths = []string{"projects", "general", "systems", "knowledge", "index.md", "log.md", "README.md", ".eva-md"}
 
 // Options names the wiki to commit and where eva-md keeps its locks and
 // records.
@@ -179,6 +179,17 @@ func stage(ctx context.Context, o Options, r *Result, now time.Time) ([]string, 
 	args := []string{"add", "--"}
 	for _, p := range commitPaths {
 		if _, err := os.Lstat(filepath.Join(wiki, p)); err == nil {
+			args = append(args, p)
+			continue
+		}
+		// A path gone from disk that git still tracks, such as a removed
+		// knowledge folder, is staged so its removal is committed; one git
+		// doesn't know would fail the add.
+		var tracked anyOutput
+		if err := run(ctx, GitTimeout, wiki, &tracked, "ls-files", "-z", "--", literal(p)); err != nil {
+			return fail("add")
+		}
+		if tracked {
 			args = append(args, p)
 		}
 	}
@@ -366,6 +377,14 @@ func unstage(ctx context.Context, wiki string, files []string) error {
 
 // literal makes a path a pathspec git reads as it is, never as a pattern.
 func literal(p string) string { return ":(literal)" + p }
+
+// anyOutput records whether a command wrote anything, and keeps none of it.
+type anyOutput bool
+
+func (a *anyOutput) Write(p []byte) (int, error) {
+	*a = *a || len(p) > 0
+	return len(p), nil
+}
 
 // validationErrors runs okf Validate as eva-md validate runs it and counts
 // its errors. A wiki okf can't load counts as one.

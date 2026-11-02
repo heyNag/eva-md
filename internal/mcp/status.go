@@ -15,9 +15,9 @@ import (
 // status is eva_status: in about 1 KB, what eva.md holds and does for this
 // project, from readers that exist, with no model, no host CLI and nothing
 // written: the scope, the thread page and its Now, the pending update, the
-// project's systems, the hooks, the updates and the daily commit, the
-// chat-start notice, and what to read next. A part that the deadline cut
-// off says unknown.
+// project's systems, the knowledge pages, the hooks, the updates and the
+// daily commit, the chat-start notice, and what to read next. A part that
+// the deadline cut off says unknown.
 func status(ctx context.Context, s *server, a arguments) result {
 	c, r := s.load(ctx)
 	if r != nil {
@@ -90,6 +90,8 @@ func status(ctx context.Context, s *server, a arguments) result {
 		}
 		lines = append(lines, fmt.Sprintf("systems for this project: %s (the map lists %d)", strings.Join(slugs, ", "), total))
 	}
+	know := resume.KnowledgeFor(ctx, o)
+	lines = append(lines, knowledgeLine(know))
 
 	if ctx.Err() != nil {
 		lines = append(lines, "hooks: unknown", "updates: unknown")
@@ -106,6 +108,9 @@ func status(ctx context.Context, s *server, a arguments) result {
 	}
 	if total > 0 {
 		reads = append(reads, "eva_show systems/map")
+	}
+	if know.Map {
+		reads = append(reads, "eva_show knowledge/map")
 	}
 	if len(reads) == 0 {
 		reads = append(reads, "eva_search with a few words finds earlier chats")
@@ -139,6 +144,18 @@ func pageLine(ctx context.Context, s *server, page resume.PageInfo) string {
 		return line + "; no standing rules"
 	}
 	return line + fmt.Sprintf("; standing rules: %d for this project, %d for all projects", page.ProjectRules, page.GeneralRules)
+}
+
+// knowledgeLine words what the recall index lists: the knowledge pages and
+// the constraints that hold for the project, or why it says nothing.
+func knowledgeLine(k resume.KnowledgeInfo) string {
+	switch {
+	case k.Problem != "":
+		return "knowledge: " + k.Problem
+	case !k.Found:
+		return "knowledge: none yet"
+	}
+	return fmt.Sprintf("knowledge: %d %s, %d %s for this project", k.Pages, plural(k.Pages, "page", "pages"), k.Constraints, plural(k.Constraints, "constraint", "constraints"))
 }
 
 func plural(n int, one, many string) string {

@@ -45,7 +45,8 @@ var foldCase = runtime.GOOS == "darwin"
 
 // Config is the per-machine config at ~/.config/eva-md/config.toml. Updates,
 // DailyCap, Effort and CodexIgnoreUserConfig configure the background update;
-// Commits, the daily commit and push; ReminderEvery, the prompt's reminder.
+// Commits, the daily commit and push; ReminderEvery, the prompt's reminder;
+// Recall, the knowledge a prompt gets.
 type Config struct {
 	WikiPath       string `toml:"wiki_path"`
 	ExpectedRemote string `toml:"expected_remote"`
@@ -64,6 +65,7 @@ type Config struct {
 	Updates               bool              `toml:"updates"`                  // default true; false stops every update and trigger at once
 	Commits               bool              `toml:"commits"`                  // default true; false stops the daily commit and push, which updates = false leaves on
 	MCP                   bool              `toml:"mcp"`                      // default true; false turns the MCP tools off, while the plugins, hooks and command line stay on
+	Recall                bool              `toml:"recall"`                   // default true; false sends no knowledge with a prompt, while search, show and the brief stay on
 	DailyCap              int               `toml:"daily_cap"`                // model calls per host per day, default 40
 	Effort                map[string]string `toml:"effort"`                   // keys "claude-code", "codex" or "<host>/<model>"; value an effort level or "highest"
 	CodexIgnoreUserConfig bool              `toml:"codex_ignore_user_config"` // default false
@@ -78,7 +80,7 @@ type Config struct {
 
 // Default returns the config used when no file exists.
 func Default() Config {
-	return Config{Notice: NoticeStart, Updates: true, Commits: true, MCP: true, DailyCap: DefaultDailyCap, ReminderEvery: DefaultReminderEvery}
+	return Config{Notice: NoticeStart, Updates: true, Commits: true, MCP: true, Recall: true, DailyCap: DefaultDailyCap, ReminderEvery: DefaultReminderEvery}
 }
 
 // Load reads the config file. A missing file gives Default() and an error
@@ -97,7 +99,7 @@ func LoadContext(ctx context.Context, file string) (Config, error) {
 	}
 	// Decoding into Default() keeps the defaults of absent keys, so an
 	// explicit daily_cap = 0 or reminder_every = 0 stays 0 and an absent
-	// updates or commits stays true.
+	// updates, commits, mcp or recall stays true.
 	c := Default()
 	md, err := toml.Decode(string(data), &c)
 	if err != nil {
