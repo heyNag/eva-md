@@ -884,8 +884,9 @@ func TestUninstallRemovesEmptyFolders(t *testing.T) {
 	if _, err := uninstall(context.Background(), opts.Dirs, true, f.run); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(opts.Dirs.Share); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("empty install folder kept: %v", err)
+	// The install folder keeps only the record of what is left.
+	if entries, err := os.ReadDir(opts.Dirs.Share); err != nil || len(entries) != 1 || entries[0].Name() != RecordFile {
+		t.Fatalf("the install folder holds %v: %v", entries, err)
 	}
 	if _, err := os.Stat(filepath.Dir(opts.Dirs.Share)); err != nil {
 		t.Fatalf("removed a folder eva-md does not own: %v", err)

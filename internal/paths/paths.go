@@ -71,6 +71,10 @@ func (d Dirs) SearchIndex() string { return filepath.Join(d.Cache(), "search") }
 // ConfigFile is the per-Mac config file.
 func (d Dirs) ConfigFile() string { return filepath.Join(d.Config, "config.toml") }
 
+// AnswersFile is config.env, the answers to setup's questions a person fills
+// in, beside the config file.
+func (d Dirs) AnswersFile() string { return filepath.Join(d.Config, "config.env") }
+
 // EnsureDir creates path and any missing parents with mode 0700.
 func EnsureDir(path string) error {
 	if err := os.MkdirAll(path, 0o700); err != nil {

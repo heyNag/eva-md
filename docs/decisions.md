@@ -24,10 +24,10 @@ Some decisions cover parts that are not built yet. [design.md](design.md) marks 
 1. **Platform separate from the wiki.**
    - eva.md is only the platform: tools, plugins and schema.
    - The memory lives in a separate private git repo of markdown that the platform is pointed at by a per-machine config.
-   - For example, a personal machine uses a private GitHub repo and a work machine a private repo on a self-hosted GitLab.
-   - The same code runs on every machine; personal and work memory never mix.
+   - For example, one Mac uses a private GitHub repo and another Mac a private repo on a self-hosted GitLab.
+   - The same code runs on every machine; the memory of one wiki never mixes with another's.
    - You create the empty repo, or `eva-md setup` creates it for you; `init` adds the structure and the first commit.
-   - The platform uses only the plain git command line, never GitHub or GitLab APIs. The one exception is `eva-md setup`: when the gh or glab CLI is installed and signed in, setup may run it to create the wiki's private repo, to check that a repo is private, and to read back a repo's address. The wiki, init's git steps, the hooks, the update job and the daily commit stay plain git.
+   - The platform uses only the plain git command line, never GitHub or GitLab APIs. The one exception is `eva-md setup`: when the gh or glab CLI is installed and signed in, setup may run it to create the wiki's private repo, to check that a repo is private, and to read back a repo's address. The wiki, init's git steps, the hooks, the update job and the daily commit stay plain git. Separately, `eva-md upgrade` and the install and uninstall scripts download eva-md's own releases from github.com over HTTPS, with no API call and no sign-in.
 2. **Zero-touch.** Capture, organizing and recall all happen automatically. Everything stays inspectable as plain markdown and git history.
 3. **Hosts in scope:**
    - Claude Code: the desktop app's Code tab and the CLI.
@@ -99,7 +99,7 @@ Some decisions cover parts that are not built yet. [design.md](design.md) marks 
     - **Tool activity:** the conversation plus a one-line record of the tool calls that change or read things, such as files changed, commands run and what was read or fetched, without their output.
     - **Visibility:** one line at the start of a chat, plus a notice only when something is wrong.
     - **Off switch:** saying "off the record" stops saving for that chat.
-    - **Work machines:** eva-md assumes plugins, hooks and background headless runs are allowed there. The health check still reports managed settings that switch hooks off, where it can see them.
+    - **Managed machines:** eva-md assumes plugins, hooks and background headless runs are allowed on a managed machine. The health check still reports managed settings that switch hooks off, where it can see them.
     - **Repos:** the platform repo (github.com/heyNag/eva-md) holds no personal data, so it can be public. Each wiki repo stays private.
     - **Wiki location:** chosen by you during setup; there is no default. Any folder of its own, outside Documents, Desktop, Downloads and iCloud Drive, which macOS protects from background processes, and outside other cloud storage, such as OneDrive or Dropbox, which syncs into .git.
 17. **Background update settings.**

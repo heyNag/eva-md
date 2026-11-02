@@ -24,9 +24,10 @@ import (
 	"github.com/heyNag/eva-md/internal/update"
 )
 
-// resumeTimeout bounds eva-md brief, show and search, installTimeout eva-md
-// install and uninstall, and checkTimeout the checks of eva-md doctor and
-// status. Tests raise them before any test runs.
+// resumeTimeout bounds eva-md brief, show and search, installTimeout the
+// host commands of eva-md install, uninstall and setup's install, and
+// checkTimeout the checks of eva-md doctor, status and setup. Tests raise
+// them before any test runs.
 var (
 	resumeTimeout  = 5 * time.Second
 	installTimeout = 2 * time.Minute
@@ -211,14 +212,8 @@ func runSearch(ctx context.Context, d paths.Dirs, c config.Config, args []string
 func runInstall(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	f.SetOutput(io.Discard)
-	host := "all"
-	dry, apply := false, false
-	if args[0] == "install" {
-		f.StringVar(&host, "host", "all", "")
-		f.BoolVar(&dry, "dry-run", false, "")
-	} else {
-		f.BoolVar(&apply, "apply", false, "")
-	}
+	host := f.String("host", "all", "")
+	dry := f.Bool("dry-run", false, "")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return usage(errOut, "invalid arguments for "+args[0])
 	}
@@ -229,26 +224,21 @@ func runInstall(ctx context.Context, args []string, out, errOut io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
-	var r install.Result
-	if args[0] == "install" {
-		binary, e := os.Executable()
-		if e != nil {
-			fmt.Fprintln(errOut, "eva-md: executable path is unavailable")
-			return 1
-		}
-		r, err = install.Run(ctx, install.Options{Dirs: d, Binary: binary, Host: host, DryRun: dry})
-		if err == nil && !dry {
-			setAside(d, errOut)
-		}
-	} else {
-		r, err = install.Uninstall(ctx, d, apply)
+	binary, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(errOut, "eva-md: executable path is unavailable")
+		return 1
+	}
+	r, err := install.Run(ctx, install.Options{Dirs: d, Binary: binary, Host: *host, DryRun: *dry})
+	if err == nil && !*dry {
+		setAside(d, errOut)
 	}
 	// Say whether the actions were only previewed, done, or not completed.
 	// A failed install's error says whether its changes were rolled back, or
 	// that none of the planned actions ran.
 	if len(r.Actions) > 0 {
 		switch {
-		case dry || args[0] == "uninstall" && !apply:
+		case *dry:
 			fmt.Fprintln(out, "Preview; nothing was changed. Planned actions:")
 		case err != nil:
 			fmt.Fprintln(out, "Failed. Planned actions:")
@@ -260,11 +250,7 @@ func runInstall(ctx context.Context, args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(out, action)
 	}
 	if len(r.Actions) == 0 && err == nil {
-		if args[0] == "uninstall" {
-			fmt.Fprintln(out, "Nothing to remove: eva-md is not installed.")
-		} else {
-			fmt.Fprintln(out, "Nothing to change: eva-md is installed and up to date.")
-		}
+		fmt.Fprintln(out, "Nothing to change: eva-md is installed and up to date.")
 	}
 	if err != nil {
 		fmt.Fprintln(errOut, "eva-md:", err)

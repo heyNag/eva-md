@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 type setupEnv struct {
 	dirs         paths.Dirs
 	interactive  bool
+	color        bool   // the checks' marks are coloured
+	goos         string // the operating system, as runtime.GOOS names it
 	home, cwd    string
 	lookPath     func(string) (string, error)
 	signing      func(context.Context) string
@@ -70,6 +73,12 @@ func (p plan) will(noPush bool) string {
 	return "Setup will install or update the plugins."
 }
 
+// sourcedError is an error that starts with the flag or the answers file's
+// key it is about, so it is printed as it is, never after another one.
+type sourcedError struct{ msg string }
+
+func (e *sourcedError) Error() string { return e.msg }
+
 var (
 	// errNoAnswer stops a question when the answers ran out.
 	errNoAnswer = errors.New("setup stopped")
@@ -94,6 +103,8 @@ func runSetupCommand(ctx context.Context, args []string, in io.Reader, out, errO
 	return runSetup(ctx, args, in, out, errOut, setupEnv{
 		dirs:        d,
 		interactive: isTerminal(in),
+		color:       useColor(os.Stdout, os.Getenv("NO_COLOR")),
+		goos:        runtime.GOOS,
 		home:        home,
 		cwd:         cwd,
 		lookPath:    exec.LookPath,
@@ -109,7 +120,8 @@ func runSetupCommand(ctx context.Context, args []string, in io.Reader, out, errO
 	})
 }
 
-// runSetup is the first-run experience: it checks this Mac, asks where the
+// runSetup is the first-run experience: it checks this Mac for what setup
+// needs, stopping with the fix at the first thing missing, asks where the
 // wiki lives and where it is pushed (neither has a default answer), creates
 // the wiki or uses the existing one, installs the plugins and runs the health
 // check. It looks before it asks: at the folder and the repo the user names,
@@ -121,6 +133,7 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	remote := f.String("remote", "", "")
 	dir := f.String("dir", "", "")
 	host := f.String("host", "all", "")
+	gitHost := f.String("git-host", "", "")
 	noPush := f.Bool("no-push", false, "")
 	yes := f.Bool("yes", false, "")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
@@ -129,16 +142,57 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	if *host != "all" && *host != "claude" && *host != "codex" {
 		return usage(errOut, "setup --host must be claude, codex or all")
 	}
+	// Setup uses only the host of the address --git-host gives.
+	gitHostName, err := config.ParseGitHostURL(*gitHost)
+	if err != nil {
+		return usage(errOut, "setup --git-host "+err.Error())
+	}
+	*gitHost = gitHostName
+	given := map[string]bool{}
+	f.Visit(func(fl *flag.Flag) { given[fl.Name] = true })
 	c, err := config.LoadContext(ctx, env.dirs.ConfigFile())
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintf(errOut, "eva-md: the eva-md config at %s can't be read; fix or move it aside and run setup again\n", env.dirs.ConfigFile())
 		return 1
 	}
 	existing := c.WikiPath != ""
-	if !existing && (*dir == "" || *remote == "") && !env.interactive {
-		fmt.Fprintln(errOut, "eva-md: setup can't ask questions here (no terminal); pass --dir and --remote")
-		return 2
+
+	// The answers file gives what a flag doesn't. Its values are never
+	// printed but as setup's own answers: in the summary, and the paths and
+	// host names a person typed there to name their folder, repo and host.
+	answersFile := env.dirs.AnswersFile()
+	file, fileErr := config.LoadAnswers(answersFile)
+	missing := errors.Is(fileErr, fs.ErrNotExist)
+	if missing {
+		fileErr = nil
 	}
+	// src says where a choice came from, for the messages about it.
+	src := map[string]string{"dir": "--dir", "remote": "--remote", "host": "--host"}
+	fromFile := func(name, key, value string, flagValue *string) {
+		if !given[name] && value != "" {
+			*flagValue, src[name] = value, key+" in "+answersFile
+		}
+	}
+	fromFile("dir", config.KeyWikiDir, file.WikiDir, dir)
+	fromFile("remote", config.KeyWikiRemote, file.WikiRemote, remote)
+	fromFile("host", config.KeyHosts, file.Hosts, host)
+	fromFile("git-host", config.KeyGitHostURL, file.GitHost, gitHost)
+	if src["remote"] != "--remote" {
+		if _, err := wikiinit.CheckRemote(*remote); err != nil {
+			_, statErr := os.Lstat(*remote)
+			switch away := filepath.IsAbs(*remote) && errors.Is(statErr, fs.ErrNotExist); {
+			case away && existing:
+				// A local remote that isn't there now, as on a volume that
+				// isn't mounted, is matched by its path (see localID).
+			case away:
+				fileErr = fmt.Errorf("%s names %s, which isn't there now; mount or restore it, or give an SSH or HTTPS address", src["remote"], *remote)
+			default:
+				fileErr = fmt.Errorf("%s isn't an address setup can use; give an SSH or HTTPS address, such as git@github.com:you/eva-wiki.git", src["remote"])
+			}
+		}
+	}
+	// answered is set when the folder or the repo came from the file.
+	answered := src["dir"] != "--dir" || src["remote"] != "--remote"
 	answers := bufio.NewReader(in)
 	ask := func(prompt string) (string, bool) {
 		fmt.Fprint(out, prompt)
@@ -150,7 +204,10 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 		return strings.TrimSpace(line), true
 	}
 	repos := newRepoCLIs()
-	s := &setupRun{ctx: ctx, env: env, ask: ask, out: out, repos: repos}
+	if env.interactive {
+		repos.ask = ask
+	}
+	s := &setupRun{ctx: ctx, env: env, ask: ask, out: out, repos: repos, src: src}
 
 	fmt.Fprintln(out, "eva.md setup")
 	fmt.Fprintln(out)
@@ -159,36 +216,96 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	fmt.Fprintln(out, "private repository that you create.")
 	fmt.Fprintln(out)
 
+	// The checks, in order, each stopping setup when it fails.
 	fmt.Fprintln(out, "Checking this Mac")
-	if _, err := env.lookPath("git"); err != nil {
-		fmt.Fprintln(out, "  git            not found")
-		fmt.Fprintln(errOut, "eva-md: setup needs git; install it (xcode-select --install) and run setup again")
+	ck := checklist{out: out, color: env.color}
+	if env.goos != "darwin" {
+		ck.fail("This isn't macOS: eva-md runs on macOS only", "run eva-md setup on a Mac")
 		return 1
 	}
-	fmt.Fprintln(out, "  git            found")
-	var hosts []string
+	ck.pass("macOS")
+	if _, err := env.lookPath("git"); err != nil {
+		ck.fail("git isn't installed", "xcode-select --install")
+		return 1
+	}
+	ck.pass("git")
+	var hosts, absent []string
 	for _, h := range []struct{ name, cli string }{{"Claude Code", "claude"}, {"Codex", "codex"}} {
-		state := "not found (no " + h.cli + " command)"
-		if _, err := env.lookPath(h.cli); err == nil {
-			state = "found"
-			if *host == "all" || *host == h.cli {
-				hosts = append(hosts, h.name)
-			}
+		switch _, err := env.lookPath(h.cli); {
+		case err != nil:
+			absent = append(absent, h.name)
+		case *host == "all" || *host == h.cli:
+			hosts = append(hosts, h.name)
 		}
-		fmt.Fprintf(out, "  %-14s %s\n", h.name, state)
 	}
 	switch {
 	case len(hosts) == 0 && *host != "all":
-		fmt.Fprintf(errOut, "eva-md: the %s command isn't on PATH; install it, or leave out --host\n", *host)
+		name := map[string]string{"claude": "Claude Code", "codex": "Codex"}[*host]
+		fix := "install " + name + ", or leave out --host"
+		if src["host"] != "--host" {
+			fix = "install " + name + ", or change " + src["host"]
+		}
+		ck.fail(name+" isn't installed (no "+*host+" command)", fix)
 		return 1
 	case len(hosts) == 0:
-		fmt.Fprintln(errOut, "eva-md: setup needs the claude or codex command; install Claude Code or Codex and run setup again")
+		ck.fail("Neither Claude Code nor Codex is installed (no claude or codex command)", "install Claude Code or Codex")
+		return 1
+	case len(absent) > 0 && *host == "all":
+		ck.pass(strings.Join(hosts, " and ") + "; " + strings.Join(absent, " and ") + " not found")
+	default:
+		ck.pass(strings.Join(hosts, " and "))
+	}
+	if fileErr != nil {
+		ck.fail(plain(fileErr), "fix "+answersFile+", or move it aside")
 		return 1
 	}
+	for _, u := range file.Unknown {
+		if u.Key != "" {
+			fmt.Fprintf(errOut, "eva-md: %s in %s isn't a key setup knows; it is ignored\n", u.Key, answersFile)
+		} else {
+			fmt.Fprintf(errOut, "eva-md: line %d of %s has a key setup doesn't know; it is ignored\n", u.Line, answersFile)
+		}
+	}
+	wroteTemplate := false
+	switch {
+	case !missing:
+		ck.pass("Read " + answersFile)
+	case !existing:
+		// A new Mac gets the template, said here, so that a check that
+		// stops setup below never leaves it unsaid.
+		if wroteTemplate, _ = config.WriteAnswersTemplate(answersFile); wroteTemplate {
+			ck.pass("Wrote " + answersFile + ", a template for setup's answers")
+		}
+	}
+	if !existing && (*dir == "" || *remote == "") && !env.interactive {
+		switch {
+		case wroteTemplate:
+			fmt.Fprintf(errOut, "eva-md: setup can't ask questions here (no terminal); it wrote %s: fill it in and run setup again, or pass --dir and --remote\n", answersFile)
+		case missing:
+			fmt.Fprintln(errOut, "eva-md: setup can't ask questions here (no terminal); pass --dir and --remote")
+		default:
+			fmt.Fprintf(errOut, "eva-md: setup can't ask questions here (no terminal); fill in %s and %s in %s, or pass --dir and --remote\n", config.KeyWikiDir, config.KeyWikiRemote, answersFile)
+		}
+		return 2
+	}
+	// A new Mac needs the CLI for the git host to create the repo there; for
+	// a given remote, it is used when ready. A Mac already set up uses gh or
+	// glab only, when it can, to read the address to clone its wiki again
+	// from.
+	if !existing {
+		switch wh, hasRemote := wikiHost(*remote, *gitHost); {
+		case wh != "":
+			if !checkHostCLI(ctx, ck, repos, wh, hasRemote, env.interactive) {
+				return 1
+			}
+		case !hasRemote:
+			noteCLIs(ctx, ck, repos)
+		}
+	}
 	if signing := env.signing(ctx); signing != "" {
-		fmt.Fprintf(out, "  %-14s on (%s)\n", "Commit signing", signing)
+		ck.pass("Commit signing on (" + signing + ")")
 	} else {
-		fmt.Fprintf(out, "  %-14s off: the wiki's commits will not be signed\n", "Commit signing")
+		ck.warn("Commit signing off: the wiki's commits won't be signed")
 	}
 
 	folder, remoteURL := "", *remote
@@ -198,12 +315,22 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	if existing {
 		folder = c.WikiPath
 		if p, remoteURL, err = s.configuredPlan(c, *dir, *remote); err != nil {
-			fmt.Fprintln(errOut, "eva-md: "+err.Error())
+			if errors.Is(err, errNoAnswer) {
+				fmt.Fprintln(errOut, "eva-md: setup stopped; nothing was changed")
+			} else {
+				fmt.Fprintln(errOut, "eva-md: "+err.Error())
+			}
 			return 1
 		}
 	} else {
 		if s.label = c.MachineLabel; s.label == "" {
 			s.label, _ = env.machineLabel()
+		}
+		// The checks said the template was written; with questions to ask,
+		// this says what it is for.
+		if wroteTemplate && env.interactive && (*dir == "" || *remote == "") {
+			fmt.Fprintln(out)
+			fmt.Fprintf(out, "Fill in %s and run setup again, or answer here.\n", answersFile)
 		}
 		if *dir != "" {
 			if folder, err = s.checkFolder(*dir, *remote); err != nil {
@@ -212,6 +339,11 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 					fmt.Fprintln(errOut, "eva-md: setup stopped; nothing was changed")
 				case errors.Is(err, errOtherFolder):
 					fmt.Fprintf(errOut, "eva-md: you chose not to use the eva wiki in %s; choose a new or empty folder instead\n", *dir)
+				case errors.As(err, new(*sourcedError)):
+					fmt.Fprintln(errOut, "eva-md: "+err.Error())
+				case src["dir"] != "--dir" && plain(err) != "":
+					msg := plain(err)
+					fmt.Fprintf(errOut, "eva-md: %s: %s%s\n", src["dir"], strings.ToLower(msg[:1]), msg[1:])
 				default:
 					fmt.Fprintln(errOut, "eva-md: "+plain(err))
 				}
@@ -265,7 +397,7 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "2. Which private git repository should it be pushed to?")
 			var ok bool
-			if remoteURL, createdRepo, ok = repos.offer(ctx, ask, out, s.checkRemote); !ok {
+			if remoteURL, createdRepo, ok = repos.offer(ctx, ask, out, s.checkRemote, *gitHost); !ok {
 				fmt.Fprintln(errOut, "eva-md: setup stopped; nothing was changed")
 				return 1
 			}
@@ -307,6 +439,9 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	if p != planPlugins {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Summary")
+		if answered {
+			fmt.Fprintf(out, "  Answers from  %s\n", answersFile)
+		}
 		fmt.Fprintf(out, "  Wiki folder   %s\n", folder)
 		switch {
 		case *noPush && (p == planCreate || p == planInit):
@@ -402,7 +537,7 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 		fmt.Fprintln(errOut, "eva-md: executable path is unavailable")
 		return 1
 	}
-	ictx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ictx, cancel := context.WithTimeout(ctx, installTimeout)
 	ir, err := env.install(ictx, install.Options{Dirs: env.dirs, Binary: binary, Host: *host})
 	cancel()
 	for _, action := range ir.Actions {
@@ -418,10 +553,24 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 		fmt.Fprintln(out, "  Codex asks you to approve eva-md's hooks: open Codex, type /hooks and approve")
 		fmt.Fprintln(out, "  eva-md. Chats that are already open are not restarted; start new ones.")
 	}
+	if file.CodexIgnoreUserConfig != nil {
+		if err := setCodexIgnoreUserConfig(ctx, env.dirs.ConfigFile(), *file.CodexIgnoreUserConfig, out); err != nil {
+			fmt.Fprintf(errOut, "eva-md: couldn't set codex_ignore_user_config in %s, as %s asks: %s\n", env.dirs.ConfigFile(), answersFile, plain(err))
+			return 1
+		}
+	}
+	// A Mac with no answers file, as one set up before there was one, gets
+	// it filled in with what it now uses, for the next setup; a new Mac
+	// got the template at the start.
+	if written, err := writeMacAnswers(ctx, env, answersFile, remoteURL); err != nil {
+		fmt.Fprintf(errOut, "eva-md: couldn't write %s: %s\n", answersFile, plain(err))
+	} else if written {
+		fmt.Fprintf(out, "  Wrote %s with this Mac's answers, for the next setup\n", answersFile)
+	}
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Checking health")
-	hctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	hctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	report := env.inspect(hctx, env.dirs)
 	cancel()
 	counts := map[string]int{}
@@ -439,14 +588,20 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 		}
 	}
 
+	// The commands below name the binary as eva-md when the link on PATH
+	// reaches it, and by its full path otherwise.
+	command := ir.Binary
+	if ir.Link != "" {
+		command = "eva-md"
+	}
 	fmt.Fprintln(out)
 	if report.Failed() {
-		fmt.Fprintf(out, "Setup finished, but the checks above need attention. Run %s doctor after fixing them.\n", ir.Binary)
+		fmt.Fprintf(out, "Setup finished, but the checks above need attention. Run %s doctor after fixing them.\n", command)
 	} else {
 		fmt.Fprintln(out, "eva.md is ready.")
 	}
 	if unpushed {
-		fmt.Fprintf(out, "The wiki's first commit isn't pushed. To push it, run %s commit --push-only.\n", ir.Binary)
+		fmt.Fprintf(out, "The wiki's first commit isn't pushed. To push it, run %s commit --push-only.\n", command)
 	}
 	fmt.Fprintln(out, "Start a new chat in Claude Code or Codex, in any project: eva.md captures it from the")
 	fmt.Fprintln(out, "first message. In a later chat, ask \"where did we stop?\".")
@@ -463,6 +618,9 @@ type setupRun struct {
 	out   io.Writer
 	repos *repoCLIs
 	label string // this Mac's label, which the instance of a wiki set up here starts with
+	// src says where the folder and the repo came from: "--dir" and
+	// "--remote", or a key in the answers file.
+	src map[string]string
 
 	folderOrigin string // where the eva wiki in the chosen folder is pushed, when setup uses it
 	adopt        bool   // the chosen repo holds an eva wiki
@@ -492,7 +650,10 @@ func (s *setupRun) checkFolder(answer, remote string) (string, error) {
 	found := "   This folder is already an eva wiki for " + origin + "."
 	if remote != "" && !sameRepo(origin, remote) {
 		fmt.Fprintln(s.out, found)
-		return "", errors.New("--remote names another repo; leave it out to use this wiki, or choose another folder")
+		if from := s.src["remote"]; from != "--remote" {
+			return "", &sourcedError{from + " names another repo; leave it empty to use this wiki, or choose another folder"}
+		}
+		return "", &sourcedError{"--remote names another repo; leave it out to use this wiki, or choose another folder"}
 	}
 	if err := s.repos.checkPrivate(s.ctx, origin, s.out); err != nil {
 		fmt.Fprintln(s.out, found)
@@ -582,11 +743,23 @@ func (s *setupRun) otherMac(instance string) (use, ok bool) {
 func (s *setupRun) configuredPlan(c config.Config, dir, remote string) (plan, string, error) {
 	if dir != "" {
 		if path, err := answerPath(dir, s.env); err != nil || !samePath(path, c.WikiPath) {
+			if from := s.src["dir"]; from != "" && from != "--dir" {
+				return 0, "", fmt.Errorf("%s names another folder than this Mac's wiki, %s; setup won't move an existing wiki, so make it name that folder or leave it empty", from, c.WikiPath)
+			}
 			return 0, "", errors.New("setup won't move an existing wiki; leave out --dir to keep it")
 		}
 	}
 	if remote != "" {
-		if id, err := wikiinit.CheckRemote(remote); err != nil || id != c.ExpectedRemote {
+		id, err := wikiinit.CheckRemote(remote)
+		if err != nil {
+			// A local remote that isn't there now, as on a volume that isn't
+			// mounted, is named by its path, as originID names it.
+			id = localID(remote)
+		}
+		if id == "" || id != c.ExpectedRemote {
+			if from := s.src["remote"]; from != "" && from != "--remote" {
+				return 0, "", fmt.Errorf("%s names another repo than the one this Mac's wiki is pushed to, %s; make it name that repo or leave it empty", from, c.ExpectedRemote)
+			}
 			return 0, "", errors.New("the wiki is pushed to a different remote; leave out --remote to keep it")
 		}
 	}
@@ -606,7 +779,10 @@ func (s *setupRun) configuredPlan(c config.Config, dir, remote string) (plan, st
 			if cliInstalled() && !strings.HasPrefix(c.ExpectedRemote, "file://") {
 				fmt.Fprintln(s.out, "Asking gh or glab for the repo's address.")
 			}
-			remote = s.repos.cloneAddress(s.ctx, c.ExpectedRemote)
+			var err error
+			if remote, err = s.repos.cloneAddress(s.ctx, c.ExpectedRemote, s.out); err != nil {
+				return 0, "", err
+			}
 		}
 		prompt, def := "Your wiki folder %[1]s is %[3]s. Clone it again from %[2]s into %[1]s? [Y/n] ", true
 		if _, err := os.Stat(filepath.Dir(c.WikiPath)); err != nil {
@@ -688,6 +864,60 @@ func configuredProblem(ctx context.Context, c config.Config) (problem, absent st
 	return "", ""
 }
 
+// writeMacAnswers writes the answers file, unless there is one, with the
+// answers this Mac now uses, as the config has them: the wiki folder, under
+// ~/ when it is in the home folder; the address its clone is pushed to, or
+// else remote, and the git host that address names, but never a local
+// remote, whose volume may be away on a later run; and the Codex switch. The
+// hosts are all, as in the template: a --host flag is for one run only.
+// written reports whether it wrote the file.
+func writeMacAnswers(ctx context.Context, env setupEnv, file, remote string) (written bool, err error) {
+	if _, err := os.Lstat(file); err == nil || !errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	c, err := config.LoadContext(ctx, env.dirs.ConfigFile())
+	if err != nil || c.WikiPath == "" {
+		return false, err
+	}
+	a := config.Answers{WikiDir: c.WikiPath, Hosts: "all", CodexIgnoreUserConfig: &c.CodexIgnoreUserConfig}
+	if rel, err := filepath.Rel(env.home, c.WikiPath); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+		a.WikiDir = "~/" + filepath.ToSlash(rel)
+	}
+	if origin, err := wikigit.Run(ctx, setupGitTimeout, c.WikiPath, "config", "--get", "remote.origin.url"); err == nil {
+		remote = origin
+	}
+	if id, err := wikiinit.CheckRemote(remote); err == nil && id == c.ExpectedRemote && !strings.HasPrefix(id, "file://") {
+		a.WikiRemote = remote
+		if host, _, _ := strings.Cut(id, "/"); config.ValidGitHost(apiHost(host)) {
+			a.GitHost = apiHost(host)
+		}
+	}
+	return config.WriteAnswers(file, a)
+}
+
+// setCodexIgnoreUserConfig sets codex_ignore_user_config in the config file
+// to on, as the answers file asks, saying so on out. It writes nothing when
+// the config already has it so.
+func setCodexIgnoreUserConfig(ctx context.Context, file string, on bool, out io.Writer) error {
+	c, err := config.LoadContext(ctx, file)
+	if err != nil {
+		return err
+	}
+	if c.CodexIgnoreUserConfig == on {
+		return nil
+	}
+	if len(c.Unknown) > 0 {
+		// Saved again, the config would lose them.
+		return fmt.Errorf("the config has keys eva-md doesn't know (%s); fix them, or set codex_ignore_user_config = %t in it yourself", strings.Join(c.Unknown, ", "), on)
+	}
+	c.CodexIgnoreUserConfig = on
+	if err := config.Save(file, c); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  Set codex_ignore_user_config = %t in %s\n", on, file)
+	return nil
+}
+
 // setupGitTimeout bounds each git command setup runs to read a folder or a
 // repo, and peekCloneTimeout the shallow clone peekRemote reads a repo
 // from, and signingTimeout the reading of git's signing settings. Tests
@@ -709,10 +939,17 @@ func originID(ctx context.Context, dir string) string {
 	if id, err := wikiinit.CheckRemote(origin); err == nil {
 		return id
 	}
-	if filepath.IsAbs(origin) {
-		return "file://" + filepath.ToSlash(filepath.Clean(origin))
+	return localID(origin)
+}
+
+// localID is the identity of a local remote by its path, as the config
+// records one, for a path that may not be there now, or "" for a remote that
+// isn't a local path.
+func localID(remote string) string {
+	if !filepath.IsAbs(remote) {
+		return ""
 	}
-	return ""
+	return "file://" + filepath.ToSlash(filepath.Clean(remote))
 }
 
 // folderWiki reads the eva wiki already in folder: where it is pushed and

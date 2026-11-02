@@ -57,7 +57,7 @@ func TestProjectPage(t *testing.T) {
 		t.Fatalf("another folder name: %+v", got)
 	}
 	// Another instance's wiki is not read.
-	o.Config.Instance = "work-12345678"
+	o.Config.Instance = "other-12345678"
 	if err := config.SaveSchema(filepath.Join(o.Config.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: "home-87654321"}); err != nil {
 		t.Fatal(err)
 	}

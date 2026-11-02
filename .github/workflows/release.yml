@@ -1,0 +1,173 @@
+# Publishes a release when scripts/release.sh pushes its tag. docs/releasing.md
+# describes the flow; every action is pinned to a commit.
+name: Release
+
+on:
+  push:
+    tags: ['[0-9]*']
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.ref_name }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check the tag's format
+        run: |
+          re='^[0-9]{4}\.[1-9][0-9]?\.[1-9][0-9]?(\.[2-9]|\.[1-9][0-9]+)?$'
+          if [ "$GITHUB_REF_TYPE" != tag ] || ! [[ $TAG =~ $re ]]; then
+            echo "::error::$GITHUB_REF is not a release tag such as 2026.11.3 or 2026.11.3.2"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the tag is annotated and its commit is on main
+        run: |
+          # Fetch the tag again, so it is the annotated tag that was pushed.
+          git fetch --quiet --no-tags --force origin "+refs/tags/$TAG:refs/tags/$TAG"
+          if [ "$(git cat-file -t "refs/tags/$TAG")" != tag ]; then
+            echo "::error::$TAG is not an annotated tag; release with scripts/release.sh"
+            exit 1
+          fi
+          commit=$(git rev-parse "refs/tags/$TAG^{commit}")
+          if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/main; then
+            echo "::error::$TAG's commit $commit is not on main"
+            exit 1
+          fi
+      - name: Check the release doesn't exist yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if out=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName 2>&1); then
+            echo "::error::A release for $TAG already exists; a release is never replaced"
+            exit 1
+          fi
+          case $out in
+            *"release not found"*) ;;
+            *) echo "::error::Could not check for a release of $TAG: $out"; exit 1 ;;
+          esac
+      - name: Write the notes from the tag's annotation
+        run: |
+          # The annotation without the tag's signature or trailing blank lines.
+          all=$(git tag -l --format='%(contents)' "$TAG")
+          sig=$(git tag -l --format='%(contents:signature)' "$TAG")
+          notes=$(printf '%s' "${all%"$sig"}")
+          if [ -z "$notes" ]; then
+            echo "::error::$TAG has no notes; release with scripts/release.sh"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/release"
+          printf '%s\n' "$notes" > "$RUNNER_TEMP/release/notes.md"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+          GOOS: darwin
+        run: |
+          out=$RUNNER_TEMP/release
+          for arch in arm64 amd64; do
+            GOARCH=$arch go build -trimpath -mod=readonly -ldflags "-X main.version=$TAG" \
+              -o "$out/eva-md-darwin-$arch" ./cmd/eva-md
+          done
+          cp scripts/install.sh scripts/uninstall.sh "$out/"
+          cd "$out"
+          shasum -a 256 eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: release
+      - name: Check the sums and the arm64 binary's version
+        working-directory: release
+        run: |
+          shasum -a 256 -c SHA256SUMS
+          test "$(wc -l < SHA256SUMS | tr -d ' ')" = 4
+          chmod +x eva-md-darwin-arm64
+          got=$(./eva-md-darwin-arm64 version | head -n 1)
+          if [ "$got" != "eva-md $TAG" ]; then
+            echo "::error::The arm64 binary says \"$got\", not \"eva-md $TAG\""
+            exit 1
+          fi
+          echo "$got"
+
+  attest:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: release
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/eva-md-darwin-arm64
+            release/eva-md-darwin-amd64
+            release/install.sh
+            release/uninstall.sh
+
+  release:
+    needs: attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: release
+      - name: Create the release
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Checked again with write access, which also sees drafts.
+          if out=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName 2>&1); then
+            echo "::error::A release for $TAG already exists; a release is never replaced"
+            exit 1
+          fi
+          case $out in
+            *"release not found"*) ;;
+            *) echo "::error::Could not check for a release of $TAG: $out"; exit 1 ;;
+          esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
+            --title "$TAG" --notes-file notes.md \
+            eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh SHA256SUMS

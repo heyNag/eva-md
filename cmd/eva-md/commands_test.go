@@ -165,7 +165,7 @@ func TestInstallOutputSaysPreviewDoneOrFailed(t *testing.T) {
 		{[]string{"install", "--host", "claude", "--dry-run"}, 0, "Preview; nothing was changed", ""},
 		{[]string{"install", "--host", "claude"}, 1, "Failed.", "rolled back"},
 		{[]string{"uninstall"}, 0, "Preview; nothing was changed", ""},
-		{[]string{"uninstall", "--apply"}, 0, "Done:", ""},
+		{[]string{"uninstall", "--apply"}, 0, "Removed:", ""},
 	} {
 		if tc.args[0] == "uninstall" {
 			// An owned, empty installation, so uninstall has an action to report.

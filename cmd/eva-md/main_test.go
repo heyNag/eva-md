@@ -12,27 +12,22 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/inbox"
-	"github.com/heyNag/eva-md/internal/mcp"
 	"github.com/heyNag/eva-md/internal/paths"
-	"github.com/heyNag/eva-md/internal/testlimits"
 )
 
 // Tests check what eva-md does, not how fast the machine runs git, gh or
 // glab, starts a process or syncs its disk: the time limits that protect a
 // host from either are raised for every test, before any test runs, and the
 // hook's and the MCP server's limits are lengthened, in the child process of
-// TestMCPCommand too. A test of a gh or glab command that hangs ends the
-// command's time itself (see holdCLITimers).
+// TestMCPCommand too, and in the release stand-in the end-to-end tests
+// build (see raiseTimeLimits). A test of a gh or glab command that hangs
+// ends the command's time itself (see holdCLITimers).
 func TestMain(m *testing.M) {
-	testlimits.Raise()
-	hookSlack = 30 * time.Second
-	mcp.Slack = time.Minute
-	resumeTimeout, installTimeout, checkTimeout = testlimits.Long, testlimits.Long, testlimits.Long
-	passTime, showTime, showCall = testlimits.Long, testlimits.Long, testlimits.Long
-	setupGitTimeout, peekCloneTimeout, signingTimeout = testlimits.Long, testlimits.Long, testlimits.Long
-	repoCLITimeout, repoCLIWaitDelay, probeTimeout = testlimits.Long, testlimits.Long, testlimits.Long
+	raiseTimeLimits()
 	cliTimer = heldCLITimer
-	os.Exit(m.Run())
+	code := m.Run()
+	removeReleases()
+	os.Exit(code)
 }
 
 // hangGuard is how long a test waits for what must happen however slow the
@@ -127,7 +122,7 @@ func TestCommands(t *testing.T) {
 		{[]string{"index", "extra"}, 2, "invalid arguments for index"}, {[]string{"index", "--bad"}, 2, "invalid arguments for index"},
 		{[]string{"init"}, 2, "requires --remote"}, {[]string{"validate"}, 1, "pass --dir"},
 		{[]string{"init", "--remote", "git@github.com:me/eva-wiki.git"}, 2, "requires --remote and --dir"},
-		{[]string{"setup"}, 2, "pass --dir and --remote"}, {[]string{"setup", "--host", "x"}, 2, "--host must be"},
+		{[]string{"setup"}, 1, "Fix: install Claude Code or Codex\n    Then run setup again."}, {[]string{"setup", "--host", "x"}, 2, "--host must be"},
 		{[]string{"init", "--bad"}, 2, "invalid arguments"}, {[]string{"validate", "extra"}, 2, "invalid arguments"},
 	} {
 		var out, errOut bytes.Buffer
@@ -206,7 +201,7 @@ func TestUsageListsEveryCommand(t *testing.T) {
 		t.Fatal(code)
 	}
 	listed := strings.Fields(strings.NewReplacer("usage: eva-md", "", "|", " ").Replace(errOut.String()))
-	built := []string{"setup", "version", "init", "install", "uninstall", "doctor", "status", "brief", "show", "search", "index", "update", "commit", "maintain", "system", "validate", "hook", "mcp"}
+	built := []string{"setup", "version", "upgrade", "init", "install", "uninstall", "doctor", "status", "brief", "show", "search", "index", "update", "commit", "maintain", "system", "validate", "hook", "mcp"}
 	if strings.Join(listed, " ") != strings.Join(built, " ") {
 		t.Fatalf("usage lists %q", listed)
 	}

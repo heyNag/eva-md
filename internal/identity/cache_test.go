@@ -688,7 +688,7 @@ func TestConfigIncludesMatchGit(t *testing.T) {
 		"[include]\n\tpath = \"unterminated\n",
 		"[include]\n\tpath\n",
 		"[include]\n\tpath # no value\n",
-		"[includeIf \"gitdir:~/work/\"]\n\tpath = ~/work.gitconfig\n",
+		"[includeIf \"gitdir:~/other/\"]\n\tpath = ~/other.gitconfig\n",
 		"[includeIf \"onbranch:main\"]\r\n\tpath = crlf\r\n",
 		"\xef\xbb\xbf[include]\n\tpath = bom\n",
 		"\xef\xbb[include]\n\tpath = partial-bom\n",

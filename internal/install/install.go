@@ -36,6 +36,10 @@ type Result struct {
 	Hosts      []string
 	Actions    []string
 	NeedsTrust bool
+	// Link is the link on PATH to the stable binary, ~/.local/bin/eva-md,
+	// when install made it or found it; empty when the binary is named by
+	// its full path.
+	Link string
 }
 
 const installMarker = ".eva-md-install"
@@ -205,6 +209,11 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 	if !bytes.Equal(binary, previousBinary) {
 		result.Actions = append(result.Actions, "replace stable binary")
 	}
+	link := LinkPath(opts.Dirs)
+	wantLink, linked := linkPlan(link, result.Binary)
+	if wantLink && !linked {
+		result.Actions = append(result.Actions, "link "+link+" to the stable binary")
+	}
 	if opts.DryRun {
 		return result, nil
 	}
@@ -336,6 +345,22 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		}
 	}
 	recordCLIs(ctx, opts.Dirs, plans)
+	// The link is made last, once the stable binary works; a link that
+	// can't be made leaves the binary named by its full path.
+	if wantLink && !linked {
+		if e := makeLink(link, result.Binary); e != nil {
+			result.Actions = append(result.Actions, "left "+link+" as it was: "+e.Error())
+			wantLink = false
+		}
+	}
+	items := installedItems(opts.Dirs, result.Binary, result.Hosts)
+	if wantLink {
+		result.Link = link
+		items = append(items, RecordItem{Kind: KindPathLink, Path: link, Value: result.Binary})
+	}
+	if e := addToRecord(ctx, share, opts.Dirs, items); e != nil {
+		result.Actions = append(result.Actions, "couldn't write the install record: "+e.Error())
+	}
 	return result, nil
 }
 
@@ -734,131 +759,4 @@ func lock(ctx context.Context, dir string) (func(), error) {
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
-}
-
-// Uninstall previews by default. Data/config/wiki are never removed. If a
-// native step fails, keep generated files so remaining registrations still work.
-func Uninstall(ctx context.Context, dirs paths.Dirs, apply bool) (Result, error) {
-	return uninstall(ctx, dirs, apply, native)
-}
-func uninstall(ctx context.Context, dirs paths.Dirs, apply bool, run runner) (result Result, err error) {
-	result.Binary = filepath.Join(dirs.Share, "bin", "eva-md")
-	// Without the install folder or its marker, the hosts may still list
-	// eva-md, so their registrations are checked and removed anyway.
-	owned := false
-	root, err := paths.OpenRoot(dirs.Share, false)
-	if errors.Is(err, fs.ErrNotExist) {
-		root, err = nil, nil
-	}
-	if err != nil {
-		return result, err
-	}
-	if root != nil {
-		defer root.Close()
-		if owned, err = hasMarker(root, installMarker, installMarkerValue); err != nil {
-			return result, err
-		}
-		if !owned {
-			for _, name := range []string{"bin/eva-md", "marketplace/claude", "marketplace/codex"} {
-				if _, e := root.Lstat(name); !errors.Is(e, fs.ErrNotExist) {
-					return result, errors.New("install: refusing to uninstall an unmanaged installation")
-				}
-			}
-		}
-	}
-	var plans []*hostPlan
-	for _, host := range []string{"claude", "codex"} {
-		if owned {
-			files, e := render(host, result.Binary)
-			if e != nil {
-				return result, e
-			}
-			if _, e = treeChanged(root, filepath.Join("marketplace", host), files, false); e != nil {
-				return result, e
-			}
-		}
-		s, e := inspect(ctx, dirs, host, run)
-		if e != nil {
-			return result, e
-		}
-		if !s.Available {
-			if !owned {
-				continue
-			}
-			if _, e = root.Lstat(filepath.Join("marketplace", host)); e == nil {
-				return result, fmt.Errorf("install: %s CLI missing; cannot safely unregister its marketplace", host)
-			}
-			continue
-		}
-		plans = append(plans, &hostPlan{host: host, before: s})
-		if s.Installed || s.Marketplace {
-			result.Hosts = append(result.Hosts, host)
-			result.Actions = append(result.Actions, host+": remove eva-md plugin and marketplace registration")
-		}
-	}
-	if owned {
-		result.Actions = append(result.Actions, "delete owned marketplace folders and binary; retain config, inbox and wiki")
-	}
-	if !apply {
-		return result, nil
-	}
-	release, err := lock(ctx, dirs.Locks())
-	if err != nil {
-		return result, err
-	}
-	defer release()
-	for _, p := range plans {
-		now, e := inspect(ctx, dirs, p.host, run)
-		if e != nil {
-			return result, e
-		}
-		if now != p.before {
-			return result, errors.New("install: host state changed during uninstall preflight")
-		}
-	}
-	for _, p := range plans {
-		if p.before.Installed {
-			if _, err = run(ctx, p.host, removeArgs(p.host)...); err != nil {
-				return result, err
-			}
-		}
-		if p.before.Marketplace {
-			if _, err = run(ctx, p.host, marketRemoveArgs(p.host)...); err != nil {
-				return result, err
-			}
-		}
-		status, e := inspect(ctx, dirs, p.host, run)
-		if e != nil {
-			return result, e
-		}
-		if status.Installed || status.Marketplace {
-			return result, errors.New("install: host still reports eva-md; generated files retained")
-		}
-	}
-	if !owned {
-		return result, nil
-	}
-	for _, p := range plans {
-		if err = root.RemoveAll(filepath.Join("marketplace", p.host)); err != nil {
-			return result, err
-		}
-	}
-	if err = root.Remove("bin/eva-md"); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return result, err
-	}
-	if err = root.Remove(installMarker); err != nil {
-		return result, err
-	}
-	// Remove the folders install created; Remove fails on a folder that is
-	// not empty, so anything else in them stays.
-	_ = root.Remove("bin")
-	_ = root.Remove("marketplace")
-	_ = os.Remove(dirs.Share)
-	state, e := paths.OpenRoot(dirs.State, false)
-	if e == nil {
-		_ = state.Remove("needs-trust.json")
-		_ = state.Remove(cliPathsFile)
-		state.Close()
-	}
-	return result, nil
 }

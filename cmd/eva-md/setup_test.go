@@ -52,12 +52,13 @@ func newFakeSetup(t *testing.T, interactive bool) *fakeSetup {
 	saved := anyoneCanRead
 	anyoneCanRead = func(_ context.Context, id string) bool { f.reads = append(f.reads, id); return f.public[id] }
 	t.Cleanup(func() { anyoneCanRead = saved })
-	for _, key := range []string{"GH_HOST", "GITLAB_HOST", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"} {
+	for _, key := range append([]string{"GH_HOST", "GITLAB_HOST"}, envTokens...) {
 		t.Setenv(key, "")
 	}
 	f.env = setupEnv{
 		dirs:        d,
 		interactive: interactive,
+		goos:        "darwin",
 		home:        home,
 		cwd:         home,
 		lookPath:    func(name string) (string, error) { return "/usr/bin/" + name, nil },
@@ -82,6 +83,14 @@ func newFakeSetup(t *testing.T, interactive bool) *fakeSetup {
 		machineLabel: func() (string, error) { return "this-mac", nil },
 	}
 	return f
+}
+
+// ghOnGitHub puts a fake gh on f's PATH, signed in to github.com and finding
+// no repo there, so that a github.com remote given before the questions
+// passes setup's check of this Mac and is used with no visibility to refuse.
+func (f *fakeSetup) ghOnGitHub(t *testing.T) *fakeSetup {
+	t.Helper()
+	return f.fakes(t, fakeCLI{name: "gh", signedIn: githubHost})
 }
 
 func (f *fakeSetup) run(input string, args ...string) (int, string, string) {
@@ -267,7 +276,7 @@ func TestSetupDeclinedChangesNothing(t *testing.T) {
 }
 
 func TestSetupWithoutTerminalNeedsFlags(t *testing.T) {
-	f := newFakeSetup(t, false)
+	f := newFakeSetup(t, false).ghOnGitHub(t)
 	if code, _, errOut := f.run(""); code != 2 || !strings.Contains(errOut, "pass --dir and --remote") {
 		t.Fatalf("code %d stderr %q", code, errOut)
 	}
@@ -283,7 +292,7 @@ func TestSetupWithoutTerminalNeedsFlags(t *testing.T) {
 }
 
 func TestSetupRefusesProtectedFolderFlag(t *testing.T) {
-	f := newFakeSetup(t, false)
+	f := newFakeSetup(t, false).ghOnGitHub(t)
 	for folder, why := range map[string]string{
 		filepath.Join("Desktop", "wiki"):                                  "on the Desktop",
 		filepath.Join("Downloads", "wiki"):                                "in Downloads, which macOS protects",
@@ -297,8 +306,8 @@ func TestSetupRefusesProtectedFolderFlag(t *testing.T) {
 }
 
 // signedElsewhere makes git sign as another person in <home>/projects, as an
-// includeIf for work repos does, with a fake signing program, so the home
-// folder's settings and the wiki's differ.
+// includeIf for one folder of repos does, with a fake signing program, so
+// the home folder's settings and the wiki's differ.
 func (f *fakeSetup) signedElsewhere(t *testing.T) {
 	t.Helper()
 	signer := filepath.Join(f.env.home, "signer")
@@ -306,8 +315,8 @@ func (f *fakeSetup) signedElsewhere(t *testing.T) {
 	if err := os.WriteFile(signer, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	work := filepath.Join(f.env.home, "work.gitconfig")
-	if err := os.WriteFile(work, []byte("[user]\n\tname = Work Person\n\temail = work@example.invalid\n\tsigningkey = fixture\n[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = "+signer+"\n"), 0o600); err != nil {
+	other := filepath.Join(f.env.home, "other.gitconfig")
+	if err := os.WriteFile(other, []byte("[user]\n\tname = Other Person\n\temail = other@example.invalid\n\tsigningkey = fixture\n[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = "+signer+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	global, err := os.OpenFile(os.Getenv("GIT_CONFIG_GLOBAL"), os.O_APPEND|os.O_WRONLY, 0)
@@ -315,14 +324,14 @@ func (f *fakeSetup) signedElsewhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer global.Close()
-	if _, err := global.WriteString("[includeIf \"gitdir:" + filepath.Join(f.env.home, "projects") + "/\"]\n\tpath = " + work + "\n"); err != nil {
+	if _, err := global.WriteString("[includeIf \"gitdir:" + filepath.Join(f.env.home, "projects") + "/\"]\n\tpath = " + other + "\n"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestSetupShowsTheFirstCommitBeforePushing(t *testing.T) {
 	const remote = "git@github.com:me/eva-wiki.git"
-	shown := "  The first commit is by Work Person <work@example.invalid>, signed.\n"
+	shown := "  The first commit is by Other Person <other@example.invalid>, signed.\n"
 	question := "  Push it to " + remote + "? [Y/n] "
 	for _, tc := range []struct {
 		name        string
@@ -340,7 +349,7 @@ func TestSetupShowsTheFirstCommitBeforePushing(t *testing.T) {
 		{"--no-push", true, []string{"--no-push"}, "y\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeSetup(t, tc.interactive)
+			f := newFakeSetup(t, tc.interactive).ghOnGitHub(t)
 			f.realGit(t)
 			bare := f.bareRepo(t, "eva-wiki")
 			f.signedElsewhere(t)
@@ -387,7 +396,7 @@ func TestSetupShowsTheFirstCommitBeforePushing(t *testing.T) {
 // adopting that folder asks before pushing it, as for a new wiki.
 func TestSetupAsksBeforePushingAnAdoptedUnpushedWiki(t *testing.T) {
 	const remote = "git@github.com:me/eva-wiki.git"
-	f := newFakeSetup(t, true)
+	f := newFakeSetup(t, true).ghOnGitHub(t)
 	f.realGit(t)
 	bare := f.bareRepo(t, "eva-wiki")
 	f.signedElsewhere(t)
@@ -395,7 +404,7 @@ func TestSetupAsksBeforePushingAnAdoptedUnpushedWiki(t *testing.T) {
 	unpushedEvaWiki(t, folder, remote, "this-mac")
 	code, out, errOut := f.run("y\ny\nn\n", "--dir", folder, "--remote", remote)
 	f.wantRemote(t, code, out, errOut, remote)
-	wantIn(t, "stdout", out, "  The first commit is by Work Person <work@example.invalid>, signed.\n  Push it to "+remote+"? [Y/n] ",
+	wantIn(t, "stdout", out, "  The first commit is by Other Person <other@example.invalid>, signed.\n  Push it to "+remote+"? [Y/n] ",
 		"  The first commit was not pushed. The daily commit pushes it",
 		"The wiki's first commit isn't pushed. To push it, run "+filepath.Join(f.env.dirs.Share, "bin", "eva-md")+" commit --push-only.\n")
 	if refs := gitIn(t, bare, "for-each-ref"); refs != "" {
@@ -413,6 +422,23 @@ func TestSetupNamesTheInstalledBinary(t *testing.T) {
 		t.Fatalf("code %d\n%s\n%s", code, out, errOut)
 	}
 	wantIn(t, "stdout", out, "Run "+filepath.Join(f.env.dirs.Share, "bin", "eva-md")+" doctor after fixing them.\n")
+}
+
+// With the link on PATH to the stable binary, setup's closing lines name
+// the command as eva-md.
+func TestSetupNamesTheCommandOnPath(t *testing.T) {
+	f := newFakeSetup(t, true)
+	f.env.install = func(_ context.Context, o install.Options) (install.Result, error) {
+		return install.Result{Binary: filepath.Join(o.Dirs.Share, "bin", "eva-md"), Link: filepath.Join(f.env.home, ".local", "bin", "eva-md")}, nil
+	}
+	f.env.inspect = func(context.Context, paths.Dirs) health.Report {
+		return health.Report{Checks: []health.Check{{Name: "wiki", Status: "FAIL", Detail: "missing"}}}
+	}
+	code, out, errOut := f.run("~/projects/wiki\ngit@github.com:me/eva-wiki.git\ny\n")
+	if code != 0 {
+		t.Fatalf("code %d\n%s\n%s", code, out, errOut)
+	}
+	wantIn(t, "stdout", out, "Run eva-md doctor after fixing them.\n")
 }
 
 func TestSetupKeepsAHealthyWiki(t *testing.T) {
@@ -767,7 +793,7 @@ func TestSetupUsesTheEvaWikiInTheFolder(t *testing.T) {
 
 func TestSetupRefusesAFolderThatIsAnotherClone(t *testing.T) {
 	// The folder is a clone of notes, which isn't an eva wiki: refused at the
-	// folder question, before gh is asked anything.
+	// folder question, before gh is asked anything about a repo.
 	f := newFakeSetup(t, true).fakes(t, fakeCLI{name: "gh", after: ghJSON("eva-wiki", "PRIVATE", true)})
 	f.realGit(t)
 	f.plainRepo(t, "notes")
@@ -780,7 +806,7 @@ func TestSetupRefusesAFolderThatIsAnotherClone(t *testing.T) {
 	if code != 1 || len(f.inits) != 0 || !strings.Contains(out, "   Folder:    That folder is a clone of another repository; choose a new or empty folder\n   Folder: ") {
 		t.Fatalf("code %d inits %d\n%s\n%s", code, len(f.inits), out, errOut)
 	}
-	if log := f.log(t, "gh"); log != "" {
+	if log := f.log(t, "gh"); strings.Contains(log, "repo ") {
 		t.Fatalf("gh was asked:\n%s", log)
 	}
 	// An empty folder inside a repository is a new folder, not a clone.
@@ -861,7 +887,7 @@ func TestSetupRefusesARepoWithoutRemoteAndADirtyWiki(t *testing.T) {
 func TestSetupWithoutTerminalAdoptsAsBefore(t *testing.T) {
 	// Another Mac's wiki, by its address: adopted without a question, and
 	// without reading the repo first.
-	f := newFakeSetup(t, false)
+	f := newFakeSetup(t, false).ghOnGitHub(t)
 	f.realGit(t)
 	f.bareRepo(t, "eva-wiki")
 	evaWiki(t, filepath.Join(t.TempDir(), "wiki"), "git@github.com:me/eva-wiki.git", "old-laptop")
@@ -889,26 +915,6 @@ func TestSetupStopsWhenTheWikiFails(t *testing.T) {
 	code, _, errOut = f.run("~/projects/wiki\n\ny\n")
 	if code != 1 || len(f.installs) != 0 || !strings.HasSuffix(errOut, "\neva-md: the new repo stays for the next setup\neva-md: setup stopped before installing anything; fix this and run setup again\n") {
 		t.Fatalf("code %d installs %d stderr %q", code, len(f.installs), errOut)
-	}
-}
-
-func TestSetupNeedsGitAndAHost(t *testing.T) {
-	f := newFakeSetup(t, true)
-	f.env.lookPath = func(name string) (string, error) {
-		if name == "git" {
-			return "/usr/bin/git", nil
-		}
-		return "", errors.New("not found")
-	}
-	if code, out, errOut := f.run(""); code != 1 || !strings.Contains(errOut, "needs the claude or codex command") || !strings.Contains(out, "  Claude Code    not found (no claude command)\n") {
-		t.Fatalf("code %d\n%s\n%s", code, out, errOut)
-	}
-	if code, _, errOut := f.run("", "--host", "codex"); code != 1 || errOut != "eva-md: the codex command isn't on PATH; install it, or leave out --host\n" {
-		t.Fatalf("code %d stderr %q", code, errOut)
-	}
-	f.env.lookPath = func(string) (string, error) { return "", errors.New("not found") }
-	if code, _, errOut := f.run(""); code != 1 || !strings.Contains(errOut, "needs git") {
-		t.Fatalf("code %d stderr %q", code, errOut)
 	}
 }
 

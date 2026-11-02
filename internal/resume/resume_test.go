@@ -329,7 +329,7 @@ func TestWikiInstanceAndProjectGuards(t *testing.T) {
 		t.Fatalf("the wiki's own constraint: %v %s", err, r.Text)
 	}
 	o.Config.Instance = "personal-instance"
-	if err := config.SaveSchema(filepath.Join(o.Config.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{Instance: "work-instance", SchemaVersion: 1}); err != nil {
+	if err := config.SaveSchema(filepath.Join(o.Config.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{Instance: "other-instance", SchemaVersion: 1}); err != nil {
 		t.Fatal(err)
 	}
 	r, err := Build(context.Background(), o)

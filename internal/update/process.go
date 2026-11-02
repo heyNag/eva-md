@@ -39,7 +39,7 @@ var runTimer = context.WithTimeout
 // keepEnv lists the variables a child inherits. Every LC_* is kept too. The
 // proxy variables are kept in both letter cases, as tools read either.
 // CODEX_HOME and CLAUDE_CONFIG_DIR are kept so a moved config folder still
-// finds the login. The CA variables keep a work proxy's private CA trusted:
+// finds the login. The CA variables keep a custom CA, such as a proxy's, trusted:
 // claude, on Node, reads NODE_EXTRA_CA_CERTS and not SSL_CERT_FILE, and codex
 // reads CODEX_CA_CERTIFICATE before SSL_CERT_FILE.
 var keepEnv = map[string]bool{

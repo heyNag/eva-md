@@ -18,16 +18,18 @@ import (
 )
 
 // fakeCLI is a fake gh or glab that a test puts on its PATH. It answers
-// auth status with auth, printing a made-up account and token that setup
-// must never show; config get with host or protocol; repo view with after
+// auth status with auth, or when signedIn is set, as signed in only to the
+// hosts that shell pattern matches, printing a made-up account and token
+// that setup must never show; config get with host or protocol; repo view with after
 // once repo create has run, else with before for a name matching the shell
 // pattern exists, else as for a repo that doesn't exist; and repo create
 // with create. It logs each call to <bin>/<name>.log with the host and repo
-// variables it got and the prompt switch; glab adds which of its token
-// variables are set, never their values.
+// variables it got, the prompt switch and which of its token variables are
+// set, never their values (see tokenVars).
 type fakeCLI struct {
 	name     string
 	auth     int    // auth status's exit status
+	signedIn string // a shell pattern for the hosts auth status is signed in to, in place of auth
 	hang     string // a command, such as "auth status", that sleeps past hangGuard until killed
 	host     string // glab's default host
 	protocol string // the git protocol
@@ -37,6 +39,14 @@ type fakeCLI struct {
 	create   int    // repo create's exit status
 }
 
+// envTokens are the token variables gh, glab or a CI job read, none of which
+// may reach gh or glab from setup.
+var envTokens = []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN"}
+
+// tokenVars is how a fake CLI logs which of envTokens it got: tokens= then
+// one letter for each that is set, so "tokens=" alone means none.
+const tokenVars = "tokens=${GH_TOKEN:+a}${GITHUB_TOKEN:+b}${GH_ENTERPRISE_TOKEN:+c}${GITHUB_ENTERPRISE_TOKEN:+d}${GITLAB_TOKEN:+e}${GITLAB_ACCESS_TOKEN:+f}${OAUTH_TOKEN:+g}${CI_JOB_TOKEN:+h}"
+
 func (c fakeCLI) write(t *testing.T, bin string) {
 	t.Helper()
 	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
@@ -44,16 +54,20 @@ func (c fakeCLI) write(t *testing.T, bin string) {
 	if exists == "" {
 		exists = "-none-"
 	}
-	vars := "host=$GH_HOST repo=$GH_REPO prompt=$GH_PROMPT_DISABLED"
+	vars := "host=$GH_HOST repo=$GH_REPO prompt=$GH_PROMPT_DISABLED " + tokenVars
 	if c.name == "glab" {
-		vars = "host=$GITLAB_HOST repo=$GITLAB_REPO prompt=$GLAB_NO_PROMPT tokens=${GITLAB_TOKEN:+G}${GITLAB_ACCESS_TOKEN:+A}${OAUTH_TOKEN:+O}"
+		vars = "host=$GITLAB_HOST repo=$GITLAB_REPO prompt=$GLAB_NO_PROMPT " + tokenVars
 	}
 	created := q(filepath.Join(bin, c.name+".created"))
+	auth := fmt.Sprintf("exit %d", c.auth)
+	if c.signedIn != "" {
+		auth = fmt.Sprintf(`case "$4" in %s) exit 0 ;; *) exit 1 ;; esac`, c.signedIn)
+	}
 	script := fmt.Sprintf(`#!/bin/sh
 echo "$* %s" >> %s
 if [ "$1 $2" = %s ]; then exec /bin/sleep 300; fi
 case "$1 $2" in
-"auth status") echo "Logged in to the host as fake-account-7f3a"; echo "Token: fake-token-7f3a" >&2; exit %d ;;
+"auth status") echo "Logged in to the host as fake-account-7f3a"; echo "Token: fake-token-7f3a" >&2; %s ;;
 "config get") if [ "$3" = host ]; then echo %s; else echo %s; fi ;;
 "repo view")
 	if [ -f %s ]; then printf '%%s\n' %s; exit 0; fi
@@ -61,18 +75,28 @@ case "$1 $2" in
 "repo create") if [ %d -eq 0 ]; then : > %s; fi; exit %d ;;
 *) exit 2 ;;
 esac
-`, vars, q(filepath.Join(bin, c.name+".log")), q(c.hang), c.auth, q(c.host), q(c.protocol), created, q(c.after), exists, q(c.before), c.create, created, c.create)
+`, vars, q(filepath.Join(bin, c.name+".log")), q(c.hang), auth, q(c.host), q(c.protocol), created, q(c.after), exists, q(c.before), c.create, created, c.create)
 	if err := os.WriteFile(filepath.Join(bin, c.name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func ghJSON(name, visibility string, empty bool) string {
-	return fmt.Sprintf(`{"isEmpty":%[3]t,"sshUrl":"git@github.com:me/%[1]s.git","url":"https://github.com/me/%[1]s","visibility":%[2]q}`, name, visibility, empty)
+	return ghJSONOn("github.com", name, visibility, empty)
+}
+
+// ghJSONOn is what gh says about the repo me/<name> on host.
+func ghJSONOn(host, name, visibility string, empty bool) string {
+	return fmt.Sprintf(`{"isEmpty":%[3]t,"sshUrl":"git@%[4]s:me/%[1]s.git","url":"https://%[4]s/me/%[1]s","visibility":%[2]q}`, name, visibility, empty, host)
 }
 
 func glabJSON(name, visibility string, empty bool) string {
-	return fmt.Sprintf(`{"id":7,"path_with_namespace":"me/%[1]s","visibility":%[2]q,"empty_repo":%[3]t,"web_url":"https://gitlab.example.com/me/%[1]s","ssh_url_to_repo":"git@gitlab.example.com:me/%[1]s.git","http_url_to_repo":"https://gitlab.example.com/me/%[1]s.git"}`, name, visibility, empty)
+	return glabJSONOn("gitlab.example.com", name, visibility, empty)
+}
+
+// glabJSONOn is what glab says about the repo me/<name> on host.
+func glabJSONOn(host, name, visibility string, empty bool) string {
+	return fmt.Sprintf(`{"id":7,"path_with_namespace":"me/%[1]s","visibility":%[2]q,"empty_repo":%[3]t,"web_url":"https://%[4]s/me/%[1]s","ssh_url_to_repo":"git@%[4]s:me/%[1]s.git","http_url_to_repo":"https://%[4]s/me/%[1]s.git"}`, name, visibility, empty, host)
 }
 
 // fakes puts the fake CLIs on f's PATH.
@@ -291,7 +315,7 @@ func TestSetupRemoteQuestionWithoutASignedInCLI(t *testing.T) {
 	f = newFakeSetup(t, true).fakes(t, fakeCLI{name: "glab", auth: 1, host: "gitlab.example.com"})
 	code, out, errOut = f.answers(t, "git@gitlab.example.com:me/eva-wiki.git", "y")
 	f.wantRemote(t, code, out, errOut, "git@gitlab.example.com:me/eva-wiki.git")
-	wantIn(t, "stdout", out, "pushed to?\n   Checking whether gh or glab is signed in.\n   glab isn't signed in to gitlab.example.com, so setup can't create the repository.\n   Create an empty private repository first")
+	wantIn(t, "stdout", out, "  - gh isn't installed\n  - glab isn't signed in to gitlab.example.com\n", "pushed to?\n   glab isn't signed in to gitlab.example.com, so setup can't create the repository.\n   Create an empty private repository first")
 	wantIn(t, "glab log", f.log(t, "glab"), "auth status --hostname gitlab.example.com host=gitlab.example.com")
 	wantNotIn(t, "glab log", f.log(t, "glab"), "repo view", "repo create")
 }
@@ -392,9 +416,9 @@ func TestSetupCreatesTheRepoWithGH(t *testing.T) {
 				wantNotIn(t, "stdout", out, "over HTTPS")
 			}
 			wantIn(t, "gh log", f.log(t, "gh"),
-				"auth status --hostname github.com host=github.com repo= prompt=1\n",
-				"repo view eva-wiki --json visibility,isEmpty,sshUrl,url host=github.com repo= prompt=1\n",
-				"repo create eva-wiki --private host=github.com repo= prompt=1\n",
+				"auth status --hostname github.com host=github.com repo= prompt=1 tokens=\n",
+				"repo view eva-wiki --json visibility,isEmpty,sshUrl,url host=github.com repo= prompt=1 tokens=\n",
+				"repo create eva-wiki --private host=github.com repo= prompt=1 tokens=\n",
 				"config get git_protocol --host github.com host=github.com")
 		})
 	}
@@ -430,29 +454,6 @@ func TestSetupCreatesTheRepoWithGlab(t *testing.T) {
 		"auth status --hostname gitlab.example.com host=gitlab.example.com repo= prompt=true tokens=\n",
 		"repo view team-memory --output json host=gitlab.example.com",
 		"repo create team-memory --private --skipGitInit host=gitlab.example.com repo= prompt=true tokens=\n")
-}
-
-func TestSetupGivesGlabTheEnvironmentTokenOnlyForItsDefaultHost(t *testing.T) {
-	// glab's default host is gitlab.com, and a token for it is in the
-	// environment: glab gets the token to check a remote there, never for
-	// another host.
-	for _, tc := range []struct{ host, tokens string }{
-		{"gitlab.com", "tokens=GAO\n"},
-		{"gitlab.example.com", "tokens=\n"},
-	} {
-		f := newFakeSetup(t, false).fakes(t, fakeCLI{name: "glab", host: "gitlab.com", exists: "me/eva-wiki", before: glabJSON("eva-wiki", "private", true)})
-		for _, key := range []string{"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"} {
-			t.Setenv(key, "fake-env-token-7f3a")
-		}
-		remote := "git@" + tc.host + ":me/eva-wiki.git"
-		code, out, errOut := f.run("", "--dir", filepath.Join(f.env.home, "wiki"), "--remote", remote)
-		f.wantRemote(t, code, out, errOut, remote)
-		wantNotIn(t, "output", out+errOut, "fake-env-token")
-		wantIn(t, "glab log", f.log(t, "glab"),
-			"config get host host= repo= prompt=true tokens=\n",
-			"auth status --hostname "+tc.host+" host="+tc.host+" repo= prompt=true "+tc.tokens,
-			"repo view me/eva-wiki --output json host="+tc.host+" repo= prompt=true "+tc.tokens)
-	}
 }
 
 func TestSetupAsksWhichCLICreatesTheRepo(t *testing.T) {
@@ -533,9 +534,18 @@ func TestSetupFallsBackWhenACLIHangs(t *testing.T) {
 		if !strings.Contains(out, "   "+tc.cli.name+" didn't answer in time, so setup can't create the repository.\n   Create an empty private repository first") {
 			t.Fatalf("%s's timeout not reported:\n%s", tc.cli.name, out)
 		}
-		// It isn't asked again about the pasted remote.
-		if log := f.log(t, tc.cli.name); strings.Count(log, "\n") != 1 || !strings.HasPrefix(log, tc.cli.hang+" ") {
+		// What hung isn't run again. gh isn't asked again about the pasted
+		// remote; glab, which hung naming its default host, is asked about
+		// the remote's own host directly.
+		log := f.log(t, tc.cli.name)
+		if strings.Count(log, tc.cli.hang+" ") != 1 || !strings.HasPrefix(log, tc.cli.hang+" ") {
 			t.Fatalf("%s asked more than once, or not as expected:\n%s", tc.cli.name, log)
+		}
+		if tc.cli.name == "gh" && strings.Count(log, "\n") != 1 {
+			t.Fatalf("gh asked again:\n%s", log)
+		}
+		if tc.cli.name == "glab" {
+			wantIn(t, "glab log", log, "auth status --hostname gitlab.example.com host=gitlab.example.com ")
 		}
 	}
 }
@@ -714,7 +724,7 @@ func TestSetupReadsATypedRepo(t *testing.T) {
 }
 
 func TestSetupWarnsAboutAWikiFromAnotherMac(t *testing.T) {
-	f := newFakeSetup(t, true)
+	f := newFakeSetup(t, true).ghOnGitHub(t)
 	f.realGit(t)
 	f.bareRepo(t, "eva-wiki")
 	evaWiki(t, filepath.Join(t.TempDir(), "wiki"), "git@github.com:me/eva-wiki.git", "old-laptop")
@@ -725,7 +735,11 @@ func TestSetupWarnsAboutAWikiFromAnotherMac(t *testing.T) {
 		t.Fatalf("code %d inits %d\n%s\n%s", code, len(f.inits), out, errOut)
 	}
 
-	// Enter keeps the default; asked again, the user says yes.
+	// Enter keeps the default; asked again, the user says yes. With no gh,
+	// the typed repo is read with no sign-in.
+	if err := os.Remove(filepath.Join(f.bin, "gh")); err != nil {
+		t.Fatal(err)
+	}
 	code, out, errOut = f.answers(t, "git@github.com:me/eva-wiki.git", "", "git@github.com:me/eva-wiki.git", "y", "y")
 	f.wantRemote(t, code, out, errOut, "git@github.com:me/eva-wiki.git")
 	wantIn(t, "stdout", out,
@@ -750,5 +764,28 @@ func TestSetupKnowsThisMacWhateverItsDomain(t *testing.T) {
 		f.wantRemote(t, code, out, errOut, "git@github.com:me/eva-wiki.git")
 		wantIn(t, "stdout", out, checking+"   The repo holds an eva wiki set up on this Mac: setup will use it.\n")
 		wantNotIn(t, "stdout", out, "This wiki was set up on")
+	}
+}
+
+// To clone a missing wiki again from a host gh and glab are both signed in
+// to, whose name says neither, setup asks which one it is, with the line
+// that says why and the hint after an answer it doesn't understand; three
+// such answers stop setup, as other questions do, with nothing cloned.
+func TestSetupStopsWhenTheCloneAddressQuestionGoesUnanswered(t *testing.T) {
+	f := newFakeSetup(t, true).fakes(t, fakeCLI{name: "gh", signedIn: "*"}, fakeCLI{name: "glab", signedIn: "*", host: "gitlab.com"})
+	f.realGit(t)
+	f.bareRepo(t, "eva-wiki")
+	c := f.setUp(t, "git@code.example.com:me/eva-wiki.git")
+	if err := os.RemoveAll(c.WikiPath); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := f.run("x\ny\nz\n\n")
+	noCLIText(t, out+errOut)
+	if code != 1 || len(f.inits) != 0 || len(f.peeks) != 0 || errOut != "eva-md: setup stopped; nothing was changed\n" {
+		t.Fatalf("code %d inits %d peeks %q\n%s\n%s", code, len(f.inits), f.peeks, out, errOut)
+	}
+	wantIn(t, "stdout", out, "   gh and glab are both signed in to code.example.com.\n   Is it GitHub or GitLab? [gh/glab]    Type gh or glab\n")
+	if _, err := os.Stat(c.WikiPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the wiki was cloned again: %v", err)
 	}
 }

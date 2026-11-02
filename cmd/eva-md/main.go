@@ -16,6 +16,7 @@ import (
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/health"
 	"github.com/heyNag/eva-md/internal/hook"
+	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/wikiinit"
@@ -39,7 +40,7 @@ func main() {
 
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errOut, "usage: eva-md setup | version | init | install | uninstall | doctor | status | brief | show | search | index | update | commit | maintain | system | validate | hook | mcp")
+		fmt.Fprintln(errOut, "usage: eva-md setup | version | upgrade | init | install | uninstall | doctor | status | brief | show | search | index | update | commit | maintain | system | validate | hook | mcp")
 		return 2
 	}
 	if args[0] == "hook" {
@@ -53,13 +54,19 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		fmt.Fprintf(out, "eva-md %s\nschema_version 1\nokf_spec 0.2\nokf_module %s\n", version, okfModule())
 		return 0
 	case "setup":
-		return runSetupCommand(ctx, args[1:], in, out, errOut)
+		code := runSetupCommand(ctx, args[1:], in, out, errOut)
+		recordSetupWrites(ctx)
+		return code
 	case "init", "validate":
 		return runWiki(ctx, args, in, out, errOut)
 	case "brief", "show", "search":
 		return runResume(ctx, args, out, errOut)
-	case "install", "uninstall":
+	case "install":
 		return runInstall(ctx, args, out, errOut)
+	case "uninstall":
+		return runUninstall(ctx, args[1:], in, out, errOut, isTerminal(in))
+	case "upgrade":
+		return runUpgrade(ctx, args[1:], in, out, errOut)
 	case "doctor", "status":
 		return runDoctor(ctx, args, out, errOut)
 	case "commit":
@@ -78,6 +85,20 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		fmt.Fprintf(errOut, "eva-md: unknown command %q; run eva-md with no arguments for the list\n", args[0])
 		return 2
 	}
+}
+
+// recordSetupWrites adds config.toml and config.env to the install record,
+// once an install has written one: on a Mac set up before there was a
+// config.env, setup writes it after its install. It fails nothing; the next
+// install lists them anyway.
+func recordSetupWrites(ctx context.Context) {
+	d, err := paths.Default()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, installTimeout)
+	defer cancel()
+	_ = install.RecordConfigFiles(ctx, d)
 }
 
 func usage(w io.Writer, msg string) int { fmt.Fprintln(w, "eva-md: "+msg); return 2 }

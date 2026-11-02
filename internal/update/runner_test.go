@@ -49,8 +49,8 @@ func TestChildGetsOnlyTheClearedEnvironment(t *testing.T) {
 				"HTTPS_PROXY": "http://proxy.example.invalid:8080", "https_proxy": "http://proxy.example.invalid:8080",
 				"ALL_PROXY": "socks5://proxy.example.invalid:1080", "all_proxy": "socks5://proxy.example.invalid:1080",
 				"NO_PROXY": "localhost,.example.invalid", "CODEX_HOME": codexHome, "CLAUDE_CONFIG_DIR": claudeConfig,
-				"SSL_CERT_FILE": "/etc/ssl/cert.pem", "SSL_CERT_DIR": "/etc/ssl/certs", "NODE_EXTRA_CA_CERTS": "/etc/ssl/work-ca.pem",
-				"CODEX_CA_CERTIFICATE": "/etc/ssl/work-ca.pem", "LC_CTYPE": "UTF-8", "UNRELATED_SETTING": "dropped",
+				"SSL_CERT_FILE": "/etc/ssl/cert.pem", "SSL_CERT_DIR": "/etc/ssl/certs", "NODE_EXTRA_CA_CERTS": "/etc/ssl/custom-ca.pem",
+				"CODEX_CA_CERTIFICATE": "/etc/ssl/custom-ca.pem", "LC_CTYPE": "UTF-8", "UNRELATED_SETTING": "dropped",
 			}
 			for k, v := range set {
 				t.Setenv(k, v)

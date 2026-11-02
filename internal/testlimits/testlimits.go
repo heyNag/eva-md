@@ -1,9 +1,11 @@
 // Package testlimits raises, for tests, the time limits that protect a host
 // from slow git, slow host commands or a slow disk, so a test checks what
-// eva-md does, never how fast the machine is. Only tests import it, from
-// TestMain, before any test runs. A package raises its own unexported
-// limits in its own TestMain. So do the packages this one imports, directly
-// or not: their tests can't import it without an import cycle.
+// eva-md does, never how fast the machine is. Only tests use it, from
+// TestMain, before any test runs, and the release stand-in the end-to-end
+// tests build with the evamd_testlimits tag; a release never calls it. A
+// package raises its own unexported limits in its own TestMain. So do the
+// packages this one imports, directly or not: their tests can't import it
+// without an import cycle.
 package testlimits
 
 import (
@@ -13,6 +15,7 @@ import (
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/okfadapter"
+	"github.com/heyNag/eva-md/internal/release"
 	"github.com/heyNag/eva-md/internal/resume"
 	"github.com/heyNag/eva-md/internal/systempage"
 	"github.com/heyNag/eva-md/internal/update"
@@ -36,4 +39,5 @@ func Raise() {
 	update.GitTimeout, update.GitWaitDelay, update.WaitDelay = Long, Long, Long
 	coderef.WaitDelay, coderef.CallTimeout = Long, Long
 	systempage.VerifyBudget, systempage.VerifyCall = Long, Long
+	release.LookupTimeout, release.DownloadTimeout = Long, Long
 }

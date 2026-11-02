@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/wikigit"
 	"github.com/heyNag/eva-md/internal/wikiinit"
 )
@@ -52,16 +53,9 @@ var (
 // starting with '.' or '-'.
 var repoNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}(/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99})*$`)
 
-// hostRe matches a host setup passes to gh or glab and prints.
-var hostRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,252}[a-z0-9])?(:[0-9]{1,5})?$`)
-
-// repoCLI is gh or glab working with one host: gh with github.com, glab
-// with a GitLab host. envToken is set when that host is glab's default host,
-// the one a token in the environment is for.
-type repoCLI struct {
-	name, host string
-	envToken   bool
-}
+// repoCLI is gh or glab working with one host: gh with github.com or a
+// GitHub Enterprise server, glab with a GitLab host.
+type repoCLI struct{ name, host string }
 
 // repoInfo is what a CLI says about a repo.
 type repoInfo struct {
@@ -70,40 +64,255 @@ type repoInfo struct {
 	ssh, https string // its addresses
 }
 
-// repoCLIs remembers which hosts gh and glab are signed in to and glab's
-// default host, asking each once.
+// repoCLIs remembers which hosts gh and glab are signed in to and the CLI
+// the user chose for a host, asking each once. ask asks the user a question,
+// and is nil without a terminal.
 type repoCLIs struct {
-	signedIn    map[repoCLI]bool
-	glabOnce    sync.Once
-	glabDefault string
-	glabErr     error
+	asked  map[repoCLI]error // what auth status said: nil when signed in
+	chosen map[string]repoCLI
+	ask    func(string) (string, bool)
+	found  []discovery // what discover found, once it has asked
 }
 
-func newRepoCLIs() *repoCLIs { return &repoCLIs{signedIn: map[repoCLI]bool{}} }
+// discovery is what discover found for gh or glab: nil when signed in.
+type discovery struct {
+	cli repoCLI
+	err error
+}
 
-// defaultGlabHost is glab's default host, asking glab once. After an error,
-// such as a glab that didn't answer in time, setup doesn't ask glab again.
-func (r *repoCLIs) defaultGlabHost(ctx context.Context) (string, error) {
-	r.glabOnce.Do(func() { r.glabDefault, r.glabErr = glabHost(ctx) })
-	return r.glabDefault, r.glabErr
+func newRepoCLIs() *repoCLIs {
+	return &repoCLIs{asked: map[repoCLI]error{}, chosen: map[string]repoCLI{}}
+}
+
+// The hosts whose CLI setup knows by their name.
+const (
+	githubHost = "github.com"
+	gitlabHost = "gitlab.com"
+)
+
+// hostKind is the CLI a host's name says works with it: gh for github.com,
+// a host whose name holds "github" or one ending in .ghe.com, all GitHub;
+// glab for gitlab.com or a host whose name holds "gitlab". It is "" when the
+// name says neither, or both.
+func hostKind(host string) string {
+	if h, _, ok := strings.Cut(host, ":"); ok {
+		host = h // a port says nothing
+	}
+	host = strings.ToLower(host)
+	github := strings.Contains(host, "github") || strings.HasSuffix(host, ".ghe.com")
+	gitlab := strings.Contains(host, "gitlab")
+	switch {
+	case github && !gitlab:
+		return "gh"
+	case gitlab && !github:
+		return "glab"
+	}
+	return ""
+}
+
+// hostCLIs names the CLIs a message about host names: the one its name
+// says, or either when the name doesn't tell.
+func hostCLIs(host string) []string {
+	if kind := hostKind(host); kind != "" {
+		return []string{kind}
+	}
+	return []string{"gh", "glab"}
+}
+
+// otherCLI is the CLI that isn't name.
+func otherCLI(name string) string {
+	if name == "gh" {
+		return "glab"
+	}
+	return "gh"
+}
+
+// apiHost is the host gh or glab works with for a host a remote names: the
+// host itself, but github.com for GitHub's SSH host ssh.github.com and
+// gitlab.com for GitLab's altssh.gitlab.com, on any port. An alias from
+// ~/.ssh/config is never resolved: ssh reads it from the account's own home
+// folder, whatever HOME says.
+func apiHost(host string) string {
+	name, _, _ := strings.Cut(strings.ToLower(host), ":")
+	switch name {
+	case "ssh.github.com":
+		return githubHost
+	case "altssh.gitlab.com":
+		return gitlabHost
+	}
+	return host
+}
+
+// apiID is a remote's identity with its host as apiHost gives it.
+func apiID(id string) string {
+	host, path, ok := strings.Cut(id, "/")
+	if !ok || strings.HasPrefix(id, "file://") {
+		return id
+	}
+	return apiHost(host) + "/" + path
+}
+
+// noCLIError is a host no CLI is signed in to: reasons says, for each CLI
+// that may work with it, why it can't.
+type noCLIError struct {
+	host    string
+	reasons map[string]error
+}
+
+func (e *noCLIError) Error() string {
+	names := hostCLIs(e.host)
+	var parts, logins []string
+	allSignedOut, allMissing := true, true
+	for _, name := range names {
+		err := e.reasons[name]
+		allSignedOut = allSignedOut && !errors.Is(err, errCLIMissing) && !errors.Is(err, errCLITimedOut)
+		allMissing = allMissing && errors.Is(err, errCLIMissing)
+		switch {
+		case errors.Is(err, errCLIMissing):
+			parts = append(parts, name+" isn't installed")
+		case errors.Is(err, errCLITimedOut):
+			parts = append(parts, name+" didn't answer in time")
+		default:
+			parts = append(parts, name+" isn't signed in to "+e.host)
+		}
+		logins = append(logins, name+" auth login --hostname "+e.host)
+	}
+	what := strings.Join(parts, " and ")
+	if len(names) > 1 {
+		switch {
+		case allSignedOut:
+			what = "Neither gh nor glab is signed in to " + e.host
+		case allMissing:
+			what = "Neither gh nor glab is installed"
+		}
+	}
+	how := "sign in with "
+	if allMissing {
+		how = "install " + strings.Join(names, " or ") + " and sign in with "
+	}
+	return what + ", so setup can't create the repository on " + e.host + "; " + how + strings.Join(logins, " or ") + ", or create it yourself and give its address."
+}
+
+// bothCLIsError is a host gh and glab are both signed in to, with no
+// terminal to ask which one works with it.
+type bothCLIsError struct{ host string }
+
+func (e *bothCLIsError) Error() string {
+	return "both gh and glab are signed in to " + e.host + ", so setup can't tell whether it is GitHub or GitLab; run setup in a terminal to choose"
+}
+
+// signedInOn asks gh and glab whether they are signed in to host, as
+// `auth status --hostname <host>` says with the CLI pointed at host, and
+// returns those that are, gh first, with what the others said. For a name
+// that says GitHub or GitLab (hostKind), the CLI it says is asked first, and
+// the other only when that one isn't ready, as for a GitHub Enterprise server
+// whose name holds gitlab; for a name that doesn't tell, both at once. Each
+// CLI is asked about a host once.
+func (r *repoCLIs) signedInOn(ctx context.Context, host string) (clis []repoCLI, reasons map[string]error) {
+	reasons = map[string]error{}
+	ask := func(names ...string) {
+		errs := make([]error, len(names))
+		var wg sync.WaitGroup
+		for i, name := range names {
+			c := repoCLI{name: name, host: host}
+			if err, ok := r.asked[c]; ok {
+				errs[i] = err
+				continue
+			}
+			wg.Go(func() { errs[i] = c.authStatus(ctx) })
+		}
+		wg.Wait()
+		for i, name := range names {
+			c := repoCLI{name: name, host: host}
+			if r.asked[c] = errs[i]; errs[i] == nil {
+				clis = append(clis, c)
+			} else {
+				reasons[name] = errs[i]
+			}
+		}
+	}
+	switch kind := hostKind(host); kind {
+	case "":
+		ask("gh", "glab")
+	default:
+		if ask(kind); len(clis) == 0 {
+			ask(otherCLI(kind))
+		}
+	}
+	return clis, reasons
+}
+
+// pick is the CLI that works with host: the one its name says (see
+// hostKind), when it is signed in there, or else the other when that one is;
+// for a name that doesn't tell, the one signed in there, or of gh and glab
+// both signed in, the one the user chooses in a terminal. Its error is a *noCLIError when none is signed in,
+// a *bothCLIsError when it can't ask which, or errNoAnswer when the answers
+// ran out or none was gh or glab.
+func (r *repoCLIs) pick(ctx context.Context, host string, out io.Writer) (repoCLI, error) {
+	if c, ok := r.chosen[host]; ok {
+		return c, nil
+	}
+	clis, reasons := r.signedInOn(ctx, host)
+	switch len(clis) {
+	case 0:
+		return repoCLI{}, &noCLIError{host: host, reasons: reasons}
+	case 1:
+		return clis[0], nil
+	}
+	gh, glab := clis[0], clis[1]
+	if r.ask == nil {
+		return repoCLI{}, &bothCLIsError{host: host}
+	}
+	fmt.Fprintf(out, "   gh and glab are both signed in to %s.\n", host)
+	for range 3 {
+		answer, ok := r.ask("   Is it GitHub or GitLab? [gh/glab] ")
+		if !ok {
+			return repoCLI{}, errNoAnswer
+		}
+		switch strings.ToLower(answer) {
+		case "gh", "github":
+			r.chosen[host] = gh
+			return gh, nil
+		case "glab", "gitlab":
+			r.chosen[host] = glab
+			return glab, nil
+		}
+		fmt.Fprintln(out, "   Type gh or glab")
+	}
+	// Three answers it didn't understand stop setup, as other questions do.
+	return repoCLI{}, errNoAnswer
 }
 
 // offer starts the remote question when gh or glab is signed in: it offers
 // to create the wiki's repo, or to use an existing private one of that name,
 // as it is when empty, or after asking and check when it has content. check
-// also reads a typed address. It returns the remote, with created when this
-// run made the repo or may have; "" means ask for an address, after a line
-// saying why when something failed. ok is false when the answers ran out.
-func (r *repoCLIs) offer(ctx context.Context, ask func(string) (string, bool), out io.Writer, check func(string) error) (remote string, created, ok bool) {
-	if cliInstalled() {
-		fmt.Fprintln(out, "   Checking whether gh or glab is signed in.")
-	}
-	clis, why := r.discover(ctx)
-	if why != "" {
-		fmt.Fprintln(out, "   "+why)
-	}
-	if len(clis) == 0 {
-		return "", false, true
+// also reads a typed address. With gitHost, it looks only there, with the
+// CLI pick finds for it; without, at github.com and glab's default host.
+// Setup's checks at its start have asked the CLIs already, so it asks none
+// again. It returns the remote, with created when this run made the repo or
+// may have; "" means ask for an address, after a line saying why when
+// something failed. ok is false when the answers ran out.
+func (r *repoCLIs) offer(ctx context.Context, ask func(string) (string, bool), out io.Writer, check func(string) error, gitHost string) (remote string, created, ok bool) {
+	var clis []repoCLI
+	if gitHost != "" {
+		c, err := r.pick(ctx, gitHost, out)
+		switch {
+		case errors.Is(err, errNoAnswer):
+			return "", false, false
+		case err != nil:
+			fmt.Fprintln(out, "   "+err.Error())
+			return "", false, true
+		}
+		clis = []repoCLI{c}
+	} else {
+		var why string
+		clis, why = r.discover(ctx)
+		if why != "" {
+			fmt.Fprintln(out, "   "+why)
+		}
+		if len(clis) == 0 {
+			return "", false, true
+		}
 	}
 	c := clis[0]
 	hint := "Setup can create it for you. Type another name if you like, or n to paste an address."
@@ -255,6 +464,9 @@ func (c repoCLI) sayHTTPS(out io.Writer, remote string) {
 		return
 	}
 	fix := "gh auth setup-git"
+	if c.host != githubHost {
+		fix += " --hostname " + c.host
+	}
 	if c.name == "glab" {
 		fix = "glab auth login --hostname " + c.host + " --setup-git-credential-helper"
 	}
@@ -273,16 +485,21 @@ func (r *repoCLIs) checkAnswer(ctx context.Context, answer string, out io.Writer
 
 // checkPrivate refuses a remote, one wikiinit.CheckRemote accepts, when the
 // CLI for its host says the repo is not private: gh for github.com, glab for
-// a GitLab host it is signed in to. When no CLI can tell, git reads the repo
-// over HTTPS with nothing that could sign it in (anyoneCanRead), saying so
-// on out first: one it reads is errReadable, which setup asks about, and one
-// it can't read passes.
+// gitlab.com, and for another host whichever is signed in to it (see pick).
+// When no CLI can tell, git reads the repo over HTTPS with nothing that could
+// sign it in (anyoneCanRead), saying so on out first: one it reads is
+// errReadable, which setup asks about, and one it can't read passes.
 func (r *repoCLIs) checkPrivate(ctx context.Context, remote string, out io.Writer) error {
 	id, err := wikiinit.CheckRemote(remote)
 	if err != nil {
 		return nil
 	}
-	c, path, ok := r.cliFor(ctx, id)
+	// GitHub's and GitLab's SSH hosts are read on their web hosts.
+	id = apiID(id)
+	c, path, ok, err := r.cliFor(ctx, id, out)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		// With no CLI to tell, a repo git reads with no sign-in may be
 		// public: setup asks before it uses one (see confirmReadable).
@@ -307,51 +524,53 @@ func (r *repoCLIs) checkPrivate(ctx context.Context, remote string, out io.Write
 // cloneAddress is an address to clone the wiki again from, for the remote
 // whose identity the config records: a local remote's path; the address gh
 // or glab gives, as for a repo setup creates, when it names that repo; or
-// else the SSH address.
-func (r *repoCLIs) cloneAddress(ctx context.Context, id string) string {
+// else the SSH address. Choosing the CLI may ask on out which one works with
+// the host; its error is errNoAnswer when the answers ran out.
+func (r *repoCLIs) cloneAddress(ctx context.Context, id string, out io.Writer) (string, error) {
 	if p, ok := strings.CutPrefix(id, "file://"); ok {
-		return filepath.FromSlash(p)
+		return filepath.FromSlash(p), nil
 	}
-	if c, path, ok := r.cliFor(ctx, id); ok {
+	c, path, ok, err := r.cliFor(ctx, id, out)
+	if errors.Is(err, errNoAnswer) {
+		return "", err
+	}
+	if ok {
 		if info, err := c.view(ctx, path); err == nil {
 			// A renamed or moved repo answers to its old name with its new
 			// address, which init would refuse.
 			if remote, err := c.address(ctx, info); err == nil {
 				if got, _ := wikiinit.CheckRemote(remote); got == id {
-					return remote
+					return remote, nil
 				}
 			}
 		}
 	}
 	host, path, _ := strings.Cut(id, "/")
-	return "git@" + host + ":" + path + ".git"
+	return "git@" + host + ":" + path + ".git", nil
 }
 
 // cliFor is the CLI that can tell about the repo with this identity, with
-// the repo's path on its host: gh for github.com, or glab for another host,
-// when it is installed and signed in there.
-func (r *repoCLIs) cliFor(ctx context.Context, id string) (c repoCLI, path string, ok bool) {
+// the repo's path on its host: the one pick finds signed in there, for the
+// host apiHost gives. ok is false when no CLI is, or the path isn't one it
+// takes. err is pick's when gh and glab are both signed in there and setup
+// can't tell which to ask, or errNoAnswer.
+func (r *repoCLIs) cliFor(ctx context.Context, id string, out io.Writer) (c repoCLI, path string, ok bool, err error) {
 	if strings.HasPrefix(id, "file://") {
-		return c, "", false
+		return c, "", false, nil
 	}
-	host, path, _ := strings.Cut(id, "/")
-	c = repoCLI{name: "glab", host: host}
-	if host == "github.com" {
-		c.name = "gh"
+	host, path, _ := strings.Cut(apiID(id), "/")
+	if !repoNameRe.MatchString(path) || !config.ValidGitHost(host) {
+		return c, "", false, nil
 	}
-	if !c.validName(path) || !hostRe.MatchString(host) {
-		return c, "", false
+	c, err = r.pick(ctx, host, out)
+	var none *noCLIError
+	switch {
+	case errors.As(err, &none):
+		return c, "", false, nil
+	case err != nil:
+		return c, "", false, err
 	}
-	if c.name == "glab" {
-		// glab gets a token from the environment only for its default
-		// host, so a glab that can't name that host isn't asked.
-		def, err := r.defaultGlabHost(ctx)
-		if err != nil {
-			return c, "", false
-		}
-		c.envToken = host == def
-	}
-	return c, path, r.ready(ctx, c)
+	return c, path, c.validName(path), nil
 }
 
 // cliInstalled reports whether gh or glab is on PATH, so that setup says it
@@ -370,30 +589,10 @@ func cliInstalled() bool {
 // those that are. When none is but one is installed, why says in a line
 // why setup can't create the repo.
 func (r *repoCLIs) discover(ctx context.Context) (clis []repoCLI, why string) {
-	found := []struct {
-		cli repoCLI
-		err error
-	}{{cli: repoCLI{name: "gh", host: "github.com"}}, {cli: repoCLI{name: "glab", envToken: true}}}
-	var wg sync.WaitGroup
-	for i := range found {
-		wg.Go(func() {
-			f := &found[i]
-			if f.cli.name == "glab" {
-				if f.cli.host, f.err = r.defaultGlabHost(ctx); f.err != nil {
-					return
-				}
-			}
-			f.err = f.cli.authStatus(ctx)
-		})
-	}
-	wg.Wait()
 	var reasons []string
-	for _, f := range found {
+	for _, f := range r.discoverAll(ctx) {
 		if errors.Is(f.err, errCLIMissing) {
 			continue
-		}
-		if f.cli.host != "" {
-			r.signedIn[f.cli] = f.err == nil
 		}
 		switch {
 		case f.err == nil:
@@ -401,7 +600,7 @@ func (r *repoCLIs) discover(ctx context.Context) (clis []repoCLI, why string) {
 		case errors.Is(f.err, errCLITimedOut):
 			reasons = append(reasons, f.cli.name+" didn't answer in time")
 		case f.cli.host == "":
-			reasons = append(reasons, f.cli.name+" isn't signed in")
+			reasons = append(reasons, f.cli.name+" can't name its default host")
 		default:
 			reasons = append(reasons, f.cli.name+" isn't signed in to "+f.cli.host)
 		}
@@ -412,19 +611,41 @@ func (r *repoCLIs) discover(ctx context.Context) (clis []repoCLI, why string) {
 	return clis, why
 }
 
-// ready reports whether c is installed and signed in to its host.
-func (r *repoCLIs) ready(ctx context.Context, c repoCLI) bool {
-	ok, asked := r.signedIn[c]
-	if !asked {
-		ok = c.authStatus(ctx) == nil
-		r.signedIn[c] = ok
+// discoverAll is what gh says about github.com and glab about its default
+// host, asking both once, at the same time. glab's default host is asked
+// only here, when setup knows no host; an error naming it leaves the host
+// empty.
+func (r *repoCLIs) discoverAll(ctx context.Context) []discovery {
+	if r.found != nil {
+		return r.found
 	}
-	return ok
+	found := []discovery{{cli: repoCLI{name: "gh", host: githubHost}}, {cli: repoCLI{name: "glab"}}}
+	var wg sync.WaitGroup
+	for i := range found {
+		wg.Go(func() {
+			f := &found[i]
+			if f.cli.name == "glab" {
+				if f.cli.host, f.err = glabHost(ctx); f.err != nil {
+					return
+				}
+			}
+			f.err = f.cli.authStatus(ctx)
+		})
+	}
+	wg.Wait()
+	for _, f := range found {
+		if f.cli.host != "" && !errors.Is(f.err, errCLIMissing) {
+			r.asked[f.cli] = f.err
+		}
+	}
+	r.found = found
+	return found
 }
 
 // glabHost is the GitLab host glab works with by default, as `glab config
 // get host` names it from GITLAB_HOST or glab's config, or gitlab.com when
-// neither sets one.
+// neither sets one. A host served under a path, or another answer setup
+// can't use, is an error.
 func glabHost(ctx context.Context) (string, error) {
 	out, err := repoCLI{name: "glab"}.run(ctx, repoCLITimeout, "config", "get", "host")
 	if err != nil {
@@ -436,7 +657,7 @@ func glabHost(ctx context.Context) (string, error) {
 	switch {
 	case host == "":
 		return "gitlab.com", nil
-	case !hostRe.MatchString(host):
+	case !config.ValidGitHost(host):
 		return "", errors.New("glab: unusable host")
 	}
 	return host, nil
@@ -622,19 +843,18 @@ func (c repoCLI) run(ctx context.Context, timeout time.Duration, args ...string)
 // drops what could point git at another repository), without what could
 // point gh or glab at another repository or group, force terminal output or
 // write debug logs, with prompts, colour, update checks and notices off and
-// c's host as the default host. A GitLab token in the environment stays only
-// with c.envToken, since glab would trust whatever host setup names with it.
+// c's host as the default host. No token from the environment reaches
+// either CLI, whatever the host: each uses only its own sign-in (gh auth
+// login, glab auth login), so a token meant for one host is never sent to
+// another that setup points the CLI at.
 func repoCLIEnv(c repoCLI) []string {
 	var env []string
 	for _, kv := range wikigit.Environment() {
 		key, _, _ := strings.Cut(kv, "=")
 		switch key {
-		case "GH_REPO", "GITLAB_REPO", "GITLAB_GROUP", "GH_FORCE_TTY", "CLICOLOR_FORCE", "GLAB_COLOR", "GLAB_FORCE_HYPERLINKS", "FORCE_HYPERLINKS", "GH_DEBUG", "GLAB_DEBUG", "GLAB_DEBUG_HTTP", "DEBUG":
+		case "GH_REPO", "GITLAB_REPO", "GITLAB_GROUP", "GH_FORCE_TTY", "CLICOLOR_FORCE", "GLAB_COLOR", "GLAB_FORCE_HYPERLINKS", "FORCE_HYPERLINKS", "GH_DEBUG", "GLAB_DEBUG", "GLAB_DEBUG_HTTP", "DEBUG",
+			"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN":
 			continue
-		case "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN":
-			if !c.envToken {
-				continue
-			}
 		}
 		env = append(env, kv)
 	}
