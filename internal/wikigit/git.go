@@ -41,10 +41,26 @@ const (
 	ClassSignature     = "signature"      // the signature failed or was declined
 )
 
-// Error is a failed git command, with its class, or "" for any other.
+// The reasons git couldn't read a repo, which setup turns into its own
+// words. They are apart from the classes, which name a commit's failure in a
+// record, so a reason never reaches a record.
+const (
+	ReadNotFound       = "not_found"        // the repo isn't there, or the account can't see it
+	ReadKeyRefused     = "key_refused"      // the SSH server refused every key
+	ReadAgentRefused   = "agent_refused"    // the SSH agent declined to sign with the key
+	ReadHostKey        = "host_key"         // ssh couldn't verify the host's key, as when it doesn't know it
+	ReadHostKeyChanged = "host_key_changed" // the host's key isn't the one ssh knows
+	ReadHostKeyRevoked = "host_key_revoked" // the host's key is one ssh has marked revoked
+	ReadNoSignIn       = "no_sign_in"       // git has no sign-in for the host over HTTPS
+	ReadUnreachable    = "unreachable"      // the host couldn't be found or reached
+)
+
+// Error is a failed git command, with its class, or "" for any other, and
+// the reason it couldn't read a repo, or "" when its diagnostics say none.
 type Error struct {
 	msg   string
 	Class string
+	Read  string
 }
 
 func (e *Error) Error() string { return e.msg }
@@ -66,7 +82,7 @@ func run(ctx context.Context, timeout time.Duration, dir string, out io.Writer, 
 		if ctx.Err() != nil {
 			return &Error{msg: fmt.Sprintf("wikigit: git %s timed out or was canceled", args[0]), Class: ClassTimeout}
 		}
-		return &Error{msg: fmt.Sprintf("wikigit: git %s failed; files are preserved, and signing/authentication settings were not changed", args[0]), Class: classify(diagnostics.String())}
+		return &Error{msg: fmt.Sprintf("wikigit: git %s failed; files are preserved, and signing/authentication settings were not changed", args[0]), Class: classify(diagnostics.String()), Read: readFailure(diagnostics.String())}
 	}
 	return nil
 }
@@ -81,6 +97,96 @@ func classify(diagnostics string) string {
 		return ClassSignerMissing
 	case strings.Contains(d, "sign"):
 		return ClassSignature
+	}
+	return ""
+}
+
+// readWordings are the lines of git, ssh, curl and the hosts that say why a
+// repo couldn't be read, lower case, checked in this order. Only these
+// English wordings are known, so a line worded otherwise gives no reason.
+// What the host answered comes before the network's words.
+var readWordings = []struct{ reason, text string }{
+	// OpenSSH ends an unknown, a changed and a revoked host key alike with
+	// sshconnect2.c's fatal("Host key verification failed."), so the last
+	// two are told by what sshconnect.c prints first: "@    WARNING: REMOTE
+	// HOST IDENTIFICATION HAS CHANGED!     @" and "Host key for %.200s has
+	// changed and you have requested strict checking.", or "@       WARNING:
+	// REVOKED HOST KEY DETECTED!               @" and "%s host key for
+	// %.200s was revoked and you have requested strict checking.". The
+	// banner alone, without strict checking, is enough. A key in ssh's
+	// RevokedHostKeys file gets only "Host key %s %s revoked by file %s",
+	// and a file ssh couldn't check "Error checking host key %s %s in
+	// revoked keys file %s", which gives no reason: the key is neither
+	// unknown nor known to be revoked.
+	{ReadHostKeyChanged, "remote host identification has changed"},
+	{ReadHostKeyChanged, "has changed and you have requested strict checking"},
+	{ReadHostKeyRevoked, "revoked host key detected"},
+	{ReadHostKeyRevoked, "was revoked and you have requested strict checking"},
+	{ReadHostKeyRevoked, "revoked by file"},
+	{"", "in revoked keys file"},
+	{ReadHostKey, "host key verification failed"},
+	// An agent that declines to sign, as one whose approval was denied,
+	// makes OpenSSH's sshconnect2.c log "signing failed for %s \"%s\"%s: %s"
+	// with ssherr.c's "agent refused operation", before the "Permission
+	// denied" below: the host accepted the key, but never got a signature.
+	{ReadAgentRefused, "agent refused operation"},
+	// OpenSSH's sshconnect2.c: fatal("%s@%s: Permission denied (%s).", ...),
+	// as in "git@gitlab.example.com: Permission denied (publickey).".
+	{ReadKeyRefused, "permission denied (publickey"},
+	// git's prompt.c, with GIT_TERMINAL_PROMPT=0: die("could not read
+	// %s%s", prompt, "terminal prompts disabled"), as in "could not read
+	// Username for 'https://gitlab.example.com': terminal prompts
+	// disabled"; git's remote-curl.c: "Authentication failed for '%s'".
+	{ReadNoSignIn, "terminal prompts disabled"},
+	{ReadNoSignIn, "could not read username"},
+	{ReadNoSignIn, "authentication failed"},
+	// GitLab's lib/gitlab/git_access.rb: "The project you were looking for
+	// could not be found or you don't have permission to view it.";
+	// GitHub's "ERROR: Repository not found." (its docs' "Error:
+	// Repository not found"); git's upload-pack.c: "'%s' does not appear
+	// to be a git repository"; git's remote-curl.c: "repository '%s' not
+	// found"; git's clone.c: "repository '%s' does not exist".
+	{ReadNotFound, "the project you were looking for could not be found"},
+	{ReadNotFound, "repository not found"},
+	{ReadNotFound, "does not appear to be a git repository"},
+	{ReadNotFound, "' not found"},
+	{ReadNotFound, "' does not exist"},
+	// OpenSSH's ssh.c: "%s: Could not resolve hostname %.100s: %s", and
+	// curl's hostip.c: "Could not resolve %s: %s", with "host"; OpenSSH's
+	// sshconnect.c: "ssh: connect to host %s port %s: %s", with the
+	// system's words for ECONNREFUSED, ETIMEDOUT (macOS says "Operation
+	// timed out", Linux "Connection timed out"), ENETUNREACH and
+	// EHOSTUNREACH; curl's connect.c: "Failed to connect to %s port %u
+	// after %ld ms: %s".
+	{ReadUnreachable, "could not resolve host"},
+	{ReadUnreachable, "connection refused"},
+	{ReadUnreachable, "connection timed out"},
+	{ReadUnreachable, "operation timed out"},
+	{ReadUnreachable, "network is unreachable"},
+	{ReadUnreachable, "no route to host"},
+	{ReadUnreachable, "failed to connect to"},
+}
+
+// readFailure sorts a failed git's diagnostics into the reason it couldn't
+// read a repo, or "" for any other failure. They are only read here, never
+// kept or shown. Runs of white space count as one space, so a wording a
+// line break splits is still found. ssh's line for a control socket it
+// couldn't use, OpenSSH's mux.c "Control socket connect(%.100s): %s", is
+// left out: it is about a socket on this Mac, never the host, and comes
+// with "Connection refused" when the socket's master has exited, after
+// which ssh connects without it.
+func readFailure(diagnostics string) string {
+	var lines []string
+	for _, line := range strings.Split(strings.ToLower(diagnostics), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "control socket connect(") {
+			lines = append(lines, line)
+		}
+	}
+	d := strings.Join(strings.Fields(strings.Join(lines, "\n")), " ")
+	for _, w := range readWordings {
+		if strings.Contains(d, w.text) {
+			return w.reason
+		}
 	}
 	return ""
 }

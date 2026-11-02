@@ -551,7 +551,7 @@ func TestSetupClonesAMissingWikiAgain(t *testing.T) {
 			t.Fatal(err)
 		}
 		code, out, errOut = f.run("\n")
-		if code != 1 || len(f.inits) != 0 || len(f.installs) != 0 || strings.Contains(out, "[Y/n]") || errOut != "eva-md: git@github.com:me/eva-wiki.git: git couldn't read this repo; check its address and that git can sign in to it; or run eva-md setup --remote with the right address\n" {
+		if code != 1 || len(f.inits) != 0 || len(f.installs) != 0 || strings.Contains(out, "[Y/n]") || errOut != "eva-md: git@github.com:me/eva-wiki.git: git found no repo at this address on github.com, or none the account it signs in with can see; check the address, or run eva-md setup --remote with the right address\n" {
 			t.Fatalf("an unreadable repo: code %d\n%s\n%s", code, out, errOut)
 		}
 		if err := os.Rename(bare+".aside", bare); err != nil {
@@ -946,7 +946,7 @@ func TestPeekRemote(t *testing.T) {
 		{filepath.Join(f.env.home, "remotes", "me", "eva-wiki.git"), "old-laptop-1a2b3c4d", ""},
 		{"git@github.com:me/notes.git", "", "this repo has content but isn't an eva wiki; use an empty private repo, or the repo of your eva wiki"},
 		{"git@github.com:me/future.git", "", "this repo holds an eva wiki this eva-md can't use; update eva-md"},
-		{"git@github.com:me/missing.git", "", "git couldn't read this repo; check its address and that git can sign in to it"},
+		{"git@github.com:me/missing.git", "", "git found no repo at this address on github.com, or none the account it signs in with can see; create it first as an empty private repo, or check the address"},
 	} {
 		instance, err := peekRemote(context.Background(), tc.remote)
 		if instance != tc.instance || (err == nil) != (tc.err == "") || err != nil && err.Error() != tc.err {

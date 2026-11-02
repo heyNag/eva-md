@@ -22,6 +22,7 @@ const (
 	KeyGitHostURL            = "EVA_MD_GIT_HOST_URL"
 	KeyHosts                 = "EVA_MD_HOSTS"
 	KeyCodexIgnoreUserConfig = "EVA_MD_CODEX_IGNORE_USER_CONFIG"
+	KeyAllowInternalRepo     = "EVA_MD_ALLOW_INTERNAL_REPO"
 )
 
 // maxAnswersBytes caps the answers file.
@@ -46,6 +47,12 @@ EVA_MD_WIKI_REMOTE=
 # Any page on the host works, such as your profile or projects page: setup reads only
 # the host, and creates the repo under the account gh or glab is signed in as there.
 EVA_MD_GIT_HOST_URL=
+# Whether setup may use an internal repo, which everyone signed in to its GitLab, or every
+# member of its GitHub enterprise, can read; the wiki holds summaries of your chats. true
+# lets setup, without asking, create one when the host's admins don't allow private
+# repos, and use any internal repo you give or it finds, on any host. false refuses one;
+# empty asks in a terminal, and refuses one without a terminal.
+EVA_MD_ALLOW_INTERNAL_REPO=
 # Which hosts to install: claude, codex or all.
 EVA_MD_HOSTS=all
 # true keeps your own Codex MCP servers, such as a documentation one, out of
@@ -62,6 +69,10 @@ type Answers struct {
 	Hosts      string // claude, codex or all
 	// CodexIgnoreUserConfig sets codex_ignore_user_config in config.toml.
 	CodexIgnoreUserConfig *bool
+	// AllowInternalRepo answers in advance whether setup may create or use
+	// an internal repo, which everyone signed in to its GitLab, or every
+	// member of its GitHub enterprise, can read: nil asks.
+	AllowInternalRepo *bool
 	// Unknown lists the lines whose key setup doesn't know.
 	Unknown []UnknownKey
 }
@@ -226,15 +237,20 @@ func ParseAnswers(data []byte, file string) (Answers, error) {
 				return Answers{}, fmt.Errorf("%s in %s must be claude, codex or all", key, file)
 			}
 			a.Hosts = value
-		case KeyCodexIgnoreUserConfig:
+		case KeyCodexIgnoreUserConfig, KeyAllowInternalRepo:
+			var on *bool
 			switch strings.ToLower(value) {
 			case "":
-				a.CodexIgnoreUserConfig = nil
 			case "true", "false":
-				on := strings.EqualFold(value, "true")
-				a.CodexIgnoreUserConfig = &on
+				b := strings.EqualFold(value, "true")
+				on = &b
 			default:
 				return Answers{}, fmt.Errorf("%s in %s must be true or false", key, file)
+			}
+			if key == KeyCodexIgnoreUserConfig {
+				a.CodexIgnoreUserConfig = on
+			} else {
+				a.AllowInternalRepo = on
 			}
 		default:
 			if !seen[key] {
@@ -283,7 +299,7 @@ func FilledAnswers(a Answers) (string, error) {
 	if a.GitHost != "" {
 		hostURL = "https://" + a.GitHost
 	}
-	values := map[string]string{KeyWikiDir: a.WikiDir, KeyWikiRemote: a.WikiRemote, KeyGitHostURL: hostURL, KeyHosts: a.Hosts, KeyCodexIgnoreUserConfig: switchText(a.CodexIgnoreUserConfig)}
+	values := map[string]string{KeyWikiDir: a.WikiDir, KeyWikiRemote: a.WikiRemote, KeyGitHostURL: hostURL, KeyHosts: a.Hosts, KeyCodexIgnoreUserConfig: switchText(a.CodexIgnoreUserConfig), KeyAllowInternalRepo: switchText(a.AllowInternalRepo)}
 	lines := strings.Split(AnswersTemplate, "\n")
 	lines[0] = filledHeader
 	for i, line := range lines {
@@ -306,7 +322,7 @@ func FilledAnswers(a Answers) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if back.WikiDir != a.WikiDir || back.WikiRemote != a.WikiRemote || back.GitHost != a.GitHost || back.Hosts != a.Hosts || switchText(back.CodexIgnoreUserConfig) != switchText(a.CodexIgnoreUserConfig) {
+	if back.WikiDir != a.WikiDir || back.WikiRemote != a.WikiRemote || back.GitHost != a.GitHost || back.Hosts != a.Hosts || switchText(back.CodexIgnoreUserConfig) != switchText(a.CodexIgnoreUserConfig) || switchText(back.AllowInternalRepo) != switchText(a.AllowInternalRepo) {
 		return "", errors.New("the answers don't read back as written")
 	}
 	return text, nil

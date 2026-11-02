@@ -207,6 +207,7 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	if env.interactive {
 		repos.ask = ask
 	}
+	repos.internalAnswer = file.AllowInternalRepo
 	s := &setupRun{ctx: ctx, env: env, ask: ask, out: out, repos: repos, src: src}
 
 	fmt.Fprintln(out, "eva.md setup")
@@ -369,7 +370,7 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 				fmt.Fprintln(errOut, "eva-md: "+plain(err))
 				return 1
 			}
-			err := repos.checkPrivate(ctx, remoteURL, out)
+			err := repos.confirmInternal(out, repos.checkPrivate(ctx, remoteURL, out))
 			if errors.Is(err, errReadable) && env.interactive {
 				err = confirmReadable(ask, out)
 			}
@@ -403,14 +404,8 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 			}
 			newRepo = createdRepo && remoteURL != ""
 			if remoteURL == "" {
-				if createdRepo {
-					// offer has said what it created and why it isn't used.
-					fmt.Fprintln(out, "   Paste the SSH or HTTPS address of an empty private repository, such as")
-					fmt.Fprintln(out, "   git@github.com:you/eva-wiki.git.")
-				} else {
-					fmt.Fprintln(out, "   Create an empty private repository first, on GitHub, GitLab or any git host,")
-					fmt.Fprintln(out, "   then paste its SSH or HTTPS address, such as git@github.com:you/eva-wiki.git.")
-				}
+				// After the step offer said for a refusal, if any.
+				fmt.Fprint(out, repos.addressHint(createdRepo))
 				remoteURL = askUntil(ask, out, "   Remote: ", func(a string) (string, error) {
 					remote, err := repos.checkAnswer(ctx, a, out)
 					if errors.Is(err, errReadable) {
@@ -657,10 +652,10 @@ func (s *setupRun) checkFolder(answer, remote string) (string, error) {
 	}
 	if err := s.repos.checkPrivate(s.ctx, origin, s.out); err != nil {
 		fmt.Fprintln(s.out, found)
-		if !errors.Is(err, errReadable) {
-			return "", err
+		if errors.Is(err, errReadable) {
+			err = confirmReadable(s.ask, s.out)
 		}
-		if err := confirmReadable(s.ask, s.out); err != nil {
+		if err := s.repos.confirmInternal(s.out, err); err != nil {
 			return "", err
 		}
 	}
@@ -822,6 +817,11 @@ func (s *setupRun) sameWiki(c config.Config, remote string) error {
 	fmt.Fprintln(s.out, "Checking the repo with git; your git setup may ask you to approve.")
 	switch instance, err := s.env.peek(s.ctx, remote); {
 	case err != nil:
+		// The repo should hold the wiki, so one git can't find needs the
+		// address checked, never a new repo.
+		if e := (*readFailure)(nil); errors.As(err, &e) && e.reason == wikigit.ReadNotFound {
+			return fmt.Errorf("%s: %s; check the address, or run eva-md setup --remote with the right address", remote, e.what)
+		}
 		return fmt.Errorf("%s: %v; or run eva-md setup --remote with the right address", remote, err)
 	case instance == "":
 		return fmt.Errorf("the repo at %s is empty, so your wiki can't be cloned again from it; push your wiki there, or move %s aside to start over", remote, s.env.dirs.ConfigFile())
@@ -1045,7 +1045,13 @@ func peekRemote(ctx context.Context, remote string) (string, error) {
 		if outOfTime(err) {
 			return "", errPeekOutOfTime
 		}
-		return "", errors.New("git couldn't read this repo; check its address and that git can sign in to it")
+		// git's own lines are never shown: only the reason wikigit sorted
+		// them into, said in setup's words.
+		reason := ""
+		if e := (*wikigit.Error)(nil); errors.As(err, &e) {
+			reason = e.Read
+		}
+		return "", readError(remote, reason)
 	}
 	if _, err := wikigit.Run(ctx, setupGitTimeout, dir, "rev-parse", "--verify", "HEAD"); err != nil {
 		if outOfTime(err) {

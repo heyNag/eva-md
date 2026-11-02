@@ -23,7 +23,7 @@ Some decisions cover parts that are not built yet. [design.md](design.md) marks 
 
 1. **Platform separate from the wiki.**
    - eva.md is only the platform: tools, plugins and schema.
-   - The memory lives in a separate private git repo of markdown that the platform is pointed at by a per-machine config.
+   - The memory lives in a separate private git repo of markdown that the platform is pointed at by a per-machine config. On a host whose admins allow no private repos, or when the repo you give is internal, it may live in an internal repo instead, which everyone signed in to that GitLab, or every member of that GitHub enterprise, can read, but only after you agree to that (`EVA_MD_ALLOW_INTERNAL_REPO=true` agrees in advance, for any internal repo); a bare repo on the Mac itself, which only your account can read, works too.
    - For example, one Mac uses a private GitHub repo and another Mac a private repo on a self-hosted GitLab.
    - The same code runs on every machine; the memory of one wiki never mixes with another's.
    - You create the empty repo, or `eva-md setup` creates it for you; `init` adds the structure and the first commit.
@@ -100,7 +100,7 @@ Some decisions cover parts that are not built yet. [design.md](design.md) marks 
     - **Visibility:** one line at the start of a chat, plus a notice only when something is wrong.
     - **Off switch:** saying "off the record" stops saving for that chat.
     - **Managed machines:** eva-md assumes plugins, hooks and background headless runs are allowed on a managed machine. The health check still reports managed settings that switch hooks off, where it can see them.
-    - **Repos:** the platform repo (github.com/heyNag/eva-md) holds no personal data, so it can be public. Each wiki repo stays private.
+    - **Repos:** the platform repo (github.com/heyNag/eva-md) holds no personal data, so it can be public. Each wiki repo stays private, or internal once you agree, when the host's admins forbid private repos or the repo you give is internal; never public.
     - **Wiki location:** chosen by you during setup; there is no default. Any folder of its own, outside Documents, Desktop, Downloads and iCloud Drive, which macOS protects from background processes, and outside other cloud storage, such as OneDrive or Dropbox, which syncs into .git.
 17. **Background update settings.**
     - Codex update runs use your normal Codex config (`~/.codex/config.toml`) by default, so its provider settings apply. Your MCP servers start on those runs too.

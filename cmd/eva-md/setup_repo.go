@@ -72,6 +72,17 @@ type repoCLIs struct {
 	chosen map[string]repoCLI
 	ask    func(string) (string, bool)
 	found  []discovery // what discover found, once it has asked
+	// internalAnswer is EVA_MD_ALLOW_INTERNAL_REPO: true or false answers
+	// whether setup may use an internal repo in advance, and nil asks.
+	internalAnswer *bool
+	internalOK     map[string]bool // the hosts the user agreed to an internal repo on
+	// restricted is set once the host refused a private repo, and failed is
+	// the reason the last create failed for, "" for none or one setup
+	// doesn't know. They say what setup asks for when offer gives no repo
+	// (see addressHint), so it never sends the user off to create a private
+	// repo where none can be made, or leaves out a way on it just named.
+	restricted bool
+	failed     string
 }
 
 // discovery is what discover found for gh or glab: nil when signed in.
@@ -81,7 +92,7 @@ type discovery struct {
 }
 
 func newRepoCLIs() *repoCLIs {
-	return &repoCLIs{asked: map[repoCLI]error{}, chosen: map[string]repoCLI{}}
+	return &repoCLIs{asked: map[repoCLI]error{}, chosen: map[string]repoCLI{}, internalOK: map[string]bool{}}
 }
 
 // The hosts whose CLI setup knows by their name.
@@ -382,7 +393,7 @@ func (r *repoCLIs) offer(ctx context.Context, ask func(string) (string, bool), o
 			}
 			return remote, created, true
 		}
-		remote, made, retry := c.use(ctx, ask, out, answer, check)
+		remote, made, retry := r.use(ctx, c, ask, out, answer, check, attempt == 2)
 		created = created || made
 		if !retry {
 			return remote, created, true
@@ -391,18 +402,30 @@ func (r *repoCLIs) offer(ctx context.Context, ask func(string) (string, bool), o
 	return "", created, true
 }
 
-// use uses the repo name on c's host when it exists and is private: as it is
-// when empty, and when it has content, such as the wiki from another Mac,
-// once the user says so and check accepts it. Otherwise it creates the repo.
-// It returns the address, with made when the repo was created now or may
-// have been. retry means the repo exists but can't hold the wiki, or the user
-// chose another. With neither an address nor retry, use has said why it
-// failed.
-func (c repoCLI) use(ctx context.Context, ask func(string) (string, bool), out io.Writer, name string, check func(string) error) (remote string, made, retry bool) {
+// use uses the repo name on c's host when it exists and is private, or
+// internal once the user agrees: as it is when empty, and when it has
+// content, such as the wiki from another Mac, once the user says so and
+// check accepts it. Otherwise it creates the repo, private, or internal once
+// the user agrees when the host's admins allow no private repo. It returns
+// the address, with made when the repo was created now or may have been.
+// retry means the repo exists but can't hold the wiki, the user chose
+// another, or another name may work. With neither an address nor retry, use
+// has said why it failed. last is the name question's last try.
+func (r *repoCLIs) use(ctx context.Context, c repoCLI, ask func(string) (string, bool), out io.Writer, name string, check func(string) error, last bool) (remote string, made, retry bool) {
+	r.failed = ""
 	info, err := c.view(ctx, name)
 	if err == nil {
-		if problem := visibilityProblem(info.visibility); problem != "" {
-			fmt.Fprintf(out, "   %s already exists on %s and %s.\n", name, c.host, problem)
+		switch info.visibility {
+		case "private":
+		case "internal":
+			// Should the answers have run out, the next question finds that.
+			question := fmt.Sprintf("   %s already exists on %s and is internal. %s can read an internal repo, and the wiki holds summaries of your chats. Use it anyway? [y/N] ", name, c.host, capitalize(internalReaders(c.name, c.host)))
+			if yes, _ := r.allowInternal(out, c.name, c.host, name+" is internal", question); !yes {
+				fmt.Fprintf(out, "   %s already exists on %s and %s.\n", name, c.host, internalProblem)
+				return "", false, true
+			}
+		default:
+			fmt.Fprintf(out, "   %s already exists on %s and %s.\n", name, c.host, visibilityProblem(info.visibility))
 			return "", false, true
 		}
 		if remote, err = c.address(ctx, info); err != nil {
@@ -410,7 +433,7 @@ func (c repoCLI) use(ctx context.Context, ask func(string) (string, bool), out i
 			return "", false, false
 		}
 		if info.empty {
-			fmt.Fprintf(out, "   %s already exists on %s, private and empty: using %s.\n", name, c.host, remote)
+			fmt.Fprintf(out, "   %s already exists on %s, %s and empty: using %s.\n", name, c.host, info.visibility, remote)
 		} else {
 			// Should the answers have run out, the next question finds that.
 			if yes, _ := yesNo(ask, out, "   "+name+" already has content: use it as your wiki? [Y/n] ", true); !yes {
@@ -432,18 +455,54 @@ func (c repoCLI) use(ctx context.Context, ask func(string) (string, bool), out i
 	}
 	// gh and glab fail the same way for a repo that doesn't exist and for
 	// one they can't reach; create tells the two apart.
-	if err := c.create(ctx, name); err != nil {
+	visibility := "private"
+	for {
+		err := c.create(ctx, name, visibility)
+		if err == nil {
+			break
+		}
 		if errors.Is(err, errCLITimedOut) {
 			// The host may have made it before the answer was lost.
 			fmt.Fprintf(out, "   %s didn't answer in time; %s may or may not have been created.\n", c.name, name)
 			return "", true, false
 		}
-		fmt.Fprintf(out, "   %s couldn't create %s.\n", c.name, name)
-		return "", false, false
+		var ce *createError
+		reason := ""
+		if errors.As(err, &ce) {
+			reason = ce.reason
+		}
+		r.failed = reason
+		as := ""
+		if visibility == "internal" {
+			as = " as an internal repo"
+		}
+		if reason == "" {
+			fmt.Fprintf(out, "   %s couldn't create %s%s.\n", c.name, name, as)
+			if visibility == "internal" {
+				// The private repo was refused already, so another name
+				// can't help either.
+				c.nextStep(out, createRestricted, last)
+			}
+			return "", false, false
+		}
+		fmt.Fprintf(out, "   %s couldn't create %s%s: %s.\n", c.name, name, as, c.why(reason, visibility))
+		if reason != createRestricted || visibility == "internal" {
+			return "", false, c.nextStep(out, reason, last)
+		}
+		r.restricted = true
+		// The host's admins allow no private repo: an internal one, which
+		// more people can read, only once the user agrees. Should the
+		// answers have run out, the next question finds that.
+		question := fmt.Sprintf("   Create %s as an internal repo instead? %s can read an internal repo, and the wiki holds summaries of your chats. [y/N] ", name, capitalize(internalReaders(c.name, c.host)))
+		if yes, _ := r.allowInternal(out, c.name, c.host, "Creating "+name+" as an internal repo", question); !yes {
+			c.nextStep(out, createRestricted, last)
+			return "", false, false
+		}
+		visibility = "internal"
 	}
 	if info, err = c.view(ctx, name); err == nil {
-		if problem := visibilityProblem(info.visibility); problem != "" {
-			fmt.Fprintf(out, "   %s created %s, but it %s.\n", c.name, name, problem)
+		if info.visibility != visibility && info.visibility != "private" {
+			fmt.Fprintf(out, "   %s created %s, but it %s.\n", c.name, name, visibilityProblem(info.visibility))
 			return "", true, false
 		}
 		remote, err = c.address(ctx, info)
@@ -452,7 +511,11 @@ func (c repoCLI) use(ctx context.Context, ask func(string) (string, bool), out i
 		fmt.Fprintf(out, "   %s created %s but couldn't read back its address.\n", c.name, name)
 		return "", true, false
 	}
-	fmt.Fprintf(out, "   Created %s, a private repo on %s.\n", remote, c.host)
+	article := "a"
+	if info.visibility == "internal" {
+		article = "an"
+	}
+	fmt.Fprintf(out, "   Created %s, %s %s repo on %s.\n", remote, article, info.visibility, c.host)
 	c.sayHTTPS(out, remote)
 	return remote, true, false
 }
@@ -480,12 +543,14 @@ func (r *repoCLIs) checkAnswer(ctx context.Context, answer string, out io.Writer
 	if _, err := wikiinit.CheckRemote(a); err != nil {
 		return "", fmt.Errorf("%s. Paste an address like git@github.com:you/eva-wiki.git or https://github.com/you/eva-wiki.git", strings.TrimSuffix(plain(err), "."))
 	}
-	return a, r.checkPrivate(ctx, a, out)
+	return a, r.confirmInternal(out, r.checkPrivate(ctx, a, out))
 }
 
 // checkPrivate refuses a remote, one wikiinit.CheckRemote accepts, when the
 // CLI for its host says the repo is not private: gh for github.com, glab for
 // gitlab.com, and for another host whichever is signed in to it (see pick).
+// An internal repo is an *internalRepoError, which confirmInternal asks
+// about.
 // When no CLI can tell, git reads the repo over HTTPS with nothing that could
 // sign it in (anyoneCanRead), saying so on out first: one it reads is
 // errReadable, which setup asks about, and one it can't read passes.
@@ -514,6 +579,9 @@ func (r *repoCLIs) checkPrivate(ctx context.Context, remote string, out io.Write
 	info, err := c.view(ctx, path)
 	if err != nil {
 		return nil
+	}
+	if info.visibility == "internal" {
+		return &internalRepoError{cli: c.name, host: c.host}
 	}
 	if problem := visibilityProblem(info.visibility); problem != "" {
 		return errors.New("this repo " + problem)
@@ -714,15 +782,21 @@ func (c repoCLI) view(ctx context.Context, name string) (repoInfo, error) {
 	return info, nil
 }
 
-// create creates the private repo name on c's host.
-func (c repoCLI) create(ctx context.Context, name string) error {
-	args := []string{"repo", "create", name, "--private"}
+// create creates the repo name on c's host, private or internal. A failure
+// that isn't a timeout is a *createError, with the reason what the CLI
+// printed gives (see createReason); what it printed goes no further.
+func (c repoCLI) create(ctx context.Context, name, visibility string) error {
+	args := []string{"repo", "create", name, "--" + visibility}
 	if c.name == "glab" {
 		// No git init or clone in the current folder, and no question
 		// about one.
 		args = append(args, "--skipGitInit")
 	}
-	_, err := c.run(ctx, 3*repoCLITimeout, args...)
+	var printed sortBuffer
+	_, err := c.runSorted(ctx, 3*repoCLITimeout, &printed, args...)
+	if err != nil && !errors.Is(err, errCLITimedOut) && !errors.Is(err, errCLIMissing) {
+		return &createError{cli: c.name, reason: createReason(printed.String())}
+	}
 	return err
 }
 
@@ -742,7 +816,8 @@ func (c repoCLI) address(ctx context.Context, info repoInfo) (string, error) {
 
 // visibilityProblem says why a repo with this visibility can't hold the
 // wiki, or "" for a private one. An internal repo is readable across its
-// GitHub enterprise or by anyone signed in to its GitLab instance.
+// GitHub enterprise or by anyone signed in to its GitLab instance, so setup
+// uses one only when the user agrees (see allowInternal).
 // errReadable is a repo git read over HTTPS with no sign-in, on a host no
 // CLI can tell about: it may be public.
 var errReadable = errors.New("git read this repo over HTTPS without signing in, so it may be public; the wiki holds your chats' summaries, so use a private repo")
@@ -807,7 +882,7 @@ func visibilityProblem(visibility string) string {
 	case "private":
 		return ""
 	case "internal":
-		return "is internal, so other members of its enterprise or instance can read it; the wiki holds your chats' summaries, so use a private repo"
+		return internalProblem
 	}
 	return "is public; the wiki holds your chats' summaries, so use a private repo"
 }
@@ -818,6 +893,12 @@ func visibilityProblem(visibility string) string {
 // device and its output is capped: either can show account details, so an
 // error names only the command.
 func (c repoCLI) run(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
+	return c.runSorted(ctx, timeout, nil, args...)
+}
+
+// runSorted is run, with what c writes to stdout and stderr also going to
+// sort when it isn't nil, only so a failure can be sorted into a reason.
+func (c repoCLI) runSorted(ctx context.Context, timeout time.Duration, sort io.Writer, args ...string) ([]byte, error) {
 	path, err := exec.LookPath(c.name)
 	if err != nil {
 		return nil, errCLIMissing
@@ -830,6 +911,11 @@ func (c repoCLI) run(ctx context.Context, timeout time.Duration, args ...string)
 	cmd.WaitDelay = repoCLIWaitDelay
 	var out cliOutput
 	cmd.Stdout = &out
+	if sort != nil {
+		// sort never fails a write, so the cap on the output still holds.
+		cmd.Stdout = io.MultiWriter(sort, &out)
+		cmd.Stderr = sort
+	}
 	if err := cmd.Run(); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, errCLITimedOut

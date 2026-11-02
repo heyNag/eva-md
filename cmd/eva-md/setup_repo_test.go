@@ -23,7 +23,9 @@ import (
 // that setup must never show; config get with host or protocol; repo view with after
 // once repo create has run, else with before for a name matching the shell
 // pattern exists, else as for a repo that doesn't exist; and repo create
-// with create. It logs each call to <bin>/<name>.log with the host and repo
+// with create, printing createSays when it fails, or for --internal with
+// internal and internalSays; a failing repo create also prints a made-up
+// account and token. It logs each call to <bin>/<name>.log with the host and repo
 // variables it got, the prompt switch and which of its token variables are
 // set, never their values (see tokenVars).
 type fakeCLI struct {
@@ -37,6 +39,13 @@ type fakeCLI struct {
 	before   string // repo view's JSON for them
 	after    string // repo view's JSON once repo create ran
 	create   int    // repo create's exit status
+	// createSays is what a failing repo create prints, on stderr, or on
+	// stdout with createOnStdout; internal and internalSays are repo
+	// create --internal's exit status and what it prints.
+	createSays     string
+	createOnStdout bool
+	internal       int
+	internalSays   string
 }
 
 // envTokens are the token variables gh, glab or a CI job read, none of which
@@ -59,6 +68,10 @@ func (c fakeCLI) write(t *testing.T, bin string) {
 		vars = "host=$GITLAB_HOST repo=$GITLAB_REPO prompt=$GLAB_NO_PROMPT " + tokenVars
 	}
 	created := q(filepath.Join(bin, c.name+".created"))
+	says := 2
+	if c.createOnStdout {
+		says = 1
+	}
 	auth := fmt.Sprintf("exit %d", c.auth)
 	if c.signedIn != "" {
 		auth = fmt.Sprintf(`case "$4" in %s) exit 0 ;; *) exit 1 ;; esac`, c.signedIn)
@@ -72,10 +85,16 @@ case "$1 $2" in
 "repo view")
 	if [ -f %s ]; then printf '%%s\n' %s; exit 0; fi
 	case "$3" in %s) printf '%%s\n' %s ;; *) exit 1 ;; esac ;;
-"repo create") if [ %d -eq 0 ]; then : > %s; fi; exit %d ;;
+"repo create")
+	case " $* " in *" --internal "*) code=%d; says=%s ;; *) code=%d; says=%s ;; esac
+	if [ "$code" -ne 0 ]; then
+		if [ -n "$says" ]; then printf '%%s\n' "$says" >&%d; fi
+		echo "Logged in to the host as fake-account-7f3a"; echo "Token: fake-token-7f3a" >&2; exit "$code"
+	fi
+	: > %s ;;
 *) exit 2 ;;
 esac
-`, vars, q(filepath.Join(bin, c.name+".log")), q(c.hang), auth, q(c.host), q(c.protocol), created, q(c.after), exists, q(c.before), c.create, created, c.create)
+`, vars, q(filepath.Join(bin, c.name+".log")), q(c.hang), auth, q(c.host), q(c.protocol), created, q(c.after), exists, q(c.before), c.internal, q(c.internalSays), c.create, q(c.createSays), says, created)
 	if err := os.WriteFile(filepath.Join(bin, c.name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +700,7 @@ func TestSetupReadsATypedRepo(t *testing.T) {
 
 	t.Run("one git can't read", func(t *testing.T) {
 		code, out, _ := f.answers(t, "git@github.com:me/missing.git")
-		if code != 1 || !strings.Contains(out, "   Remote: "+strings.Replace(readable, "eva-wiki", "missing", 1)+checking+"   Git couldn't read this repo; check its address and that git can sign in to it\n   Remote: ") {
+		if code != 1 || !strings.Contains(out, "   Remote: "+strings.Replace(readable, "eva-wiki", "missing", 1)+checking+"   Git found no repo at this address on github.com, or none the account it signs in with can see; create it first as an empty private repo, or check the address\n   Remote: ") {
 			t.Fatalf("code %d\n%s", code, out)
 		}
 	})

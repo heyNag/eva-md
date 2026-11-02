@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -58,6 +59,22 @@ func TestParseAnswers(t *testing.T) {
 	}
 }
 
+// EVA_MD_ALLOW_INTERNAL_REPO is true or false, in any case, and empty is an
+// answer not given, which asks.
+func TestParseAnswersAllowInternalRepo(t *testing.T) {
+	isolate(t)
+	for value, want := range map[string]string{"true": "true", "FALSE": "false", "": "asks", "''": "asks"} {
+		a, err := ParseAnswers([]byte("EVA_MD_ALLOW_INTERNAL_REPO="+value+"\n"), "config.env")
+		got := "asks"
+		if a.AllowInternalRepo != nil {
+			got = fmt.Sprint(*a.AllowInternalRepo)
+		}
+		if err != nil || got != want || a.CodexIgnoreUserConfig != nil {
+			t.Errorf("%q gives %s, %v; want %s", value, got, err, want)
+		}
+	}
+}
+
 // A bad value stops setup with a message naming the key and the file, never
 // the value; a line that isn't KEY=value is named by its number.
 func TestParseAnswersRefusesBadValues(t *testing.T) {
@@ -66,6 +83,7 @@ func TestParseAnswersRefusesBadValues(t *testing.T) {
 		"EVA_MD_HOSTS=both-7f3a\n":                                 "EVA_MD_HOSTS in /c/config.env must be claude, codex or all",
 		"EVA_MD_HOSTS=\"codex'\n":                                  "EVA_MD_HOSTS in /c/config.env must be claude, codex or all",
 		"EVA_MD_CODEX_IGNORE_USER_CONFIG=yes-7f3a\n":               "EVA_MD_CODEX_IGNORE_USER_CONFIG in /c/config.env must be true or false",
+		"EVA_MD_ALLOW_INTERNAL_REPO=yes-7f3a\n":                    "EVA_MD_ALLOW_INTERNAL_REPO in /c/config.env must be true or false",
 		"EVA_MD_GIT_HOST_URL=https://me:7f3a@gitlab.example.com\n": "EVA_MD_GIT_HOST_URL in /c/config.env must not hold a user name or password; give the host's web address, such as https://gitlab.example.com",
 		"EVA_MD_GIT_HOST_URL=git@gitlab.example.com:me/7f3a.git\n": "EVA_MD_GIT_HOST_URL in /c/config.env is a repo's address; give the git host's web address, such as https://gitlab.example.com, and a repo's address in EVA_MD_WIKI_REMOTE or --remote",
 		"EVA_MD_GIT_HOST_URL=ftp://gitlab.example.com/7f3a\n":      "EVA_MD_GIT_HOST_URL in /c/config.env must be the git host's web address, such as https://gitlab.example.com, or its name, such as gitlab.example.com",
@@ -150,6 +168,11 @@ func TestWriteAnswers(t *testing.T) {
 	}
 	if back, err := ParseAnswers([]byte(text), "x"); err != nil || back.WikiRemote != "'/Volumes/wiki'" {
 		t.Fatalf("read back %+v, %v", back, err)
+	}
+	// The internal switch reads back as written.
+	text, err = FilledAnswers(Answers{Hosts: "all", AllowInternalRepo: &on})
+	if back, perr := ParseAnswers([]byte(text), "x"); err != nil || perr != nil || !strings.Contains(text, "\nEVA_MD_ALLOW_INTERNAL_REPO=false\n") || back.AllowInternalRepo == nil || *back.AllowInternalRepo {
+		t.Fatalf("%v %v\n%s", err, perr, text)
 	}
 	if _, err := FilledAnswers(Answers{WikiDir: "/tmp/a\nEVA_MD_HOSTS=codex"}); err == nil {
 		t.Fatal("a line break was written")
@@ -289,6 +312,12 @@ EVA_MD_WIKI_REMOTE=
 # Any page on the host works, such as your profile or projects page: setup reads only
 # the host, and creates the repo under the account gh or glab is signed in as there.
 EVA_MD_GIT_HOST_URL=
+# Whether setup may use an internal repo, which everyone signed in to its GitLab, or every
+# member of its GitHub enterprise, can read; the wiki holds summaries of your chats. true
+# lets setup, without asking, create one when the host's admins don't allow private
+# repos, and use any internal repo you give or it finds, on any host. false refuses one;
+# empty asks in a terminal, and refuses one without a terminal.
+EVA_MD_ALLOW_INTERNAL_REPO=
 # Which hosts to install: claude, codex or all.
 EVA_MD_HOSTS=all
 # true keeps your own Codex MCP servers, such as a documentation one, out of
