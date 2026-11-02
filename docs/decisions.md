@@ -85,7 +85,7 @@ Some decisions cover parts that are not built yet, such as knowledge pages. [des
     - eva-md owns the hooks, the inbox, the background update, resume, the daily commit, the plugins, the config and the health check.
     - One adapter in eva-md is the only code that calls okf. It holds the protections okf lacks today: no overwrite on create, one writer at a time, supersede, and the real host recorded as author. Each one is removed once okf ships it.
     - No issues or pull requests go to okf. Anything okf lacks is built on top of it inside eva-md, and removed once an okf release covers it.
-    - okf is reviewed regularly, weekly or monthly (the cadence is still to be decided). Upgrades happen only for security fixes or releases that cover a gap eva-md works around, and are tested on a branch before merging.
+    - okf is reviewed weekly. Upgrades happen only for security fixes or releases that cover a gap eva-md works around, and are tested on a branch before merging.
     - Not used: okf's registry, hub sync, vendor bundles, governance tiers, scorecards, its agent instruction block and its own MCP server.
     - Way out: the wiki stays in okf's markdown format, so the core can be swapped without touching memory.
 16. **Settled details.**

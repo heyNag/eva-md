@@ -165,7 +165,7 @@ eva-md opens no issues or pull requests on okf. Each gap below is covered on top
 
 - **Pin.** `require github.com/okf-memory/okf-agent-memory v0.7.2`, go.sum committed, `go 1.26.0` or later in go.mod, builds with `-mod=readonly`. v0.7.1 is the minimum version: atomic writes arrived in v0.4.1, `SaveOptions` in v0.4.4, the verification guard in v0.6.0, and v0.7.1 stopped dropping unknown keys in sources. `golang.org/x/crypto` is in okf's module graph but is not compiled in, because only `pkg/vault` uses it. In v0.7.2, `pkg/okf` resolves a relative bundle root to an absolute path before following symlinks; eva-md always passes absolute, resolved roots. The okf line references in this section are to v0.7.2.
 - **Record.** `.eva-md/schema.toml` stores `okf_spec = "0.2"` (the OKF spec version) and `okf_module = "v0.7.2"` (read from `runtime/debug.ReadBuildInfo`). `eva-md version` shows both, and the doctor compares `okf_module` with the binary's.
-- **Regular review.** okf is reviewed on a fixed cadence, weekly or monthly; the cadence is still to be decided. Each review checks new releases for security fixes and against the list of gaps covered in eva-md.
+- **Regular review.** okf is reviewed weekly. Each review checks new releases for security fixes and against the list of gaps covered in eva-md.
 - **When to upgrade.** Upgrade for a security fix in path, ID or parser handling, or for a release that covers a gap eva-md works around, so its version can be deleted. Don't upgrade just because a release exists.
 - **How.** Work on a branch named `okf-vX.Y.Z`:
   1. Read `docs/releases/vX.Y.Z.md` and `git diff old new -- pkg/okf/{mutate,parser,validator,bundle,types}.go`.
