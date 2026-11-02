@@ -65,7 +65,7 @@ An upgrade that changes the plugin folders, as the ones that add the MCP server 
 ## Commands
 
 - `eva-md setup [--dir FOLDER] [--remote URL] [--host claude|codex|all] [--no-push] [--yes]`: the guided setup above. Without a terminal, a first run needs `--dir` and `--remote`. `--no-push` makes the wiki's first commit without pushing it. `--yes` skips the confirmation. On a Mac that is already set up, it keeps the wiki and installs or updates the plugins, and offers to clone the wiki folder again if it is missing or empty.
-- `eva-md version`: the binary, schema and okf versions.
+- `eva-md version`: the binary, schema and okf versions. The binary's version is the date of the commit it was built from, in UTC, then that commit's time and short hash, such as `2026.11.2+0915.9e4f609`, so two builds of one day sort by their time; `.dirty` marks a build of a tree with uncommitted changes, and `dev` a build Go recorded no commit for. No step sets it by hand.
 - `eva-md init --remote URL --dir FOLDER [--no-push]`: only the wiki step of setup. Both flags are required. It clones an empty remote or adopts an existing eva wiki, validates it, makes the first commit with your normal signing settings, pushes, and saves the local config. `--no-push` still makes the local commit.
 - `eva-md validate [--dir FOLDER]`: print validation counts for a wiki. It exits with an error for errors, broken links, orphan pages, or actor and parent-index warnings. Without `--dir` it checks the configured wiki.
 - `eva-md install [--host claude|codex|all] [--dry-run]`: install the plugins through each host's native commands, rolling back on failure.

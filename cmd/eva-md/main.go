@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"regexp"
 	"runtime/debug"
 	"time"
 
@@ -20,10 +21,16 @@ import (
 	"github.com/heyNag/eva-md/internal/wikiinit"
 )
 
-// version is set at release time with -ldflags '-X main.version=...'.
-var version = "0.1.0-dev"
+// version is the binary's version. A release build may set it with
+// -ldflags '-X main.version=...'; left as "dev", main takes it from the
+// commit the binary was built from (see calver).
+var version = "dev"
 
 func main() {
+	if version == "dev" {
+		info, _ := debug.ReadBuildInfo()
+		version = calver(info)
+	}
 	// The doctor's repairs write the version as the author of what they
 	// build again.
 	health.Version = version
@@ -177,6 +184,56 @@ func runWiki(ctx context.Context, args []string, in io.Reader, out, errOut io.Wr
 	}
 	return 0
 }
+
+// calver returns a build's version from the commit it was built from: the
+// commit's day in UTC as year.month.day, then as build metadata the commit's
+// UTC time as hours and minutes, so builds of one day sort, and its short
+// hash, so each is its own, with ".dirty" for a build of a changed working
+// tree, as in 2026.11.2+0915.9e4f609. It is a valid semantic version. Go records
+// the commit in the binary when it builds from a git checkout, and puts it
+// in a pseudo-version, such as v0.0.0-20261102091551-9e4f609abcde, when it
+// builds a module it fetched. Without either, as in a test binary, it is
+// "dev".
+func calver(info *debug.BuildInfo) string {
+	if info == nil {
+		return "dev"
+	}
+	var at time.Time
+	revision, dirty := "", false
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.time":
+			at, _ = time.Parse(time.RFC3339, s.Value)
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if at.IsZero() {
+		if m := pseudoVersion.FindStringSubmatch(info.Main.Version); m != nil {
+			at, _ = time.Parse("20060102150405", m[1])
+			revision, dirty = m[2], false
+		}
+	}
+	if at.IsZero() {
+		return "dev"
+	}
+	at = at.UTC()
+	v := fmt.Sprintf("%d.%d.%d+%s", at.Year(), at.Month(), at.Day(), at.Format("1504"))
+	if len(revision) >= 7 {
+		v += "." + revision[:7]
+		if dirty {
+			v += ".dirty"
+		}
+	}
+	return v
+}
+
+// pseudoVersion is the end of a Go pseudo-version: the commit's time in UTC
+// and the first 12 characters of its hash, in each of the three forms Go
+// writes.
+var pseudoVersion = regexp.MustCompile(`[-.]([0-9]{14})-([0-9a-f]{12})(?:\+incompatible)?$`)
 
 func okfModule() string {
 	if info, ok := debug.ReadBuildInfo(); ok {
