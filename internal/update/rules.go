@@ -203,13 +203,59 @@ func (v *validator) changeRule(op ruleOp, acted map[string]bool) {
 // <reason>)", so no rule changes off the record and eva-md search finds the
 // change.
 func (v *validator) trail(id string, h heldRule, change string, c cites) {
-	name := "rule " + id
-	if h.general {
-		name += " for all projects"
-	}
-	text := name + ": ~~" + cutRunes(h.item.Text, trailShare) + "~~ " + change
+	text := trailStart(id, h.general) + cutRunes(h.item.Text, trailShare) + "~~ " + change
 	v.u.Events = append(v.u.Events, threadpage.Event{Kind: "change", Text: text, Tag: "stated", Refs: c.refs})
 	v.at, v.linesAt = later(v.at, c.newest), later(v.linesAt, c.newest)
+}
+
+// trailStart is how a rule change's Timeline line starts: "rule <id>: ~~",
+// or "rule <id> for all projects: ~~".
+func trailStart(id string, general bool) string {
+	name := "rule " + id
+	if general {
+		name += " for all projects"
+	}
+	return name + ": ~~"
+}
+
+// settle takes the rule changes the save passed over, on a rules page a
+// person locked or verified or one that can't be read back safely, out of
+// the changes made: they count as read-only, or refused for a damaged page.
+func (n *RuleCounts) settle(ops []threadpage.RuleOp, skipped []rulesSkip) {
+	for _, op := range ops {
+		i := slices.IndexFunc(skipped, func(s rulesSkip) bool { return s.general == op.General })
+		if i < 0 {
+			continue
+		}
+		switch op.Action {
+		case "add":
+			n.Added--
+			if op.General {
+				n.General--
+			}
+		case "edit":
+			n.Edited--
+		case "drop":
+			n.Dropped--
+		}
+		if skipped[i].reason == ReasonDamaged {
+			n.Refused++
+		} else {
+			n.ReadOnly++
+		}
+	}
+}
+
+// withoutRuleTrails removes the Timeline lines of the rule edits and drops
+// the save passed over, so the thread page records no change that wasn't
+// made.
+func withoutRuleTrails(events []threadpage.Event, ops []threadpage.RuleOp, skipped []rulesSkip) []threadpage.Event {
+	return slices.DeleteFunc(events, func(e threadpage.Event) bool {
+		return e.Kind == "change" && slices.ContainsFunc(ops, func(op threadpage.RuleOp) bool {
+			return op.ID != "" && slices.ContainsFunc(skipped, func(s rulesSkip) bool { return s.general == op.General }) &&
+				strings.HasPrefix(e.Text, trailStart(op.ID, op.General))
+		})
+	})
 }
 
 // said reports whether one cited prompt's own words, by ok, hold up a rule

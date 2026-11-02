@@ -59,7 +59,8 @@ type history struct {
 	file                  string // the session file's name in the project's inbox folder
 	size                  int64  // its size when the brief listed it
 	records               []record
-	latest                time.Time
+	latest                time.Time // its newest entry, events included
+	active                time.Time // its newest work, or latest when its tail shows none
 	worked                bool
 	program               bool // a chat a program ran (see programRun)
 }
@@ -253,8 +254,8 @@ func changes(ctx context.Context, o Options, all []history, current *history, pg
 		if h.host == o.Host && h.session == o.Session || h.branch != o.Project.Branch || !useful(h) {
 			continue
 		}
-		if !baseline.IsZero() && h.latest.After(baseline) {
-			parts = append(parts, fmt.Sprintf("Other chat: %s at %s (%s)", h.host, h.latest.Format(time.RFC3339), lastActivity(h)))
+		if !baseline.IsZero() && h.active.After(baseline) {
+			parts = append(parts, fmt.Sprintf("Other chat: %s at %s (%s)", h.host, h.active.Format(time.RFC3339), lastActivity(h)))
 		}
 	}
 	if git.changed {
@@ -787,12 +788,18 @@ func hash(s string) string { sum := sha256.Sum256([]byte(s)); return hex.EncodeT
 // internal/threadpage names it.
 func ThreadName(branch string) string { return threadpage.ThreadName(branch) }
 
+// sortHistories orders chats by when they last did work, newest first. An
+// event such as a session_end never makes an idle chat the newest; it only
+// breaks a tie.
 func sortHistories(all []history) {
 	sort.SliceStable(all, func(i, j int) bool {
-		if all[i].latest.Equal(all[j].latest) {
-			return all[i].host+all[i].session < all[j].host+all[j].session
+		if !all[i].active.Equal(all[j].active) {
+			return all[i].active.After(all[j].active)
 		}
-		return all[i].latest.After(all[j].latest)
+		if !all[i].latest.Equal(all[j].latest) {
+			return all[i].latest.After(all[j].latest)
+		}
+		return all[i].host+all[i].session < all[j].host+all[j].session
 	})
 }
 func safeProject(p identity.Project) string { name, _ := paths.SafeName(p.Key); return name }

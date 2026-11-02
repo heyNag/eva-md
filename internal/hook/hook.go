@@ -427,11 +427,23 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 			if err := markers.SetContext(ctx, host, p.Session, session.OffRecord, catchup.OffRecordAsked); err != nil {
 				return fail()
 			}
+			// The context now holds a range off the record, which a later
+			// compaction summary would restate.
+			if err := remember(ctx, markers, host, p.Session, session.WasOff, "1"); err != nil {
+				return fail()
+			}
 			_ = catchup.SetOffRecord(ctx, env.Dirs, host, p.Session, true)
 			appendEvent(control)
 			return confirmation(host, false)
 		}
 		if control == "on_record" {
+			// A chat coming back on the record keeps its off range in the
+			// context, also when an earlier write of this marker failed.
+			if off {
+				if err := remember(ctx, markers, host, p.Session, session.WasOff, "1"); err != nil {
+					return fail()
+				}
+			}
 			if err := catchup.SetOffRecord(ctx, env.Dirs, host, p.Session, false); err != nil {
 				return fail()
 			}
@@ -487,6 +499,15 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	case "PostToolUse", "PostToolUseFailure":
 		e.Role, e.Kind, e.Text = toolLine(host, p)
 	case "PostCompact":
+		// The summary restates the whole context, so once the chat has been
+		// off the record it would bring that range back: keep only the event.
+		_, wasOff, err := markers.GetContext(ctx, host, p.Session, session.WasOff)
+		if err != nil {
+			return fail()
+		}
+		if wasOff {
+			return markersOnly()
+		}
 		e.Role = "host"
 		e.Kind = "host_summary"
 		e.Text = p.Summary
@@ -499,6 +520,13 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 				event += ": " + cleanField(p.Source, 80)
 			}
 			appendEvent(event)
+		}
+		// A startup or a clear begins a new context, which holds nothing said
+		// off the record.
+		if p.Event == "SessionStart" && (p.Source == "startup" || p.Source == "clear") {
+			if markers.ClearContext(ctx, host, p.Session, session.WasOff) != nil {
+				failed = true
+			}
 		}
 		if (p.Event == "SessionEnd" || p.Event == "PreCompact") && !p.headless {
 			queueUpdate(spawns, env, host+":"+p.Session)

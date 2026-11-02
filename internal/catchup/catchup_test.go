@@ -13,6 +13,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/session"
 )
 
 // TestMain raises, before any test runs, the grace a pass gets past its
@@ -239,6 +240,65 @@ func TestOffRecordCannotBeRecoveredAfterResume(t *testing.T) {
 	if len(rows) != 1 || rows[0].Text != "public again" {
 		t.Fatalf("privacy leak: %#v", rows)
 	}
+}
+
+// Every way a chat goes off the record also marks that it has been off the
+// record, and coming back on the record keeps that mark: the hooks then never
+// store a compaction summary, which restates the off range. Recovery never
+// stores the transcript's own copy of a summary either.
+func TestOffRecordMarksChatAsHavingBeenOff(t *testing.T) {
+	ctx := context.Background()
+	wasOff := func(t *testing.T, dirs paths.Dirs, e inbox.Entry) bool {
+		t.Helper()
+		_, set, err := (session.Markers{Root: dirs.Sessions()}).GetContext(ctx, e.Host, e.Session, session.WasOff)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	t.Run("found by recovery", func(t *testing.T) {
+		dirs, file, e := fixture(t, "claude-code")
+		appendJSON(t, file, claudeRow(e, "user", "off the record", "turn1"))
+		appendJSON(t, file, claudeRow(e, "user", "PRIVATE plan", "turn2"))
+		if n, err := Recover(ctx, dirs, e.Host, e.Session); err != nil || n != 0 || !wasOff(t, dirs, e) {
+			t.Fatalf("recover=%d %v", n, err)
+		}
+		if err := SetOffRecord(ctx, dirs, e.Host, e.Session, false); err != nil || !wasOff(t, dirs, e) {
+			t.Fatalf("back on the record dropped the mark: %v", err)
+		}
+		summary := claudeRow(e, "user", "Summary: a PRIVATE plan.", "turn3")
+		summary["isCompactSummary"] = true
+		appendJSON(t, file, summary)
+		appendJSON(t, file, claudeRow(e, "user", "public again", "turn4"))
+		if n, err := Recover(ctx, dirs, e.Host, e.Session); err != nil || n != 1 {
+			t.Fatalf("public=%d %v", n, err)
+		}
+		if rows := readInbox(t, dirs, e); len(rows) != 1 || rows[0].Text != "public again" {
+			t.Fatalf("%d rows recovered", len(rows))
+		}
+	})
+	t.Run("asked through the hook", func(t *testing.T) {
+		dirs, _, e := fixture(t, "codex")
+		if err := SetOffRecord(ctx, dirs, e.Host, e.Session, true); err != nil || !wasOff(t, dirs, e) {
+			t.Fatalf("off: %v", err)
+		}
+	})
+	t.Run("asserted again", func(t *testing.T) {
+		dirs, file, e := fixture(t, "claude-code")
+		appendJSON(t, file, claudeRow(e, "user", "off the record", "turn1"))
+		if _, err := Recover(ctx, dirs, e.Host, e.Session); err != nil {
+			t.Fatal(err)
+		}
+		markers := session.Markers{Root: dirs.Sessions()}
+		for _, name := range []string{session.WasOff, session.OffRecord} {
+			if err := markers.ClearContext(ctx, e.Host, e.Session, name); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := Recover(ctx, dirs, e.Host, e.Session); err != nil || !wasOff(t, dirs, e) {
+			t.Fatalf("not asserted again: %v", err)
+		}
+	})
 }
 func TestCodexFinalPhaseAndIdentity(t *testing.T) {
 	dirs, file, e := fixture(t, "codex")

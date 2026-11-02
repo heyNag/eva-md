@@ -303,6 +303,94 @@ func TestOffRecordAndResume(t *testing.T) {
 	}
 }
 
+// A compaction summary restates the whole context, so after a chat has been
+// off the record and come back, its summaries keep only the compact event.
+// A resumed or compacted context still holds the off range; only a startup
+// or a clear begins a context without it.
+func TestCompactionSummaryAfterOffRecordIsNotStored(t *testing.T) {
+	for _, host := range []string{"claude-code", "codex"} {
+		t.Run(host, func(t *testing.T) {
+			env, p := setup(t)
+			invoke(t, host, p, env)
+			p.Prompt = "off the record"
+			invoke(t, host, p, env)
+			p.Prompt = "PRIVATE acquisition plan"
+			invoke(t, host, p, env)
+			p.Prompt = "back on the record"
+			invoke(t, host, p, env)
+			compact := func(summary string) {
+				q := p
+				q.Event, q.Summary = "PostCompact", summary
+				invoke(t, host, q, env)
+			}
+			start := func(source string) {
+				q := p
+				q.Event, q.Source = "SessionStart", source
+				invoke(t, host, q, env)
+			}
+			compact("Summary: a PRIVATE acquisition plan, then normal work.")
+			start("resume")
+			start("compact")
+			compact("Summary: still the PRIVATE acquisition plan.")
+			start("clear")
+			compact("Summary: a fresh start.")
+			var summaries []string
+			for _, e := range records(t, env) {
+				if strings.Contains(e.Text, "PRIVATE") {
+					t.Fatalf("off-record text leaked: role=%s kind=%s", e.Role, e.Kind)
+				}
+				if e.Kind == "host_summary" {
+					summaries = append(summaries, e.Text)
+				}
+			}
+			rows := records(t, env)
+			if strings.Join(summaries, "|") != "Summary: a fresh start." || countRecords(rows, "event", "compact") != 2 {
+				t.Fatalf("summaries=%q compact events=%d", summaries, countRecords(rows, "event", "compact"))
+			}
+		})
+	}
+}
+
+// Transcript recovery that finds an off-the-record control the hooks missed
+// marks the chat as having been off the record too, so after the user comes
+// back on the record a compaction summary is still not stored.
+func TestCompactionSummaryAfterRecoveredOffRecordIsNotStored(t *testing.T) {
+	env, p := setup(t)
+	file := registeredTranscript(t, env, &p)
+	p.Event = "UserPromptSubmit"
+	invoke(t, "claude-code", p, env)
+	at := env.Now().Format(time.RFC3339)
+	user := func(text, turn string) map[string]any {
+		return map[string]any{"type": "user", "sessionId": p.Session, "cwd": p.Cwd, "timestamp": at, "promptId": turn, "message": map[string]any{"role": "user", "content": text}}
+	}
+	appendRows(t, file, user(p.Prompt, p.Turn), user("off the record", "turn-2"), user("PRIVATE acquisition plan", "turn-3"))
+	p.Event, p.Prompt, p.Turn = "UserPromptSubmit", "PRIVATE second thought", "turn-4"
+	invoke(t, "claude-code", p, env)
+	if _, set, err := (session.Markers{Root: env.Dirs.Sessions()}).Get("claude-code", p.Session, session.WasOff); err != nil || !set {
+		t.Fatalf("was_off marker set=%v err=%v", set, err)
+	}
+	p.Prompt, p.Turn = "back on the record", "turn-5"
+	invoke(t, "claude-code", p, env)
+	// The transcript's own copy of the summary is host output, which
+	// recovery never stores either.
+	summary := user("Summary: a PRIVATE acquisition plan.", "")
+	summary["isCompactSummary"] = true
+	appendRows(t, file, user(p.Prompt, p.Turn), summary)
+	p.Event, p.Summary = "PostCompact", "Summary: a PRIVATE acquisition plan."
+	invoke(t, "claude-code", p, env)
+	p.Event, p.Prompt, p.Turn = "UserPromptSubmit", "public again", "turn-6"
+	invoke(t, "claude-code", p, env)
+	rows := records(t, env)
+	for _, e := range rows {
+		if strings.Contains(e.Text, "PRIVATE") {
+			t.Fatalf("off-record text leaked: role=%s kind=%s origin=%s", e.Role, e.Kind, e.Origin)
+		}
+	}
+	if countRecords(rows, "event", "compact") != 1 || countRecords(rows, "user", "public again") != 1 {
+		t.Fatalf("%d records, compact events=%d", len(rows), countRecords(rows, "event", "compact"))
+	}
+}
+
 func checkConfirmation(t *testing.T, host, out string, on bool) {
 	t.Helper()
 	var data struct {

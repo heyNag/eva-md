@@ -129,16 +129,18 @@ func withPassword(remote string) bool {
 	return has
 }
 
-// filePath reports a path inside a repo: relative, without .., without
-// spaces, control or format characters, which a printed line would show
-// raw, and without "](", which would start a link on the system map's line.
+// filePath reports a path inside a repo: relative, without .. parts,
+// without . parts, which git lists a path without, so it would never
+// match, without spaces, control or format characters, which a printed
+// line would show raw, and without "](", which would start a link on the
+// system map's line.
 func filePath(s string) bool {
 	if strings.HasPrefix(s, "/") || strings.ContainsRune(s, '\\') || strings.Contains(s, "](") || !utf8.ValidString(s) ||
 		strings.ContainsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }) {
 		return false
 	}
 	for _, part := range strings.Split(s, "/") {
-		if part == ".." || part == "" {
+		if part == ".." || part == "." || part == "" {
 			return false
 		}
 	}

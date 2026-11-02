@@ -289,6 +289,45 @@ func TestReplace(t *testing.T) {
 	}
 }
 
+// A replace writes the repos and aliases as lists even when a person
+// rewrote them as a block okf keeps as raw lines, so the names index and
+// the map still list them.
+func TestReplaceRewritesABlockListAsAList(t *testing.T) {
+	o := fixture(t)
+	mustWrite(t, o, "orders", valid, false)
+	path := filepath.Join(o.Config.WikiPath, "systems", "orders.md")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(l, "aliases: ") {
+			text = strings.Replace(text, l, "aliases:\n  main: order service", 1)
+		}
+		if strings.HasPrefix(l, "repos: ") {
+			text = strings.Replace(text, l, "repos:\n  main: github.com__acme__orders", 1)
+		}
+	}
+	if !strings.Contains(text, "aliases:\n  main:") || !strings.Contains(text, "repos:\n  main:") {
+		t.Fatalf("the page was not edited\n%s", text)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, o, "orders", valid, true)
+	page := file(t, o, "systems/orders.md")
+	if !strings.Contains(page, "\naliases: [\"order service\"]\n") || !strings.Contains(page, "\nrepos: [\"github.com__acme__orders\"]\n") {
+		t.Fatalf("the lists were not written as lists\n%s", page)
+	}
+	if names := file(t, o, NamesFile); !strings.Contains(names, "order service\t") {
+		t.Fatalf("the alias is missing from the names index\n%s", names)
+	}
+	if !strings.Contains(file(t, o, "systems/map.md"), "· repos: github.com__acme__orders ·") {
+		t.Fatal("the repo is missing from the map")
+	}
+}
+
 // A map okf can't read stops the write before the page is written; the map
 // is rebuilt, never edited, so removing it is the fix.
 func TestDamagedMap(t *testing.T) {

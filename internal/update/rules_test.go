@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +101,68 @@ func TestPassWritesTheRulesPages(t *testing.T) {
 	after, _ := e.wiki().Read("projects/eva-md/rules")
 	if outcomes(s) != "no_change" || string(after.Raw) != string(locked.Raw) || !strings.Contains(e.log.String(), "rules page projects/eva-md/rules (locked) left as it is") {
 		t.Fatalf("outcomes %q, page changed: %v\n%s", outcomes(s), string(after.Raw) != string(locked.Raw), e.log)
+	}
+}
+
+// A drop of a rule on a rules page a person locked is passed over: the page
+// stays as it is, the thread page's Timeline records no drop, and the run
+// log counts the change as read-only.
+func TestALockedRulesPageLeavesNoTimelineLine(t *testing.T) {
+	e := newEnv(t)
+	rules := []ruleOp{ruleAdd("Never mock the database in tests", 1)}
+	e.fake.Respond = func(r Request) (Result, error) {
+		o := keeps(r)
+		o.Rules = rules
+		return Result{Output: encode(t, o), Attempts: 1}, nil
+	}
+	c := ruleChat("3f2a91c0-lock")
+	e.write(c)
+	if s := e.run(c); outcomes(s) != "ok" || s.Records[0].Validation.Rules != (RuleCounts{Added: 1}) {
+		t.Fatalf("outcomes %q, record %+v\n%s", outcomes(s), s.Records[0], e.log)
+	}
+	pg, _ := e.wiki().Read("projects/eva-md/rules")
+	if _, err := e.wiki().Update("projects/eva-md/rules", pg.Hash, func(c *okfadapter.Concept) error { c.Extra["locked"] = true; return nil }, "eva-md/test"); err != nil {
+		t.Fatal(err)
+	}
+	locked, _ := e.wiki().Read("projects/eva-md/rules")
+	rules = []ruleOp{{ID: ptr("r1"), Action: "drop", Tag: "stated", Refs: []int{1}, Reason: ptr("the user allows mocks again")}}
+	c.user("You can mock the database in tests again. " + filler)
+	c.assistant("Fine. " + filler)
+	e.write(c)
+	s := e.run(c)
+	after, _ := e.wiki().Read("projects/eva-md/rules")
+	if outcomes(s) != "no_change" || s.Records[0].Validation.Rules != (RuleCounts{ReadOnly: 1}) || string(after.Raw) != string(locked.Raw) {
+		t.Fatalf("outcomes %q, record %+v, page changed: %v\n%s", outcomes(s), s.Records[0], string(after.Raw) != string(locked.Raw), e.log)
+	}
+	// The thread page, which nothing else changed, is not written at all.
+	if data, err := os.ReadFile(filepath.Join(e.cfg.WikiPath, filepath.FromSlash(testPage)+".md")); !os.IsNotExist(err) {
+		t.Fatalf("the thread page was written: %v\n%s", err, data)
+	}
+}
+
+// Only the changes to a rules page the save passed over leave the counts
+// and lose their Timeline lines: read-only for a locked or verified page,
+// refused for a damaged one.
+func TestSettleSkippedRules(t *testing.T) {
+	ops := []threadpage.RuleOp{{General: true, Action: "add", Text: "Always run go vet"}, {General: true, ID: "g1", Action: "drop"},
+		{ID: "r1", Action: "edit", Text: "Mock the database"}, {ID: "r2", Action: "drop"}}
+	events := []threadpage.Event{{Kind: "change", Text: "rule g1 for all projects: ~~Old~~ (dropped: gone)"}, {Kind: "change", Text: "rule r1: ~~Old~~ → Mock the database"},
+		{Kind: "change", Text: "rule r2: ~~Old~~ (dropped: gone)"}, {Kind: "decision", Text: "rule g1 for all projects: ~~Old~~ kept"}}
+	n := RuleCounts{Added: 1, General: 1, Edited: 1, Dropped: 2}
+	n.settle(ops, []rulesSkip{{id: "general/rules", reason: ReasonLocked, general: true}})
+	if n != (RuleCounts{Edited: 1, Dropped: 1, ReadOnly: 2}) {
+		t.Fatalf("counts %+v", n)
+	}
+	if got := withoutRuleTrails(slices.Clone(events), ops, []rulesSkip{{id: "general/rules", reason: ReasonLocked, general: true}}); !reflect.DeepEqual(got, events[1:]) {
+		t.Fatalf("events %+v", got)
+	}
+	n = RuleCounts{Edited: 1, Dropped: 2}
+	n.settle(ops, []rulesSkip{{id: "projects/eva-md/rules", reason: ReasonDamaged}})
+	if n != (RuleCounts{Dropped: 1, Refused: 2}) {
+		t.Fatalf("counts %+v", n)
+	}
+	if got := withoutRuleTrails(slices.Clone(events), ops, []rulesSkip{{id: "projects/eva-md/rules", reason: ReasonDamaged}}); !reflect.DeepEqual(got, []threadpage.Event{events[0], events[3]}) {
+		t.Fatalf("events %+v", got)
 	}
 }
 

@@ -1068,3 +1068,63 @@ func TestDevNullIsNotATerminal(t *testing.T) {
 		t.Fatal("a reader taken for a terminal")
 	}
 }
+
+// A wiki whose first commit failed, as when its signature was declined, has
+// its scaffold staged and no commit. With a terminal, setup lets init resume
+// it, as init and setup without a terminal do, and doesn't ask for a commit
+// by hand.
+func TestSetupResumesAWikiWhoseFirstCommitFailed(t *testing.T) {
+	f := newFakeSetup(t, true).fakes(t, fakeCLI{name: "gh", exists: "me/eva-wiki", before: ghJSON("eva-wiki", "PRIVATE", true)})
+	f.realGit(t)
+	bare := f.bareRepo(t, "eva-wiki")
+	folder := filepath.Join(f.env.home, "projects", "wiki")
+	gitIn(t, f.env.home, "config", "--global", "commit.gpgsign", "true")
+	gitIn(t, f.env.home, "config", "--global", "gpg.program", "/usr/bin/false")
+	tmp := t.TempDir()
+	dirs := paths.Dirs{Config: filepath.Join(tmp, "config"), State: filepath.Join(tmp, "state"), Share: filepath.Join(tmp, "share")}
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: "git@github.com:me/eva-wiki.git", Dir: folder, Dirs: dirs, Version: "test", OKFModule: "v0.7.2", NoPush: true}); err == nil {
+		t.Fatal("the failing signature was accepted")
+	}
+	gitIn(t, f.env.home, "config", "--global", "commit.gpgsign", "false")
+	schema, err := config.LoadSchema(filepath.Join(folder, ".eva-md", "schema.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.env.machineLabel = func() (string, error) { return wikiinit.MadeOn(schema.Instance), nil }
+	code, out, errOut := f.answers(t, "", "y", "")
+	f.wantRemote(t, code, out, errOut, "git@github.com:me/eva-wiki.git")
+	wantIn(t, "stdout", out, "   Folder:    This folder is already an eva wiki for git@github.com:me/eva-wiki.git. Use it? [Y/n] ")
+	wantNotIn(t, "stdout", out, "uncommitted changes")
+	head := gitIn(t, folder, "rev-parse", "HEAD")
+	if pushed := gitIn(t, bare, "rev-parse", "refs/heads/main"); pushed != head {
+		t.Fatalf("pushed %s, want the first commit %s", pushed, head)
+	}
+	if c, err := config.Load(f.env.dirs.ConfigFile()); err != nil || c.Instance != schema.Instance || c.WikiPath != folder {
+		t.Fatalf("config %+v %v", c, err)
+	}
+}
+
+// Git reads yes, on, 1 and a key with no value as true, so setup reports
+// commit signing as on for each, as git signs every commit.
+func TestGitSigningReadsGitsBooleans(t *testing.T) {
+	isolated(t)
+	home := os.Getenv("HOME")
+	global := os.Getenv("GIT_CONFIG_GLOBAL")
+	for setting, want := range map[string]string{
+		"gpgsign = true": "openpgp", "gpgsign = yes": "openpgp", "gpgsign = on": "openpgp", "gpgsign = 1": "openpgp", "gpgsign": "openpgp",
+		"gpgsign = false": "", "gpgsign = no": "", "gpgsign = 0": "",
+	} {
+		if err := os.WriteFile(global, []byte("[commit]\n\t"+setting+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := gitSigning(context.Background(), home); got != want {
+			t.Errorf("%q: signing %q, want %q", setting, got, want)
+		}
+	}
+	if err := os.WriteFile(global, []byte("[commit]\n\tgpgsign = yes\n[gpg]\n\tformat = ssh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitSigning(context.Background(), home); got != "ssh" {
+		t.Errorf("ssh format: signing %q", got)
+	}
+}

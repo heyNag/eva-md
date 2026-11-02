@@ -35,6 +35,39 @@ func TestSaveSkipsAPageOKFWouldRefuse(t *testing.T) {
 	validate(t, w)
 }
 
+// A title or statement a person edited to hold the --- or the line break
+// okf's save refuses makes the page damaged: its operation is passed over,
+// the rest of the save goes on, and the page is listed read-only.
+func TestSaveSkipsATitleOrStatementOKFWouldRefuse(t *testing.T) {
+	for _, tc := range []struct{ name, from, to string }{
+		{"title dashes", "title: Inbox format\n", "title: Inbox --- format\n"},
+		{"title line break", "title: Inbox format\n", "title: \"Inbox\\nformat\"\n"},
+		{"statement dashes", "\nThe inbox stores entries as JSONL, one file per session [stated]", "\nThe inbox --- stores entries as JSONL, one file per session [stated]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := fixture(t)
+			save(t, w, meta(), addInbox)
+			edit(t, w, 1, tc.from, tc.to)
+			before := readFile(t, w, "knowledge/k1.md")
+			r, err := Save(w, []Op{{Action: Drop, ID: 1, Tag: "stated", Reason: "gone", At: at2}, addOffline}, meta())
+			if err != nil || r.Pages != 1 || !reflect.DeepEqual(r.Skipped, []Skip{{0, 1, ReasonDamaged}}) {
+				t.Fatalf("Save = %+v, %v", r, err)
+			}
+			if readFile(t, w, "knowledge/k1.md") != before {
+				t.Fatal("the page was written")
+			}
+			if readFile(t, w, "knowledge/k2.md") == "" {
+				t.Fatal("the add in the same save was lost")
+			}
+			rows, err := ReadIndexAt(w.Root())
+			i := slices.IndexFunc(rows, func(r Row) bool { return r.ID == "k1" })
+			if err != nil || len(rows) != 2 || i < 0 || !rows[i].ReadOnly {
+				t.Fatalf("rows %+v, %v", rows, err)
+			}
+		})
+	}
+}
+
 // When an operation fails after Save wrote a page, the map and the indexes
 // are still built for the page, and the error is returned.
 func TestSaveRebuildsAfterAFailedWrite(t *testing.T) {

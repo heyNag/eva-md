@@ -18,6 +18,7 @@ import (
 // Marker names.
 const (
 	OffRecord = "off_record" // set while the chat is off the record: "asked" or "1" (see catchup)
+	WasOff    = "was_off"    // "1" once the chat has been off the record; only a startup or clear SessionStart, which starts a new context, removes it
 	Briefed   = "briefed"    // JSON: the Now hash the chat last saw, the brief's variant, how many refreshes were sent and the project's wiki folder
 	Model     = "model"      // the chat's model, when the host reported it
 	Thread    = "thread"     // the thread the session last wrote to

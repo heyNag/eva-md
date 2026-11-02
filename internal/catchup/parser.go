@@ -17,8 +17,12 @@ import (
 type parser struct {
 	source    Source
 	turn      string
-	blocked   bool
+	blocked   bool // the chat went off the record in a row of this pass
 	offRecord bool
+	// elsewhere says the latest Codex turn runs in a folder other than the
+	// registered one: its rows are not stored, but a record control in them
+	// is still honoured.
+	elsewhere bool
 	control   string // the record control the last row gave, if any
 	// recognized says the last row was one of the chat's prompt or reply
 	// rows: a Claude user or assistant message (tool results and calls
@@ -27,7 +31,7 @@ type parser struct {
 	recognized bool
 }
 
-func newParser(s Source) *parser { return &parser{source: s} }
+func newParser(s Source) *parser { return &parser{source: s, elsewhere: s.Elsewhere} }
 func stringValue(m map[string]json.RawMessage, key string) string {
 	var s string
 	_ = json.Unmarshal(m[key], &s)
@@ -144,8 +148,8 @@ func (p *parser) read(line []byte) (inbox.Entry, bool) {
 		}
 		switch stringValue(row, "type") {
 		case "turn_context":
-			if cwd := stringValue(value, "cwd"); cwd != "" && !sameCwd(cwd, p.source.Cwd) {
-				p.blocked = true
+			if cwd := stringValue(value, "cwd"); cwd != "" {
+				p.elsewhere = !sameCwd(cwd, p.source.Cwd)
 			}
 			p.turn = stringValue(value, "turn_id")
 			return e, false
@@ -217,7 +221,7 @@ func (p *parser) read(line []byte) (inbox.Entry, bool) {
 			return e, false
 		}
 	}
-	if p.blocked || strings.TrimSpace(e.Text) == "" || syntheticText(e.Text) {
+	if p.blocked || p.elsewhere || strings.TrimSpace(e.Text) == "" || syntheticText(e.Text) {
 		return e, false
 	}
 	return e, true

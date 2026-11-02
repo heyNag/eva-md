@@ -69,6 +69,42 @@ func TestADamagedNowPageKeepsItsFolder(t *testing.T) {
 	}
 }
 
+// A project without a remote whose own folder holds a damaged now page
+// takes the folder of its slug with a hash, and the next job finds that
+// folder again rather than failing for want of a free one.
+func TestAProjectWithoutARemoteFindsItsHashFolderAgain(t *testing.T) {
+	e := newEnv(t)
+	w := e.wiki()
+	dir := filepath.Join(w.Root(), "projects", "app-1a2b3c")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "now.md"), []byte("---\ntype: project\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := identity.Project{Kind: identity.KindLocal, Key: "local-app-1a2b3c", Slug: "app-1a2b3c", Branch: "main"}
+	a, err := findArea(w, p)
+	if err != nil || a.dir == "projects/app-1a2b3c" || !strings.HasPrefix(a.dir, "projects/app-1a2b3c-") {
+		t.Fatalf("first job: %+v %v", a, err)
+	}
+	th, err := readThread(w, a, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := facts{asOf: start, source: "s:3f2a91c0", project: a.slug, writer: okfadapter.Actor("eva-md", "0.1.0-test"), actor: okfadapter.Actor(HostClaude, "")}
+	if _, wrote, _, err := saveThread(w, a, th, threadpage.Update{Summary: "The app's own work."}, f); err != nil || !wrote {
+		t.Fatalf("save: %v", err)
+	}
+	if again, err := findArea(w, p); err != nil || again.dir != a.dir {
+		t.Fatalf("the next job: %+v %v", again, err)
+	}
+	// Another project without a remote never takes that folder as its own.
+	q := identity.Project{Kind: identity.KindLocal, Key: "local-app-9f8e7d", Slug: "app-9f8e7d", Branch: "main"}
+	if b, err := findArea(w, q); err != nil || b.dir == a.dir {
+		t.Fatalf("another project took %+v: %v", b, err)
+	}
+}
+
 // The Projects line goes into the root index under the wiki lock, so a write
 // that adds another line meanwhile, as system write adds its Systems line
 // under the same lock, waits for it and both lines stay.

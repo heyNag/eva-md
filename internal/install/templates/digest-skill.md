@@ -5,7 +5,7 @@ description: Digest documentation spaces and repos into eva.md system pages, one
 
 # Digest systems into eva.md
 
-One page per system (a service, repo, platform or major documentation area): `systems/<slug>.md`, the slug 2 to 64 of a-z, 0-9 and -, starting with a letter.
+One page per system (a service, repo, platform or major documentation area): `systems/<slug>.md`, the slug 2 to 64 of a-z, 0-9 and -, starting with a letter, and not map, index, log or agents.
 
 1. First read the map, `{{bin}} show systems/map` (missing until the first page is written), and any page you will change, `{{bin}} show systems/<slug>`; where it prints `[REDACTED:...]`, restore the text from its source before writing. A page shown prints `eva.md: systems/<slug>: ...` lines on stderr saying how far the code it cites has moved; before changing a page, run `{{bin}} system status <slug>` and read again the paths that moved.
 2. One system at a time: summarize, never paste whole pages; keep identifiers exact, in backticks; cite each source's URL, with its version when it has one (`?version=<n>`, or the URL, a space and `v<n>`); cite code as `<repo>@<commit>:<folder>` for each folder or file you read, at the commit you read it (`git rev-parse HEAD` in that clone), one commit per repo in a digest, folders over files, at most 16 a page, or `<repo>@<commit>` for a page about a whole repo; a page built only from documentation may set `stale_after: <YYYY-MM-DD>`, the day to review it by; each line under `## Decisions and constraints` names its source; put what no source says under `## Unverified`; link related systems as `[<title>](<slug>.md)` once their pages exist.

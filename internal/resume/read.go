@@ -1,6 +1,7 @@
 package resume
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -77,8 +79,19 @@ type SessionFile struct {
 // a brief reads.
 const maxFiles = 64
 
-// readHistories returns the chats in the project's most recently changed
-// session files, and the files it read, newest first, at most maxFiles.
+// openSession opens a session file for readHistories. Tests count the files
+// a brief reads through it.
+var openSession = regular
+
+// generalWindow is how recent a chat in the general area must be for a
+// brief to show it.
+const generalWindow = 12 * time.Hour
+
+// readHistories returns the chats in the project's maxFiles most recently
+// changed session files, and those files, newest first. It reads no more
+// than those files, however few chats it keeps from them, and in the
+// general area it lists but does not read one changed before its 12-hour
+// window.
 func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, error) {
 	key := safeProject(o.Project)
 	if key == "" {
@@ -103,22 +116,33 @@ func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, er
 		return nil, nil, err
 	}
 	sort.Slice(names, func(i, j int) bool { return names[i].ModTime().After(names[j].ModTime()) })
+	general := o.Project.Key == "general"
 	var all []history
 	var files []SessionFile
+	seen := 0
 	for _, info := range names {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		if len(all) >= 64 {
-			break
-		}
 		if !info.Mode().IsRegular() || !strings.HasSuffix(info.Name(), ".jsonl") {
 			continue
 		}
-		if host, id, ok := splitName(info.Name()); ok && len(files) < maxFiles {
+		// The files are counted, not the chats kept from them, so the cost
+		// stays bounded however many chats a file holds or the window drops.
+		if seen == maxFiles {
+			break
+		}
+		seen++
+		if host, id, ok := splitName(info.Name()); ok {
 			files = append(files, SessionFile{Name: info.Name(), Path: filepath.Join(folder, info.Name()), Host: host, ID: id, Mod: info.ModTime(), Size: info.Size()})
 		}
-		f, err := regular(root, info.Name())
+		// Every entry is written before its file last changes, so in the
+		// general area a file older than the window holds no chat recent
+		// enough to show. It is still listed for the start-of-chat catch-up.
+		if general && o.Now.Sub(info.ModTime()) > generalWindow {
+			continue
+		}
+		f, err := openSession(root, info.Name())
 		if err != nil {
 			continue
 		}
@@ -179,13 +203,17 @@ func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, er
 			}
 		}
 		// Work before the tail matters only for a history whose tail shows
-		// none, so the prefix is scanned for it only then.
-		skip := false
-		for _, h := range byBranch {
-			if useful(*h) {
-				continue
+		// none, so the prefix is scanned for it only then, and only work on
+		// that history's own branch counts.
+		want := map[string]bool{}
+		for branch, h := range byBranch {
+			if !useful(*h) {
+				want[branch] = true
 			}
-			worked, err := prefixWork(ctx, f, prefix)
+		}
+		skip := false
+		if len(want) > 0 && prefix > 0 {
+			worked, err := prefixWork(ctx, f, prefix, want)
 			if err != nil {
 				if ctx.Err() != nil {
 					f.Close()
@@ -193,10 +221,9 @@ func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, er
 				}
 				skip = true
 			}
-			for _, h := range byBranch {
-				h.worked = worked
+			for branch := range want {
+				byBranch[branch].worked = worked[branch]
 			}
-			break
 		}
 		f.Close()
 		if skip {
@@ -206,7 +233,11 @@ func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, er
 			if h.latest.IsZero() {
 				continue
 			}
-			if o.Project.Key == "general" && (o.Now.Sub(h.latest) > 12*time.Hour || h.latest.After(o.Now.Add(time.Minute))) {
+			h.active = workedAt(*h)
+			if h.active.IsZero() {
+				h.active = h.latest
+			}
+			if general && (o.Now.Sub(h.active) > generalWindow || h.active.After(o.Now.Add(time.Minute))) {
 				continue
 			}
 			// Repaired entries are appended later but retain their original time.
@@ -372,58 +403,98 @@ func readTail(ctx context.Context, f *os.File) ([]record, int64, error) {
 	return out, start, nil
 }
 
-// prefixWork reports whether the first end bytes of a session file hold real
-// work: a tool or plan entry, or more than two prompts and two replies. It
-// stops at the first sign of work.
-func prefixWork(ctx context.Context, f *os.File, end int64) (bool, error) {
-	r := io.NewSectionReader(f, 0, end)
-	buf := make([]byte, 64<<10)
-	var carry []byte
-	users, assistants, tools := 0, 0, 0
-	count := func(data []byte) {
-		joined := append(append([]byte{}, carry...), data...)
-		for i, pat := range []string{`"role":"user","kind":"prompt"`, `"role":"assistant","kind":"reply"`, `"kind":"tool"`, `"kind":"plan"`} {
-			for pos := 0; pos < len(joined); {
-				n := bytes.Index(joined[pos:], []byte(pat))
-				if n < 0 {
-					break
-				}
-				end := pos + n + len(pat)
-				if end > len(carry) {
-					switch i {
-					case 0:
-						users++
-					case 1:
-						assistants++
-					default:
-						tools++
-					}
-				}
-				pos = end
+// The patterns prefixWork looks for. A JSON string escapes its quotes, so
+// each can match only a field of the entry itself, never its text.
+var (
+	promptMarker = []byte(`"role":"user","kind":"prompt"`)
+	replyMarker  = []byte(`"role":"assistant","kind":"reply"`)
+	toolMarker   = []byte(`"kind":"tool"`)
+	planMarker   = []byte(`"kind":"plan"`)
+	branchMarker = []byte(`"branch":`)
+)
+
+// prefixWork reports which of the branches in want did real work in the
+// first end bytes of a session file: a tool or plan entry, or more than two
+// prompts and two replies on that branch. Only a line that holds one of
+// those patterns is looked at again, for its branch. The line the tail cut
+// is read whole, since the tail left it out. It stops once every branch in
+// want has worked.
+func prefixWork(ctx context.Context, f *os.File, end int64, want map[string]bool) (map[string]bool, error) {
+	worked := map[string]bool{}
+	users, assistants := map[string]int{}, map[string]int{}
+	br := bufio.NewReaderSize(io.NewSectionReader(f, 0, math.MaxInt64), 64<<10)
+	var line []byte
+	for pos := int64(0); pos < end; line = line[:0] {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		// A line longer than the buffer comes in pieces; it is judged whole.
+		frag, err := br.ReadSlice('\n')
+		line = append(line, frag...)
+		pos += int64(len(frag))
+		for errors.Is(err, bufio.ErrBufferFull) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			frag, err = br.ReadSlice('\n')
+			line = append(line, frag...)
+			pos += int64(len(frag))
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		prompt, reply := bytes.Contains(line, promptMarker), bytes.Contains(line, replyMarker)
+		if prompt || reply || bytes.Contains(line, toolMarker) || bytes.Contains(line, planMarker) {
+			branch := lineBranch(line)
+			switch {
+			case prompt:
+				users[branch]++
+			case reply:
+				assistants[branch]++
+			default:
+				worked[branch] = true
+			}
+			if users[branch] > 2 && assistants[branch] > 2 {
+				worked[branch] = true
+			}
+			done := true
+			for b := range want {
+				done = done && worked[b]
+			}
+			if done {
+				return worked, nil
 			}
 		}
-		if len(joined) > 80 {
-			carry = append(carry[:0], joined[len(joined)-80:]...)
-		} else {
-			carry = append(carry[:0], joined...)
-		}
-	}
-	for {
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		got, err := r.Read(buf)
-		count(buf[:got])
-		if tools > 0 || users > 2 && assistants > 2 {
-			return true, nil
-		}
-		if err == io.EOF {
-			return false, nil
-		}
 		if err != nil {
-			return false, err
+			return worked, nil
 		}
 	}
+	return worked, nil
+}
+
+// lineBranch returns the branch of an entry's JSON line, "default" when it
+// names none.
+func lineBranch(line []byte) string {
+	at := bytes.Index(line, branchMarker)
+	if at < 0 {
+		return "default"
+	}
+	rest := line[at+len(branchMarker):]
+	// The value is a JSON string: it ends at the first quote no backslash
+	// escapes.
+	for i := 1; i < len(rest); i++ {
+		switch rest[i] {
+		case '\\':
+			i++
+		case '"':
+			var branch string
+			if rest[0] != '"' || json.Unmarshal(rest[:i+1], &branch) != nil || branch == "" {
+				return "default"
+			}
+			return branch
+		}
+	}
+	return "default"
 }
 
 func readPage(ctx context.Context, o Options) page {
@@ -516,7 +587,9 @@ func slugCandidates(root *os.Root, own string) []string {
 
 // projectSlug returns the first of slugs that is p's wiki folder. A slug
 // alias is accepted only when its now page proves p's normalized remote; a
-// project without a remote has only its own slug.
+// project without a remote has only its own slug and that slug with its
+// key's hash (see identity.Project.HashedSlug), each with a now page that
+// names no remote.
 func projectSlug(ctx context.Context, w *okfadapter.Wiki, p identity.Project, slugs []string) (string, bool) {
 	for _, slug := range slugs {
 		if ctx.Err() != nil {
@@ -530,7 +603,10 @@ func projectSlug(ctx context.Context, w *okfadapter.Wiki, p identity.Project, sl
 		if p.Remote != "" && remote != p.Remote {
 			continue
 		}
-		if p.Remote == "" && slug != p.Slug {
+		// A project without a remote is proved only by a now page that names
+		// none, in its own folder or the one with its key's hash, as the
+		// update picks them, never by another project's folder of that name.
+		if p.Remote == "" && (remote != "" || slug != p.Slug && slug != p.HashedSlug()) {
 			continue
 		}
 		return slug, true

@@ -1,8 +1,6 @@
 package update
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -93,17 +91,21 @@ func findArea(w *okfadapter.Wiki, p identity.Project) (area, error) {
 	if !plainName(p.Slug) {
 		return area{}, errors.New("update: the project's slug can't name a wiki folder")
 	}
+	hashed := p.HashedSlug()
+	// A project without a remote is proved only by its own folders: the
+	// slug, then the slug with a hash an earlier pass may have taken.
 	names := []string{p.Slug}
 	if p.Remote != "" {
 		names = append(names, projectFolders(w, p.Slug)...)
+	} else {
+		names = append(names, hashed)
 	}
 	for _, name := range names {
-		if remote, ok := nowRemote(w, name); ok && proves(p, name, remote) {
+		if remote, ok := nowRemote(w, name); ok && proves(p, name, hashed, remote) {
 			return area{dir: "projects/" + name, slug: name, project: p}, nil
 		}
 	}
-	sum := sha256.Sum256([]byte(p.Key))
-	for _, name := range []string{p.Slug, ownerRepo(p.Remote), p.Slug + "-" + hex.EncodeToString(sum[:])[:6]} {
+	for _, name := range []string{p.Slug, ownerRepo(p.Remote), hashed} {
 		if name == "" || !plainName(name) {
 			continue
 		}
@@ -122,12 +124,13 @@ func findArea(w *okfadapter.Wiki, p identity.Project) (area, error) {
 }
 
 // proves reports whether a now page with remote shows that folder name is
-// p's: by its remote, or for a project without one, by its own slug.
-func proves(p identity.Project, name, remote string) bool {
+// p's: by its remote, or for a project without one, by its own slug or
+// the slug with its hash, hashed.
+func proves(p identity.Project, name, hashed, remote string) bool {
 	if p.Remote != "" {
 		return remote == p.Remote
 	}
-	return name == p.Slug && remote == ""
+	return (name == p.Slug || name == hashed) && remote == ""
 }
 
 // nowRemote reads the remote a project folder's now page names, and reports
@@ -461,12 +464,20 @@ func readRules(w *okfadapter.Wiki, a area, general bool) (rulesPage, error) {
 	return rp, nil
 }
 
+// rulesSkip is a rules page a save left as it is, and why.
+type rulesSkip struct {
+	id, reason string
+	general    bool
+}
+
+func (s rulesSkip) String() string { return s.id + " (" + s.reason + ")" }
+
 // saveRules applies a pass's rule changes to the rules pages they touch,
 // each through the adapter's compare-and-swap and, on a conflict, read again
 // and applied again, at most twice. A page that is locked, verified or
 // damaged is left as it is, and skipped names it with its reason. It returns
 // the pages it wrote.
-func saveRules(w *okfadapter.Wiki, a area, pages rulesPages, ops []threadpage.RuleOp, f facts) (wrote []rulesPage, skipped []string, err error) {
+func saveRules(w *okfadapter.Wiki, a area, pages rulesPages, ops []threadpage.RuleOp, f facts) (wrote []rulesPage, skipped []rulesSkip, err error) {
 	for _, rp := range []rulesPage{pages.general, pages.project} {
 		if rp.id == "" || !slices.ContainsFunc(ops, func(op threadpage.RuleOp) bool { return op.General == rp.general }) {
 			continue
@@ -476,7 +487,7 @@ func saveRules(w *okfadapter.Wiki, a area, pages rulesPages, ops []threadpage.Ru
 		case err != nil:
 			return wrote, skipped, err
 		case skip != "":
-			skipped = append(skipped, rp.id+" ("+skip+")")
+			skipped = append(skipped, rulesSkip{id: rp.id, reason: skip, general: rp.general})
 		case saved:
 			wrote = append(wrote, rp)
 		}

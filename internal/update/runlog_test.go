@@ -52,6 +52,17 @@ func TestStartEffort(t *testing.T) {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.got)
 		}
 	}
+	// A run that fell back to the default after another model was refused
+	// dropped its effort flag for that model, so it leaves the default's
+	// start alone; a default run accepted without the flag still lowers it.
+	fallback := Record{At: at(1), Host: HostClaude, Model: "", ModelNote: NoteFallback + "claude-retired", Outcome: OutcomeOK, Effort: "max"}
+	if got := (runLog{fallback}).startEffort(claudeEfforts, "max", HostClaude, "", "2026-01-14"); got != "max" {
+		t.Errorf("after a fallback: %q, want max", got)
+	}
+	plain := Record{At: at(2), Host: HostClaude, Model: "", ModelNote: NoteDefaultModel, Outcome: OutcomeOK, Effort: "max"}
+	if got := (runLog{fallback, plain}).startEffort(claudeEfforts, "max", HostClaude, "", "2026-01-14"); got != "low" {
+		t.Errorf("default refused the flag: %q, want low", got)
+	}
 }
 
 // Backoff doubles from 5 minutes for each rate_limit, host_error,

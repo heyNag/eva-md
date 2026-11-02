@@ -634,3 +634,41 @@ func TestRerunAfterFailedSignatureToleratesDSStore(t *testing.T) {
 		t.Fatalf("committed .DS_Store:\n%s", files)
 	}
 }
+
+// A folder typed in another letter case than its parent has on disk is the
+// same folder on macOS: init makes the wiki there and records the case on
+// disk.
+func TestInitAcceptsAFolderTypedInAnotherCase(t *testing.T) {
+	o := fixture(t)
+	home := filepath.Dir(o.Dir)
+	if err := os.Mkdir(filepath.Join(home, "projects"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Projects")); err != nil {
+		t.Skip("the file system tells letter case apart")
+	}
+	o.Dir = filepath.Join(home, "Projects", "wiki")
+	if _, err := CheckFolder(o.Dir, o.Dirs); err != nil {
+		t.Fatalf("check folder: %v", err)
+	}
+	r, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	want := filepath.Join(home, "projects", "wiki")
+	if r.WikiPath != want {
+		t.Fatalf("wiki path %q, want %q", r.WikiPath, want)
+	}
+	c, err := config.Load(o.Dirs.ConfigFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.WikiPath != want {
+		t.Fatalf("config wiki path %q, want %q", c.WikiPath, want)
+	}
+	// The same answer again adopts the wiki the config names.
+	r2, err := Run(context.Background(), o)
+	if err != nil || !r2.Adopted || r2.Instance != r.Instance {
+		t.Fatalf("rerun: %+v %v", r2, err)
+	}
+}

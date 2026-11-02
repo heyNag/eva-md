@@ -236,10 +236,24 @@ func (pg page) set(c *okfadapter.Concept) {
 	if c.Extra == nil {
 		c.Extra = map[string]any{}
 	}
-	c.Extra["repos"], c.Extra["aliases"] = pg.repos, pg.aliases
+	c.Extra["repos"], c.Extra["aliases"] = flowList(pg.repos), flowList(pg.aliases)
 	c.Extra["as_of"], c.Extra["state"] = pg.asOf, fixed["state"]
 	c.StaleAfter = pg.staleAfter
 	c.Body = "\n" + pg.body + "\n\n" + MapLink + "\n"
+}
+
+// flowList is a list as okf writes a flow list. okf writes a []string under
+// a key a person wrote as a block it can't read as a list back as raw
+// lines, which no longer read as a list.
+func flowList(s []string) []any {
+	if s == nil {
+		return nil
+	}
+	out := make([]any, len(s))
+	for i, v := range s {
+		out[i] = v
+	}
+	return out
 }
 
 // saved is the page as okf saves it new, with the generated line okf adds

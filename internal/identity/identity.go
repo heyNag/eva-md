@@ -59,6 +59,15 @@ type Project struct {
 	Detached bool
 }
 
+// HashedSlug is the wiki folder a project's pages take when another
+// project already holds its slug: the slug, a dash and the first 6 hex
+// digits of the SHA-256 of its key. The update writes there, and the brief
+// and search look there.
+func (p Project) HashedSlug() string {
+	sum := sha256.Sum256([]byte(p.Key))
+	return p.Slug + "-" + hex.EncodeToString(sum[:])[:6]
+}
+
 // General returns the general area, used for folders outside any repo.
 func General() Project {
 	return Project{Kind: KindGeneral, Key: GeneralKey, Slug: GeneralKey, Branch: DefaultBranch}

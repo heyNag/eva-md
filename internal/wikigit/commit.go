@@ -81,8 +81,8 @@ type Result struct {
 // Commit commits the wiki's pages with the user's own signing settings and
 // pushes the commit (see Push). It refuses, with a reason and no commit, a
 // wiki whose origin or instance is not the config's, an index.lock (which it
-// never deletes), a rebase, merge or cherry-pick in progress and a detached
-// HEAD. It leaves out paths outside the wiki's pages, symlinks, JSONL, inbox
+// never deletes), a rebase, merge, cherry-pick or revert in progress,
+// unmerged paths and a detached HEAD. It leaves out paths outside the wiki's pages, symlinks, JSONL, inbox
 // and temporary files and any file whose added lines hold a secret,
 // recording their paths, and counts okf's validation errors without stopping
 // for them. With nothing to commit, it still pushes when HEAD is ahead of
@@ -242,8 +242,8 @@ func stage(ctx context.Context, o Options, r *Result, now time.Time) ([]string, 
 // reason: a wiki that is not a git clone of its own, an origin or a push URL
 // that is not the configured remote (compared as init compares them), an
 // instance in .eva-md/schema.toml that is not the config's, before a commit
-// an index.lock or a rebase, merge or cherry-pick in progress, and a
-// detached HEAD, where a commit would be on no branch and git can't push
+// an index.lock, a rebase, merge, cherry-pick or revert in progress or
+// unmerged paths, and a detached HEAD, where a commit would be on no branch and git can't push
 // HEAD.
 func guard(ctx context.Context, o Options, r *Result, now time.Time, committing bool) bool {
 	refuse := func(reason string) bool { r.Outcome, r.Reason = Refused, reason; return false }
@@ -252,7 +252,7 @@ func guard(ctx context.Context, o Options, r *Result, now time.Time, committing 
 	if info, err := os.Lstat(gitDir); !filepath.IsAbs(wiki) || err != nil || !info.IsDir() {
 		return refuse("wiki")
 	}
-	if !sameRemote(ctx, wiki, o.Config.ExpectedRemote) {
+	if !SameRemote(ctx, wiki, o.Config.ExpectedRemote) {
 		return refuse("origin")
 	}
 	schema, err := config.LoadSchema(filepath.Join(wiki, ".eva-md", "schema.toml"))
@@ -272,10 +272,17 @@ func guard(ctx context.Context, o Options, r *Result, now time.Time, committing 
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return refuse("index_lock")
 		}
-		for _, s := range []struct{ name, reason string }{{"rebase-merge", "rebase"}, {"rebase-apply", "rebase"}, {"MERGE_HEAD", "merge"}, {"CHERRY_PICK_HEAD", "cherry_pick"}} {
+		for _, s := range []struct{ name, reason string }{{"rebase-merge", "rebase"}, {"rebase-apply", "rebase"}, {"MERGE_HEAD", "merge"}, {"CHERRY_PICK_HEAD", "cherry_pick"}, {"REVERT_HEAD", "revert"}} {
 			if _, err := os.Lstat(filepath.Join(gitDir, s.name)); !errors.Is(err, fs.ErrNotExist) {
 				return refuse(s.reason)
 			}
+		}
+		// Unmerged paths, as a stash pop that conflicts leaves them with no
+		// state file: git add would mark them resolved, conflict markers and
+		// all.
+		var unmerged anyOutput
+		if err := run(ctx, GitTimeout, wiki, &unmerged, "ls-files", "--unmerged", "-z"); err != nil || unmerged {
+			return refuse("conflicts")
 		}
 	}
 	if _, err := Run(ctx, GitTimeout, wiki, "symbolic-ref", "--quiet", "HEAD"); err != nil {
@@ -284,9 +291,9 @@ func guard(ctx context.Context, o Options, r *Result, now time.Time, committing 
 	return true
 }
 
-// sameRemote reports whether the wiki's origin, and every URL it pushes to,
+// SameRemote reports whether the wiki's origin, and every URL it pushes to,
 // is the configured remote.
-func sameRemote(ctx context.Context, wiki, expected string) bool {
+func SameRemote(ctx context.Context, wiki, expected string) bool {
 	if expected == "" {
 		return false
 	}

@@ -186,7 +186,17 @@ func Read(c *okfadapter.Concept) (Entry, error) {
 	if okfadapter.SmugglesFrontmatter(e.body()) {
 		return Entry{}, fmt.Errorf("%w: a block in the body holds a frontmatter key okf refuses", ErrDamaged)
 	}
+	// okf's save refuses a title or description with a line break or ---,
+	// and the statement is written back as the description.
+	if refusedMeta(e.Title) || refusedMeta(e.Statement) {
+		return Entry{}, fmt.Errorf("%w: the title or statement holds a line break or the --- okf refuses", ErrDamaged)
+	}
 	return e, nil
+}
+
+// refusedMeta reports a title or description okf's save refuses.
+func refusedMeta(s string) bool {
+	return strings.ContainsAny(s, "\r\n") || strings.Contains(s, "---")
 }
 
 // readDamaged models a page Read calls damaged whose frontmatter it reads,

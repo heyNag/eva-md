@@ -10,7 +10,7 @@ Capture, resume and wiki updates are built: the background update job and its tr
 - [docs/design.md](docs/design.md): the source of truth for behaviour.
 - [docs/decisions.md](docs/decisions.md): the agreed decisions. Don't reopen them without a strong reason.
 - [docs/verification.md](docs/verification.md): how behaviour is checked, automatically and live.
-- [docs/known-limitations.md](docs/known-limitations.md): what does not work yet.
+- [docs/known-limitations.md](docs/known-limitations.md): what eva-md doesn't do, or doesn't do well: gaps still open, limits it keeps by design, and limits of the hosts and tools it runs on.
 
 ## Layout
 

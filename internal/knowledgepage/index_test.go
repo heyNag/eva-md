@@ -272,3 +272,61 @@ func TestLenientHandEdits(t *testing.T) {
 		}
 	}
 }
+
+// A page a person edited so that its statement has no tag, or so that no
+// statement line is left and the description stands in, is damaged for
+// writes but stays in the recall index: read-only, with no tag. Its readers
+// recall it and list it as a constraint, while a writable row with no tag is
+// still refused.
+func TestATaglessPageStaysInRecall(t *testing.T) {
+	w := fixture(t)
+	save(t, w, meta(),
+		Op{Action: Add, Kind: Constraint, Title: "Ledger freeze", Text: "Never change the ledger schema during the audit", Tag: "stated", Refs: []string{"s:3f2a91c0#1"}, At: at1},
+		Op{Action: Add, Kind: Fact, Title: "Invoice rounding", Text: "Invoices round line amounts half to even", Tag: "stated", Refs: []string{"s:3f2a91c0#2"}, At: at1})
+	statement := func(id int, text string) string {
+		t.Helper()
+		for _, l := range strings.Split(readFile(t, w, Folder+"/"+Name(id)+".md"), "\n") {
+			if strings.HasPrefix(l, text+" [stated]") {
+				return l
+			}
+		}
+		t.Fatalf("k%d has no statement line %q", id, text)
+		return ""
+	}
+	edit(t, w, 1, statement(1, "Never change the ledger schema during the audit"), "Never change the ledger schema during the audit")
+	edit(t, w, 2, statement(2, "Invoices round line amounts half to even")+"\n", "")
+	for _, id := range []int{1, 2} {
+		pg, err := w.Read(Ref(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Read(pg.Concept); !errors.Is(err, ErrDamaged) {
+			t.Fatalf("k%d after the edit reads as %v, want damaged", id, err)
+		}
+	}
+	if _, err := Refresh(w, "test", true); err != nil {
+		t.Fatal(err)
+	}
+	rows := ParseIndex([]byte(readFile(t, w, IndexFile)))
+	want := map[string]string{"k1": "Never change the ledger schema during the audit", "k2": "Invoices round line amounts half to even"}
+	if len(rows) != 2 {
+		t.Fatalf("recall index rows = %+v", rows)
+	}
+	for _, r := range rows {
+		if !r.ReadOnly || r.Tag != "" || r.Statement != want[r.ID] {
+			t.Errorf("row %+v, want read-only with no tag and the statement %q", r, want[r.ID])
+		}
+	}
+	if got := Recall(rows, "can I change the ledger schema while the audit runs?", project, nil); len(got) != 1 || got[0].ID != "k1" {
+		t.Errorf("recall = %+v, want k1", got)
+	}
+	if got := Constraints(rows, project); len(got) != 1 || got[0].ID != "k1" {
+		t.Errorf("constraints = %+v, want k1", got)
+	}
+	for access, n := range map[string]int{"": 0, "read-only": 1} {
+		line := "k9\tfact\t\tproject\t" + project + "\t2026-10-28\t\t" + access + "\tTitle\tA statement\t"
+		if got := ParseIndex([]byte("# eva-md knowledge index 1\n" + line + "\n")); len(got) != n {
+			t.Errorf("a row with no tag and access %q gives %d rows, want %d", access, len(got), n)
+		}
+	}
+}

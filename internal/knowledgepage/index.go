@@ -141,14 +141,16 @@ func ParseIndex(data []byte) []Row {
 	return out
 }
 
-// parseRow reads one row of the recall index.
+// parseRow reads one row of the recall index. A read-only row may have no
+// tag: a person who edits a page can take its statement's tag away, and the
+// page stays recalled, read-only, as it reads leniently.
 func parseRow(l string) (Row, bool) {
 	f := strings.Split(l, "\t")
 	if len(f) != 11 {
 		return Row{}, false
 	}
 	r := Row{ID: f[0], Kind: f[1], Tag: f[2], Scope: f[3], Project: f[4], AsOf: f[5], Title: f[8], Statement: f[9]}
-	if _, ok := ParseID(r.ID); !ok || !kinds[r.Kind] || !tags[r.Tag] || !scopes[r.Scope] || r.Project == "" || !day(r.AsOf) || r.Title == "" || r.Statement == "" {
+	if _, ok := ParseID(r.ID); !ok || !kinds[r.Kind] || !tags[r.Tag] && r.Tag != "" || !scopes[r.Scope] || r.Project == "" || !day(r.AsOf) || r.Title == "" || r.Statement == "" {
 		return Row{}, false
 	}
 	if f[6] != "" {
@@ -163,6 +165,9 @@ func parseRow(l string) (Row, bool) {
 	case readOnly:
 		r.ReadOnly = true
 	default:
+		return Row{}, false
+	}
+	if r.Tag == "" && !r.ReadOnly {
 		return Row{}, false
 	}
 	for p := range strings.SplitSeq(f[10], ",") {

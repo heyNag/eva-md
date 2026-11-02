@@ -23,6 +23,7 @@ import (
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/systempage"
+	"github.com/heyNag/eva-md/internal/wikigit"
 )
 
 type Check struct {
@@ -243,13 +244,15 @@ func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, 
 	}
 	p, e := identity.Resolve(ctx, c.WikiPath)
 	gitInfo, gitErr := os.Lstat(filepath.Join(c.WikiPath, ".git"))
-	expected, valid := identity.NormalizeRemote(c.ExpectedRemote)
-	// init saves the normalized identity, not necessarily a transport URL.
-	// Accept an exact match with the identity already validated by Resolve.
-	if !valid && p.Remote != "" && c.ExpectedRemote == p.Remote {
-		expected, valid = p.Remote, true
+	// init saves the remote's identity, such as github.com/me/wiki or the
+	// file:// URL of a local remote; a transport URL names the same repo.
+	// The origin and its push URLs are checked as the daily commit checks
+	// them.
+	expected := c.ExpectedRemote
+	if id, ok := identity.NormalizeRemote(expected); ok {
+		expected = id
 	}
-	if e != nil || p.Root != c.WikiPath || !valid || p.Remote != expected || gitErr != nil || !gitInfo.IsDir() {
+	if e != nil || p.Root != c.WikiPath || gitErr != nil || !gitInfo.IsDir() || !wikigit.SameRemote(ctx, c.WikiPath, expected) {
 		r.add("wiki remote", "FAIL", "standalone repository or remote does not match", "restore the configured wiki origin")
 	} else {
 		r.add("wiki remote", "PASS", "standalone repository and expected origin match", "")

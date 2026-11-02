@@ -94,7 +94,11 @@ func recallLine(r knowledgepage.Row) string {
 	if r.Scope == knowledgepage.ScopeAll {
 		scope = "all projects"
 	}
-	line := plain(r.ID + " · " + r.Kind + " [" + r.Tag + "] · " + scope + " · " + r.AsOf + ": " + r.Statement)
+	kind := r.Kind
+	if r.Tag != "" {
+		kind += " [" + r.Tag + "]"
+	}
+	line := plain(r.ID + " · " + kind + " · " + scope + " · " + r.AsOf + ": " + r.Statement)
 	if wikigit.SecretLines(line) != nil || resume.AsShown(line) == "" {
 		return ""
 	}

@@ -690,10 +690,12 @@ func configuredProblem(ctx context.Context, c config.Config) (problem, absent st
 
 // setupGitTimeout bounds each git command setup runs to read a folder or a
 // repo, and peekCloneTimeout the shallow clone peekRemote reads a repo
-// from. Tests raise them before any test runs.
+// from, and signingTimeout the reading of git's signing settings. Tests
+// raise them before any test runs.
 var (
 	setupGitTimeout  = 10 * time.Second
 	peekCloneTimeout = 2 * time.Minute
+	signingTimeout   = 5 * time.Second
 )
 
 // originID is the identity of a clone's origin, as the config records a
@@ -778,8 +780,13 @@ func otherRepo(ctx context.Context, folder string) string {
 }
 
 // dirty reports whether the clone in folder has changes git hasn't
-// committed, which init refuses to adopt.
+// committed, which init refuses to adopt. A wiki with no commit yet, whose
+// first commit failed, is not dirty: init checks its scaffold and commits it
+// again.
 func dirty(ctx context.Context, folder string) bool {
+	if _, err := wikigit.Run(ctx, setupGitTimeout, folder, "rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
+		return false
+	}
 	status, err := wikigit.Run(ctx, setupGitTimeout, folder, "status", "--porcelain", "--untracked-files=all")
 	return err == nil && status != ""
 }
@@ -1011,12 +1018,13 @@ func firstCommit(ctx context.Context, dir string) (author string, signed bool, e
 
 // gitSigning reports the commit signing format git uses from the home
 // folder, or "" when signing is off. It reads only git's settings, never key
-// material.
+// material. commit.gpgsign is read as git reads a boolean, so yes, on, 1 and
+// a key with no value are true.
 func gitSigning(ctx context.Context, home string) string {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, signingTimeout)
 	defer cancel()
-	get := func(key string) string {
-		cmd := exec.CommandContext(ctx, "git", "config", "--get", key)
+	get := func(args ...string) string {
+		cmd := exec.CommandContext(ctx, "git", append([]string{"config", "--get"}, args...)...)
 		cmd.Dir = home
 		b, err := cmd.Output()
 		if err != nil {
@@ -1024,7 +1032,7 @@ func gitSigning(ctx context.Context, home string) string {
 		}
 		return strings.TrimSpace(string(b))
 	}
-	if !strings.EqualFold(get("commit.gpgsign"), "true") {
+	if get("--type=bool", "commit.gpgsign") != "true" {
 		return ""
 	}
 	if format := get("gpg.format"); format != "" {

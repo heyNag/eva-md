@@ -52,8 +52,11 @@ const (
 
 // NoteDefaultModel is the ModelNote of a run without a model flag because the
 // chat's model is unknown. A run that fell back to the host default after a
-// rejected model gets "fallback from <model>" instead.
-const NoteDefaultModel = "default (chat model unknown)"
+// rejected model gets NoteFallback and the model instead.
+const (
+	NoteDefaultModel = "default (chat model unknown)"
+	NoteFallback     = "fallback from "
+)
 
 // The timeout grows with the effort's place in the host's table.
 const (
@@ -193,7 +196,7 @@ func (c cliRunner) Run(ctx context.Context, r Request) (Result, error) {
 			t.effort = ""
 		case a.reason == ReasonModelRejected && t.model != "":
 			t.model = ""
-			res.Model, res.ModelNote = "", "fallback from "+r.Model
+			res.Model, res.ModelNote = "", NoteFallback+r.Model
 		default:
 			res.Output, res.Reason = a.output, a.reason
 			if a.reason == "" {

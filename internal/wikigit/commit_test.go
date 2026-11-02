@@ -212,7 +212,8 @@ func TestGuardsRefuse(t *testing.T) {
 	for _, tc := range []struct{ name, reason string }{
 		{"wrong origin", "origin"}, {"wrong push URL", "origin"}, {"wrong instance", "instance"}, {"newer schema", "schema"},
 		{"index.lock", "index_lock"}, {"rebase in progress", "rebase"}, {"merge in progress", "merge"},
-		{"cherry-pick in progress", "cherry_pick"}, {"detached HEAD", "detached"},
+		{"cherry-pick in progress", "cherry_pick"}, {"revert in progress", "revert"},
+		{"conflicts from a stash pop", "conflicts"}, {"detached HEAD", "detached"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -255,6 +256,27 @@ func TestGuardsRefuse(t *testing.T) {
 			case "cherry-pick in progress":
 				if err := os.WriteFile(filepath.Join(f.wiki, ".git", "CHERRY_PICK_HEAD"), []byte(head+"\n"), 0o600); err != nil {
 					t.Fatal(err)
+				}
+			case "revert in progress":
+				if err := os.WriteFile(filepath.Join(f.wiki, ".git", "REVERT_HEAD"), []byte(head+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "conflicts from a stash pop":
+				// A stash pop that conflicts leaves unmerged paths and no
+				// state file; git add would commit their conflict markers.
+				f.write(t, "general/zz.md", "# Zz\n\nfirst\n")
+				git(t, f.wiki, "add", "general/zz.md")
+				git(t, f.wiki, "commit", "--quiet", "-m", "first")
+				f.write(t, "general/zz.md", "# Zz\n\nstashed\n")
+				git(t, f.wiki, "stash", "--quiet")
+				f.write(t, "general/zz.md", "# Zz\n\ncommitted\n")
+				git(t, f.wiki, "commit", "--quiet", "-am", "second")
+				head = git(t, f.wiki, "rev-parse", "HEAD")
+				if _, err := wikigit.Run(context.Background(), testLimit, f.wiki, "stash", "pop", "--quiet"); err == nil {
+					t.Fatal("the stash popped without a conflict")
+				}
+				if git(t, f.wiki, "ls-files", "--unmerged") == "" {
+					t.Fatal("no unmerged paths")
 				}
 			case "detached HEAD":
 				git(t, f.wiki, "checkout", "--quiet", "--detach")

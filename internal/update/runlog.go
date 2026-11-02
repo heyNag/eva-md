@@ -409,7 +409,9 @@ func (l runLog) quarantined(host, session string) string {
 // refused steps on every run, and a later run at a higher one replaces it;
 // a run that asked for that start and was refused again lowers it further.
 // A run accepted only without the effort flag starts the next at the
-// table's lowest entry, the closest a request can come to no flag.
+// table's lowest entry, the closest a request can come to no flag. A run
+// that fell back to the host default after its model was refused is passed
+// over: it dropped the effort flag for the refused model, not the default.
 func (l runLog) startEffort(levels []string, want, host, model, date string) string {
 	w := slices.Index(levels, want)
 	if w < 0 {
@@ -417,7 +419,7 @@ func (l runLog) startEffort(levels []string, want, host, model, date string) str
 	}
 	s := w
 	for _, r := range l {
-		if r.Host != host || r.Model != model || !success(r) || day(r.At) != date {
+		if r.Host != host || r.Model != model || !success(r) || day(r.At) != date || strings.HasPrefix(r.ModelNote, NoteFallback) {
 			continue
 		}
 		asked, used := slices.Index(levels, r.Effort), slices.Index(levels, r.EffortUsed)

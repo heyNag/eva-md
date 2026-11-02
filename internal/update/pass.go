@@ -368,9 +368,9 @@ func (r *run) stop(reason string) {
 // pages, and reports whether the drain goes on. The knowledge pages, then
 // the rules pages, are saved before the thread page, so a save that fails
 // leaves the thread page for the pass that runs the batch again, whose
-// knowledge and rule changes then find themselves on file. A knowledge
-// change the save passes over, such as one on a page a person locked, is
-// logged and leaves no Timeline line. The watermark moves to exactly the
+// knowledge and rule changes then find themselves on file. A knowledge or
+// rule change the save passes over, such as one on a page a person locked,
+// is logged and leaves no Timeline line. The watermark moves to exactly the
 // end of the batch once the output validates, whether or not a page
 // changed, and only after the pages' folders are synced when they did. It
 // is saved as it stands before the call, so a watermark that can't be saved
@@ -423,6 +423,8 @@ func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 	if err != nil {
 		return r.saveFailed(c, p, rec, err, retry)
 	}
+	report.Rules.settle(u.Rules, kept)
+	u.Events = withoutRuleTrails(u.Events, u.Rules, kept)
 	changed, wrote, skip, err := saveThread(r.w, p.area, p.thread, u, f)
 	switch {
 	case skip != "":

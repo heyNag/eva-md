@@ -3,6 +3,7 @@ package paths
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"syscall"
 )
@@ -17,7 +18,13 @@ func TryLock(dir, name string) (unlock func(), busy bool, err error) {
 		return nil, false, fmt.Errorf("lock folder: %w", err)
 	}
 	defer root.Close()
-	f, err := root.OpenFile(name, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	// The lock is created with O_EXCL, then opened as it is when it exists:
+	// on macOS, callers that create the same file through os.Root without
+	// O_EXCL at once can get ENOENT, not the lock or busy.
+	f, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		f, err = root.OpenFile(name, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	}
 	if err != nil {
 		return nil, false, fmt.Errorf("lock: %w", err)
 	}

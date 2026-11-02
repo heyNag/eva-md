@@ -391,3 +391,17 @@ func TestRecallBlockFits(t *testing.T) {
 		t.Fatalf("fence\n%s", block)
 	}
 }
+
+// A row with no tag, from a page a person edited so, is shown without one;
+// a tagged row shows its tag after its kind.
+func TestRecallLineWithoutATag(t *testing.T) {
+	r := knowledgepage.Row{ID: "k1", Kind: knowledgepage.Constraint, Scope: knowledgepage.ScopeProject, Project: "general", AsOf: "2026-10-28",
+		Title: "Ledger freeze", Statement: "Never change the ledger schema during the audit", ReadOnly: true}
+	if got := recallLine(r); got != "k1 · constraint · general · 2026-10-28: Never change the ledger schema during the audit" {
+		t.Errorf("no tag: %q", got)
+	}
+	r.Tag = "stated"
+	if got := recallLine(r); got != "k1 · constraint [stated] · general · 2026-10-28: Never change the ledger schema during the audit" {
+		t.Errorf("tagged: %q", got)
+	}
+}

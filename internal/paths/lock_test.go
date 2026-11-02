@@ -1,8 +1,10 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -39,5 +41,36 @@ func TestSearchIndexIsUnderTheCache(t *testing.T) {
 	d := Dirs{State: "/state"}
 	if got := d.SearchIndex(); got != filepath.Join(d.Cache(), "search") || got != "/state/cache/search" {
 		t.Fatalf("SearchIndex() = %q", got)
+	}
+}
+
+// Callers that create the same new lock at once each get the lock or busy,
+// never an error: on macOS, creating a file through os.Root without O_EXCL
+// can fail with ENOENT for the one that loses the race.
+func TestTryLockOnANewLockIsTakenOrBusy(t *testing.T) {
+	isolate(t)
+	dir := filepath.Join(t.TempDir(), "locks")
+	for i := 0; i < 500; i++ {
+		name := fmt.Sprintf("new-%d.lock", i)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for worker := 0; worker < 8; worker++ {
+			wg.Go(func() {
+				<-start
+				unlock, _, err := TryLock(dir, name)
+				if err != nil {
+					t.Errorf("%s: %v", name, err)
+					return
+				}
+				if unlock != nil {
+					unlock()
+				}
+			})
+		}
+		close(start)
+		wg.Wait()
+		if t.Failed() {
+			return
+		}
 	}
 }

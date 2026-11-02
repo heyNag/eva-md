@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -464,6 +465,40 @@ func TestToolActivityHeuristic(t *testing.T) {
 	}
 	if got := activity(h, "/repo"); !strings.HasSuffix(got, "\nFiles edited, newest first: f6.go, f5.go, f4.go, f3.go, f2.go") {
 		t.Fatalf("files: %q", got)
+	}
+}
+
+// A project without a remote is found in its own folder or in the folder
+// with its key's hash, which the update takes when another project holds the
+// plain name, and never in another project's folder of that name.
+func TestBriefFindsALocalProjectsHashedFolder(t *testing.T) {
+	o := fixture(t)
+	o.Project = identity.Project{Kind: identity.KindLocal, Key: "local-orders-1a2b3c", Slug: "orders-1a2b3c", Root: o.Project.Root, Branch: "main"}
+	if err := okfadapter.Init(o.Config.WikiPath); err != nil {
+		t.Fatal(err)
+	}
+	w, err := okfadapter.Open(o.Config.WikiPath, o.Dirs.Locks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashed := o.Project.HashedSlug()
+	thread := func(item string) *okfadapter.Concept {
+		return &okfadapter.Concept{Type: "thread", Title: "Main", Extra: map[string]any{"as_of": o.Now.Format(time.RFC3339), "branch": "main"},
+			Body: "## Now\n<!-- eva:now:start -->\n### Next\n- " + item + " · s:local001#1\n<!-- eva:now:end -->\n"}
+	}
+	for id, c := range map[string]*okfadapter.Concept{
+		"projects/orders-1a2b3c/now":           {Type: "now", Title: "Orders", Extra: map[string]any{"remote": "github.com/acme/orders-1a2b3c"}, Body: "[main](threads/main.md)"},
+		"projects/orders-1a2b3c/threads/main":  thread("OTHER-NOW"),
+		"projects/" + hashed + "/now":          {Type: "now", Title: "Orders", Body: "[main](threads/main.md)"},
+		"projects/" + hashed + "/threads/main": thread("OWN-NOW"),
+	} {
+		if err := w.Create(id, c, "eva-md/test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := Build(context.Background(), o)
+	if err != nil || r.Slug != hashed || !strings.Contains(r.Text, "OWN-NOW") || strings.Contains(r.Text, "OTHER-NOW") {
+		t.Fatalf("brief %+v, %v", r, err)
 	}
 }
 

@@ -29,7 +29,7 @@ func TestMain(m *testing.M) {
 	mcp.Slack = time.Minute
 	resumeTimeout, installTimeout, checkTimeout = testlimits.Long, testlimits.Long, testlimits.Long
 	passTime, showTime, showCall = testlimits.Long, testlimits.Long, testlimits.Long
-	setupGitTimeout, peekCloneTimeout = testlimits.Long, testlimits.Long
+	setupGitTimeout, peekCloneTimeout, signingTimeout = testlimits.Long, testlimits.Long, testlimits.Long
 	repoCLITimeout, repoCLIWaitDelay, probeTimeout = testlimits.Long, testlimits.Long, testlimits.Long
 	cliTimer = heldCLITimer
 	os.Exit(m.Run())

@@ -448,19 +448,23 @@ func Load(state string, limit int64) (Report, bool, error) {
 
 // Merge returns old with r's pages in place of its own, as a pass over some
 // of the pages leaves the file: old's time, its other pages and its counts
-// of the whole wiki stay.
+// of the whole wiki stay. A page r couldn't read loses its old entry and is
+// listed unreadable.
 func Merge(old, r Report) Report {
+	passed := func(slug string) bool {
+		return slices.Contains(r.Unreadable, slug) || slices.ContainsFunc(r.Pages, func(q PageStatus) bool { return q.Slug == slug })
+	}
 	out := old
 	out.Pages = nil
 	for _, p := range old.Pages {
-		if !slices.ContainsFunc(r.Pages, func(q PageStatus) bool { return q.Slug == p.Slug }) {
+		if !passed(p.Slug) {
 			out.Pages = append(out.Pages, p)
 		}
 	}
 	out.Pages = append(out.Pages, r.Pages...)
 	slices.SortFunc(out.Pages, func(a, b PageStatus) int { return strings.Compare(a.Slug, b.Slug) })
-	out.Unreadable = slices.DeleteFunc(slices.Clone(old.Unreadable), func(s string) bool {
-		return slices.ContainsFunc(r.Pages, func(q PageStatus) bool { return q.Slug == s })
-	})
+	out.Unreadable = append(slices.DeleteFunc(slices.Clone(old.Unreadable), passed), r.Unreadable...)
+	slices.Sort(out.Unreadable)
+	out.Unreadable = slices.Compact(out.Unreadable)
 	return out
 }

@@ -1,6 +1,6 @@
 # Known limitations
 
-These are open problems in eva-md as the code stands: capture, resume, search and its index, wiki updates, system pages and their code status, standing rules, knowledge pages and recall, pointers, the daily commit and push, setup, install, the MCP server and the health check. Parts still planned are described in [design.md](design.md), not here. What has been verified is in [verification.md](verification.md); the background update, the daily commit, system pages and their code status, standing rules, knowledge pages and recall, pointers and the MCP server are checked offline only.
+These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps still open, limits it keeps by design (design.md and decisions.md give the reasons), limits of the hosts, okf, git and macOS, and host behaviour not yet observed live. They cover capture, resume, search and its index, wiki updates, system pages and their code status, standing rules, knowledge pages and recall, pointers, the daily commit and push, setup, install, the MCP server and the health check. Parts still planned are described in [design.md](design.md), not here. What has been verified is in [verification.md](verification.md); the background update, the daily commit, system pages and their code status, standing rules, knowledge pages and recall, pointers and the MCP server are checked offline only.
 
 ## Redaction
 
@@ -23,28 +23,35 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - The brief judges a program's chat on its whole session file only when the last MiB it reads holds the file's first line, so a program's chat whose file is longer than that can still be picked as the previous chat or by lineage.
 - The update passes over a program's chat that its catch-up record doesn't mark, as when the record is missing or can't be read, only once its window, 64 MiB at most, reaches the end of the file. A longer backlog waits, as before, with no model call and its watermark where it was; another chat's start can keep taking it in its catch-up, and each such job reads that 64 MiB window again. A marked chat with no typed prompt before the watermark or in its window is passed over that window even if a person types later in the file.
 - An MCP tool line keeps its string and number arguments only up to the line's 200 characters, and leaves out a value over 1 KiB. Arguments, and a fetched URL's query parameters, are left out by name: a credential under a name that says nothing of it, such as `x=`, is kept unless redaction catches its value, and an innocent one named like a credential, such as `sessionId`, is left out.
+- A hook payload over 2 MiB is dropped whole. A PostToolUse payload carries the tool's output, so a tool call with a very large output leaves no tool line. A prompt that large is never stored either: transcript recovery keeps no row over 1 MiB, so where the session has a transcript it writes `gap: transcript record too large` in its place. Without one, nothing marks the loss.
 
 ## Transcript recovery
 
 - Start-of-chat catch-up looks at the 256 most recently updated of at most 4,096 recovery records per host, and records are never pruned. Past 4,096 records it can miss this project's abandoned chats, including the newest one.
 - Duplicate suppression uses the turn id or, without one, the text and its timestamp. A recovered final reply over 48 KiB that has no turn id can be stored twice.
 - Going off the record moves the recovery cursor to the end of the transcript first. On-record replies that had not been recovered yet are lost.
-- While a recovery pass is still behind, a hook stores only its event's name, as off-the-record mode does, because the unread rows may hold an off-the-record request. A tool line, a host compaction summary or a compact or first-prompt brief arriving then is dropped without a gap marker.
+- After a chat has been off the record, its compaction summaries are not stored until a new chat start or /clear (a SessionStart whose source is startup or clear), even a summary made after going back on the record that covers on-record work. A resumed chat keeps the mark, and so does a startup or clear start that arrives while recovery is behind.
+- While a recovery pass is still behind, a hook stores only its event's name, as off-the-record mode does, because the unread rows may hold an off-the-record request. A tool line or a host compaction summary arriving then is dropped without a gap marker. A chat start or first prompt then gets no brief, of any kind, and a SessionEnd or PreCompact asks for no update; a later chat start's catch-up takes that backlog.
 - Recovered Claude Code prompts are recognised by their `promptId` field. If a host version stopped writing it, typed prompts would no longer be recovered from transcripts; the hook would still capture them.
 - The drift alarm catches only a total failure, where recovery recognizes none of a chat's rows. A format change that breaks only prompts (such as a missing `promptId`) or only replies isn't flagged, and a changed Codex `session_meta` stops recovery as an identity mismatch with no drift signal.
 - A drift record stays until that host's recovery recognizes a row again. It is safe to delete.
+- When a chat's branch, folder or project changes, or its transcript file is replaced, or truncated or rewritten in place so that it is shorter than the cursor, recovery starts again at the transcript's end as it stands. Rows it had not read yet, such as a reply the hooks missed just before a branch switch, are never recovered. A shorter transcript is noticed only when a hook registers the chat, at most once per 10 seconds for an unchanged registration; until then a pass fails and the hook takes the chat as caught up.
+- A transcript rewritten in place that is already as long as the cursor, or longer, when it is next registered is not noticed: recovery resumes at the old byte offset.
+- Rows of a Codex turn in a folder other than the registered one are never recovered, though a record control in them is honoured.
+- A session whose hook payloads name no transcript, which Codex can send, gets no transcript recovery: what its hooks miss is lost.
 
 ## Resume brief
 
-- The startup brief decodes the last MiB of each of the 64 most recently changed session files in the project. When about 64 recent chats each exceed 1 MiB, it takes about 325 ms, over its 300 ms target (the SessionStart deadline is 1.5 s).
+- The startup brief decodes the last MiB of each of the 64 most recently changed session files in the project, in the general area too, where it decodes none changed more than 12 hours ago. When about 64 recent chats each exceed 1 MiB, it takes about 325 ms, over its 300 ms target (the SessionStart deadline is 1.5 s).
+- When a branch's last MiB shows no work, the scan of the bytes before it can run to their end if that branch never worked there, even when another branch did. It is still one pass over those bytes, decoding only the branch field of lines that hold a work pattern.
 - The briefed marker is saved only with 20 ms to spare before the hook's deadline. If its rename and folder sync take longer than that, as they can when the disk is very busy, the brief is lost and not retried.
 - The tool activity line is a heuristic. It reports a test or build command only when the stored command starts with one of the listed commands, so `cd pkg && go test` or a test run through a script is missed, and it reads only the tool lines in the chat's last MiB.
 - The opening request and the earlier chats' first prompts come from the first 64 KiB of each session file. A first prompt that doesn't end within it, such as a paste of over 64 KiB, is not shown, and an off_record event before a chat's first prompt hides it even when the chat was back on the record by then.
 - Codex's 6,000-character cap assumes ordinary text. A brief mostly in a script that takes about one token per character, such as Chinese or Japanese, can pass the 3,000-token limit the plugin sets.
-- Refresh, resume and fork briefs repeat everything instead of only what changed: a refresh shows the whole Now again, and a dirty tree or an old stash makes every resume brief non-empty. A chat gets at most 2 refreshes, its compactions included, so a third update in it waits for a /clear, a new chat or `eva-md show`.
+- Refresh, resume and fork briefs repeat everything instead of only what changed: a refresh shows the whole Now again, and a dirty tree or an old stash makes every resume brief non-empty. A chat gets at most 2 refreshes, its compactions included, so a third update in it waits for a /clear, a resume of the chat, a new chat or `eva-md show`.
 - A refresh looks for the thread page only in the wiki folder the chat's brief found for the project, or in the project's own. A folder under another name (as after a slug collision) that appears only after the brief is found by the next brief, not by a refresh.
 - The footer is cut at 450 characters. With a long wiki path, branch name or binary path it leaves out the grep fallback first, then the thread id.
-- Source refs such as `s:<8 characters>#<line>` use the first 8 characters of the session id, and Codex ids are time-ordered, so two can share them. A ref is written with the full id when another session already shares its 8 characters; one written before such a session appeared can turn ambiguous later. `eva-md show` then reports it as ambiguous, and the full session id in its place resolves it.
+- Source refs such as `s:<8 characters>#<line>` use the first 8 characters of the session id, and Codex ids are time-ordered, so two can share them. Search and the update write the full id when another session already shares its 8 characters, but the brief always writes the short ref. A short ref, and one written before such a session appeared, can be ambiguous. `eva-md show` then reports it as ambiguous, and the full session id in its place resolves it.
 - The brief's system pointers match a system's repos against this project only, not what the chat is about. They are the first 3 matches in the map's slug order, and a long binary path leaves room for fewer.
 - The system map is as current as the last `eva-md system write`.
 - The brief counts only the commits of the project's own repo that a system cites, against the worktree's HEAD, so on a feature branch far behind main, code main changed reads as unchanged. Near its deadline, or when a count takes over 60 ms, it shows the page's day instead.
@@ -54,7 +61,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 ## Search
 
 - Without a search index, as before the first daily maintain or `eva-md index`, `eva-md search` scans every file, so `--all` over a long history can take seconds: a term on every line costs about 0.25 s per 50 MB. At the 5-second limit the scan stops, prints what it found and says it was cut short; newer files are scanned first. A search the index finds nothing for costs that full scan too.
-- In files the index covers, a term is found as a whole token or at the start of a token or of one of its camelCase or digit parts, from 3 characters; a shorter term only as a whole token. A match inside a word, such as `a<b` in `data<base`, or in text written without spaces, such as Chinese or Japanese, is found by the scan alone: in a file's newest, unindexed lines always, in indexed files only when the index finds nothing at all. Next to any other hit, such a match goes unseen.
+- In files the index covers, a term is found as a whole token or at the start of a token or of one of its camelCase or digit parts, from 3 characters; a shorter term only as a whole token. A run of more than 8 parts, such as a long test name, is indexed only whole, and a run over 64 bytes not at all. A match inside a word, such as `a<b` in `data<base`, or in text written without spaces, such as Chinese or Japanese, is found by the scan alone: in a file's newest, unindexed lines always; in indexed files when nothing else matched at all, page lines and newest lines included, or, for a phrase, a short term or a term with other characters, when the candidates read again held fewer hits than `--limit` while more remained. Otherwise, next to any other hit, such a match goes unseen.
 - A word of 3 or more characters matches at most the 256 tokens it starts that are in the most lines; a line holding only rarer ones is found only by the scan when the index finds nothing.
 - The exact-case or phrase tier is judged on the line itself, among the 200 best-scored candidates of the index (8 × `--limit` past 25). For a common word typed in capitals, a rarer hit in that case past them can rank below the others or be left out.
 - With a phrase, a term of 1 or 2 characters or one holding other characters than letters and digits, the count of candidates past those read again says "about N more": some may not match.
@@ -66,7 +73,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - A query with more than 32 tokens, or a term with no letter or digit or with a run of them over 64 bytes, is searched by the scan alone.
 - A config with a wiki path but no instance starts no daily maintain, so its index waits for `eva-md index`.
 - Search reads a thread page's Now items and Timeline lines, not its summary or Last chat.
-- A project folder in the wiki whose now page is missing or unreadable is not searched; the trailer names it.
+- Without `--all`, the project's folder in the wiki is found through its now page; when that page is missing or unreadable, the folder is not searched, and the trailer names the project's own folder if it holds threads. `--all` searches every project folder.
 - On `--all`, a page hit shows its wiki folder, not the project key an inbox hit shows; a system page hit shows `systems`.
 - Search judges each page line on its own, as the page writers and the daily commit's scan do. A snippet can therefore show a value that `eva-md show` of the whole page redacts, because a line before it makes it look like a secret.
 - `eva-md show <page>#Timeline` and `#<YYYY-MM-DD>` read the whole page once, line by line with bounded memory (a few milliseconds for 3 MB), because a day can be filed out of order.
@@ -77,12 +84,13 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - `--all` reads every project folder in the inbox, including a project excluded in the config after its chats were captured. Excluding a project stops capture; it does not remove earlier captures.
 - The default scope includes the general area for the whole window, while the brief only counts a general-area chat less than 12 hours old.
 - A path is read in the project's repo, so in another project's folder a relative path finds a page citing that folder only with `--all`. An absolute path outside the project's worktree, such as one through a symlink to it or in another clone, is matched by its end, so a folder of the same name that another repo's page cites is found too.
+- In a folder the config excludes, `eva-md search` prints nothing and exits 0, even with `--all`, so other projects can't be searched from there, and the empty output reads like no matches.
 
 ## System pages
 
 - A system page is only as accurate as the agent's digest, and pages record names, not meaning.
 - Nothing refreshes a page when its sources change. The versions and commits its sources cite let a later digest see what changed.
-- The check for credentials in a source URL reads query parameter names only, so a credential under another name, or in the `#` fragment, gets through.
+- The check for credentials in a source URL refuses a user name or password, and otherwise reads query parameter names only. A credential under another name, in the path or in the `#` fragment, gets through unless the secret scan every page gets flags its value.
 - A link to a system that has no page yet is refused until that page is written.
 - `eva-md show` of a page's last section includes the map link line.
 - A system write interrupted between its files leaves the map or the folder index stale, and a new page orphaned, until the next system write.
@@ -91,13 +99,14 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - A cited commit that is not on the clone's HEAD, as one from another branch, is counted since the commit the two have in common.
 - A path cited with a typo, on a page written while no clone could check it, is reported as `cites a path its commit lacks` once a pass measures it.
 - With git older than 2.44, measuring code and the brief's live git in a partial clone fail rather than fetch, so they read as not checked (`git failed`) or as `Live git: unknown`. eva-md decides a clone may be partial from that clone's own config and `config.worktree`, so with an old git a promisor set only in the global config is not covered.
-- Clones are found only through the identity cache: a repo never chatted in on this Mac, or one whose clones all lack the cited commit (not fetched, rebased away or shallow), reads as not checked, and a write then checks none of its paths. Of several clones the newest entry is tried first, which is when a hook last resolved the worktree with a change, not necessarily the clone in use; the clone measured is named.
+- Clones are found only through the identity cache: a repo never chatted in on this Mac, or one whose clones tried all lack the cited commit (not fetched, rebased away or shallow), reads as not checked, and a write then checks none of its paths. At most 3 clones are tried for each commit. `eva-md show`, `eva-md system status` and `eva-md system write` try the working folder's clone first. After it, and always in the day's maintenance, the newest entry goes first, which is when a hook last resolved the worktree with a change, not necessarily the clone in use. The clone measured is named.
 - The counts in the prompt pointers, system pages' search hits and `eva_status` are as of the last code status, taken by the day's maintenance or `eva-md system status`; `eva-md show` and system status measure live.
 - The startup brief's pointer counts live, so for a path the cited commit lacks, or a commit off the branch with nothing counted since the fork, it says `code unchanged` until a code status has measured the page; for a commit off the branch also when that status was taken at another HEAD, or when the brief has no HEAD from live git, as in a new chat's footer brief, which runs no live git.
 - Pages written before the map carried code have no code on the map until they are written again, so the brief and the prompt pointers show their day; the doctor counts them.
 - `stale_after` is a day the agent sets, not a check of the documents: it can lapse on a page that is still right.
 - `eva-md show` and `eva-md system status` print the local clone's folder, and the code status keeps it, in eva-md's state folder only.
 - `eva-md show` and `eva_show` name the system pages that link to a page from those pages' links alone: a thread page that names the system, or a link in a code span, doesn't count, and at most 2,000 pages are read.
+- Measuring code is bounded, and what is past the bounds reads as not checked: a pass of `eva-md system status` or of the day's maintenance measures at most 64 repo-and-commit pairs in 120 s, 10 s a git call, and records the rest as not run; `eva-md show` measures within 3 s, 1 s a call; a write checks paths within 3 s, 1 s a call, and leaves the rest as notes.
 
 ## Per-prompt pointers
 
@@ -105,16 +114,17 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - Common words and one-word names under 5 characters never match. A one-word title also matches when written in lower case, because its slug is listed too, and a name of several common words matches in any case.
 - Only the first and last 32 KB of a long prompt are scanned.
 - After a hand edit of a system page, the names index is out of date until the next system write or `eva-md doctor`.
-- Past the index's bounds, the aliases of the pages with the oldest `as_of` are left out first.
+- Past the index's bounds, 2,000 names or 128 KB, the aliases of the pages with the oldest `as_of` are left out first, then those pages' titles and slugs, so such a page gets no pointer at all.
 - A page is pointed at once per chat, even after a compaction.
 - Program-run chats, chats off the record and prompts you didn't type get no pointers and no reminder.
 - With a long install path, a pointer loses its description, then its note on the code, and the reminder is shorter or not sent at all.
+- A prompt gets at most 3 pointers and a chat at most 12. After that a chat gets no more pointers until a /clear or a new chat, even for systems it hasn't been pointed at yet.
 
 ## Knowledge pages and recall
 
 - Whether a statement would still matter in six months and can't be worked out from the code is the model's judgment. Code checks its refs, speaker tag, kind, dates, grounding, duplicates and secrets, not the bar itself, so a page can hold something trivial, and something lasting can stay only in the Timeline.
 - A pass promotes only from the batch it processes: a statement can cite only that batch's entries. A fact the user settled across two chats processed apart is promoted only when one batch states it, and chats a pass covered before knowledge pages existed are never promoted.
-- A statement tagged stated or accepted, of any kind, must hold at least half its distinctive words in the user's own words, so one the model words differently, such as the gist of a long instruction, is refused, and so is an assistant's proposal the user accepted in a few words such as "yes, do that": the accepting prompt must say it. A drop needs the user's own words to name the entry, so "forget that" alone drops nothing. A title cut at 80 characters inside a path or identifier becomes a grounding miss, and the add is refused.
+- A statement tagged stated or accepted, of any kind, must hold at least half its distinctive words in the user's own words, so one the model words differently, such as the gist of a long instruction, is refused, and so is an assistant's proposal the user accepted in a few words such as "yes, do that": the accepting prompt must say it. A drop needs the user's own words to name the entry, so "forget that" alone drops nothing. A title cut at 80 characters, or a statement cut at 300, inside a path or URL becomes a grounding miss, and the add is refused. A cut inside an identifier is no miss: the cut name is kept.
 - When the recall index is missing or out of date, as after a page is locked by hand, the update's input and its near-duplicate checks see only what the index lists, until the doctor or the daily maintain builds it again. The save still refuses an exact duplicate and never writes a locked page.
 - Knowledge pages are saved before the thread page. When the thread page's save then fails, a supersede or drop already saved loses its Timeline line: the retry finds the page already changed, as for rules.
 - Recall matches words, not meaning. There is no stemming, so "dependency" doesn't match a title that says "dependencies", and a paraphrase gets nothing. Three rare words in common can recall an unrelated fact.
@@ -128,16 +138,18 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - Search reads a knowledge page's statement and code, not its History.
 - A map a person locked or verified, or one that can't be read as a map, stays out of date; the doctor reports it and passes.
 - A supersede narrows a page for all projects to the chat's project only on words that name all projects under a negation, such as "not in all my projects", or on a few fixed phrases such as "only this project" or "just this repo"; other wording, such as "here", keeps it for all projects.
-- A page a person edited past what eva-md reads back is listed and recalled read-only from a lenient read, so its statement is what that read finds: the first statement line with its tag, or else the first without one, or else the description. The update never changes it until a person restores its form.
+- A page a person edited past what eva-md reads back is listed and recalled read-only from a lenient read, so its statement is what that read finds: the first statement line with its tag, or else the first without one, or else the description, shown with no tag when it has none. The update never changes it until a person restores its form.
 - Once a person removes `knowledge/`, the recall index stays as its header alone, so the doctor keeps a knowledge row that counts no pages.
 - Nothing shows `recall = false`: the doctor and `eva-md status` don't report the switch.
+- A pass keeps at most 5 knowledge changes. The rest are counted over the cap and lost: the watermark moves past the batch, so they are never offered again.
+- A batch older than the thread page, held by the out-of-order guard, changes no knowledge: every add, supersede and drop in it is ignored, as its rule changes are.
 
 ## Background update
 
 - No live update has run yet. The triggers and the job are checked offline only, with fake host CLIs and a stand-in for the spawned binary.
 - A chat left open and never prompted again is caught up only at the next chat start in that project: its own triggers are its end, a compaction, a Stop past 60 KB unprocessed, the next prompt after 30 minutes and its resume after 2 minutes idle.
 - The start-of-chat catch-up takes at most 5 sessions, from the project's 64 most recently changed session files only. Further idle backlogs wait for later chat starts, and one in an older file waits for `eva-md update --pending`.
-- A chat that is off the record, or whose transcript recovery is behind, spawns nothing at its end or compaction; a later chat's catch-up takes its backlog.
+- A chat that is off the record, or whose transcript recovery is behind, spawns no update at its end or compaction; a later chat's catch-up takes its backlog.
 - A prompt whose chat ends with no reply, because the chat was closed, crashed or its turn failed, waits with its session_end and never reaches a page. So does a last prompt in the rest of a group an earlier pass stopped in: it waits for its reply, and a chat that ends with neither a reply nor a session_end leaves it waiting.
 - The brief's pending line says only that the previous chat's file has a backlog a pass could take, 600 bytes or more (or any rest of a group a pass stopped in), that no update has found too small. A few short messages can pass 600 bytes and still be under one exchange or 600 characters, so the line shows until a job finds them too small. When that chat's job could not run, because another job held the lock or the budget, a hold or a backoff stopped it, the Now it announces comes after a later trigger, not with a later prompt of this chat.
 - The hooks spawn `~/.local/share/eva-md/bin/eva-md` and nothing else. Without a regular, executable file there, as with a symlink in its place (which the doctor also reports as not installed), nothing is spawned.
@@ -155,19 +167,20 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - Holds, backoff and quarantines look back no further than yesterday's run log: a quarantined session whose next run comes days later starts a fresh count.
 - A save whose page was written but whose folder fsync then failed is recorded as `wiki_error`, so its chunk runs again, with one more model call, on the page as written.
 - A wiki that can't be written, such as one on a full disk, costs a model call at each backoff step (5 minutes, doubling to an hour) until it can, since the save comes after the call; the doctor and the chat-start notice report it after 3 failures in a row.
-- A project whose inbox key is a hash (`repo-<hash>` or `local-<hash>`, for names that read as tokens) can't be identified once the chat's folder is gone or has moved, so its backlog stays with an error.
+- A project whose inbox key is a hash (`repo-<hash>` or `local-<hash>`, for names that read as tokens) can't be identified once the chat's folder is gone or has moved. A `repo-<hash>` backlog stays with an error. A `local-<hash>` backlog is filed under a new wiki folder named by the hash, apart from the project's own pages.
 - Each run counts the lines of a pending session file before its watermark from the start of the file, which takes a moment for a very large session file.
 - The run log keeps one file per day and nothing prunes it; the job's logs are pruned after 14 days.
 - A kill or a failed watermark write after a page is saved leaves the watermark behind, so the next pass can repeat Next items and done, change or problem lines. The window is wider than the save itself: the overview and index writes run between the save and the watermark, and each can wait up to 60 s for the wiki lock.
 - Before it opens a file, the job judges a quarantine by the session id the file name holds. A session whose id `SafeName` changes is therefore opened before its quarantine stops it, and its `failed (watermark)` record uses the file-name id, so the doctor can name one session two ways.
 - Deleting a damaged watermark makes the job read that session from its start.
 - If okf refuses a project's first thread page, the project's new `now.md` links nothing and counts as an orphan, so the doctor's wiki validation fails while the wiki holds other pages, until a later pass writes a thread page.
-- A recorded CLI path goes stale when the CLI, or the version a version manager installed it under, is removed; jobs then look the CLI up on PATH until install runs again. Installs made before paths were recorded have none, and the doctor says to install again. `eva-md doctor --live` always looks the CLI up on PATH.
+- A recorded CLI path goes stale when the CLI, or the version a version manager installed it under, is removed. Jobs then look the CLI up on PATH until install runs again. Installs made before paths were recorded have none, and the doctor says to install again once a job finds the CLI missing. `eva-md doctor --live` always looks the CLI up on PATH.
+- Nothing trims a thread page's Timeline, so the page keeps growing. The daily lint fails a page over 512 KB, and the doctor's fix is to trim it by hand; past 2 MiB the brief shows no Now for that thread.
 
 ## Standing rules and pasted text
 
 - On Codex, pasted text can become a standing rule or a decision: Codex has no known paste marker, so every word of a Codex prompt counts as the user's.
-- On Claude Code, pastes are found only by the host's paste wrapper, which has not been observed in a real hook payload yet. A pasted entry cut to fit the input keeps no mark on its cut part.
+- On Claude Code, pastes are found only by the host's paste wrapper, which has not been observed in a real hook payload yet. When a pasted entry is cut to fit the input, the first line after the cut loses its [pasted] mark in what the model reads. The code's checks still read the whole entry and treat that text as pasted.
 - A claim resting on any pasted words becomes inferred, even when the user's own words agree with it.
 - Rules are checked by words, not meaning: a paraphrase, or a rule split across two prompts, is refused, and the negation check refuses some faithful rewordings, such as "Never, ever".
 - A drop needs only half the rule's words in one prompt, so a wrong drop is possible; it is visible in the Timeline and the retired list, and its reason is the model's.
@@ -180,8 +193,8 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 
 - A hand edit pushed to the wiki from elsewhere stops every push as `diverged` until it is merged by hand; eva-md never pulls, rebases or forces.
 - A declined signature waits until the next day or a manual `eva-md commit`. A failed commit's reason is read from git's wording (as git 2.56 words it), so another git can sort a missing signer or a declined signature as a plain `commit`.
-- A day whose maintain spawn fails, or whose first event missed its deadline, gets no commit until the next day or a manual run.
-- A push left pending just after a check waits up to 30 minutes for its first retry.
+- A day whose maintain spawn fails gets no commit until the next day or a manual run. A first event that misses its deadline starts nothing, so the next event of the day starts maintain.
+- Between daily runs, a pending push is retried only at a chat start, at most every 30 minutes, so one left pending just after a check waits at least 30 minutes, and longer when no chat starts. The next day's maintain, which any hook event starts, pushes it too, and `eva-md commit --push-only` pushes it now.
 - Files staged by hand outside the commit paths are unstaged and listed once in that run's record, then left as they are. Symlinks, JSONL and temp files inside the commit folders are listed in every run until handled by hand.
 - Binary files and files with an added line over 1 MiB are never committed.
 - The secret scan takes words shaped like identifiers for identifiers, so a token whose random part is all lower-case words and digits can pass it.
@@ -200,7 +213,7 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 - The config records only the remote's identity (lower case, no port). Without gh or glab, cloning a missing wiki folder again uses the SSH address, so an HTTPS remote or a custom SSH port needs `--remote` or a restore by hand.
 - Reading a repo before using it is one more fetch, which may mean one more approval in an SSH agent that asks, and it briefly writes a shallow copy under the temporary folder. A dumb-HTTP server can't serve a shallow clone, so its repo reads as unreadable.
 - Without a terminal, another Mac's wiki is adopted without a warning.
-- Renaming the Mac makes its own wiki look like another Mac's, and so does a host name with characters the label replaces, which gets a hash suffix.
+- Renaming the Mac makes its own wiki look like another Mac's. So does a host name holding characters the label replaces, such as a space, when it gains or loses its domain, as between networks: the hash the label then carries covers the whole name.
 - If init refuses after cloning, the clone stays in the folder: init never deletes a failed clone.
 - A folder holding a wiki of a newer schema is still offered at the folder question, and init then refuses it.
 - Cloud storage is recognized only under `~/Library/CloudStorage` and iCloud Drive's `~/Library/Mobile Documents`, so a sync folder anywhere else, such as one an older sync client keeps in the home folder, is accepted as the wiki folder though it syncs into `.git`.
@@ -230,9 +243,9 @@ These are open problems in eva-md as the code stands: capture, resume, search an
 ## Health check
 
 - Chats in excluded, temporary or wiki folders write no heartbeat but do create host transcripts. The capture-freshness check can then report a false FAIL and a false "no matching capture heartbeat" notice.
-- The capture-freshness scan gives up after 4096 entries or 512 folders in a host's chat store. Once a store is that large, the check stays UNKNOWN and no longer flags a trust lapse.
+- The capture-freshness scan gives up after 4096 entries, 512 folders or 35 ms in a host's chat store, and every saved chat file counts as an entry. Once a store is that large, the check stays UNKNOWN and no longer flags a trust lapse.
 - The start-of-chat notice reads at most 64 KB of each day's run log and 16 KB of each month's commit records, so on a very busy day it can miss an older failure.
 - The status backlog counts only each project's 64 newest session files and stops listing after 4,096 entries, saying "at least".
-- The doctor's names check waits up to a minute for the wiki lock, whatever the doctor's own time limit.
+- The doctor's names and knowledge checks each wait up to a minute for the wiki lock, whatever the doctor's 30-second limit, so a busy wiki can hold the doctor for about two minutes.
 - The search index row checks that the segments each manifest names are there, at their recorded size. Damage inside a segment is found by the next search, which scans that folder and says so, or by the next catch-up, which builds the folder again.
 - The hook failure count misses runs whose payload can't be read, and counts only the past 7 days. Two runs of one event that end together may each keep only their own run in the heartbeat, which loses successes and failures alike. A capture that runs out of time records its failure after its output, up to 100 ms past its deadline.

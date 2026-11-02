@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
@@ -74,7 +73,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return result, errors.New("wikiinit: existing config cannot be read; left unchanged")
 	}
-	if previous.WikiPath != "" && (previous.WikiPath != root || previous.ExpectedRemote != expected) {
+	if previous.WikiPath != "" && (!sameFolder(previous.WikiPath, root) || previous.ExpectedRemote != expected) {
 		return result, errors.New("wikiinit: config already points to a different wiki; left unchanged")
 	}
 	entries, err := os.ReadDir(root)
@@ -108,9 +107,12 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		return result, err
 	}
 	realTop, err := filepath.EvalSymlinks(top)
-	if err != nil || realTop != root {
+	if err != nil || !sameFolder(realTop, root) {
 		return result, errors.New("wikiinit: destination is not the repository root")
 	}
+	// A folder typed in another letter case is the same folder; from here on
+	// it goes by the case git reports, which is the case on disk.
+	root = realTop
 	origin, err := git(ctx, root, "config", "--get", "remote.origin.url")
 	if err != nil {
 		return result, err
@@ -494,6 +496,20 @@ func within(p, root string) bool {
 	return err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator))
 }
 
+// sameFolder reports whether two paths name the same folder on disk, which
+// they can do in different letter case.
+func sameFolder(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
+}
+
 func equalPath(a, b string) bool {
 	if runtime.GOOS == "darwin" {
 		return strings.EqualFold(a, b)
@@ -501,24 +517,17 @@ func equalPath(a, b string) bool {
 	return a == b
 }
 
+// initLock takes the lock that keeps two inits apart, through paths.TryLock,
+// so two inits that start at once on a new install get "another
+// initialization is running", never a file-system error from creating the
+// lock file together.
 func initLock(dir string) (func(), error) {
-	root, err := paths.OpenRoot(dir, true)
-	if err != nil {
-		return nil, err
-	}
-	defer root.Close()
-	f, err := root.OpenFile("init.lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		f.Close()
-		return nil, errors.New("wikiinit: invalid initialization lock")
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
+	unlock, busy, err := paths.TryLock(dir, "init.lock")
+	switch {
+	case busy:
 		return nil, errors.New("wikiinit: another initialization is running")
+	case err != nil:
+		return nil, fmt.Errorf("wikiinit: initialization lock: %w", err)
 	}
-	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }, nil
+	return unlock, nil
 }

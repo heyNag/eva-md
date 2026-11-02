@@ -153,6 +153,12 @@ func TestParse(t *testing.T) {
 		"github.com/acme/orders@4e2bf",
 		"github.com/acme/orders@4E2BF4C",
 		"github.com/acme/orders@4e2bf4c:../outside.go",
+		// git lists a path with a "." part without it, so Missing would never
+		// find it.
+		"github.com/acme/orders@4e2bf4c:./internal/orders",
+		"github.com/acme/orders@4e2bf4c:internal/./orders",
+		"github.com/acme/orders@4e2bf4c:internal/orders/.",
+		"github.com/acme/orders@4e2bf4c:.",
 		"github.com/acme/orders@4e2bf4c:/etc/passwd",
 		"github.com/acme/orders@4e2bf4c:internal//orders",
 		"github.com/acme/orders@4e2bf4c:internal/orders//",

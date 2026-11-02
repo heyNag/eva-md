@@ -352,6 +352,17 @@ func TestSaveLoadMerge(t *testing.T) {
 		merged.Pages[0].Slug != "billing" || merged.Pages[1].Slug != "ledger" || merged.Pages[2].AsOf != "2026-10-31" {
 		t.Fatalf("merged %+v", merged)
 	}
+	// A named page the pass can't read any more loses its old entry and is
+	// listed unreadable, once; a later pass that reads it again drops it from
+	// that list.
+	broken := Merge(merged, Report{V: 1, At: "2026-10-31T10:00:00+01:00", Unreadable: []string{"orders"}})
+	broken = Merge(broken, Report{V: 1, At: "2026-10-31T11:00:00+01:00", Unreadable: []string{"orders"}})
+	if len(broken.Pages) != 2 || broken.Pages[0].Slug != "billing" || broken.Pages[1].Slug != "ledger" || !reflect.DeepEqual(broken.Unreadable, []string{"orders"}) {
+		t.Fatalf("merged with an unreadable page %+v", broken)
+	}
+	if fixed := Merge(broken, partial); len(fixed.Pages) != 3 || len(fixed.Unreadable) != 0 {
+		t.Fatalf("merged with the page read again %+v", fixed)
+	}
 	for _, bad := range []string{"{not json", `{"v":2,"at":"2026-10-31T03:10:00Z","pages":[]}`, `{"v":1,"pages":[]}`} {
 		if err := os.WriteFile(file, []byte(bad), 0o600); err != nil {
 			t.Fatal(err)

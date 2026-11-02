@@ -316,8 +316,10 @@ func commitFix(reason string) string {
 		return "select the intended wiki and config; another machine's wiki is never committed"
 	case "index_lock":
 		return "if no git is running in the wiki, remove its .git/index.lock by hand, then run eva-md commit"
-	case "rebase", "merge", "cherry_pick":
+	case "rebase", "merge", "cherry_pick", "revert":
 		return "finish or abort the git " + strings.ReplaceAll(reason, "_", "-") + " in the wiki, then run eva-md commit"
+	case "conflicts":
+		return "resolve the conflicts in the wiki, then run eva-md commit"
 	case "detached":
 		return "check out the wiki's branch, then run eva-md commit"
 	case "wiki":

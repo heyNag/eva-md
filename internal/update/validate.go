@@ -54,10 +54,11 @@ type RuleCounts struct {
 	Edited     int `json:"edited"`
 	Dropped    int `json:"dropped"`
 	General    int `json:"general"`    // of the adds, rules for all projects
-	Refused    int `json:"refused"`    // changes not on the user's own stated words, or to an all-projects rule without them
+	Refused    int `json:"refused"`    // changes not on the user's own stated words, to an all-projects rule without them, or to a rules page that can't be read back safely
 	Stale      int `json:"stale"`      // edits and drops citing no user prompt as new as the rule
 	Duplicates int `json:"duplicates"` // adds and edits whose text the page holds
 	Ignored    int `json:"ignored"`    // ids not on file, second changes to an id, and every change while the out-of-order guard holds
+	ReadOnly   int `json:"read_only"`  // changes to a rules page a person locked or verified
 }
 
 const (

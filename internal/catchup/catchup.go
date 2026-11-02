@@ -85,6 +85,10 @@ type Source struct {
 	// Blind is what recovery has read since it last recognized a row of the
 	// chat, for the drift check.
 	Blind *blindSpan `json:"blind,omitempty"`
+	// Elsewhere marks a Codex chat whose latest turn runs in a folder other
+	// than the registered one. Recovery reads on and honours a record
+	// control, but stores nothing until a turn comes back to the folder.
+	Elsewhere bool `json:"elsewhere,omitempty"`
 }
 
 // blindSpan counts the bytes of rows recovery could not recognize, and the
@@ -124,6 +128,12 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 	if err != nil {
 		return err
 	}
+	// An event that names no transcript keeps the one registered before. It
+	// is held to the same rules as one that names it, so a change of project,
+	// folder or branch still starts a new baseline.
+	if path == "" && found {
+		path = old.Path
+	}
 	s := Source{V: 1, Home: home, Host: e.Host, Session: e.Session, Path: path, Cwd: cwd, Entry: e, Blocked: blocked, Headless: headless, Updated: now.Format(time.RFC3339)}
 	s.Entry.Turn = ""
 	s.Entry.Text = ""
@@ -136,7 +146,11 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 		s.Skip = old.Skip
 		s.Slow = old.Slow
 		s.Blind = old.Blind
-		s.Blocked = old.Blocked || blocked
+		s.Elsewhere = old.Elsewhere
+		// Only the chat being off the record keeps recovery blocked. A block
+		// from an older version for a turn in another folder is lifted, and
+		// the cursor starts again at the transcript's end.
+		s.Blocked = blocked || old.Blocked && old.Reason == "off_record"
 		if s.Blocked {
 			s.Reason = old.Reason
 		}
@@ -150,11 +164,6 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 	if path == "" {
 		s.Missing = true
 		s.Reason = "transcript_unavailable"
-		if found && old.Path != "" {
-			s.Path = old.Path
-			s.Missing = false
-			s.Reason = ""
-		}
 		return save(ctx, dirs, s)
 	}
 	f, err := openTranscript(s)
@@ -171,9 +180,13 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 		return err
 	}
 	dev, ino := fileID(info)
-	if !found || old.Path != path || old.Entry.Project != e.Project || old.Cwd != cwd || old.Entry.Branch != e.Branch || s.Blocked || old.Device != dev || old.Inode != ino {
+	// A transcript now shorter than the cursor was truncated or rewritten in
+	// place, so the cursor means nothing in it.
+	shrunk := info.Size() < old.Offset || old.Skip != nil && info.Size() < old.Skip.Pos
+	if !found || old.Path != path || old.Entry.Project != e.Project || old.Cwd != cwd || old.Entry.Branch != e.Branch || s.Blocked || old.Blocked || old.Device != dev || old.Inode != ino || shrunk {
 		s.Offset = info.Size()
 		s.Skip, s.Slow, s.Blind = nil, nil, nil
+		s.Elsewhere = false
 	}
 	s.Device = dev
 	s.Inode = ino
@@ -220,7 +233,20 @@ func SetOffRecord(ctx context.Context, dirs paths.Dirs, host, id string, off boo
 	if !off {
 		return markers.ClearContext(ctx, host, id, session.OffRecord)
 	}
+	if err := markWasOff(ctx, markers, host, id); err != nil {
+		return err
+	}
 	return markers.SetContext(ctx, host, id, session.OffRecord, OffRecordAsked)
+}
+
+// markWasOff records that the chat has been off the record. A compaction
+// summary restates the whole context, that range included, so while the
+// marker is set the hooks never store one. A marker already set is kept.
+func markWasOff(ctx context.Context, markers session.Markers, host, id string) error {
+	if _, set, err := markers.GetContext(ctx, host, id, session.WasOff); err != nil || set {
+		return err
+	}
+	return markers.SetContext(ctx, host, id, session.WasOff, "1")
 }
 
 // Recover fills missing prompts and final replies under the caller's session
@@ -252,6 +278,9 @@ func recoverPass(ctx context.Context, dirs paths.Dirs, host, id string, replied 
 	if s.Blocked && s.Reason == "off_record" {
 		// Asserted again when missing, as after a failed marker write; a
 		// marker already set keeps its value.
+		if err := markWasOff(ctx, markers, host, id); err != nil {
+			return 0, errors.Join(ErrPrivacyBoundary, err)
+		}
 		if _, set, err := markers.GetContext(ctx, host, id, session.OffRecord); err != nil || !set {
 			if err := markers.SetContext(ctx, host, id, session.OffRecord, offRecordFound); err != nil {
 				return 0, errors.Join(ErrPrivacyBoundary, err)
@@ -497,8 +526,8 @@ func (r *recovery) rows(data []byte, start int64) error {
 				return err
 			}
 		}
-		if p.blocked && !r.s.Blocked {
-			r.s.Blocked = true // a Codex turn moved to another folder
+		if p.elsewhere != r.s.Elsewhere {
+			r.s.Elsewhere = p.elsewhere // a Codex turn moved to another folder or back
 			r.dirty = true
 		}
 		if r.s.Slow != nil && r.s.Slow.Offset == at {
@@ -624,6 +653,9 @@ func (r *recovery) block() error {
 	r.dirty = true
 	ctx, cancel := r.grace()
 	defer cancel()
+	if err := markWasOff(ctx, r.markers, r.s.Host, r.s.Session); err != nil {
+		return errors.Join(ErrPrivacyBoundary, err)
+	}
 	if err := r.markers.SetContext(ctx, r.s.Host, r.s.Session, session.OffRecord, offRecordFound); err != nil {
 		return errors.Join(ErrPrivacyBoundary, err)
 	}

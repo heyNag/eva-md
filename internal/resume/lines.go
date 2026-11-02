@@ -31,7 +31,7 @@ func header(o Options, chosen *history, lineage, pending bool) string {
 			break
 		}
 	}
-	text += fmt.Sprintf("\nPrevious chat: %s / %s · %s · %s", chosen.host, model, chosen.latest.Format(time.RFC3339), ending(*chosen))
+	text += fmt.Sprintf("\nPrevious chat: %s / %s · %s · %s", chosen.host, model, chosen.active.Format(time.RFC3339), ending(*chosen))
 	if lineage {
 		text += "\nContinuing from " + oneLine(chosen.branch, 200)
 	}
@@ -135,7 +135,7 @@ func earlierChats(chats []*history, firsts []record) string {
 			continue
 		}
 		ref := inbox.Ref(r.Session, r.line)
-		head := h.latest.Format("2006-01-02") + " " + h.host + " · "
+		head := h.active.Format("2006-01-02") + " " + h.host + " · "
 		lines = append(lines, head+oneLine(r.Text, max(80-runes(head)-runes(ref)-3, 10))+" · "+ref)
 	}
 	if len(lines) == 0 {
@@ -154,7 +154,7 @@ func otherBranches(all []history, branch string) string {
 			continue
 		}
 		seen[h.branch] = true
-		if lines = append(lines, oneLine(h.branch, 45)+" · "+h.latest.Format("2006-01-02")); len(lines) == 3 {
+		if lines = append(lines, oneLine(h.branch, 45)+" · "+h.active.Format("2006-01-02")); len(lines) == 3 {
 			break
 		}
 	}
