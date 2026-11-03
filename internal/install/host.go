@@ -28,16 +28,28 @@ type Status struct {
 
 type runner func(context.Context, string, ...string) ([]byte, error)
 
+// ErrConflict marks Inspect's errors about another eva-md registration on
+// the host, apart from a host command or its output that failed.
+var ErrConflict = errors.New("install: conflicting eva-md registration")
+
+// conflict is an error about another eva-md registration, worded for the
+// person who reads it.
+type conflict string
+
+func (c conflict) Error() string        { return string(c) }
+func (c conflict) Is(target error) bool { return target == ErrConflict }
+
 // Inspect checks exactly eva-md's registration through read-only host commands.
 func Inspect(ctx context.Context, dirs paths.Dirs, host string) (Status, error) {
 	return inspect(ctx, dirs, host, native)
 }
 
 // HostTimeout bounds one host command, and HostWaitDelay the wait for its
-// output once it has exited or run out of time. Tests raise them before any
-// test runs.
+// output once it has exited or run out of time. Codex gives a request to
+// chatgpt.com 30 seconds before it goes on without the answer, so a host
+// command gets twice that. Tests raise them before any test runs.
 var (
-	HostTimeout   = 30 * time.Second
+	HostTimeout   = 60 * time.Second
 	HostWaitDelay = time.Second
 )
 
@@ -85,11 +97,15 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 		return s, nil
 	}
 	s.Available = true
-	data, err := run(ctx, host, "plugin", "list", "--json")
+	data, err := run(ctx, host, "plugin", "marketplace", "list", "--json")
 	if err != nil {
 		return s, err
 	}
-	list, err := objects(data, "installed")
+	markets, err := objects(data, "marketplaces")
+	if err != nil {
+		return s, err
+	}
+	list, err := installed(ctx, host, markets, run)
 	if err != nil {
 		return s, err
 	}
@@ -109,7 +125,7 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 		}
 		market := str(p, "marketplaceName", "marketplace")
 		if id != "eva-md@eva-md" && !(id == "eva-md" && market == "eva-md") {
-			return s, errors.New("install: another eva-md plugin copy is registered; remove that copy through its host first")
+			return s, conflict("install: another eva-md plugin copy is registered; remove that copy through its host first")
 		}
 		s.Installed = true
 		s.Enabled, _ = p["enabled"].(bool)
@@ -132,22 +148,14 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 		}
 	}
 	if count > 1 {
-		return s, errors.New("install: multiple eva-md plugin copies are registered")
-	}
-	data, err = run(ctx, host, "plugin", "marketplace", "list", "--json")
-	if err != nil {
-		return s, err
-	}
-	markets, err := objects(data, "marketplaces")
-	if err != nil {
-		return s, err
+		return s, conflict("install: multiple eva-md plugin copies are registered")
 	}
 	for _, m := range markets {
 		if str(m, "name") != "eva-md" {
 			continue
 		}
 		if s.Marketplace {
-			return s, errors.New("install: duplicate eva-md marketplaces")
+			return s, conflict("install: duplicate eva-md marketplaces")
 		}
 		s.Marketplace = true
 		root := str(m, "root", "path", "installLocation")
@@ -160,7 +168,7 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 			root = str(source, "path", "source")
 		}
 		if filepath.Clean(root) != marketplacePath(dirs.Share, host) {
-			return s, errors.New("install: eva-md marketplace name belongs to another folder")
+			return s, conflict("install: eva-md marketplace name belongs to another folder")
 		}
 	}
 	if s.Installed && !s.Marketplace {
@@ -174,6 +182,40 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 		s.Reason = "eva-md plugin is not installed"
 	}
 	return s, nil
+}
+
+// installed lists the plugins the host has installed. Codex is asked one of
+// its marketplaces at a time, by name, which it answers from this Mac: its
+// list of every plugin also asks chatgpt.com for the account's remote ones,
+// and waits 30 seconds on a network that holds the request. A plugin from
+// Codex's remote catalog is not among them. Each marketplace is asked once.
+func installed(ctx context.Context, host string, markets []map[string]any, run runner) ([]map[string]any, error) {
+	if host == "claude" {
+		data, err := run(ctx, host, "plugin", "list", "--json")
+		if err != nil {
+			return nil, err
+		}
+		return objects(data, "installed")
+	}
+	var list []map[string]any
+	asked := map[string]bool{}
+	for _, m := range markets {
+		name := str(m, "name")
+		if name == "" || asked[name] {
+			continue
+		}
+		asked[name] = true
+		data, err := run(ctx, host, "plugin", "list", "--json", "--marketplace="+name)
+		if err != nil {
+			return nil, err
+		}
+		plugins, err := objects(data, "installed")
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, plugins...)
+	}
+	return list, nil
 }
 
 // cliPath is the host's CLI as PATH finds it, by absolute path, or "". Its

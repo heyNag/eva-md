@@ -55,9 +55,9 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs, inventory time.D
 		cancel()
 		if timedOut {
 			r.add(host+" plugin", "UNKNOWN", "native plugin inventory timed out", "inspect the native host plugin inventory")
-		} else if err != nil && status.Available && strings.Contains(err.Error(), "eva-md") {
-			// Only install's conflict errors name eva-md; command and parse
-			// failures do not.
+		} else if err != nil && status.Available && errors.Is(err, install.ErrConflict) {
+			// Another eva-md registration, apart from a host command or its
+			// output that failed, whose text can name eva-md too.
 			r.add(host+" plugin", "FAIL", strings.TrimPrefix(err.Error(), "install: "), "remove the conflicting eva-md registration with the host's plugin commands, then run eva-md install --host "+host)
 		} else if app, absent := Absent(host); absent {
 			r.add(host+" plugin", "UNKNOWN", app+" isn't installed on this Mac", "")

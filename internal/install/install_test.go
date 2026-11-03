@@ -62,14 +62,25 @@ func (f *fakeHost) run(_ context.Context, host string, args ...string) ([]byte, 
 		return nil, errors.New("synthetic host failure")
 	}
 	var value any = map[string]any{"success": true}
-	switch strings.Join(args, " ") {
+	key := strings.Join(args, " ")
+	market, scoped := strings.CutPrefix(key, "plugin list --json --marketplace=")
+	if scoped {
+		key = "plugin list --json"
+	}
+	switch key {
 	case "plugin list --json":
+		// Codex's list of every plugin also asks chatgpt.com, and waits for
+		// it on a network that holds the request, so Codex is asked one
+		// marketplace at a time; Claude Code is asked for all.
+		if scoped != (host == "codex") {
+			return nil, errors.New("synthetic: the plugin list was asked for the wrong way")
+		}
 		list := []any{}
 		// An unrelated plugin must never be removed by install or rollback.
-		if host == "codex" {
-			list = append(list, map[string]any{"pluginId": "other@personal", "name": "other", "enabled": true})
+		if host == "codex" && market == "unrelated" {
+			list = append(list, map[string]any{"pluginId": "other@unrelated", "name": "other", "enabled": true})
 		}
-		if f.installed[host] {
+		if f.installed[host] && (host == "claude" || market == "eva-md") {
 			item := map[string]any{"pluginId": "eva-md@eva-md", "id": "eva-md@eva-md", "name": "eva-md", "enabled": true,
 				"readFromFolder": pluginPath(f.dirs.Share, host), "folderVersion": "1", "errors": []any{},
 				"source": map[string]any{"source": "local", "path": pluginPath(f.dirs.Share, host)}}
@@ -689,6 +700,83 @@ func TestPreflightFailureSaysNothingRan(t *testing.T) {
 	}
 	if len(mutateCalls(f.calls)) != 0 {
 		t.Fatalf("preflight failure changed registrations: %+v", f.calls)
+	}
+}
+
+// Codex is asked for its plugins one marketplace at a time, never for all of
+// them, which also asks chatgpt.com and waits for it on a network that holds
+// the request. An eva-md copy from another of its marketplaces is still
+// refused.
+func TestCodexIsAskedOneMarketplaceAtATime(t *testing.T) {
+	opts, f := setup(t)
+	opts.Host = "codex"
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	asked := map[string]int{}
+	for _, call := range f.calls {
+		if strings.HasPrefix(call, "codex plugin list") {
+			asked[call]++
+		}
+	}
+	for _, want := range []string{"codex plugin list --json --marketplace=unrelated", "codex plugin list --json --marketplace=eva-md"} {
+		if asked[want] == 0 {
+			t.Errorf("never asked %q: %v", want, f.calls)
+		}
+	}
+	if asked["codex plugin list --json"] != 0 {
+		t.Errorf("asked Codex for every plugin: %v", f.calls)
+	}
+	// A marketplace listed twice is asked once.
+	twice := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		if strings.Join(args, " ") == "plugin marketplace list --json" {
+			return []byte(`{"marketplaces":[{"name":"unrelated","root":"/unrelated"},{"name":"unrelated","root":"/unrelated"}]}`), nil
+		}
+		return f.run(ctx, host, args...)
+	}
+	f.calls = nil
+	if _, err := inspect(context.Background(), opts.Dirs, "codex", twice); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(strings.Join(f.calls, "\n"), "--marketplace=unrelated"); n != 1 {
+		t.Errorf("a marketplace listed twice was asked %d times", n)
+	}
+	copied := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		if strings.Join(args, " ") == "plugin list --json --marketplace=unrelated" {
+			return []byte(`{"installed":[{"pluginId":"eva-md@unrelated","name":"eva-md","marketplaceName":"unrelated","enabled":true}]}`), nil
+		}
+		return f.run(ctx, host, args...)
+	}
+	if _, err := inspect(context.Background(), opts.Dirs, "codex", copied); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "another eva-md plugin copy") {
+		t.Fatalf("a copy from another marketplace: %v", err)
+	}
+}
+
+// A marketplace's list that keeps failing stops uninstall and install before
+// they change anything, rather than taking the plugins it would name as
+// missing.
+func TestFailedMarketplaceListChangesNothing(t *testing.T) {
+	opts, f := setup(t)
+	opts.Host = "codex"
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	failing := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		if host == "codex" && strings.Join(args, " ") == "plugin list --json --marketplace=eva-md" {
+			f.calls = append(f.calls, host+" "+strings.Join(args, " "))
+			return nil, errors.New("synthetic: the marketplace's list failed")
+		}
+		return f.run(ctx, host, args...)
+	}
+	f.calls = nil
+	if _, err := uninstall(context.Background(), opts.Dirs, true, failing); err == nil || errors.Is(err, ErrConflict) {
+		t.Fatalf("uninstall without the marketplace's list: %v", err)
+	}
+	if _, err := runInstall(context.Background(), opts, failing); err == nil || errors.Is(err, ErrConflict) {
+		t.Fatalf("install without the marketplace's list: %v", err)
+	}
+	if len(mutateCalls(f.calls)) != 0 || !f.installed["codex"] || !f.markets["codex"] {
+		t.Fatalf("a failed list changed registrations: %v", f.calls)
 	}
 }
 

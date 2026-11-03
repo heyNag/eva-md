@@ -74,10 +74,11 @@ func TestStalledInventoryDoesNotHideTrust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A native inventory command can stall while loading a remote marketplace.
-	// The independent read-only hooks RPC must still get its own opportunity.
+	// A native inventory command can stall. The independent read-only hooks
+	// RPC must still get its own opportunity. The inventory's first command
+	// stalls, so wherever its budget ends, it ends inside a stalled command.
 	prefix := "#!/bin/sh\ncase \"$*\" in\n" +
-		"'plugin list --json') exec /bin/sleep 60;;\n" +
+		"'plugin marketplace list --json') exec /bin/sleep 60;;\n" +
 		"'features list') printf '%s\\n' 'hooks experimental true'; exit 0;;\n" +
 		"esac\n"
 	if err := os.WriteFile(file, []byte(prefix+strings.TrimPrefix(string(script), "#!/bin/sh\n")), 0700); err != nil {
@@ -127,7 +128,9 @@ func TestDuplicateAndDiagnosticsNeverPassTrust(t *testing.T) {
 	}
 }
 
-// withInventory answers the native plugin commands before the hooks RPC.
+// withInventory answers the native plugin commands before the hooks RPC:
+// each marketplace's list with installed, and Codex's list of every plugin,
+// which eva-md never asks for, with a failure.
 func withInventory(t *testing.T, d paths.Dirs, installed, markets string) {
 	t.Helper()
 	file := filepath.Join(d.Share, "test-bin", "codex")
@@ -136,7 +139,8 @@ func withInventory(t *testing.T, d paths.Dirs, installed, markets string) {
 		t.Fatal(err)
 	}
 	prefix := "#!/bin/sh\ncase \"$*\" in\n" +
-		"'plugin list --json') printf '%s\\n' '" + installed + "'; exit 0;;\n" +
+		"'plugin list --json') exit 9;;\n" +
+		"'plugin list --json --marketplace='*) printf '%s\\n' '" + installed + "'; exit 0;;\n" +
 		"'plugin marketplace list --json') printf '%s\\n' '" + markets + "'; exit 0;;\n" +
 		"'features list') printf '%s\\n' 'hooks experimental true'; exit 0;;\n" +
 		"esac\n"
@@ -180,16 +184,38 @@ func TestConflictingRegistrationFails(t *testing.T) {
 	d := fakeTrustHost(t, map[string]any{"data": []any{map[string]any{"hooks": trustHooks()}}})
 	withInventory(t, d,
 		`{"installed":[{"pluginId":"eva-md@elsewhere","enabled":true}]}`,
-		`{"marketplaces":[]}`)
-	if c := hostStatuses(t, d)["codex plugin"]; c.Status != "FAIL" || c.Fix == "" || strings.HasPrefix(c.Detail, "install:") {
+		`{"marketplaces":[{"name":"elsewhere","path":"/elsewhere"}]}`)
+	if c := hostStatuses(t, d)["codex plugin"]; c.Status != "FAIL" || !strings.HasPrefix(c.Detail, "another eva-md plugin copy") || !strings.HasPrefix(c.Fix, "remove the conflicting") {
 		t.Fatalf("conflicting registration: %+v", c)
 	}
 }
 func TestBrokenInventoryStaysUnknown(t *testing.T) {
 	d := fakeTrustHost(t, map[string]any{"data": []any{map[string]any{"hooks": trustHooks()}}})
-	withInventory(t, d, `not json`, `{"marketplaces":[]}`)
+	withInventory(t, d, `not json`, `{"marketplaces":[{"name":"eva-md","path":"/eva-md"}]}`)
 	if c := hostStatuses(t, d)["codex plugin"]; c.Status != "UNKNOWN" {
 		t.Fatalf("unreadable inventory: %+v", c)
+	}
+}
+
+// A marketplace's list that fails is an inventory that can't be read, never
+// a conflicting registration, though the command it names holds eva-md.
+func TestFailedMarketplaceListStaysUnknown(t *testing.T) {
+	d := fakeTrustHost(t, map[string]any{"data": []any{map[string]any{"hooks": trustHooks()}}})
+	file := filepath.Join(d.Share, "test-bin", "codex")
+	script, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := "#!/bin/sh\ncase \"$*\" in\n" +
+		"'plugin marketplace list --json') printf '%s\\n' '{\"marketplaces\":[{\"name\":\"eva-md\",\"path\":\"/eva-md\"}]}'; exit 0;;\n" +
+		"'plugin list --json --marketplace=eva-md') exit 2;;\n" +
+		"'features list') printf '%s\\n' 'hooks experimental true'; exit 0;;\n" +
+		"esac\n"
+	if err := os.WriteFile(file, []byte(prefix+strings.TrimPrefix(string(script), "#!/bin/sh\n")), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if c := hostStatuses(t, d)["codex plugin"]; c.Status != "UNKNOWN" || c.Detail != "native plugin inventory is unavailable" {
+		t.Fatalf("failed marketplace list: %+v", c)
 	}
 }
 

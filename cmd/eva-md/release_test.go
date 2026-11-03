@@ -206,9 +206,11 @@ if [ -n "$out" ]; then cat "$f" > "$out"; else cat "$f"; fi
 		"id":     `if [ "$1" = -u ]; then cat ` + root + `/uid; else exec /usr/bin/id "$@"; fi`,
 		"uname":  `case "$1" in -s) cat ` + root + `/os ;; -m) cat ` + root + `/arch ;; *) exec /usr/bin/uname "$@" ;; esac`,
 		"sysctl": `if [ "$*" = "-n sysctl.proc_translated" ]; then cat ` + root + `/translated; else exec /usr/sbin/sysctl "$@"; fi`,
-		"claude": fakeHost(m.hosts, "claude", `[{"pluginId":"eva-md@eva-md","name":"eva-md","enabled":true,"readFromFolder":"%s/plugins/eva-md","folderVersion":"1","errors":[]}]`, `[]`,
+		"claude": fakeHost(m.hosts, "claude", "plugin list --json", `[{"pluginId":"eva-md@eva-md","name":"eva-md","enabled":true,"readFromFolder":"%s/plugins/eva-md","folderVersion":"1","errors":[]}]`, `[]`,
 			`[{"name":"eva-md","root":"%s"}]`, `[]`, "plugin install eva-md@eva-md --scope user --json", "plugin uninstall eva-md@eva-md --scope user --json", "plugin marketplace remove eva-md --scope user --json"),
-		"codex": fakeHost(m.hosts, "codex", `{"installed":[{"pluginId":"eva-md@eva-md","name":"eva-md","enabled":true,"source":{"path":"%s/plugins/eva-md"}}]}`, `{"installed":[]}`,
+		// Codex is asked one marketplace at a time: its list of every
+		// plugin also asks chatgpt.com.
+		"codex": fakeHost(m.hosts, "codex", "plugin list --json --marketplace=eva-md", `{"installed":[{"pluginId":"eva-md@eva-md","name":"eva-md","enabled":true,"source":{"path":"%s/plugins/eva-md"}}]}`, `{"installed":[]}`,
 			`{"marketplaces":[{"name":"eva-md","path":"%s"}]}`, `{"marketplaces":[]}`, "plugin add eva-md@eva-md --json", "plugin remove eva-md@eva-md --json", "plugin marketplace remove eva-md --json"),
 	}
 	for name, body := range fakes {
@@ -232,14 +234,15 @@ if [ -n "$out" ]; then cat "$f" > "$out"; else cat "$f"; fi
 }
 
 // fakeHost is a host CLI that keeps eva-md's registration in files: the
-// marketplace's folder once it is added, and a mark once the plugin is.
-func fakeHost(state, host, listed, empty, market, noMarket, add, remove, marketRemove string) string {
+// marketplace's folder once it is added, and a mark once the plugin is. It
+// answers its plugin list only when asked the way list says.
+func fakeHost(state, host, list, listed, empty, market, noMarket, add, remove, marketRemove string) string {
 	s := "'" + filepath.Join(state, host) + "'"
 	// The calls are logged beside the state, so a test that compares the
 	// registrations sees only them.
 	return `echo "$*" >> '` + filepath.Join(filepath.Dir(state), host) + `.calls'
 case "$*" in
-"plugin list --json")
+"` + list + `")
 	if [ -f ` + s + `.plugin ]; then printf '` + listed + `\n' "$(cat ` + s + `.market)"; else echo '` + empty + `'; fi ;;
 "plugin marketplace list --json")
 	if [ -f ` + s + `.market ]; then printf '` + market + `\n' "$(cat ` + s + `.market)"; else echo '` + noMarket + `'; fi ;;
