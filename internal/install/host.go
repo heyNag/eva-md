@@ -118,6 +118,11 @@ func native(ctx context.Context, host string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, HostTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, host, args...)
+	// From /, no project's own settings take part. Claude Code reads the
+	// folder it runs in as a project, and from the home folder its project
+	// settings are the user settings file, so a marketplace removed from
+	// user settings stays listed there as another scope's.
+	cmd.Dir = "/"
 	cmd.WaitDelay = HostWaitDelay
 	var stdout, stderr limitedBuffer
 	cmd.Stdout = &stdout

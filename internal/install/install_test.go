@@ -125,7 +125,10 @@ func (f *fakeHost) run(_ context.Context, host string, args ...string) ([]byte, 
 			if args[2] == "add" {
 				f.markets[host] = true
 			}
-			if args[2] == "remove" {
+			// Claude Code 2.1.316 keeps listing a marketplace removed with
+			// --scope while another scope declares it, as the user settings
+			// file does as project settings in the home folder.
+			if args[2] == "remove" && !(host == "claude" && slices.Contains(args, "--scope")) {
 				delete(f.markets, host)
 			}
 		} else if len(args) >= 2 && args[0] == "plugin" {
@@ -656,6 +659,13 @@ func TestNativeRunnerIsBoundedAndHidesDiagnostics(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "sensitive") {
 		t.Fatalf("unsafe error %v", err)
 	}
+	// A host command runs from /, whatever folder eva-md runs in, so no
+	// project's settings take part.
+	_ = os.WriteFile(script, []byte("#!/bin/sh\npwd\n"), 0o700)
+	t.Chdir(t.TempDir())
+	if data, err = native(context.Background(), "claude", "plugin", "list", "--json"); err != nil || strings.TrimSpace(string(data)) != "/" {
+		t.Fatalf("host command ran in %q: %v", data, err)
+	}
 	_ = opts
 }
 
@@ -898,6 +908,27 @@ func TestUninstallRemovesARegistrationWhoseFolderIsGone(t *testing.T) {
 	}
 	if want := []string{"codex plugin marketplace remove eva-md --json"}; !slices.Equal(mutateCalls(f.calls), want) {
 		t.Errorf("removals %v, want %v", mutateCalls(f.calls), want)
+	}
+}
+
+// Uninstall removes Claude Code's eva-md marketplace from every scope: Claude
+// Code 2.1.316 keeps listing a marketplace removed with --scope user, which
+// left uninstall stopped at "host still reports eva-md".
+func TestUninstallRemovesClaudesMarketplaceFromEveryScope(t *testing.T) {
+	opts, f := setup(t)
+	opts.Host = "claude"
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	f.calls = nil
+	if _, err := uninstall(context.Background(), opts.Dirs, true, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"claude plugin uninstall eva-md@eva-md --scope user --json", "claude plugin marketplace remove eva-md --json"}; !slices.Equal(mutateCalls(f.calls), want) {
+		t.Errorf("removals %v, want %v", mutateCalls(f.calls), want)
+	}
+	if f.installed["claude"] || f.markets["claude"] {
+		t.Fatalf("still registered: %+v %+v", f.installed, f.markets)
 	}
 }
 

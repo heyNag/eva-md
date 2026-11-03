@@ -419,12 +419,13 @@ func removeArgs(host string) []string {
 	}
 	return []string{"plugin", "remove", "eva-md@eva-md", "--json"}
 }
+
+// marketRemoveArgs removes the eva-md marketplace. Claude Code 2.1.316 keeps
+// listing a marketplace removed with --scope while another scope declares it,
+// so it is removed from every scope; run from / (see native), that is the
+// user's settings and Claude Code's own list.
 func marketRemoveArgs(host string) []string {
-	args := []string{"plugin", "marketplace", "remove", "eva-md"}
-	if host == "claude" {
-		args = append(args, "--scope", "user")
-	}
-	return append(args, "--json")
+	return []string{"plugin", "marketplace", "remove", "eva-md", "--json"}
 }
 
 func rollback(ctx context.Context, dirs paths.Dirs, root *os.Root, plans []*hostPlan, previous []byte, owned bool, run runner) error {

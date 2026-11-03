@@ -207,7 +207,7 @@ if [ -n "$out" ]; then cat "$f" > "$out"; else cat "$f"; fi
 		"uname":  `case "$1" in -s) cat ` + root + `/os ;; -m) cat ` + root + `/arch ;; *) exec /usr/bin/uname "$@" ;; esac`,
 		"sysctl": `if [ "$*" = "-n sysctl.proc_translated" ]; then cat ` + root + `/translated; else exec /usr/sbin/sysctl "$@"; fi`,
 		"claude": fakeHost(m.hosts, "claude", "plugin list --json", `[{"pluginId":"eva-md@eva-md","name":"eva-md","enabled":true,"readFromFolder":"%s/plugins/eva-md","folderVersion":"1","errors":[]}]`, `[]`,
-			`[{"name":"eva-md","root":"%s"}]`, `[]`, "plugin install eva-md@eva-md --scope user --json", "plugin uninstall eva-md@eva-md --scope user --json", "plugin marketplace remove eva-md --scope user --json"),
+			`[{"name":"eva-md","root":"%s"}]`, `[]`, "plugin install eva-md@eva-md --scope user --json", "plugin uninstall eva-md@eva-md --scope user --json", "plugin marketplace remove eva-md --json"),
 		// Codex is asked one marketplace at a time: its list of every
 		// plugin also asks chatgpt.com.
 		"codex": fakeHost(m.hosts, "codex", "plugin list --json --marketplace=eva-md", `{"installed":[{"pluginId":"eva-md@eva-md","name":"eva-md","enabled":true,"source":{"path":"%s/plugins/eva-md"}}]}`, `{"installed":[]}`,
