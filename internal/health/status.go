@@ -27,8 +27,8 @@ const (
 // hosts or the doctor's repair, then what the wiki and the inbox hold: its
 // projects, threads and knowledge pages, and the sessions whose entries
 // wait for an update.
-func Status(ctx context.Context, d paths.Dirs, module string) Report {
-	r := inspect(ctx, d, module, false, false)
+func Status(ctx context.Context, d paths.Dirs) Report {
+	r := inspect(ctx, d, false, false)
 	c, err := config.LoadContext(ctx, d.ConfigFile())
 	if err != nil || c.WikiPath == "" {
 		return r

@@ -25,7 +25,7 @@ func TestMaintainRebuildsTheKnowledgeIndex(t *testing.T) {
 	d, home := gitHomeFixture(t, "")
 	remote, wiki := filepath.Join(home, "remote.git"), filepath.Join(home, "wiki")
 	gitRun(t, home, "init", "--bare", "--quiet", remote)
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: wiki, Dirs: d, Version: "test", OKFModule: "v0.7.2"}); err != nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: wiki, Dirs: d, Version: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	w, err := okfadapter.Open(wiki, d.Locks())
@@ -61,7 +61,7 @@ func TestMaintainRebuildsTheKnowledgeIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []config.WikiSchema{{SchemaVersion: 1, OKFSpec: schema.OKFSpec, Instance: "another-instance"}, {SchemaVersion: 2, OKFSpec: schema.OKFSpec, Instance: schema.Instance}} {
+	for _, s := range []config.WikiSchema{{SchemaVersion: 1, Instance: "another-instance"}, {SchemaVersion: 2, Instance: schema.Instance}} {
 		if err := config.SaveSchema(schemaFile, s); err != nil {
 			t.Fatal(err)
 		}

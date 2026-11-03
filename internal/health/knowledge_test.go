@@ -138,7 +138,7 @@ func TestStatusLeavesTheKnowledgeIndex(t *testing.T) {
 	if err := os.Remove(index); err != nil {
 		t.Fatal(err)
 	}
-	r := Status(t.Context(), d, "v0.7.2")
+	r := Status(t.Context(), d)
 	if row := findRow(t, r, "knowledge"); row.Status != "FAIL" || !strings.HasSuffix(row.Detail, "; out of date: .eva-md/knowledge.tsv") {
 		t.Fatalf("status: %+v", row)
 	}
@@ -148,10 +148,10 @@ func TestStatusLeavesTheKnowledgeIndex(t *testing.T) {
 	if _, err := os.Lstat(index); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("status wrote the index: %v", err)
 	}
-	if row := findRow(t, Inspect(t.Context(), d, "v0.7.2", false), "knowledge"); row.Status != "PASS" || !strings.HasSuffix(row.Detail, "; built again from the pages: .eva-md/knowledge.tsv") {
+	if row := findRow(t, Inspect(t.Context(), d, false), "knowledge"); row.Status != "PASS" || !strings.HasSuffix(row.Detail, "; built again from the pages: .eva-md/knowledge.tsv") {
 		t.Fatalf("doctor: %+v", row)
 	}
-	if row := findRow(t, Status(t.Context(), d, "v0.7.2"), "knowledge"); row.Status != "PASS" || !strings.HasSuffix(row.Detail, "; index current") {
+	if row := findRow(t, Status(t.Context(), d), "knowledge"); row.Status != "PASS" || !strings.HasSuffix(row.Detail, "; index current") {
 		t.Fatalf("status after the doctor: %+v", row)
 	}
 }
@@ -182,7 +182,7 @@ func TestKnowledgeRowWithoutTheFolder(t *testing.T) {
 	if check, _ := knowledgeRow(d, c, true); check != (Check{"knowledge", "PASS", counts + "; index current", ""}) {
 		t.Fatalf("repaired: %+v", check)
 	}
-	if err := config.SaveSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 2, OKFSpec: "0.2", Instance: c.Instance}); err != nil {
+	if err := config.SaveSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 2, Instance: c.Instance}); err != nil {
 		t.Fatal(err)
 	}
 	if check, found := knowledgeRow(d, c, true); found {

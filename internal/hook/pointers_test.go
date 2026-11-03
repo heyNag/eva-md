@@ -41,7 +41,7 @@ func systemsWiki(t *testing.T, env *Env, pages map[string]string) {
 	if err := okfadapter.Init(env.Config.WikiPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.SaveSchema(filepath.Join(env.Config.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", Instance: env.Config.Instance}); err != nil {
+	if err := config.SaveSchema(filepath.Join(env.Config.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: env.Config.Instance}); err != nil {
 		t.Fatal(err)
 	}
 	o := systempage.Options{Config: env.Config, Dirs: env.Dirs, Version: "test", Now: env.Now}

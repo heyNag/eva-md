@@ -280,8 +280,6 @@ func canonicalPattern(pattern string) string {
 // WikiSchema is the metadata stored in a wiki's .eva-md/schema.toml file.
 type WikiSchema struct {
 	SchemaVersion int    `toml:"schema_version"`
-	OKFSpec       string `toml:"okf_spec"`
-	OKFModule     string `toml:"okf_module"`
 	Instance      string `toml:"instance"`
 	Created       string `toml:"created"`
 }

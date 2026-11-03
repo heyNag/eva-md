@@ -108,7 +108,7 @@ func TestCommands(t *testing.T) {
 		code     int
 		contains string
 	}{
-		{nil, 2, "usage:"}, {[]string{"version"}, 0, "okf_spec 0.2"}, {[]string{"version", "extra"}, 2, "no arguments"},
+		{nil, 2, "usage:"}, {[]string{"version"}, 0, "schema_version 1"}, {[]string{"version", "extra"}, 2, "no arguments"},
 		{[]string{"install", "--invalid"}, 2, "invalid arguments"}, {[]string{"update"}, 2, "needs --session host:id or --pending"},
 		{[]string{"show"}, 2, "requires"}, {[]string{"show", "a", "b"}, 2, "requires"}, {[]string{"brief", "--as", "compact"}, 2, "requires --session"},
 		{[]string{"show", "x#Timeline", "--last", "-1"}, 2, "--last must be"}, {[]string{"show", "x#Timeline", "--last", "0"}, 2, "--last must be"},
@@ -130,6 +130,19 @@ func TestCommands(t *testing.T) {
 		if code != tc.code || !strings.Contains(out.String()+errOut.String(), tc.contains) {
 			t.Errorf("%v: code %d stdout %q stderr %q", tc.args, code, out.String(), errOut.String())
 		}
+	}
+}
+
+// eva-md version prints its own version and the wiki schema it reads and
+// writes, and nothing of the library under it.
+func TestVersion(t *testing.T) {
+	isolated(t)
+	var out, errOut bytes.Buffer
+	if code := run(context.Background(), []string{"version"}, strings.NewReader(""), &out, &errOut); code != 0 || errOut.Len() != 0 {
+		t.Fatalf("code %d stderr %q", code, errOut.String())
+	}
+	if want := "eva-md " + version + "\nschema_version 1\n"; out.String() != want {
+		t.Fatalf("got %q, want %q", out.String(), want)
 	}
 }
 

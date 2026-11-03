@@ -48,7 +48,7 @@ func fixture(t *testing.T) Options {
 	}
 	remote := filepath.Join(home, "remote.git")
 	testGit(t, home, "init", "--bare", remote)
-	return Options{Remote: remote, Dir: filepath.Join(home, "wiki"), Dirs: dirs, Version: "test", OKFModule: "v0.7.2"}
+	return Options{Remote: remote, Dir: filepath.Join(home, "wiki"), Dirs: dirs, Version: "test"}
 }
 
 func testGit(t *testing.T, dir string, args ...string) string {
@@ -62,6 +62,10 @@ func testGit(t *testing.T, dir string, args ...string) string {
 
 func TestInitPushAndAdopt(t *testing.T) {
 	o := fixture(t)
+	// The instance starts with the Mac's name, which the okf check below
+	// must not depend on.
+	hostname = func() (string, error) { return "test-mac", nil }
+	t.Cleanup(func() { hostname = os.Hostname })
 	r, err := Run(context.Background(), o)
 	if err != nil {
 		t.Fatal(err)
@@ -101,8 +105,18 @@ func TestInitPushAndAdopt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.SchemaVersion != 1 || s.OKFSpec != "0.2" || s.OKFModule != "v0.7.2" || s.Created == "" {
+	if s.SchemaVersion != 1 || s.Created == "" {
 		t.Fatalf("schema %+v", s)
+	}
+	// A new wiki names eva-md alone, never the library under it.
+	for _, name := range strings.Fields(testGit(t, o.Dir, "ls-files")) {
+		data, err := os.ReadFile(filepath.Join(o.Dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(strings.ToLower(string(data)), "okf") {
+			t.Errorf("%s names okf:\n%s", name, data)
+		}
 	}
 	for name, mode := range map[string]os.FileMode{"README.md": 0o644, "general/now.md": 0o644, "general/threads/default.md": 0o644, ".eva-md/schema.toml": 0o600, ".gitignore": 0o600, ".gitattributes": 0o600, "general": 0o700, "general/threads": 0o700, ".eva-md": 0o700} {
 		fi, err := os.Stat(filepath.Join(o.Dir, name))

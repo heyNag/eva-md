@@ -99,11 +99,25 @@ func TestInitOpen(t *testing.T) {
 	if !bytes.Contains(before, []byte("Initialized the eva-md wiki")) {
 		t.Fatalf("unexpected initial log: %q", before)
 	}
+	// The root index is eva-md's own, so okf writes none naming it.
+	if index := mustRead(t, filepath.Join(w.root, "index.md")); string(index) != RootIndex {
+		t.Fatalf("unexpected root index: %q", index)
+	}
+	// Init on a wiki keeps its root index and log, which hold text Init
+	// never writes.
+	kept := map[string]string{"index.md": RootIndex + IndexLine("Page", "page.md", "Kept") + "\n", "log.md": "## 2001-02-03\n* **Creation**: Kept.\n"}
+	for name, text := range kept {
+		if err := os.WriteFile(filepath.Join(w.root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := Init(w.root); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(before, mustRead(t, filepath.Join(w.root, "log.md"))) {
-		t.Fatal("Init rewrote the log")
+	for name, text := range kept {
+		if got := string(mustRead(t, filepath.Join(w.root, name))); got != text {
+			t.Fatalf("Init rewrote %s: %q", name, got)
+		}
 	}
 	alias := filepath.Join(filepath.Dir(w.root), "alias")
 	if err := os.Symlink(w.root, alias); err != nil {
@@ -224,6 +238,59 @@ func TestCreateUpdateFailures(t *testing.T) {
 	// A returned error must release the lock, too.
 	if err := w.Create("after-error", concept("After", "Body"), "codex/test"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A save that fails on the file system says the step that failed in
+// eva-md's words, never with the name of okf's temporary file, and keeps the
+// errno that tells a file system failure from a refused page.
+func TestSaveFailureNamesNoTemporaryFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes a folder whatever its mode")
+	}
+	w := testWiki(t)
+	p := mustCreate(t, w, "folder/page", concept("Page", "Body"))
+	folder := filepath.Join(w.root, "folder")
+	if err := os.Chmod(folder, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(folder, 0o700) })
+	_, update := w.Update(p.ID, p.Hash, func(c *Concept) error { c.Body = "Changed"; return nil }, "codex/test")
+	create := w.Create("folder/other", concept("Other", "Body"), "codex/test")
+	for name, err := range map[string]error{"update": update, "create": create} {
+		if !errors.Is(err, syscall.EACCES) || !strings.Contains(err.Error(), "a temporary file: ") || strings.Contains(strings.ToLower(err.Error()), "okf") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// tempFailure says each step of okf's atomic write that fails on its
+// temporary file in eva-md's words, keeping the errno, and passes on any
+// other error as it is.
+func TestTempFailure(t *testing.T) {
+	tmp := filepath.Join("wiki", "folder", ".tmp-okf-123456")
+	page := filepath.Join("wiki", "folder", "page.md")
+	wrap := func(text string, err error) error { return fmt.Errorf("failed to write concept: %s: %w", text, err) }
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{wrap("failed to create temporary file", &fs.PathError{Op: "open", Path: tmp, Err: syscall.EACCES}), "open a temporary file: permission denied"},
+		{wrap("failed to write to temporary file", &fs.PathError{Op: "write", Path: tmp, Err: syscall.ENOSPC}), "write a temporary file: no space left on device"},
+		{wrap("failed to sync temporary file", &fs.PathError{Op: "sync", Path: tmp, Err: syscall.EIO}), "sync a temporary file: input/output error"},
+		{wrap("failed to close temporary file", &fs.PathError{Op: "close", Path: tmp, Err: syscall.EIO}), "close a temporary file: input/output error"},
+		{wrap("failed to set permissions on temporary file", &fs.PathError{Op: "chmod", Path: tmp, Err: syscall.EPERM}), "chmod a temporary file: operation not permitted"},
+		{wrap("failed to atomically replace "+page, &os.LinkError{Op: "rename", Old: tmp, New: page, Err: syscall.EPERM}), "rename a temporary file: operation not permitted"},
+	} {
+		got := tempFailure(c.err)
+		var errno syscall.Errno
+		if got.Error() != c.want || !errors.As(got, &errno) {
+			t.Errorf("%v: got %q", c.err, got)
+		}
+	}
+	other := fmt.Errorf("failed to create directory: %w", &fs.PathError{Op: "mkdir", Path: filepath.Join("wiki", "folder"), Err: syscall.EACCES})
+	if got := tempFailure(other); got != other {
+		t.Errorf("changed %v into %v", other, got)
 	}
 }
 
@@ -433,7 +500,7 @@ func TestPermissions(t *testing.T) {
 	mustCreate(t, w, "nested/threads/page", concept("Page", "Body"))
 	writeFixture(t, w, "nested/index.md", "# Index\n")
 	writeFixture(t, w, ".eva-md/schema.toml", "schema_version = 1\n")
-	writeFixture(t, w, ".gitignore", ".tmp-okf-*\n.tmp-eva-*\n")
+	writeFixture(t, w, ".gitignore", ".tmp-*\n")
 	checks := map[string]os.FileMode{w.root: 0o700, w.lockDir: 0o700, w.lockPath: 0o600}
 	for name, mode := range map[string]os.FileMode{"index.md": 0o644, "log.md": 0o644, "nested": 0o700, "nested/threads": 0o700, "nested/threads/page.md": 0o644, "nested/index.md": 0o644, ".eva-md": 0o700, ".eva-md/schema.toml": 0o600, ".gitignore": 0o600} {
 		checks[filepath.Join(w.root, name)] = mode
@@ -646,7 +713,7 @@ func TestInterruptedSaveHelper(t *testing.T) {
 func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 	w := testWiki(t)
 	original := mustCreate(t, w, "page", concept("Page", "Original"))
-	writeFixture(t, w, ".gitignore", ".tmp-okf-*\n.tmp-eva-*\n*.jsonl\ninbox/\n.eva-md/tmp/\n")
+	writeFixture(t, w, ".gitignore", ".tmp-*\n*.jsonl\ninbox/\n.eva-md/tmp/\n")
 	git(t, w.root, "init", "--quiet")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestInterruptedSaveHelper$")
 	cmd.Env = append(os.Environ(), "EVA_ADAPTER_CRASH_ROOT="+w.root, "EVA_ADAPTER_CRASH_LOCKS="+w.lockDir)

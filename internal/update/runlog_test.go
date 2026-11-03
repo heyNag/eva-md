@@ -119,7 +119,7 @@ func TestQuarantinedCountsSessionFailuresInARow(t *testing.T) {
 		want string
 	}{
 		{"two", runLog{f(1, ReasonInvalidOutput), f(2, ReasonTimeout)}, ""},
-		{"three", runLog{f(1, ReasonInvalidOutput), f(2, ReasonTimeout), f(3, ReasonOKFRefused)}, "2026-01-14"},
+		{"three", runLog{f(1, ReasonInvalidOutput), f(2, ReasonTimeout), f(3, ReasonPageRefused)}, "2026-01-14"},
 		{"host failures between", runLog{f(1, ReasonToolUsed), f(2, ReasonRateLimit), f(3, ReasonAuth), f(4, ReasonModelRejected), f(5, ReasonConflict), f(6, ReasonToolUsed)}, "2026-01-14"},
 		{"success ends it", runLog{f(1, ReasonToolUsed), f(2, ReasonToolUsed), rec(3, OutcomeNoChange, ""), f(4, ReasonToolUsed)}, ""},
 		{"skip ends it", runLog{f(1, ReasonToolUsed), f(2, ReasonToolUsed), f(3, ReasonToolUsed), rec(4, OutcomeSkipped, ReasonQuarantined)}, ""},
@@ -178,10 +178,10 @@ func TestSaveFailureReasons(t *testing.T) {
 		{fmt.Errorf("%w: projects/x/threads/main.md", okfadapter.ErrConflict), ReasonConflict},
 		{fmt.Errorf("%w: projects/x/threads/main.md", okfadapter.ErrExists), ReasonConflict},
 		{fmt.Errorf("%w after 1m0s", okfadapter.ErrLockBusy), ReasonWikiError},
-		{fmt.Errorf("okfadapter: create x: failed to write concept: %w", &fs.PathError{Op: "open", Path: "x", Err: syscall.EACCES}), ReasonWikiError},
-		{fmt.Errorf("okfadapter: update x: %w", &os.LinkError{Op: "rename", Old: "a", New: "b", Err: syscall.ENOSPC}), ReasonWikiError},
-		{fmt.Errorf("okfadapter: fsync folder x: %w", syscall.EIO), ReasonWikiError},
-		{errors.New("okfadapter: update x: concept title cannot contain newlines"), ReasonOKFRefused},
+		{fmt.Errorf("wiki: create x: failed to write concept: %w", &fs.PathError{Op: "open", Path: "x", Err: syscall.EACCES}), ReasonWikiError},
+		{fmt.Errorf("wiki: update x: %w", &os.LinkError{Op: "rename", Old: "a", New: "b", Err: syscall.ENOSPC}), ReasonWikiError},
+		{fmt.Errorf("wiki: fsync folder x: %w", syscall.EIO), ReasonWikiError},
+		{errors.New("wiki: update x: concept title cannot contain newlines"), ReasonPageRefused},
 	} {
 		if got := saveFailure(tc.err); got != tc.want {
 			t.Errorf("%v: %q, want %q", tc.err, got, tc.want)

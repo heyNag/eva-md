@@ -508,7 +508,7 @@ func (r *run) refresh(a area, rules []rulesPage, thread bool, actor string) {
 // under it; wiki_error when the wiki, not the page's text, was at fault:
 // its lock still busy after a minute, or a file system error such as a
 // folder that can't be written, a full disk or a failed fsync; and
-// otherwise okf_refused, okf's refusal of the page's text.
+// otherwise page_refused, okf's refusal of the page's text.
 func saveFailure(err error) string {
 	var errno syscall.Errno
 	switch {
@@ -517,7 +517,7 @@ func saveFailure(err error) string {
 	case errors.Is(err, okfadapter.ErrLockBusy) || errors.As(err, &errno):
 		return ReasonWikiError
 	}
-	return ReasonOKFRefused
+	return ReasonPageRefused
 }
 
 // effort is the effort a run for host and model starts at: the config's,

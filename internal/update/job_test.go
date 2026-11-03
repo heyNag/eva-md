@@ -35,7 +35,7 @@ const (
 	testPage     = "projects/eva-md/threads/main"
 	// The wiki's .gitignore, a copy of the one setup writes, which wikiinit
 	// doesn't export.
-	testGitignore = "*.jsonl\n/inbox/\n.eva-md/tmp/\n.tmp-okf-*\n.tmp-eva-*\n.DS_Store\n"
+	testGitignore = "*.jsonl\n/inbox/\n.eva-md/tmp/\n.tmp-*\n.DS_Store\n"
 )
 
 type env struct {
@@ -58,7 +58,7 @@ func newEnv(t *testing.T) *env {
 	if err := okfadapter.Init(wiki); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", Instance: testInstance}); err != nil {
+	if err := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: testInstance}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(wiki, ".gitignore"), []byte(testGitignore), 0o600); err != nil {
@@ -356,8 +356,8 @@ func TestWikiSchemaAndInstanceAreChecked(t *testing.T) {
 		schema config.WikiSchema
 		want   string
 	}{
-		{config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", Instance: "other-0a1b2c3d"}, "the wiki's instance is not the one the config names"},
-		{config.WikiSchema{SchemaVersion: 2, OKFSpec: "0.2", Instance: testInstance}, "the wiki's schema version is 2"},
+		{config.WikiSchema{SchemaVersion: 1, Instance: "other-0a1b2c3d"}, "the wiki's instance is not the one the config names"},
+		{config.WikiSchema{SchemaVersion: 2, Instance: testInstance}, "the wiki's schema version is 2"},
 	} {
 		if err := config.SaveSchema(schema, tc.schema); err != nil {
 			t.Fatal(err)

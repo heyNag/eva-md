@@ -186,7 +186,7 @@ func TestBoundedPrivateConfigReads(t *testing.T) {
 func TestSchemaRoundTrip(t *testing.T) {
 	isolate(t)
 	file := filepath.Join(t.TempDir(), "wiki", ".eva-md.toml")
-	want := WikiSchema{SchemaVersion: 1, OKFSpec: "0.1", OKFModule: "v0.7.2", Instance: "fixture", Created: "2026-10-29"}
+	want := WikiSchema{SchemaVersion: 1, Instance: "fixture", Created: "2026-10-29"}
 	if err := SaveSchema(file, want); err != nil {
 		t.Fatal(err)
 	}
@@ -197,6 +197,21 @@ func TestSchemaRoundTrip(t *testing.T) {
 	info, err := os.Stat(file)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("schema permissions: %v, %v", info, err)
+	}
+}
+
+// A schema with keys this eva-md doesn't read, such as the okf versions an
+// earlier one recorded, loads with the keys it does read.
+func TestLoadSchemaIgnoresKeysItDoesNotRead(t *testing.T) {
+	isolate(t)
+	file := filepath.Join(t.TempDir(), "schema.toml")
+	data := "schema_version = 1\nokf_spec = \"0.2\"\nokf_module = \"v0.7.2\"\ninstance = \"mac-0a1b2c3d\"\ncreated = \"2026-11-03T10:00:00Z\"\n"
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := WikiSchema{SchemaVersion: 1, Instance: "mac-0a1b2c3d", Created: "2026-11-03T10:00:00Z"}
+	if got, err := LoadSchema(file); err != nil || got != want {
+		t.Fatalf("got %+v, %v", got, err)
 	}
 }
 

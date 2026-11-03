@@ -212,12 +212,12 @@ def main():
             folder=wiki/"projects"/("other-%03d"%i)
             folder.mkdir(parents=True,mode=0o700)
             (folder/"now.md").write_text('---\ntype: now\ntitle: Other\nremote: "example.com/other/%03d"\n---\n'%i)
-        (wiki/"index.md").write_text('---\nokf_version: "0.2"\n---\n\n# Knowledge Base\n')
+        (wiki/"index.md").write_text('# Knowledge Base\n')
         # The wiki as init leaves it, its instance in its schema and in the
         # config, which the hooks need to start the day's maintain.
         schema=wiki/".eva-md/schema.toml"
         schema.parent.mkdir(mode=0o700)
-        schema.write_text('schema_version = 1\nokf_spec = "0.2"\ninstance = "bench-0a1b2c3d"\n');schema.chmod(0o600)
+        schema.write_text('schema_version = 1\ninstance = "bench-0a1b2c3d"\n');schema.chmod(0o600)
         config=Path(home)/".config/eva-md/config.toml"
         config.parent.mkdir(parents=True,mode=0o700)
         config.write_text('wiki_path = %s\ninstance = "bench-0a1b2c3d"\n'%json.dumps(str(wiki)));config.chmod(0o600)

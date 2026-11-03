@@ -131,27 +131,21 @@ func TestInboxFIFOIsUnsafe(t *testing.T) {
 		t.Fatalf("FIFO reported healthy: %+v", r)
 	}
 }
-func TestUnknownModuleAndIncompleteTemporaryScan(t *testing.T) {
+func TestIncompleteTemporaryScan(t *testing.T) {
 	d := isolated(t)
 	c := config.Default()
 	c.WikiPath = filepath.Join(t.TempDir(), "wiki")
 	c.Instance = "test"
 	put(t, filepath.Join(c.WikiPath, "index.md"), []byte("---\nokf_version: \"0.2\"\n---\n# Wiki\n"))
-	if e := config.SaveSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", OKFModule: "v0.7.2", Instance: "test", Created: "2026-10-29"}); e != nil {
+	if e := config.SaveSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: "test", Created: "2026-10-29"}); e != nil {
 		t.Fatal(e)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var r Report
-	inspectWiki(ctx, &r, d, c, "unknown", true)
-	foundPin, foundScan := false, false
+	inspectWiki(ctx, &r, d, c, true)
+	foundScan := false
 	for _, check := range r.Checks {
-		if check.Name == "okf module" {
-			foundPin = true
-			if check.Status != "UNKNOWN" {
-				t.Fatal(check)
-			}
-		}
 		if check.Name == "wiki temporary files" {
 			foundScan = true
 			if check.Status != "UNKNOWN" {
@@ -159,7 +153,7 @@ func TestUnknownModuleAndIncompleteTemporaryScan(t *testing.T) {
 			}
 		}
 	}
-	if !foundPin || !foundScan {
+	if !foundScan {
 		t.Fatalf("missing expected checks: %+v", r)
 	}
 }

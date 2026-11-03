@@ -184,12 +184,12 @@ func Read(c *okfadapter.Concept) (Entry, error) {
 	}
 	e.Statement, e.Tag, e.Refs, e.At, e.History, e.other = b.statement, b.tag, b.refs, b.at, b.history, b.other
 	if okfadapter.SmugglesFrontmatter(e.body()) {
-		return Entry{}, fmt.Errorf("%w: a block in the body holds a frontmatter key okf refuses", ErrDamaged)
+		return Entry{}, fmt.Errorf("%w: a block in the body holds a frontmatter key the wiki refuses", ErrDamaged)
 	}
 	// okf's save refuses a title or description with a line break or ---,
 	// and the statement is written back as the description.
 	if refusedMeta(e.Title) || refusedMeta(e.Statement) {
-		return Entry{}, fmt.Errorf("%w: the title or statement holds a line break or the --- okf refuses", ErrDamaged)
+		return Entry{}, fmt.Errorf("%w: the title or statement holds a line break or the --- the wiki refuses", ErrDamaged)
 	}
 	return e, nil
 }

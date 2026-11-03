@@ -135,7 +135,7 @@ func TestInspectShowsTheEntrypoint(t *testing.T) {
 		put(t, filepath.Join(d.State, "heartbeats", "claude-code", event+".json"), raw)
 	}
 	details := map[string]string{}
-	for _, c := range Inspect(context.Background(), d, "v0.7.2", false).Checks {
+	for _, c := range Inspect(context.Background(), d, false).Checks {
 		details[c.Name] = c.Detail
 	}
 	if got := details["claude-code UserPromptSubmit"]; !strings.HasSuffix(got, "; entrypoint claude-desktop") {
@@ -153,7 +153,7 @@ func TestInspectShowsTheEntrypoint(t *testing.T) {
 func TestInspectReportsHookFailuresAndDrift(t *testing.T) {
 	d := isolated(t)
 	names := map[string]bool{}
-	for _, c := range Inspect(context.Background(), d, "v0.7.2", false).Checks {
+	for _, c := range Inspect(context.Background(), d, false).Checks {
 		names[c.Name] = true
 	}
 	for _, host := range []string{"claude-code", "codex"} {

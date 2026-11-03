@@ -32,11 +32,11 @@ const (
 // the rest of a group that holds only events, or headless for a chat a
 // program ran (see backlog.programRun).
 const (
-	ReasonOKFRefused  = "okf_refused" // okf refused the page's text; counts toward the session
-	ReasonWikiError   = "wiki_error"  // the wiki lock stayed busy, or a file system error; backs off
-	ReasonConflict    = "conflict"    // the page changed under three saves in a row; counts toward nothing
-	ReasonWatermark   = "watermark"   // the watermark could not be saved after the call, or can't be used at all; counts toward nothing
-	ReasonLeft        = "left"        // a chat from before updates that couldn't be set aside yet, never drained; counts toward nothing
+	ReasonPageRefused = "page_refused" // okf refused the page's text; counts toward the session
+	ReasonWikiError   = "wiki_error"   // the wiki lock stayed busy, or a file system error; backs off
+	ReasonConflict    = "conflict"     // the page changed under three saves in a row; counts toward nothing
+	ReasonWatermark   = "watermark"    // the watermark could not be saved after the call, or can't be used at all; counts toward nothing
+	ReasonLeft        = "left"         // a chat from before updates that couldn't be set aside yet, never drained; counts toward nothing
 	ReasonLocked      = "locked"
 	ReasonVerified    = "verified"
 	ReasonDamaged     = "damaged"
@@ -53,7 +53,7 @@ const (
 // rather than holds: a job started with a PATH that lacks the CLI, as from
 // an app, says nothing about the jobs a terminal starts.
 var (
-	sessionReasons = []string{ReasonInvalidOutput, ReasonToolUsed, ReasonOKFRefused, ReasonTimeout, ReasonModelRejected}
+	sessionReasons = []string{ReasonInvalidOutput, ReasonToolUsed, ReasonPageRefused, ReasonTimeout, ReasonModelRejected}
 	holdReasons    = []string{ReasonAuth, ReasonMCPFailed}
 	backoffReasons = []string{ReasonRateLimit, ReasonHostError, ReasonWikiError, ReasonCLIMissing}
 )
@@ -383,7 +383,7 @@ func (l runLog) backoffUntil(host string) time.Time {
 }
 
 // quarantined returns the day the session's failures in a row reached 3,
-// or "" while they haven't. Only invalid_output, tool_used, okf_refused,
+// or "" while they haven't. Only invalid_output, tool_used, page_refused,
 // timeout and model_rejected count. A pass that validated or a skip ends a
 // row; another failure, such as a rate limit, neither counts nor ends one.
 func (l runLog) quarantined(host, session string) string {

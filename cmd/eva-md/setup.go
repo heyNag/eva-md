@@ -112,7 +112,7 @@ func runSetupCommand(ctx context.Context, args []string, in io.Reader, out, errO
 		initWiki:    wikiinit.Run,
 		install:     install.Run,
 		inspect: func(ctx context.Context, d paths.Dirs) health.Report {
-			return health.Inspect(ctx, d, okfModule(), true)
+			return health.Inspect(ctx, d, true)
 		},
 		executable:   os.Executable,
 		peek:         peekRemote,
@@ -497,7 +497,7 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 			declined = !push
 			return push
 		}
-		r, err := env.initWiki(ctx, wikiinit.Options{Remote: remoteURL, Dir: folder, NoPush: *noPush || p == planReclone, Version: version, OKFModule: okfModule(), Dirs: env.dirs, BeforePush: beforePush})
+		r, err := env.initWiki(ctx, wikiinit.Options{Remote: remoteURL, Dir: folder, NoPush: *noPush || p == planReclone, Version: version, Dirs: env.dirs, BeforePush: beforePush})
 		if err != nil {
 			fmt.Fprintln(errOut, "eva-md: "+plain(err))
 			switch {
@@ -1068,7 +1068,7 @@ func peekRemote(ctx context.Context, remote string) (string, error) {
 	if err == nil {
 		if info, err := os.Lstat(filepath.Join(dir, ".eva-md")); err == nil && info.IsDir() {
 			if schema, err := config.LoadSchema(filepath.Join(dir, ".eva-md", "schema.toml")); err == nil && schema.Instance != "" {
-				if schema.SchemaVersion != 1 || schema.OKFSpec != "0.2" {
+				if schema.SchemaVersion != 1 {
 					return "", errors.New("this repo holds an eva wiki this eva-md can't use; update eva-md")
 				}
 				return schema.Instance, nil

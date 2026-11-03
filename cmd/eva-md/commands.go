@@ -308,9 +308,9 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 	defer cancel()
 	var r health.Report
 	if args[0] == "doctor" {
-		r = health.Inspect(checkCtx, d, okfModule(), true)
+		r = health.Inspect(checkCtx, d, true)
 	} else {
-		r = health.Status(checkCtx, d, okfModule())
+		r = health.Status(checkCtx, d)
 	}
 	if *live {
 		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

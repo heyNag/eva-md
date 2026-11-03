@@ -453,7 +453,7 @@ func TestStatusRows(t *testing.T) {
 			}
 		}
 	}
-	r := Status(t.Context(), d, "v0.7.2")
+	r := Status(t.Context(), d)
 	if row := findRow(t, r, "wiki contents"); row.Status != "PASS" || row.Detail != "2 projects, 4 threads, 0 knowledge pages" {
 		t.Fatalf("contents: %+v", row)
 	}
@@ -463,7 +463,7 @@ func TestStatusRows(t *testing.T) {
 	for _, name := range []string{"codex updates", "daily commit", "push", "oversize pages", "system map"} {
 		findRow(t, r, name)
 	}
-	for _, c := range Inspect(t.Context(), d, "v0.7.2", false).Checks {
+	for _, c := range Inspect(t.Context(), d, false).Checks {
 		if c.Name == "wiki contents" || c.Name == "update backlog" {
 			t.Fatalf("the doctor's checks hold a status row: %+v", c)
 		}
@@ -491,7 +491,7 @@ func TestStatusNamesUnusableWatermarks(t *testing.T) {
 			put(t, filepath.Join(filepath.Dir(file), ".state", filepath.Base(file)+".wm"), []byte("garbage\n"))
 		}
 	}
-	row := findRow(t, Status(t.Context(), d, "v0.7.2"), "update backlog")
+	row := findRow(t, Status(t.Context(), d), "update backlog")
 	if row.Status != "FAIL" || !strings.HasPrefix(row.Detail, "1 session waits for an update; 2 sessions have a watermark that can't be read or is past the end of its file: ") ||
 		!strings.Contains(row.Detail, "codex:0199a000") || !strings.Contains(row.Detail, "codex:0199b000") || !strings.Contains(row.Fix, "delete each damaged watermark") {
 		t.Fatalf("backlog: %+v", row)

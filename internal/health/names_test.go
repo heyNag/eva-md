@@ -26,7 +26,7 @@ func namesWiki(t *testing.T) (paths.Dirs, config.Config) {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(wiki, "index.md"), []byte("---\nokf_version: \"0.2\"\n---\n# Wiki\n"))
-	if err := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", OKFModule: "v0.7.2", Instance: "test", Created: "2026-10-29"}); err != nil {
+	if err := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: "test", Created: "2026-10-29"}); err != nil {
 		t.Fatal(err)
 	}
 	c := config.Default()
@@ -55,7 +55,7 @@ func systemFile(t *testing.T, c config.Config, slug, title, asOf string, aliases
 func namesCheck(t *testing.T, d paths.Dirs, c config.Config) (Check, bool) {
 	t.Helper()
 	var r Report
-	inspectWiki(context.Background(), &r, d, c, "v0.7.2", true)
+	inspectWiki(context.Background(), &r, d, c, true)
 	for _, check := range r.Checks {
 		if check.Name == "system names" {
 			return check, true
@@ -119,16 +119,16 @@ func TestStatusLeavesTheNamesIndex(t *testing.T) {
 	}
 	systemFile(t, c, "orders", "Orders service", "2026-10-30", "order service")
 	index := filepath.Join(c.WikiPath, filepath.FromSlash(systempage.NamesFile))
-	if row := findRow(t, Status(t.Context(), d, "v0.7.2"), "system names"); row.Status != "FAIL" || row.Detail != "the names index of the 1 system page is missing, unreadable or out of date, so prompts may miss pointers to them" || row.Fix != "run eva-md doctor, which writes it again" {
+	if row := findRow(t, Status(t.Context(), d), "system names"); row.Status != "FAIL" || row.Detail != "the names index of the 1 system page is missing, unreadable or out of date, so prompts may miss pointers to them" || row.Fix != "run eva-md doctor, which writes it again" {
 		t.Fatalf("status: %+v", row)
 	}
 	if _, err := os.Lstat(index); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("status wrote the index: %v", err)
 	}
-	if row := findRow(t, Inspect(t.Context(), d, "v0.7.2", false), "system names"); row.Status != "PASS" || row.Detail != "written again from the system pages: 3 names for 1 system page" {
+	if row := findRow(t, Inspect(t.Context(), d, false), "system names"); row.Status != "PASS" || row.Detail != "written again from the system pages: 3 names for 1 system page" {
 		t.Fatalf("doctor: %+v", row)
 	}
-	if row := findRow(t, Status(t.Context(), d, "v0.7.2"), "system names"); row.Status != "PASS" || row.Detail != "3 names for 1 system page" {
+	if row := findRow(t, Status(t.Context(), d), "system names"); row.Status != "PASS" || row.Detail != "3 names for 1 system page" {
 		t.Fatalf("status after the doctor: %+v", row)
 	}
 }

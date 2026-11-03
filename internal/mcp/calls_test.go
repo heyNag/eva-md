@@ -408,7 +408,7 @@ func TestShowGivesASystemPageAtItsCapWhole(t *testing.T) {
 	if err := os.Remove(f.s.Dirs.ConfigFile()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: filepath.Join(home, "remote.git"), Dir: f.c.WikiPath, Dirs: f.s.Dirs, Version: "test", OKFModule: "v0.7.2", NoPush: true}); err != nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: filepath.Join(home, "remote.git"), Dir: f.c.WikiPath, Dirs: f.s.Dirs, Version: "test", NoPush: true}); err != nil {
 		t.Fatal(err)
 	}
 	c, err := config.Load(f.s.Dirs.ConfigFile())

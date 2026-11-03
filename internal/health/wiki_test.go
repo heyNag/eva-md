@@ -24,7 +24,7 @@ func TestWikiRemoteAcceptsInitializedCanonicalIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(wiki, "index.md"), []byte("---\nokf_version: \"0.2\"\n---\n# Wiki\n"))
-	if e := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", OKFModule: "v0.7.2", Instance: "test", Created: "2026-10-29"}); e != nil {
+	if e := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: "test", Created: "2026-10-29"}); e != nil {
 		t.Fatal(e)
 	}
 	for _, expected := range []string{"github.com/example/wiki", "git@github.com:example/wiki.git", "https://github.com/example/wiki.git", "github.com/example/other"} {
@@ -33,7 +33,7 @@ func TestWikiRemoteAcceptsInitializedCanonicalIdentity(t *testing.T) {
 		c.ExpectedRemote = expected
 		c.Instance = "test"
 		var report Report
-		inspectWiki(context.Background(), &report, d, c, "v0.7.2", true)
+		inspectWiki(context.Background(), &report, d, c, true)
 		found := false
 		for _, check := range report.Checks {
 			if check.Name == "wiki remote" {
@@ -73,7 +73,7 @@ func TestWikiRemoteAcceptsALocalRemote(t *testing.T) {
 	git("init", "-q", wiki)
 	git("-C", wiki, "remote", "add", "origin", bare)
 	put(t, filepath.Join(wiki, "index.md"), []byte("---\nokf_version: \"0.2\"\n---\n# Wiki\n"))
-	if e := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", OKFModule: "v0.7.2", Instance: "test", Created: "2026-10-29"}); e != nil {
+	if e := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: "test", Created: "2026-10-29"}); e != nil {
 		t.Fatal(e)
 	}
 	_, expected, err := wikigit.RemoteIdentity(bare)
@@ -85,7 +85,7 @@ func TestWikiRemoteAcceptsALocalRemote(t *testing.T) {
 		c := config.Default()
 		c.WikiPath, c.ExpectedRemote, c.Instance = wiki, expected, "test"
 		var report Report
-		inspectWiki(context.Background(), &report, d, c, "v0.7.2", true)
+		inspectWiki(context.Background(), &report, d, c, true)
 		for _, check := range report.Checks {
 			if check.Name == "wiki remote" {
 				return check

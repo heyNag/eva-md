@@ -154,7 +154,7 @@ func text(f field, key string, limit int, p *problems) string {
 		return ""
 	}
 	if strings.Contains(v, "---") {
-		p.add(f.line, key+" holds ---, which okf refuses there")
+		p.add(f.line, key+" holds ---, which the wiki refuses there")
 		return ""
 	}
 	if utf8.RuneCountInString(v) > limit {

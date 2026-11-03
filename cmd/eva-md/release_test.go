@@ -369,7 +369,7 @@ func (m *fakeMac) exec(t *testing.T, binary string, args ...string) (int, string
 // as setup leaves them.
 func (m *fakeMac) setUpWiki(t *testing.T) {
 	t.Helper()
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: m.remote, Dir: m.wiki, Dirs: m.dirs, Version: "test", OKFModule: "v0.7.2"}); err != nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: m.remote, Dir: m.wiki, Dirs: m.dirs, Version: "test"}); err != nil {
 		t.Fatal(err)
 	}
 }

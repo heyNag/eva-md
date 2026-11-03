@@ -46,7 +46,7 @@ func updateFixture(t *testing.T, output string) (paths.Dirs, *update.Fake) {
 	if err := okfadapter.Init(wiki); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", Instance: "test-0a1b2c3d"}); err != nil {
+	if err := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: "test-0a1b2c3d"}); err != nil {
 		t.Fatal(err)
 	}
 	c := config.Default()
@@ -251,7 +251,7 @@ func TestUpdateCommandExitCodes(t *testing.T) {
 	}{
 		{"paused", func(c *config.Config) { c.Updates = false }, []string{"update", "--pending", "--foreground"}, 0, "update: stopped: paused\n", "stopped: paused"},
 		{"failed", func(*config.Config) {}, []string{"update", "--session", "claude-code:exit-codes", "--foreground"}, 1, "update: 1 pass: 1 failed\n", "failed (rate_limit)"},
-		{"no wiki", func(c *config.Config) { c.WikiPath = filepath.Join(os.Getenv("HOME"), "missing-wiki") }, []string{"update", "--pending", "--foreground"}, 1, "", "eva-md: okfadapter: wiki"},
+		{"no wiki", func(c *config.Config) { c.WikiPath = filepath.Join(os.Getenv("HOME"), "missing-wiki") }, []string{"update", "--pending", "--foreground"}, 1, "", "eva-md: wiki "},
 	} {
 		c := base
 		tc.edit(&c)

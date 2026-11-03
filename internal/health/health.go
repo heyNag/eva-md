@@ -142,12 +142,12 @@ type hookRun struct {
 // writes host settings; its two repairs are the names index (see
 // inspectNames) and the files built from the knowledge pages (see
 // inspectKnowledge).
-func Inspect(ctx context.Context, d paths.Dirs, module string, hosts bool) Report {
-	return inspect(ctx, d, module, hosts, true)
+func Inspect(ctx context.Context, d paths.Dirs, hosts bool) Report {
+	return inspect(ctx, d, hosts, true)
 }
 
 // inspect is Inspect, and without repair, as eva-md status, writes nothing.
-func inspect(ctx context.Context, d paths.Dirs, module string, hosts, repair bool) Report {
+func inspect(ctx context.Context, d paths.Dirs, hosts, repair bool) Report {
 	r := Report{}
 	if info, err := os.Lstat(filepath.Join(d.Share, "bin", "eva-md")); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
 		r.add("binary", "PASS", "stable hook binary is installed", "")
@@ -165,7 +165,7 @@ func inspect(ctx context.Context, d paths.Dirs, module string, hosts, repair boo
 		if info, e := os.Lstat(d.ConfigFile()); e != nil || info.Mode().Perm()&0077 != 0 {
 			r.add("config permissions", "FAIL", "config must be private", "set config mode to 0600")
 		}
-		inspectWiki(ctx, &r, d, c, module, repair)
+		inspectWiki(ctx, &r, d, c, repair)
 	}
 	inspectInbox(ctx, &r, d)
 	inspectSearchIndex(&r, d)
@@ -205,7 +205,7 @@ func inspect(ctx context.Context, d paths.Dirs, module string, hosts, repair boo
 	return r
 }
 
-func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, module string, repair bool) {
+func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, repair bool) {
 	if c.WikiPath == "" {
 		r.add("wiki", "FAIL", "wiki path is missing", "run eva-md setup")
 		return
@@ -234,13 +234,6 @@ func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, 
 		} else {
 			r.add("wiki instance", "PASS", "instance matches", "")
 		}
-		if module == "unknown" || module == "" {
-			r.add("okf module", "UNKNOWN", "binary dependency pin is unavailable", "use a binary built from the pinned module")
-		} else if s.OKFModule != module {
-			r.add("okf module", "FAIL", "wiki pin and binary pin differ", "review the dependency upgrade before writing")
-		} else {
-			r.add("okf module", "PASS", "wiki and binary dependency pins agree", "")
-		}
 	}
 	p, e := identity.Resolve(ctx, c.WikiPath)
 	gitInfo, gitErr := os.Lstat(filepath.Join(c.WikiPath, ".git"))
@@ -268,7 +261,7 @@ func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, 
 	} else if len(v.Errors)+len(v.BrokenLinks)+len(v.Orphans) > 0 {
 		r.add("wiki validation", "FAIL", fmt.Sprintf("%d errors, %d broken links, %d orphans", len(v.Errors), len(v.BrokenLinks), len(v.Orphans)), "run eva-md validate")
 	} else {
-		r.add("wiki validation", "PASS", fmt.Sprintf("%d concepts; no errors, broken links or orphans", v.ConceptCount), "")
+		r.add("wiki validation", "PASS", fmt.Sprintf("%d pages; no errors, broken links or orphans", v.ConceptCount), "")
 	}
 	temps := 0
 	seen := 0

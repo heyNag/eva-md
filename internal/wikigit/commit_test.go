@@ -72,7 +72,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	f := &fixture{home: home, wiki: filepath.Join(home, "wiki"), remote: filepath.Join(home, "remote.git")}
 	git(t, home, "init", "--bare", "--quiet", f.remote)
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: f.remote, Dir: f.wiki, Dirs: dirs, Version: "test", OKFModule: "v0.7.2"}); err != nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: f.remote, Dir: f.wiki, Dirs: dirs, Version: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	c, err := config.Load(dirs.ConfigFile())

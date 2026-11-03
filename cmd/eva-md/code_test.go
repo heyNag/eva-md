@@ -25,7 +25,7 @@ func codeWiki(t *testing.T) (paths.Dirs, string, string, string) {
 	d, home := gitHomeFixture(t, "")
 	remote, wiki := filepath.Join(home, "remote.git"), filepath.Join(home, "wiki")
 	gitRun(t, home, "init", "--bare", "--quiet", remote)
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: wiki, Dirs: d, Version: "test", OKFModule: "v0.7.2"}); err != nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: wiki, Dirs: d, Version: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	clone := filepath.Join(home, "orders")

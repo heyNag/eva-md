@@ -97,7 +97,7 @@ func TestStatusLeavesTheCodeStatus(t *testing.T) {
 	}
 	put(t, filepath.Join(c.WikiPath, "systems", "orders.md"), []byte("not read"))
 	file := filepath.Join(d.State, coderef.File)
-	Status(t.Context(), d, "v0.7.2")
+	Status(t.Context(), d)
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
 		t.Fatalf("status made a code status: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestStatusLeavesTheCodeStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, _ := os.Stat(file)
-	row := findRow(t, Status(t.Context(), d, "v0.7.2"), "system code")
+	row := findRow(t, Status(t.Context(), d), "system code")
 	after, err := os.ReadFile(file)
 	again, _ := os.Stat(file)
 	if err != nil || string(after) != string(before) || !again.ModTime().Equal(info.ModTime()) || row.Status != "PASS" {

@@ -33,7 +33,7 @@ func TestCommitCommand(t *testing.T) {
 	if _, err := wikigit.Run(context.Background(), time.Minute, home, "init", "--bare", "--quiet", remote); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: wiki, Dirs: dirs, Version: "test", OKFModule: "v0.7.2"}); err != nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: wiki, Dirs: dirs, Version: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	secret := "ghp_" + strings.Repeat("ab12", 10)

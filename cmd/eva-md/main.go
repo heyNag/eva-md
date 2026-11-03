@@ -51,7 +51,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		if len(args) != 1 {
 			return usage(errOut, "version takes no arguments")
 		}
-		fmt.Fprintf(out, "eva-md %s\nschema_version 1\nokf_spec 0.2\nokf_module %s\n", version, okfModule())
+		fmt.Fprintf(out, "eva-md %s\nschema_version 1\n", version)
 		return 0
 	case "setup":
 		code := runSetupCommand(ctx, args[1:], in, out, errOut)
@@ -168,7 +168,7 @@ func runWiki(ctx context.Context, args []string, in io.Reader, out, errOut io.Wr
 		if remote == "" || *dir == "" {
 			return usage(errOut, "init requires --remote and --dir; eva-md setup asks for both")
 		}
-		r, err := wikiinit.Run(ctx, wikiinit.Options{Remote: remote, Dir: *dir, NoPush: noPush, Version: version, OKFModule: okfModule(), Dirs: dirs})
+		r, err := wikiinit.Run(ctx, wikiinit.Options{Remote: remote, Dir: *dir, NoPush: noPush, Version: version, Dirs: dirs})
 		if err != nil {
 			fmt.Fprintln(errOut, "eva-md:", err)
 			return 1
@@ -197,7 +197,7 @@ func runWiki(ctx context.Context, args []string, in io.Reader, out, errOut io.Wr
 		fmt.Fprintln(errOut, "eva-md:", err)
 		return 1
 	}
-	fmt.Fprintf(out, "Concepts: %d\nErrors: %d\nWarnings: %d\nOrphans: %d\nBroken links: %d\n", v.ConceptCount, len(v.Errors), len(v.Warnings), len(v.Orphans), len(v.BrokenLinks))
+	fmt.Fprintf(out, "Pages: %d\nErrors: %d\nWarnings: %d\nOrphans: %d\nBroken links: %d\n", v.ConceptCount, len(v.Errors), len(v.Warnings), len(v.Orphans), len(v.BrokenLinks))
 	// Findings can contain page titles or metadata. Report counts, not captured
 	// content; inspection remains local in the named wiki.
 	if len(v.Errors)+len(v.Orphans)+len(v.BrokenLinks) > 0 || wikiinit.BlockingWarning(v.Warnings) {
@@ -255,14 +255,3 @@ func calver(info *debug.BuildInfo) string {
 // and the first 12 characters of its hash, in each of the three forms Go
 // writes.
 var pseudoVersion = regexp.MustCompile(`[-.]([0-9]{14})-([0-9a-f]{12})(?:\+incompatible)?$`)
-
-func okfModule() string {
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, d := range info.Deps {
-			if d.Path == "github.com/okf-memory/okf-agent-memory" {
-				return d.Version
-			}
-		}
-	}
-	return "unknown"
-}

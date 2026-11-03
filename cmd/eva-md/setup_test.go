@@ -170,7 +170,7 @@ func unpushedEvaWiki(t *testing.T, folder, remote, label string) {
 	t.Helper()
 	tmp := t.TempDir()
 	dirs := paths.Dirs{Config: filepath.Join(tmp, "config"), State: filepath.Join(tmp, "state"), Share: filepath.Join(tmp, "share")}
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: folder, Dirs: dirs, Version: "test", OKFModule: "v0.7.2", NoPush: true}); err != nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: folder, Dirs: dirs, Version: "test", NoPush: true}); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(folder, ".eva-md", "schema.toml")
@@ -204,7 +204,7 @@ func (f *fakeSetup) plainRepo(t *testing.T, name string) {
 // pushed to remote, an empty repo. It returns the config.
 func (f *fakeSetup) setUp(t *testing.T, remote string) config.Config {
 	t.Helper()
-	o := wikiinit.Options{Remote: remote, Dir: filepath.Join(f.env.home, "projects", "wiki"), Dirs: f.env.dirs, Version: "test", OKFModule: "v0.7.2"}
+	o := wikiinit.Options{Remote: remote, Dir: filepath.Join(f.env.home, "projects", "wiki"), Dirs: f.env.dirs, Version: "test"}
 	if _, err := wikiinit.Run(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
@@ -1088,7 +1088,7 @@ func TestSetupResumesAWikiWhoseFirstCommitFailed(t *testing.T) {
 	gitIn(t, f.env.home, "config", "--global", "gpg.program", "/usr/bin/false")
 	tmp := t.TempDir()
 	dirs := paths.Dirs{Config: filepath.Join(tmp, "config"), State: filepath.Join(tmp, "state"), Share: filepath.Join(tmp, "share")}
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: "git@github.com:me/eva-wiki.git", Dir: folder, Dirs: dirs, Version: "test", OKFModule: "v0.7.2", NoPush: true}); err == nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: "git@github.com:me/eva-wiki.git", Dir: folder, Dirs: dirs, Version: "test", NoPush: true}); err == nil {
 		t.Fatal("the failing signature was accepted")
 	}
 	gitIn(t, f.env.home, "config", "--global", "commit.gpgsign", "false")

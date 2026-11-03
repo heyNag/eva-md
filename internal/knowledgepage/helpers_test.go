@@ -75,7 +75,7 @@ func fixture(t *testing.T) *okfadapter.Wiki {
 	if _, err := wikigit.Run(context.Background(), time.Minute, home, "init", "--bare", "--quiet", remote); err != nil {
 		t.Fatal(err)
 	}
-	res, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: filepath.Join(home, "wiki"), Dirs: dirs, Version: "test", OKFModule: "v0.7.2", NoPush: true})
+	res, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: filepath.Join(home, "wiki"), Dirs: dirs, Version: "test", NoPush: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -52,7 +52,7 @@ func put(t *testing.T, path string, data []byte) {
 }
 func TestMissingConfigurationIsNotHealthy(t *testing.T) {
 	d := isolated(t)
-	r := Inspect(context.Background(), d, "v0.7.2", false)
+	r := Inspect(context.Background(), d, false)
 	if !r.Failed() {
 		t.Fatal("missing config was reported healthy")
 	}
@@ -97,7 +97,7 @@ func TestNewerWikiNotice(t *testing.T) {
 	c := config.Default()
 	c.WikiPath = filepath.Join(t.TempDir(), "wiki")
 	put(t, filepath.Join(c.WikiPath, "index.md"), []byte("# Wiki"))
-	if e := config.SaveSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 2, OKFSpec: "0.2", OKFModule: "v0.7.2", Instance: "test", Created: "2026-10-29"}); e != nil {
+	if e := config.SaveSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 2, Instance: "test", Created: "2026-10-29"}); e != nil {
 		t.Fatal(e)
 	}
 	if got := QuickNotice(context.Background(), d, c); !strings.Contains(got, "newer") {
@@ -124,7 +124,7 @@ func TestInboxPrivateAndUnsafeStates(t *testing.T) {
 func TestUnknownConfigKeysAreReported(t *testing.T) {
 	d := isolated(t)
 	put(t, d.ConfigFile(), []byte("excludes = [\"~/client\"]\n"))
-	r := Inspect(context.Background(), d, "v0.7.2", false)
+	r := Inspect(context.Background(), d, false)
 	reported := false
 	for _, c := range r.Checks {
 		if c.Name == "config keys" && c.Status == "FAIL" && strings.Contains(c.Detail, "excludes") {

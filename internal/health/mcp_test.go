@@ -154,7 +154,7 @@ func TestMCPServerRow(t *testing.T) {
 func TestStatusStartsNoServer(t *testing.T) {
 	d := isolated(t)
 	standInServer(t, d, handshake(`{"name":"eva_search"},{"name":"eva_show"},{"name":"eva_status"}`))
-	r := Status(context.Background(), d, "v0.7.2")
+	r := Status(context.Background(), d)
 	findRow(t, r, "claude mcp manifest")
 	findRow(t, r, "codex mcp manifest")
 	for _, c := range r.Checks {

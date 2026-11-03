@@ -22,9 +22,9 @@ import (
 
 // Options describes an explicitly requested wiki initialization.
 type Options struct {
-	Remote, Dir, Version, OKFModule string
-	NoPush                          bool
-	Dirs                            paths.Dirs
+	Remote, Dir, Version string
+	NoPush               bool
+	Dirs                 paths.Dirs
 	// BeforePush, when set, is called with the wiki's folder before Run
 	// pushes a commit the remote has never had: a new wiki's first commit,
 	// or an adopted wiki whose branch was never pushed. false keeps the
@@ -169,13 +169,13 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		if _, err := rand.Read(nonce[:]); err != nil {
 			return result, err
 		}
-		schema = config.WikiSchema{SchemaVersion: 1, OKFSpec: "0.2", OKFModule: o.OKFModule, Instance: label + "-" + hex.EncodeToString(nonce[:]), Created: time.Now().UTC().Format(time.RFC3339)}
+		schema = config.WikiSchema{SchemaVersion: 1, Instance: label + "-" + hex.EncodeToString(nonce[:]), Created: time.Now().UTC().Format(time.RFC3339)}
 		if err := scaffold(root, o, schema); err != nil {
 			return result, err
 		}
 		previous.MachineLabel = label
 	} else {
-		if schema.SchemaVersion != 1 || schema.OKFSpec != "0.2" || schema.Instance == "" {
+		if schema.SchemaVersion != 1 || schema.Instance == "" {
 			return result, errors.New("wikiinit: unsupported or incomplete wiki schema")
 		}
 		if previous.Instance != "" && previous.Instance != schema.Instance {
@@ -286,11 +286,11 @@ func scaffold(root string, o Options, schema config.WikiSchema) error {
 		}
 	}
 	files := map[string]string{
-		"index.md":                 "---\nokf_version: \"0.2\"\n---\n# Eva dot MD\n\n" + okfadapter.IndexLine("Eva dot MD", "README.md", "How to read this private memory wiki") + "\n" + okfadapter.IndexLine("General", "general/index.md", "General conversations") + "\n",
+		"index.md":                 okfadapter.RootIndex + okfadapter.IndexLine("Eva dot MD", "README.md", "How to read this private memory wiki") + "\n" + okfadapter.IndexLine("General", "general/index.md", "General conversations") + "\n",
 		"general/index.md":         "# General\n\n" + okfadapter.IndexLine("General memory", "now.md", "Overview of general conversations") + "\n" + okfadapter.IndexLine("Threads", "threads/index.md", "Conversation threads") + "\n",
 		"general/threads/index.md": "# Threads\n\n" + okfadapter.IndexLine("General · default", "default.md", "General conversations outside a project") + "\n",
 		".gitattributes":           "log.md merge=union\n*.md text eol=lf\n",
-		".gitignore":               "*.jsonl\n/inbox/\n.eva-md/tmp/\n.tmp-okf-*\n.tmp-eva-*\n.DS_Store\n",
+		".gitignore":               "*.jsonl\n/inbox/\n.eva-md/tmp/\n.tmp-*\n.DS_Store\n",
 	}
 	for _, name := range []string{"index.md", "general/index.md", "general/threads/index.md", ".gitattributes", ".gitignore"} {
 		if err := w.WriteFile(name, []byte(files[name])); err != nil {

@@ -71,7 +71,7 @@ func fixture(t *testing.T) Options {
 	}
 	remote := filepath.Join(home, "remote.git")
 	git(t, home, "init", "--bare", "--quiet", remote)
-	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: filepath.Join(home, "wiki"), Dirs: dirs, Version: "test", OKFModule: "v0.7.2"}); err != nil {
+	if _, err := wikiinit.Run(context.Background(), wikiinit.Options{Remote: remote, Dir: filepath.Join(home, "wiki"), Dirs: dirs, Version: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	c, err := config.Load(dirs.ConfigFile())
@@ -176,7 +176,7 @@ func TestWriteAndMap(t *testing.T) {
 	if got := file(t, o, "systems/index.md"); got != index {
 		t.Fatalf("index\n%s", got)
 	}
-	if root := file(t, o, "index.md"); strings.Count(root, "](systems/index.md)") != 1 || !strings.HasPrefix(root, "---\nokf_version: \"0.2\"\n---\n") {
+	if root := file(t, o, "index.md"); strings.Count(root, "](systems/index.md)") != 1 || !strings.HasPrefix(root, "# Eva dot MD\n") {
 		t.Fatalf("root index\n%s", root)
 	}
 	w, err := okfadapter.Open(o.Config.WikiPath, o.Dirs.Locks())

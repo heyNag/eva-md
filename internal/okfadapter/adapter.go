@@ -25,10 +25,10 @@ import (
 
 // Errors returned by the adapter.
 var (
-	ErrExists   = errors.New("okfadapter: page already exists")
-	ErrConflict = errors.New("okfadapter: page changed since it was read")
-	ErrNoRoot   = errors.New("okfadapter: wiki root index.md missing")
-	ErrLockBusy = errors.New("okfadapter: wiki lock still busy")
+	ErrExists   = errors.New("wiki: page already exists")
+	ErrConflict = errors.New("wiki: page changed since it was read")
+	ErrNoRoot   = errors.New("wiki root index.md missing")
+	ErrLockBusy = errors.New("wiki lock still busy")
 )
 
 const (
@@ -37,7 +37,7 @@ const (
 	fileMode = 0o644
 	dirMode  = 0o700
 	// tempPrefix starts the temporary files of WriteFile and Init. The wiki's
-	// .gitignore lists it next to okf's .tmp-okf-*.
+	// .gitignore line .tmp-* covers them and okf's .tmp-okf-*.
 	tempPrefix = ".tmp-eva-"
 )
 
@@ -88,7 +88,7 @@ type Wiki struct {
 // wiki. Locks are taken in lockDir, which must be an absolute path.
 func Open(root, lockDir string) (*Wiki, error) {
 	if !filepath.IsAbs(lockDir) {
-		return nil, fmt.Errorf("okfadapter: lock folder %q is not an absolute path", lockDir)
+		return nil, fmt.Errorf("wiki: lock folder %q is not an absolute path", lockDir)
 	}
 	real, err := resolveRoot(root)
 	if err != nil {
@@ -119,7 +119,7 @@ func (w *Wiki) Locked(fn func(*Wiki) error) error {
 func (w *Wiki) Read(id string) (*Page, error) { return w.ReadMax(id, 0) }
 
 // ErrTooLarge reports a page over the size a bounded read allows.
-var ErrTooLarge = errors.New("okfadapter: page is over the read limit")
+var ErrTooLarge = errors.New("wiki: page is over the read limit")
 
 // ReadMax reads and parses a page as Read does, but refuses one over max
 // bytes (ErrTooLarge) without reading it, so a hook reads bounded data. A
@@ -131,11 +131,11 @@ func (w *Wiki) ReadMax(id string, max int64) (*Page, error) {
 	}
 	raw, err := readNoFollow(full, max)
 	if err != nil {
-		return nil, fmt.Errorf("okfadapter: read %s: %w", rel, err)
+		return nil, fmt.Errorf("wiki: read %s: %w", rel, err)
 	}
 	c, err := okf.ParseConcept(rel, string(raw))
 	if err != nil {
-		return nil, fmt.Errorf("okfadapter: parse %s: %w", rel, err)
+		return nil, fmt.Errorf("wiki: parse %s: %w", rel, err)
 	}
 	return &Page{ID: id, Concept: c, Raw: raw, Hash: hashOf(raw)}, nil
 }
@@ -146,7 +146,7 @@ func (w *Wiki) ReadMax(id string, max int64) (*Page, error) {
 // page's folder and any folder the save created. c is not modified.
 func (w *Wiki) Create(id string, c *okf.Concept, actor string) error {
 	if c == nil {
-		return errors.New("okfadapter: create: nil concept")
+		return errors.New("wiki: create: nil page")
 	}
 	unlock, err := w.lock()
 	if err != nil {
@@ -161,20 +161,20 @@ func (w *Wiki) Create(id string, c *okf.Concept, actor string) error {
 	if _, err := os.Lstat(full); err == nil {
 		return fmt.Errorf("%w: %s", ErrExists, rel)
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("okfadapter: create %s: %w", rel, err)
+		return fmt.Errorf("wiki: create %s: %w", rel, err)
 	}
 	if !okf.IsValidActor(actor) {
-		return fmt.Errorf("okfadapter: create %s: invalid actor %q", rel, actor)
+		return fmt.Errorf("wiki: create %s: invalid actor %q", rel, actor)
 	}
 	cp := *c
 	cp.ID, cp.Path = id, rel
 	// Pre-create the page folders because okf itself uses 0755.
 	if err := os.MkdirAll(filepath.Dir(full), dirMode); err != nil {
-		return fmt.Errorf("okfadapter: create page folder: %w", err)
+		return fmt.Errorf("wiki: create page folder: %w", err)
 	}
 	opts := okf.SaveOptions{IsNew: true, AutoLog: false, AutoIndex: false, Actor: actor}
 	if err := okf.SaveConcept(w.root, &cp, opts); err != nil {
-		return fmt.Errorf("okfadapter: create %s: %w", rel, err)
+		return fmt.Errorf("wiki: create %s: %w", rel, tempFailure(err))
 	}
 	if err := syncUp(w.root, filepath.Dir(full)); err != nil {
 		return err
@@ -190,7 +190,7 @@ func (w *Wiki) Create(id string, c *okf.Concept, actor string) error {
 // from the generated line. changed reports whether the file was written.
 func (w *Wiki) Update(id, expectHash string, render func(*okf.Concept) error, actor string) (changed bool, err error) {
 	if render == nil {
-		return false, errors.New("okfadapter: update: nil render")
+		return false, errors.New("wiki: update: nil render")
 	}
 	unlock, err := w.lock()
 	if err != nil {
@@ -204,30 +204,30 @@ func (w *Wiki) Update(id, expectHash string, render func(*okf.Concept) error, ac
 	}
 	raw, err := readNoFollow(full, 0)
 	if err != nil {
-		return false, fmt.Errorf("okfadapter: update %s: %w", rel, err)
+		return false, fmt.Errorf("wiki: update %s: %w", rel, err)
 	}
 	if hashOf(raw) != expectHash {
 		return false, fmt.Errorf("%w: %s", ErrConflict, rel)
 	}
 	c, err := okf.ParseConcept(rel, string(raw))
 	if err != nil {
-		return false, fmt.Errorf("okfadapter: parse %s: %w", rel, err)
+		return false, fmt.Errorf("wiki: parse %s: %w", rel, err)
 	}
 	if err := render(c); err != nil {
-		return false, fmt.Errorf("okfadapter: render %s: %w", rel, err)
+		return false, fmt.Errorf("wiki: render %s: %w", rel, err)
 	}
 	if c.ID != id || c.Path != rel {
-		return false, fmt.Errorf("okfadapter: render %s: changed the page id or path", rel)
+		return false, fmt.Errorf("wiki: render %s: changed the page id or path", rel)
 	}
 	if !okf.IsValidActor(actor) {
-		return false, fmt.Errorf("okfadapter: update %s: invalid actor %q", rel, actor)
+		return false, fmt.Errorf("wiki: update %s: invalid actor %q", rel, actor)
 	}
 	if withoutGenerated(serializeAsSaved(c)) == withoutGenerated(string(raw)) {
 		return false, nil
 	}
 	opts := okf.SaveOptions{IsNew: false, AutoLog: false, AutoIndex: false, Actor: actor}
 	if err := okf.SaveConcept(w.root, c, opts); err != nil {
-		return false, fmt.Errorf("okfadapter: update %s: %w", rel, err)
+		return false, fmt.Errorf("wiki: update %s: %w", rel, tempFailure(err))
 	}
 	if err := syncDir(filepath.Dir(full)); err != nil {
 		return true, err
@@ -311,7 +311,7 @@ func (w *Wiki) Validate() (*okf.ValidationResult, error) {
 		return nil, err
 	}
 	if real != w.root {
-		return nil, errors.New("okfadapter: wiki root changed since it was opened")
+		return nil, errors.New("wiki root changed since it was opened")
 	}
 	b, err := loadBundle(real)
 	if err != nil {
@@ -320,30 +320,37 @@ func (w *Wiki) Validate() (*okf.ValidationResult, error) {
 	return okf.Validate(b, okf.ValidateOptions{Drift: true, Strict: false}), nil
 }
 
+// RootIndex is the root index.md Init writes, which a new wiki's scaffold
+// then writes again in full.
+const RootIndex = "# Eva dot MD\n\n"
+
 // Init scaffolds an okf bundle at root, creating the folder if needed. It
-// writes eva-md's own log.md first, dated with the local date, so that
-// okf.InitBundle creates only the root index.md. Existing files are kept.
+// writes eva-md's own log.md, dated with the local date, and root index
+// first, so that okf.InitBundle, whose own index names okf, creates
+// neither. Existing files are kept.
 func Init(root string) error {
 	if !filepath.IsAbs(root) {
-		return fmt.Errorf("okfadapter: init: %q is not an absolute path", root)
+		return fmt.Errorf("wiki: init: %q is not an absolute path", root)
 	}
 	if err := os.MkdirAll(root, dirMode); err != nil {
-		return fmt.Errorf("okfadapter: init: %w", err)
+		return fmt.Errorf("wiki: init: %w", err)
 	}
 	real, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return fmt.Errorf("okfadapter: init: %w", err)
+		return fmt.Errorf("wiki: init: %w", err)
 	}
 	// InitBundle follows an existing index symlink when deciding to skip it.
 	// Refuse that before writing any files into an existing wiki.
-	if fi, err := os.Lstat(filepath.Join(real, "index.md")); err == nil {
-		if !fi.Mode().IsRegular() {
-			return fmt.Errorf("okfadapter: init: index.md is not a regular file")
-		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("okfadapter: init: index.md: %w", err)
+	fi, err := os.Lstat(filepath.Join(real, "index.md"))
+	index := errors.Is(err, fs.ErrNotExist)
+	switch {
+	case index:
+	case err != nil:
+		return fmt.Errorf("wiki: init: index.md: %w", err)
+	case !fi.Mode().IsRegular():
+		return fmt.Errorf("wiki: init: index.md is not a regular file")
 	}
-	fi, err := os.Lstat(filepath.Join(real, "log.md"))
+	fi, err = os.Lstat(filepath.Join(real, "log.md"))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		log := fmt.Sprintf("## %s\n* **Creation**: Initialized the eva-md wiki.\n", time.Now().Format("2006-01-02"))
@@ -351,14 +358,38 @@ func Init(root string) error {
 			return err
 		}
 	case err != nil:
-		return fmt.Errorf("okfadapter: init: %w", err)
+		return fmt.Errorf("wiki: init: %w", err)
 	case !fi.Mode().IsRegular():
-		return fmt.Errorf("okfadapter: init: %s/log.md is not a regular file", real)
+		return fmt.Errorf("wiki: init: %s/log.md is not a regular file", real)
+	}
+	if index {
+		if err := writeInRoot(real, "index.md", []byte(RootIndex)); err != nil {
+			return err
+		}
 	}
 	if err := okf.InitBundle(real); err != nil {
-		return fmt.Errorf("okfadapter: init: %w", err)
+		return fmt.Errorf("wiki: init: %w", tempFailure(err))
 	}
 	return syncDir(real)
+}
+
+// okfTemp starts the names of the temporary files okf's saves write.
+const okfTemp = ".tmp-okf-"
+
+// tempFailure is err, from an okf save, said in eva-md's words when the
+// step that failed was on okf's temporary file, whose name names okf: the
+// step and its error, which stays wrapped, so an errno still tells a file
+// system failure from a page okf refused.
+func tempFailure(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) && strings.HasPrefix(filepath.Base(pe.Path), okfTemp) {
+		return fmt.Errorf("%s a temporary file: %w", pe.Op, pe.Err)
+	}
+	var le *os.LinkError
+	if errors.As(err, &le) && strings.HasPrefix(filepath.Base(le.Old), okfTemp) {
+		return fmt.Errorf("%s a temporary file: %w", le.Op, le.Err)
+	}
+	return err
 }
 
 // Actor returns the generated.by value for a page written by model on host:
@@ -422,22 +453,22 @@ func IndexLine(title, file, description string) string {
 // holds a regular index.md.
 func resolveRoot(root string) (string, error) {
 	if root == "" {
-		return "", errors.New("okfadapter: empty wiki path")
+		return "", errors.New("wiki: empty path")
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
-		return "", fmt.Errorf("okfadapter: wiki %s: %w", root, err)
+		return "", fmt.Errorf("wiki %s: %w", root, err)
 	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return "", fmt.Errorf("okfadapter: wiki %s: %w", root, err)
+		return "", fmt.Errorf("wiki %s: %w", root, err)
 	}
 	fi, err := os.Lstat(filepath.Join(real, "index.md"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("%w: %s", ErrNoRoot, real)
 	}
 	if err != nil {
-		return "", fmt.Errorf("okfadapter: wiki %s: %w", real, err)
+		return "", fmt.Errorf("wiki %s: %w", real, err)
 	}
 	if !fi.Mode().IsRegular() {
 		return "", fmt.Errorf("%w: %s/index.md is not a regular file", ErrNoRoot, real)
@@ -448,10 +479,10 @@ func resolveRoot(root string) (string, error) {
 func loadBundle(real string) (*okf.Bundle, error) {
 	b, err := okf.LoadBundle(real)
 	if err != nil {
-		return nil, fmt.Errorf("okfadapter: load %s: %w", real, err)
+		return nil, fmt.Errorf("wiki: load %s: %w", real, err)
 	}
 	if b.RootPath != real {
-		return nil, fmt.Errorf("okfadapter: okf loaded %s instead of %s", b.RootPath, real)
+		return nil, fmt.Errorf("wiki: loaded %s instead of %s", b.RootPath, real)
 	}
 	return b, nil
 }
@@ -461,10 +492,10 @@ func loadBundle(real string) (*okf.Bundle, error) {
 func (w *Wiki) locate(id string) (cleanID, rel, full string, err error) {
 	cleanID = strings.TrimSuffix(id, ".md")
 	if cleanID != strings.TrimSpace(cleanID) || strings.Contains(cleanID, `\`) || path.Clean(cleanID) != cleanID {
-		return "", "", "", fmt.Errorf("okfadapter: invalid page id %q", id)
+		return "", "", "", fmt.Errorf("wiki: invalid page id %q", id)
 	}
 	if err := okf.ValidateConceptID(cleanID); err != nil {
-		return "", "", "", fmt.Errorf("okfadapter: %w", err)
+		return "", "", "", fmt.Errorf("wiki: %w", err)
 	}
 	rel = cleanID + ".md"
 	full, err = checkNoSymlinks(w.root, rel, true)
@@ -479,9 +510,9 @@ func (w *Wiki) locate(id string) (cleanID, rel, full string, err error) {
 // that isn't a regular file. It returns the absolute path.
 func checkNoSymlinks(root, rel string, regular bool) (string, error) {
 	if fi, err := os.Lstat(root); err != nil {
-		return "", fmt.Errorf("okfadapter: wiki root: %w", err)
+		return "", fmt.Errorf("wiki root: %w", err)
 	} else if !fi.IsDir() || fi.Mode()&fs.ModeSymlink != 0 {
-		return "", errors.New("okfadapter: wiki root is no longer a regular directory")
+		return "", errors.New("wiki root is no longer a regular directory")
 	}
 	parts := strings.Split(rel, "/")
 	cur := root
@@ -492,16 +523,16 @@ func checkNoSymlinks(root, rel string, regular bool) (string, error) {
 			return filepath.Join(root, filepath.FromSlash(rel)), nil
 		}
 		if err != nil {
-			return "", fmt.Errorf("okfadapter: %s: %w", rel, err)
+			return "", fmt.Errorf("wiki: %s: %w", rel, err)
 		}
 		last := i == len(parts)-1
 		switch {
 		case fi.Mode()&fs.ModeSymlink != 0:
-			return "", fmt.Errorf("okfadapter: %s: %s is a symlink", rel, path.Join(parts[:i+1]...))
+			return "", fmt.Errorf("wiki: %s: %s is a symlink", rel, path.Join(parts[:i+1]...))
 		case !last && !fi.IsDir():
-			return "", fmt.Errorf("okfadapter: %s: %s is not a folder", rel, path.Join(parts[:i+1]...))
+			return "", fmt.Errorf("wiki: %s: %s is not a folder", rel, path.Join(parts[:i+1]...))
 		case last && regular && !fi.Mode().IsRegular():
-			return "", fmt.Errorf("okfadapter: %s is not a regular file", rel)
+			return "", fmt.Errorf("wiki: %s is not a regular file", rel)
 		}
 	}
 	return cur, nil
@@ -519,16 +550,16 @@ func checkFileRel(rel string) error {
 		}
 	}
 	if bad {
-		return fmt.Errorf("okfadapter: invalid wiki path %q", rel)
+		return fmt.Errorf("wiki: invalid path %q", rel)
 	}
 	for _, p := range strings.Split(rel, "/") {
 		if strings.EqualFold(p, ".git") {
-			return fmt.Errorf("okfadapter: refusing to write inside .git: %q", rel)
+			return fmt.Errorf("wiki: refusing to write inside .git: %q", rel)
 		}
 	}
 	base := path.Base(rel)
 	if strings.HasSuffix(strings.ToLower(base), ".md") && base != "index.md" && rel != "log.md" {
-		return fmt.Errorf("okfadapter: %q is a concept page; use Create or Update", rel)
+		return fmt.Errorf("wiki: %q is a page; use Create or Update", rel)
 	}
 	return nil
 }
@@ -542,14 +573,14 @@ func writeInRoot(root, rel string, data []byte) error {
 	}
 	dir := filepath.Dir(full)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
-		return fmt.Errorf("okfadapter: write %s: %w", rel, err)
+		return fmt.Errorf("wiki: write %s: %w", rel, err)
 	}
 	mode := os.FileMode(0o600)
 	if strings.HasSuffix(rel, ".md") {
 		mode = fileMode
 	}
 	if err := writeAtomic(full, data, mode); err != nil {
-		return fmt.Errorf("okfadapter: write %s: %w", rel, err)
+		return fmt.Errorf("wiki: write %s: %w", rel, err)
 	}
 	return syncUp(root, dir)
 }
@@ -751,23 +782,23 @@ func (w *Wiki) lockWithin(timeout time.Duration) (unlock func(), err error) {
 		return func() {}, nil
 	}
 	if err := os.MkdirAll(w.lockDir, 0o700); err != nil {
-		return nil, fmt.Errorf("okfadapter: lock folder: %w", err)
+		return nil, fmt.Errorf("wiki: lock folder: %w", err)
 	}
 	if fi, err := os.Lstat(w.lockDir); err != nil {
-		return nil, fmt.Errorf("okfadapter: lock folder: %w", err)
+		return nil, fmt.Errorf("wiki: lock folder: %w", err)
 	} else if !fi.IsDir() || fi.Mode()&fs.ModeSymlink != 0 {
-		return nil, errors.New("okfadapter: lock folder is not a regular directory")
+		return nil, errors.New("wiki: lock folder is not a regular directory")
 	}
 	f, err := os.OpenFile(w.lockPath, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("okfadapter: open wiki lock: %w", err)
+		return nil, fmt.Errorf("wiki: open lock: %w", err)
 	}
 	if fi, err := f.Stat(); err != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("okfadapter: inspect wiki lock: %w", err)
+		return nil, fmt.Errorf("wiki: inspect lock: %w", err)
 	} else if !fi.Mode().IsRegular() {
 		_ = f.Close()
-		return nil, errors.New("okfadapter: wiki lock is not a regular file")
+		return nil, errors.New("wiki lock is not a regular file")
 	}
 	deadline := time.Now().Add(timeout)
 	for {
@@ -777,7 +808,7 @@ func (w *Wiki) lockWithin(timeout time.Duration) (unlock func(), err error) {
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
 			_ = f.Close()
-			return nil, fmt.Errorf("okfadapter: wiki lock: %w", err)
+			return nil, fmt.Errorf("wiki lock: %w", err)
 		}
 		if time.Now().After(deadline) {
 			_ = f.Close()
@@ -794,15 +825,15 @@ func (w *Wiki) lockWithin(timeout time.Duration) (unlock func(), err error) {
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
-		return fmt.Errorf("okfadapter: open folder %s: %w", dir, err)
+		return fmt.Errorf("wiki: open folder %s: %w", dir, err)
 	}
 	serr := d.Sync()
 	cerr := d.Close()
 	if serr != nil {
-		return fmt.Errorf("okfadapter: fsync folder %s: %w", dir, serr)
+		return fmt.Errorf("wiki: fsync folder %s: %w", dir, serr)
 	}
 	if cerr != nil {
-		return fmt.Errorf("okfadapter: close folder %s: %w", dir, cerr)
+		return fmt.Errorf("wiki: close folder %s: %w", dir, cerr)
 	}
 	return nil
 }
