@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -23,10 +22,72 @@ type Status struct {
 	Enabled     bool   `json:"enabled"`
 	Valid       bool   `json:"valid"`
 	Marketplace bool   `json:"marketplace"`
-	Reason      string `json:"reason,omitempty"`
+	// FolderMissing says Codex has eva-md's marketplace registered at
+	// eva-md's own folder, which has no manifest, as after that folder was
+	// deleted; Codex then fails its marketplace list and every plugin list
+	// that takes eva-md's in, so whether it has the plugin is unknown.
+	FolderMissing bool   `json:"folder_missing,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 type runner func(context.Context, string, ...string) ([]byte, error)
+
+// hostError is a failed host command. Its diagnostics, which can name paths
+// or credentials, are only matched against a wording the host is known to
+// print, and never shown.
+type hostError struct {
+	msg         string
+	diagnostics string
+}
+
+func (e *hostError) Error() string { return e.msg }
+
+// folderMissing says whether a host command failed only because the
+// marketplace Codex has registered as eva-md, at path, has no manifest.
+// Codex 0.166.0 names each marketplace it can't load on a line of its own,
+// such as "- `eva-md` at <path>: marketplace root does not contain a
+// supported manifest", with the folder as it was when it was added, its
+// symlinks resolved. A failure that names any other marketplace, or no
+// marketplace, is not this.
+func folderMissing(err error, path string) bool {
+	var e *hostError
+	if !errors.As(err, &e) {
+		return false
+	}
+	want := map[string]bool{}
+	for _, p := range []string{path, realPath(path)} {
+		want["- `eva-md` at "+p+": marketplace root does not contain a supported manifest"] = true
+	}
+	found := false
+	for _, line := range strings.Split(e.diagnostics, "\n") {
+		i := strings.Index(line, "- `")
+		if i < 0 {
+			continue
+		}
+		if !want[strings.TrimSpace(line[i:])] {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+// realPath is path with the symlinks of its deepest folder that exists
+// resolved, since the rest of it may be gone.
+func realPath(path string) string {
+	dir, rest := filepath.Clean(path), ""
+	for {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(real, rest)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+		dir = parent
+	}
+}
 
 // ErrConflict marks Inspect's errors about another eva-md registration on
 // the host, apart from a host command or its output that failed.
@@ -58,13 +119,14 @@ func native(ctx context.Context, host string, args ...string) ([]byte, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, host, args...)
 	cmd.WaitDelay = HostWaitDelay
-	var stdout limitedBuffer
+	var stdout, stderr limitedBuffer
 	cmd.Stdout = &stdout
 	// Native commands can include paths or credentials in diagnostics. Keep
 	// errors generic; the user can run the named command for host details.
-	cmd.Stderr = io.Discard
+	// The diagnostics are only matched (see folderMissing).
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("install: %s failed", commandDescription(host, args))
+		return nil, &hostError{msg: fmt.Sprintf("install: %s failed", commandDescription(host, args)), diagnostics: stderr.String()}
 	}
 	if stdout.overflow {
 		return nil, errors.New("install: host inventory exceeded limit")
@@ -99,6 +161,12 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 	s.Available = true
 	data, err := run(ctx, host, "plugin", "marketplace", "list", "--json")
 	if err != nil {
+		// Install stops there, and uninstall removes the registration.
+		if host == "codex" && folderMissing(err, marketplacePath(dirs.Share, host)) {
+			s.Marketplace, s.FolderMissing = true, true
+			s.Reason = "eva-md's marketplace folder is missing"
+			return s, nil
+		}
 		return s, err
 	}
 	markets, err := objects(data, "marketplaces")

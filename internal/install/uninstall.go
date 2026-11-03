@@ -123,7 +123,11 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 		plans = append(plans, &hostPlan{host: host, before: s})
 		if s.Installed || s.Marketplace {
 			result.Hosts = append(result.Hosts, host)
-			result.Actions = append(result.Actions, host+": the eva-md plugin and its marketplace registration")
+			if s.FolderMissing {
+				result.Actions = append(result.Actions, host+": the eva-md plugin and its marketplace registration, whose folder is missing")
+			} else {
+				result.Actions = append(result.Actions, host+": the eva-md plugin and its marketplace registration")
+			}
 		}
 	}
 	if owned {
@@ -183,7 +187,9 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 		}
 	}
 	for _, p := range plans {
-		if p.before.Installed {
+		// With its marketplace's folder missing, Codex can't say whether it
+		// has the plugin, and removes it either way.
+		if p.before.Installed || p.before.FolderMissing {
 			if _, err = run(ctx, p.host, removeArgs(p.host)...); err != nil {
 				return result, err
 			}

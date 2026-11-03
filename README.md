@@ -161,7 +161,7 @@ curl -fsSL https://github.com/heyNag/eva-md/releases/latest/download/uninstall.s
 curl -fsSL https://github.com/heyNag/eva-md/releases/latest/download/uninstall.sh | bash -s -- --apply --all
 ```
 
-If you deleted `~/.local/share/eva-md` by hand while Codex still has eva-md's marketplace, Codex's plugin lists fail and uninstall removes nothing: run `codex plugin remove eva-md@eva-md` and `codex plugin marketplace remove eva-md` first (see [docs/known-limitations.md](docs/known-limitations.md)).
+If you deleted `~/.local/share/eva-md` by hand, Codex can't list its plugins while it still has eva-md's marketplace registered there, so the install command stops and says so. Run the uninstall script with `--apply`, which removes eva-md's plugin and marketplace from Codex, then the install command again. How Claude Code takes its own deleted marketplace folder hasn't been checked (see [docs/known-limitations.md](docs/known-limitations.md)).
 
 ## Commands
 

@@ -63,6 +63,9 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs, inventory time.D
 			r.add(host+" plugin", "UNKNOWN", app+" isn't installed on this Mac", "")
 		} else if err != nil || !status.Available {
 			r.add(host+" plugin", "UNKNOWN", "native plugin inventory is unavailable", "inspect the native host plugin inventory")
+		} else if status.FolderMissing {
+			// Install stops there; uninstall clears the registration.
+			r.add(host+" plugin", "FAIL", status.Reason, "run eva-md uninstall --apply, then install eva-md again")
 		} else if !status.Installed {
 			r.add(host+" plugin", "FAIL", "eva-md is not installed", "run eva-md install --host "+host)
 		} else if !status.Valid {

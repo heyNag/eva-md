@@ -219,6 +219,30 @@ func TestFailedMarketplaceListStaysUnknown(t *testing.T) {
 	}
 }
 
+// Codex can't list while the eva-md marketplace it has registered at
+// eva-md's folder has no manifest, as after that folder was deleted: the
+// doctor names that, with uninstall and then install as the fix, from what
+// Codex 0.166.0 prints.
+func TestMissingMarketplaceFolderFails(t *testing.T) {
+	d := fakeTrustHost(t, map[string]any{"data": []any{map[string]any{"hooks": trustHooks()}}})
+	file := filepath.Join(d.Share, "test-bin", "codex")
+	script, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	market := filepath.Join(d.Share, "marketplace", "codex")
+	prefix := "#!/bin/sh\ncase \"$*\" in\n" +
+		"'plugin marketplace list --json') printf '%s\\n' 'Error: failed to load marketplace(s):' '- `eva-md` at " + market + ": marketplace root does not contain a supported manifest' >&2; exit 1;;\n" +
+		"'features list') printf '%s\\n' 'hooks experimental true'; exit 0;;\n" +
+		"esac\n"
+	if err := os.WriteFile(file, []byte(prefix+strings.TrimPrefix(string(script), "#!/bin/sh\n")), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if c := hostStatuses(t, d)["codex plugin"]; c.Status != "FAIL" || c.Detail != "eva-md's marketplace folder is missing" || c.Fix != "run eva-md uninstall --apply, then install eva-md again" {
+		t.Fatalf("missing marketplace folder: %+v", c)
+	}
+}
+
 // A Mac without Codex gets no Codex trust row and no fix to install eva-md
 // for it, and keeps the Claude rows.
 func TestHostRowsOnAMacWithoutCodex(t *testing.T) {

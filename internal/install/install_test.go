@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -66,6 +67,15 @@ func (f *fakeHost) run(_ context.Context, host string, args ...string) ([]byte, 
 	market, scoped := strings.CutPrefix(key, "plugin list --json --marketplace=")
 	if scoped {
 		key = "plugin list --json"
+	}
+	// Codex fails its marketplace list and its plugin lists, as 0.166.0 does
+	// for those that take eva-md's marketplace in, while the eva-md
+	// marketplace it has registered at eva-md's folder has no manifest there.
+	if host == "codex" && f.markets[host] && f.foreign == "" && (key == "plugin list --json" || key == "plugin marketplace list --json") {
+		path := marketplacePath(f.dirs.Share, host)
+		if _, err := os.Stat(filepath.Join(path, ".agents", "plugins", "marketplace.json")); err != nil {
+			return nil, missingFolder(command, path)
+		}
 	}
 	switch key {
 	case "plugin list --json":
@@ -136,6 +146,13 @@ func (f *fakeHost) run(_ context.Context, host string, args ...string) ([]byte, 
 	}
 	return json.Marshal(value)
 }
+
+// missingFolder is a Codex command's failure while the eva-md marketplace it
+// has registered at path has no manifest, worded as Codex 0.166.0 words it.
+func missingFolder(command, path string) error {
+	return &hostError{msg: "install: " + command + " failed", diagnostics: "Error: failed to load marketplace(s):\n- `eva-md` at " + path + ": marketplace root does not contain a supported manifest\n"}
+}
+
 func setup(t *testing.T) (Options, *fakeHost) {
 	t.Helper()
 	home := t.TempDir()
@@ -408,7 +425,14 @@ func TestRollbackKeepsPreexistingInstallAndMarketplace(t *testing.T) {
 	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
 		t.Fatal(err)
 	}
-	f.markets["codex"] = true // Existing registration must be preserved.
+	// Codex has eva-md's marketplace, folder and all, but not the plugin;
+	// that registration must be preserved.
+	opts.Host = "codex"
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	delete(f.installed, "codex")
+	f.calls = nil
 	f.fail = "codex plugin add "
 	f.failAfter = true
 	opts.Host = "all"
@@ -416,11 +440,14 @@ func TestRollbackKeepsPreexistingInstallAndMarketplace(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := runInstall(context.Background(), opts, f.run)
-	if err == nil {
-		t.Fatal("expected failure")
+	if err == nil || !strings.Contains(err.Error(), "this run's changes were rolled back") || !slices.Contains(f.calls, "codex plugin add eva-md@eva-md --json") {
+		t.Fatalf("expected a failed plugin add, rolled back: %v %v", err, f.calls)
 	}
 	if !f.installed["claude"] || f.installed["codex"] || !f.markets["codex"] {
 		t.Fatalf("prior host state lost: %+v %+v", f.installed, f.markets)
+	}
+	if _, err := os.Stat(filepath.Join(marketplacePath(opts.Dirs.Share, "codex"), ".agents", "plugins", "marketplace.json")); err != nil {
+		t.Fatalf("the Codex marketplace's folder went: %v", err)
 	}
 	data, _ := os.ReadFile(filepath.Join(opts.Dirs.Share, "bin", "eva-md"))
 	if string(data) != "binary version 1" {
@@ -777,6 +804,151 @@ func TestFailedMarketplaceListChangesNothing(t *testing.T) {
 	}
 	if len(mutateCalls(f.calls)) != 0 || !f.installed["codex"] || !f.markets["codex"] {
 		t.Fatalf("a failed list changed registrations: %v", f.calls)
+	}
+}
+
+// Codex can't list while the eva-md marketplace it has registered at
+// eva-md's folder has no manifest, as after that folder was deleted. Install
+// stops there before it changes anything, its dry run too, and says to
+// uninstall first; uninstall clears the registration, and install then
+// starts afresh. Both hosts, with the marketplace folder alone gone or the
+// whole install folder.
+func TestInstallStopsAtAMissingCodexMarketplaceFolder(t *testing.T) {
+	for _, gone := range []string{"marketplace folder", "install folder"} {
+		t.Run(gone, func(t *testing.T) {
+			ctx := context.Background()
+			opts, f := setup(t)
+			if _, err := runInstall(ctx, opts, f.run); err != nil {
+				t.Fatal(err)
+			}
+			folder := filepath.Join(opts.Dirs.Share, "marketplace", "codex")
+			if gone == "install folder" {
+				folder = opts.Dirs.Share
+			}
+			if err := os.RemoveAll(folder); err != nil {
+				t.Fatal(err)
+			}
+			s, err := inspect(ctx, opts.Dirs, "codex", f.run)
+			if err != nil || !s.FolderMissing || !s.Marketplace || s.Installed || s.Valid || s.Reason == "" {
+				t.Fatalf("status with the folder gone: %+v %v", s, err)
+			}
+			for _, dry := range []bool{true, false} {
+				f.calls = nil
+				opts.DryRun = dry
+				_, err := runInstall(ctx, opts, f.run)
+				if err == nil || !strings.Contains(err.Error(), "its folder is missing") || !strings.Contains(err.Error(), "uninstall --apply") || len(mutateCalls(f.calls)) != 0 {
+					t.Fatalf("install, dry run %v, with the folder gone: %v %v", dry, err, f.calls)
+				}
+			}
+			opts.DryRun = false
+			if _, err := os.Stat(folder); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("install wrote %s: %v", folder, err)
+			}
+			if _, err := uninstall(ctx, opts.Dirs, true, f.run); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runInstall(ctx, opts, f.run); err != nil {
+				t.Fatal(err)
+			}
+			for _, host := range []string{"claude", "codex"} {
+				if s, err := inspect(ctx, opts.Dirs, host, f.run); err != nil || !s.Valid {
+					t.Fatalf("%s after uninstall and install: %+v %v", host, s, err)
+				}
+			}
+		})
+	}
+}
+
+// Uninstall removes a Codex registration whose marketplace folder is gone:
+// its preview says so, and --apply removes the plugin and the marketplace.
+func TestUninstallRemovesARegistrationWhoseFolderIsGone(t *testing.T) {
+	opts, f := setup(t)
+	opts.Host = "codex"
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(opts.Dirs.Share); err != nil {
+		t.Fatal(err)
+	}
+	f.calls = nil
+	preview, err := uninstall(context.Background(), opts.Dirs, false, f.run)
+	if err != nil || !slices.Contains(preview.Actions, "codex: the eva-md plugin and its marketplace registration, whose folder is missing") || len(mutateCalls(f.calls)) != 0 {
+		t.Fatalf("preview: %+v %v %v", preview.Actions, err, f.calls)
+	}
+	if _, err = uninstall(context.Background(), opts.Dirs, true, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"codex plugin remove eva-md@eva-md --json", "codex plugin marketplace remove eva-md --json"}; !slices.Equal(mutateCalls(f.calls), want) {
+		t.Errorf("removals %v, want %v", mutateCalls(f.calls), want)
+	}
+	if f.installed["codex"] || f.markets["codex"] {
+		t.Fatalf("still registered: %+v %+v", f.installed, f.markets)
+	}
+	// With the folder there, a marketplace without the plugin loses only the
+	// marketplace.
+	opts, f = setup(t)
+	opts.Host = "codex"
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	delete(f.installed, "codex")
+	f.calls = nil
+	if _, err := uninstall(context.Background(), opts.Dirs, true, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"codex plugin marketplace remove eva-md --json"}; !slices.Equal(mutateCalls(f.calls), want) {
+		t.Errorf("removals %v, want %v", mutateCalls(f.calls), want)
+	}
+}
+
+// Only a manifest missing from eva-md's own folder is taken for it: Codex
+// naming another folder, or another marketplace, is a failure as before. The
+// folder is matched as given and with its symlinks resolved, as Codex keeps
+// it.
+func TestOnlyEvaMDsOwnFolderIsTakenForMissing(t *testing.T) {
+	opts, f := setup(t)
+	path := marketplacePath(opts.Dirs.Share, "codex")
+	for _, other := range []string{"/elsewhere/marketplace", path + "-old"} {
+		failing := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+			if host == "codex" && strings.Join(args, " ") == "plugin marketplace list --json" {
+				return nil, missingFolder("codex plugin marketplace list --json", other)
+			}
+			return f.run(ctx, host, args...)
+		}
+		if s, err := inspect(context.Background(), opts.Dirs, "codex", failing); err == nil || s.FolderMissing {
+			t.Errorf("%s taken for eva-md's folder: %+v %v", other, s, err)
+		}
+	}
+	another := &hostError{msg: "failed", diagnostics: "- `other` at " + path + ": marketplace root does not contain a supported manifest"}
+	if folderMissing(another, path) {
+		t.Error("another marketplace taken for eva-md's")
+	}
+	// eva-md's folder alone: with another marketplace failing too, or none
+	// named, it is a failure as before.
+	both := &hostError{msg: "failed", diagnostics: "Error: failed to load marketplace(s):\n- `eva-md` at " + path + ": marketplace root does not contain a supported manifest\n- `other` at /other: marketplace root does not contain a supported manifest\n"}
+	if folderMissing(both, path) {
+		t.Error("taken for eva-md's folder alone while another marketplace fails too")
+	}
+	if folderMissing(&hostError{msg: "failed", diagnostics: "Error: something else failed"}, path) {
+		t.Error("a failure naming no marketplace taken for eva-md's folder")
+	}
+	if !folderMissing(missingFolder("list", path), path) {
+		t.Error("eva-md's own folder not matched")
+	}
+	real := filepath.Join(t.TempDir(), "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !folderMissing(missingFolder("list", filepath.Join(resolved, "marketplace", "codex")), filepath.Join(link, "marketplace", "codex")) {
+		t.Error("a folder Codex names with its symlinks resolved is not matched")
 	}
 }
 

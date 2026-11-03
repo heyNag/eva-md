@@ -103,6 +103,12 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		if err != nil {
 			return result, err
 		}
+		// Rendering the folder again would bring back whatever Codex kept of
+		// the plugin, disabled or not, which no rollback could tell apart from
+		// this run's own, so uninstall clears the registration first.
+		if status.FolderMissing {
+			return result, errors.New("install: Codex has eva-md's marketplace registered, but its folder is missing; run eva-md uninstall --apply, or the uninstall script with --apply, then install eva-md again")
+		}
 		if !status.Available {
 			if opts.Host == host {
 				return result, fmt.Errorf("install: %s CLI not found", host)
