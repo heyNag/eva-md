@@ -257,6 +257,7 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 - A release's tag comes from its commit's date, not the day it is released, so a commit released days after it was made gets a tag of its own day, and a release of an older commit can sort before an earlier release. Release main's newest commit, as the script requires.
 - The script runs the release's binary only on a Mac; elsewhere it stops after the sums and the build provenance, with the fix to check the release on a Mac. Its own tests run only on macOS, since they give it a pseudo-terminal through macOS's own calls.
 - When the workflow fails after the tag is pushed, the tag stays and is never reused: the fix is released under the next tag, such as `2026.11.3.2`.
+- Each release's `LICENSES.txt` names okf and the other code the binaries are built with, since their licenses ask for their notices to go with every copy. The install command and `eva-md upgrade` download only the binary, so an installed eva-md has the notices on its release's page, not beside it.
 - The script waits about two and a half minutes for the workflow's run to appear after the push, then stops and says where to look; the workflow still runs.
 
 ## MCP server

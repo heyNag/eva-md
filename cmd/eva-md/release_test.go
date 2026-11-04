@@ -264,8 +264,8 @@ func (m *fakeMac) answer(name, value string) {
 }
 
 // publish puts release tag in the stand-in, as the release workflow does:
-// both binaries (this Mac's own build under both names), the scripts and
-// SHA256SUMS. The last tag published is the latest.
+// both binaries (this Mac's own build under both names), the scripts, the
+// licenses and SHA256SUMS. The last tag published is the latest.
 func (m *fakeMac) publish(t *testing.T, tag, builtAs string) string {
 	t.Helper()
 	dir := filepath.Join(m.root, "releases", tag)
@@ -277,6 +277,7 @@ func (m *fakeMac) publish(t *testing.T, tag, builtAs string) string {
 	for name, from := range map[string]string{
 		"eva-md-darwin-arm64": binary, "eva-md-darwin-amd64": binary,
 		"install.sh": filepath.Join(buildDir, "..", "..", "scripts", "install.sh"), "uninstall.sh": filepath.Join(buildDir, "..", "..", "scripts", "uninstall.sh"),
+		"LICENSES.txt": filepath.Join(buildDir, "..", "..", "scripts", "LICENSES.txt"),
 	} {
 		data, err := os.ReadFile(from)
 		if err != nil {

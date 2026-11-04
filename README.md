@@ -241,4 +241,4 @@ Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Each release also has `LICENSES.txt`, with eva-md's license and those of the code its binaries are built with.

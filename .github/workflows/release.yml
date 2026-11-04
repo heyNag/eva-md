@@ -89,9 +89,9 @@ jobs:
             GOARCH=$arch go build -trimpath -mod=readonly -ldflags "-X main.version=$TAG" \
               -o "$out/eva-md-darwin-$arch" ./cmd/eva-md
           done
-          cp scripts/install.sh scripts/uninstall.sh "$out/"
+          cp scripts/install.sh scripts/uninstall.sh scripts/LICENSES.txt "$out/"
           cd "$out"
-          shasum -a 256 eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh > SHA256SUMS
+          shasum -a 256 eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh LICENSES.txt > SHA256SUMS
           cat SHA256SUMS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -114,7 +114,7 @@ jobs:
         working-directory: release
         run: |
           shasum -a 256 -c SHA256SUMS
-          test "$(wc -l < SHA256SUMS | tr -d ' ')" = 4
+          test "$(wc -l < SHA256SUMS | tr -d ' ')" = 5
           chmod +x eva-md-darwin-arm64
           got=$(./eva-md-darwin-arm64 version | head -n 1)
           if [ "$got" != "eva-md $TAG" ]; then
@@ -142,6 +142,7 @@ jobs:
             release/eva-md-darwin-amd64
             release/install.sh
             release/uninstall.sh
+            release/LICENSES.txt
 
   release:
     needs: attest
@@ -170,4 +171,4 @@ jobs:
           esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
             --title "$TAG" --notes-file notes.md \
-            eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh SHA256SUMS
+            eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh LICENSES.txt SHA256SUMS

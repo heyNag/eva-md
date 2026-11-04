@@ -14,7 +14,7 @@ repo=heyNag/eva-md
 export GH_HOST=github.com
 # A release tag, as in 2026.11.3 or 2026.11.3.2.
 tag_re='^[0-9]{4}\.[1-9][0-9]?\.[1-9][0-9]?(\.[2-9]|\.[1-9][0-9]+)?$'
-assets="eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh"
+assets="eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh LICENSES.txt"
 
 usage() {
 	echo "usage: scripts/release.sh [--dry-run]"
@@ -70,11 +70,11 @@ if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
 fi
 ok "the tree is clean"
 
-for f in .github/workflows/ci.yml .github/workflows/release.yml scripts/install.sh scripts/uninstall.sh; do
+for f in .github/workflows/ci.yml .github/workflows/release.yml scripts/install.sh scripts/uninstall.sh scripts/LICENSES.txt; do
 	git cat-file -e "HEAD:$f" 2>/dev/null ||
 		fail "main has no $f, which a release needs" "add it on main, push, and run it again"
 done
-ok "main has the release workflow and the install scripts"
+ok "main has the release workflow, the install scripts and the licenses"
 
 # Only whether a key is set: its value is never shown.
 if [ -z "$(git config user.signingkey || true)" ]; then

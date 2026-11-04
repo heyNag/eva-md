@@ -130,6 +130,7 @@ printf -- '-----BEGIN SSH SIGNATURE-----\nZmFrZQ==\n-----END SSH SIGNATURE-----\
 		".github/workflows/release.yml": "name: Release\n",
 		"scripts/install.sh":            "#!/bin/bash\necho install\n",
 		"scripts/uninstall.sh":          "#!/bin/bash\necho uninstall\n",
+		"scripts/LICENSES.txt":          "eva-md's licenses\n",
 		"scripts/release.sh":            string(script),
 	} {
 		writeFile(t, filepath.Join(e.dir, name), body, 0o755)
@@ -240,10 +241,10 @@ func commitAt(t *testing.T, dir, subject, date string) {
 
 // fixtureAssets puts a release's assets where the fake gh downloads them
 // from: binaries that print version as the tag and leave a ran-<name> file
-// in the gh state folder, the install scripts and their sums.
+// in the gh state folder, the install scripts, the licenses and their sums.
 func (e *releaseEnv) fixtureAssets(t *testing.T, tag string) {
 	t.Helper()
-	assets := []string{"eva-md-darwin-arm64", "eva-md-darwin-amd64", "install.sh", "uninstall.sh"}
+	assets := []string{"eva-md-darwin-arm64", "eva-md-darwin-amd64", "install.sh", "uninstall.sh", "LICENSES.txt"}
 	var sums strings.Builder
 	for _, a := range assets {
 		body := "#!/bin/bash\necho " + a + "\n"
@@ -720,7 +721,7 @@ func TestReleasePublishesTheTag(t *testing.T) {
 			t.Errorf("no gh %q in:\n%s", call, calls)
 		}
 	}
-	for _, a := range []string{"eva-md-darwin-arm64", "eva-md-darwin-amd64", "install.sh", "uninstall.sh"} {
+	for _, a := range []string{"eva-md-darwin-arm64", "eva-md-darwin-amd64", "install.sh", "uninstall.sh", "LICENSES.txt"} {
 		if !strings.Contains(calls, "/"+a+" --repo heyNag/eva-md --signer-workflow heyNag/eva-md/.github/workflows/release.yml\n") {
 			t.Errorf("%s's provenance wasn't verified:\n%s", a, calls)
 		}
