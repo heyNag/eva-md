@@ -76,8 +76,9 @@ func newReleaseEnv(t *testing.T) *releaseEnv {
 	t.Setenv("PATH", e.bin+":/usr/bin:/bin:/usr/sbin:/sbin")
 	// Nothing from the environment go test runs in may point git at
 	// another repository, index or config.
-	// Nor may a plan write to the output of a workflow running go test.
-	for _, k := range []string{"GH_HOST", "GH_REPO", "GH_TOKEN", "GITHUB_TOKEN", "GITHUB_OUTPUT",
+	// Nor may a plan write to the output of a workflow running go test, or
+	// add the annotations it prints in a workflow.
+	for _, k := range []string{"GH_HOST", "GH_REPO", "GH_TOKEN", "GITHUB_TOKEN", "GITHUB_OUTPUT", "GITHUB_ACTIONS",
 		"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX", "GIT_CONFIG",
 		"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_TEMPLATE_DIR"} {
@@ -778,8 +779,23 @@ func TestReleasePlanStopsAtTheFirstFailedCheck(t *testing.T) {
 			if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 				t.Errorf("a failed plan wrote the output: %v", err)
 			}
+			if strings.Contains(r.stdout, "::error::") {
+				t.Errorf("outside a workflow, it printed an annotation:\n%s", r.stdout)
+			}
 		})
 	}
+	// In a workflow, the failure is also an error annotation on the run,
+	// printed last on stdout with % encoded; stderr says the same as anywhere.
+	t.Run("in a workflow", func(t *testing.T) {
+		e := newReleaseEnv(t)
+		gitIn(t, e.dir, "switch", "-q", "-c", "half%done")
+		t.Setenv("GITHUB_ACTIONS", "true")
+		r := e.run(t, e.dir, false, "", "--plan")
+		e.failed(t, r, "you're on half%done, not main", "git switch main", "")
+		if want := "\n::error::you're on half%25done, not main. Fix: git switch main\n"; !strings.HasSuffix(r.stdout, want) {
+			t.Errorf("stdout:\n%s\nwant it to end %q", r.stdout, want)
+		}
+	})
 	e := newReleaseEnv(t)
 	for _, args := range [][]string{{"--plan", "--dry-run"}, {"--dry-run", "--plan"}, {"--plan", "--plan"}} {
 		r := e.run(t, e.dir, false, "", args...)
@@ -881,7 +897,7 @@ func TestReleasePublishesTheTag(t *testing.T) {
 		}
 	}
 	for _, a := range []string{"eva-md-darwin-arm64", "eva-md-darwin-amd64", "install.sh", "uninstall.sh", "LICENSES.txt"} {
-		if !strings.Contains(calls, "/"+a+" --repo heyNag/eva-md --signer-workflow heyNag/eva-md/.github/workflows/release.yml\n") {
+		if !strings.Contains(calls, "/"+a+" --repo heyNag/eva-md --signer-workflow heyNag/eva-md/.github/workflows/release.yml --source-ref refs/tags/2026.1.5\n") {
 			t.Errorf("%s's provenance wasn't verified:\n%s", a, calls)
 		}
 	}

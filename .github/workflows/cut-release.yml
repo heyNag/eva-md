@@ -16,9 +16,11 @@ on:
 
 permissions: {}
 
-# One release at a time; a run waiting for its approval holds the line too.
-# GitHub keeps only the newest waiting run, cancelling an older one, so a
-# release that won't be approved is rejected or cancelled, not left waiting.
+# One release at a time. A run awaiting its approval is waiting and holds
+# the cut-release group; a run started meanwhile, a dry run included, is
+# queued (pending) until that run ends. GitHub keeps only the newest queued
+# run, cancelling an older queued one, and never cancels the waiting run for
+# it, so reject or cancel a release you won't approve.
 concurrency:
   group: cut-release
   cancel-in-progress: false
@@ -55,19 +57,19 @@ jobs:
           # Without the environment, GitHub would make it at the approve
           # job, unprotected, and release with no approval.
           setting="Settings > Environments > release, with Required reviewers set to the maintainer"
-          if ! env=$(gh api "repos/$GITHUB_REPOSITORY/environments/release" 2>&1); then
-            case $env in
+          if ! environment=$(gh api "repos/$GITHUB_REPOSITORY/environments/release" 2>&1); then
+            case $environment in
               *"HTTP 404"*) echo "::error::The repository has no release environment, so nothing would ask for an approval. Make it in $setting." ;;
-              *) echo "::error::Couldn't read the release environment ($env), so a release could go out without an approval. Check it in $setting." ;;
+              *) echo "::error::Couldn't read the release environment ($environment), so a release could go out without an approval. Check it in $setting." ;;
             esac
             exit 1
           fi
-          reviewers=$(jq '[.protection_rules[]? | select(.type == "required_reviewers") | (.reviewers // [])[]] | length' <<<"$env")
+          reviewers=$(jq '[.protection_rules[]? | select(.type == "required_reviewers") | (.reviewers // [])[]] | length' <<<"$environment")
           if [ "$reviewers" = 0 ]; then
             echo "::error::The release environment has no required reviewers, so a release would go out without an approval. Add them in $setting."
             exit 1
           fi
-          if [ "$(jq '.deployment_branch_policy == null' <<<"$env")" = true ]; then
+          if [ "$(jq '.deployment_branch_policy == null' <<<"$environment")" = true ]; then
             echo "::warning::The release environment allows any branch; limit it to main in Settings > Environments > release > Deployment branches and tags."
           fi
           echo "The release environment needs an approval from $reviewers reviewer(s)."
@@ -154,6 +156,7 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
       - name: Make the annotated tag
+        id: make
         env:
           NOTES: ${{ needs.plan.outputs.notes }}
           # The tagger is who started the run; GitHub recorded who approved it.
@@ -161,21 +164,36 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
-            echo "::error::origin has $TAG already; a tag is never moved, so run this workflow again for the next one"
+            # Re-run after a failure that followed its push, this job finds
+            # the tag it pushed: that tag goes on to publish.
+            git fetch --quiet --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG"
+            if [ "$(git cat-file -t "refs/tags/$TAG")" = tag ] &&
+              [ "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$COMMIT" ] &&
+              [ "$(git tag -l --format='%(contents)' "$TAG")" = "$(printf '%s\n' "$NOTES")" ]; then
+              echo "origin has $TAG on $COMMIT with the planned notes already, pushed by this run before; publishing it."
+              git cat-file -p "refs/tags/$TAG"
+              echo "push=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::origin has $TAG already, on another commit or with other notes than planned; a tag is never moved, so run this workflow again, and its plan names the next tag or says $COMMIT is released"
             exit 1
           fi
           printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes"
           git tag -a --no-sign --cleanup=verbatim -F "$RUNNER_TEMP/notes" "$TAG" "$COMMIT"
           git cat-file -p "refs/tags/$TAG"
+          echo "push=true" >> "$GITHUB_OUTPUT"
       - name: Push only the tag
+        if: steps.make.outputs.push == 'true'
         run: |
           # Never forced: if the tag appeared meanwhile, the push fails.
           if ! git push --no-follow-tags origin "refs/tags/$TAG"; then
             echo "::error::Pushing $TAG failed. If origin has it now, it was made meanwhile; if GitHub refused to let the workflow create or update a workflow, main's workflows changed after $COMMIT, so run this workflow again. Nothing was published."
             exit 1
           fi
+      - name: Check origin's tag is this one
+        run: |
           if [ "$(git ls-remote origin "refs/tags/$TAG" | cut -f1)" != "$(git rev-parse "refs/tags/$TAG")" ]; then
-            echo "::error::origin's $TAG isn't the tag this job made"
+            echo "::error::origin's $TAG isn't the tag this job made or found"
             exit 1
           fi
 
@@ -227,11 +245,15 @@ jobs:
           fi
           # The sums come from the same release as the assets, so only the
           # provenance shows they are what the release workflow built, from
-          # the planned commit. It is checked before anything downloaded runs.
+          # the planned commit. A called workflow's source ref is its
+          # caller's, and this run is on main. gh matches the signer as a
+          # prefix, so only the source ref rules out a run on another branch.
+          # It is checked before anything downloaded runs.
           for a in $assets; do
             if ! gh attestation verify "$dl/$a" --repo "$GITHUB_REPOSITORY" \
-              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --source-digest "$COMMIT"; then
-              echo "::error::$a's build provenance doesn't verify; $draft"
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --source-ref refs/heads/main \
+              --source-digest "$COMMIT"; then
+              echo "::error::$a's build provenance doesn't verify. A lookup can fail for a moment, so re-run this run's failed jobs first; if it fails again, $draft"
               exit 1
             fi
           done

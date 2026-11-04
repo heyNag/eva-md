@@ -114,6 +114,20 @@ func TestReleaseWorkflowPublishesEveryAsset(t *testing.T) {
 	}
 }
 
+// lines is a pattern for the lines given, one after another, each with any
+// indent; "..." stands for any lines.
+func lines(ls ...string) *regexp.Regexp {
+	var b strings.Builder
+	for _, l := range ls {
+		if l == "..." {
+			b.WriteString(`(?:[^\n]*\n)*?`)
+			continue
+		}
+		b.WriteString(`[ \t]*` + regexp.QuoteMeta(l) + `\n`)
+	}
+	return regexp.MustCompile(b.String())
+}
+
 // workflowJob is one job of a workflow, read line by line: its keys at the
 // job's own level, and the permissions it asks for.
 type workflowJob struct {
@@ -181,7 +195,9 @@ func workflowJobs(t *testing.T, text string) map[string]*workflowJob {
 // in the release environment, holds everything after the plan, and a dry
 // run stops at the plan; only the tag job and the release workflow it calls
 // may write to the repository; one release runs at a time; and the tag job
-// pushes only the planned tag, never with force.
+// pushes only the planned tag, never with force. When origin has the tag
+// already, the tag job goes on without pushing only for the tag a run of the
+// same plan pushed: annotated, on the planned commit, with the planned notes.
 func TestReleaseCutWorkflowNeedsAnApproval(t *testing.T) {
 	read := func(name string) string {
 		t.Helper()
@@ -282,6 +298,45 @@ func TestReleaseCutWorkflowNeedsAnApproval(t *testing.T) {
 			t.Errorf("the tag job has no %q", want)
 		}
 	}
+	for what, re := range map[string]*regexp.Regexp{
+		"makes the tag only when origin hasn't it, or goes on for the planned one": lines(
+			"- name: Make the annotated tag",
+			"id: make",
+			"...",
+			`if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then`,
+			"...",
+			`git fetch --quiet --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG"`,
+			`if [ "$(git cat-file -t "refs/tags/$TAG")" = tag ] &&`,
+			`[ "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$COMMIT" ] &&`,
+			`[ "$(git tag -l --format='%(contents)' "$TAG")" = "$(printf '%s\n' "$NOTES")" ]; then`,
+			"...",
+			`echo "push=false" >> "$GITHUB_OUTPUT"`,
+			"exit 0",
+			"fi",
+			`echo "::error::origin has $TAG already, on another commit or with other notes than planned; a tag is never moved, so run this workflow again, and its plan names the next tag or says $COMMIT is released"`,
+			"exit 1",
+			"fi",
+			`printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes"`,
+			`git tag -a --no-sign --cleanup=verbatim -F "$RUNNER_TEMP/notes" "$TAG" "$COMMIT"`,
+			`git cat-file -p "refs/tags/$TAG"`,
+			`echo "push=true" >> "$GITHUB_OUTPUT"`,
+			"- name: Push only the tag",
+			"if: steps.make.outputs.push == 'true'",
+			"run: |",
+		),
+		"checks origin's tag is the local one, pushed or not": lines(
+			"- name: Check origin's tag is this one",
+			"run: |",
+			`if [ "$(git ls-remote origin "refs/tags/$TAG" | cut -f1)" != "$(git rev-parse "refs/tags/$TAG")" ]; then`,
+		),
+	} {
+		if !re.MatchString(tag) {
+			t.Errorf("the tag job no longer %s", what)
+		}
+	}
+	if n := strings.Count(tag, "push=false"); n != 1 {
+		t.Errorf("the tag job skips its push in %d places, not one", n)
+	}
 	for name, j := range jobs {
 		pushes := regexp.MustCompile(`git push[^\n]*`).FindAllString(j.text, -1)
 		if name == "tag" && len(pushes) != 1 || name != "tag" && len(pushes) != 0 {
@@ -313,14 +368,20 @@ func TestReleaseCutWorkflowNeedsAnApproval(t *testing.T) {
 // The provenance is checked against the workflow that signs it, release.yml,
 // whichever way the release was cut: called by Cut a release, release.yml is
 // still the workflow that runs the attest action, and so the signer.
+//
+// gh matches the signer as a prefix, so each also names the run's source
+// ref: a pushed tag's run has the tag as its ref, and a called workflow's run
+// its caller's, which Cut a release runs only on main.
 func TestReleaseChecksProvenanceAgainstOneSigner(t *testing.T) {
 	signer := regexp.MustCompile(`--signer-workflow "?([^"\s]+)"?`)
+	sourceRef := regexp.MustCompile(`--source-ref "?([^"\s]+)"?`)
 	for _, f := range []struct {
 		path []string
 		repo string // how the file names the repository
+		ref  string // the source ref it checks
 	}{
-		{[]string{"scripts", "release.sh"}, "$repo"},
-		{[]string{".github", "workflows", "cut-release.yml"}, "$GITHUB_REPOSITORY"},
+		{[]string{"scripts", "release.sh"}, "$repo", "refs/tags/$tag"},
+		{[]string{".github", "workflows", "cut-release.yml"}, "$GITHUB_REPOSITORY", "refs/heads/main"},
 	} {
 		data, err := os.ReadFile(filepath.Join(append([]string{"..", ".."}, f.path...)...))
 		if err != nil {
@@ -333,6 +394,9 @@ func TestReleaseChecksProvenanceAgainstOneSigner(t *testing.T) {
 		if got := strings.Replace(m[0][1], f.repo, "heyNag/eva-md", 1); got != "heyNag/eva-md/.github/workflows/release.yml" {
 			t.Errorf("%s checks the provenance was signed by %s", filepath.Join(f.path...), got)
 		}
+		if m := sourceRef.FindAllStringSubmatch(string(data), -1); len(m) != 1 || m[0][1] != f.ref {
+			t.Errorf("%s checks the source refs %q, not %s once", filepath.Join(f.path...), m, f.ref)
+		}
 	}
 	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
 	if err != nil {
@@ -340,5 +404,60 @@ func TestReleaseChecksProvenanceAgainstOneSigner(t *testing.T) {
 	}
 	if n := strings.Count(string(data), "uses: actions/attest-build-provenance@"); n != 1 {
 		t.Errorf("release.yml attests %d times, not once", n)
+	}
+}
+
+// The release tag's pattern is written out in scripts/release.sh, in the
+// release workflow and in Cut a release's tag job. All three are the same,
+// and agree with ValidTag, which eva-md upgrade reads releases with.
+func TestReleaseTagPatternIsTheSameEverywhere(t *testing.T) {
+	var pattern string
+	for _, f := range []struct {
+		path []string
+		re   string
+	}{
+		{[]string{"scripts", "release.sh"}, `(?m)^tag_re='([^']*)'$`},
+		{[]string{".github", "workflows", "release.yml"}, `(?m)^\s+re='([^']*)'$`},
+		{[]string{".github", "workflows", "cut-release.yml"}, `(?m)^\s+re='([^']*)'$`},
+	} {
+		data, err := os.ReadFile(filepath.Join(append([]string{"..", ".."}, f.path...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := regexp.MustCompile(f.re).FindAllStringSubmatch(string(data), -1)
+		if len(m) != 1 {
+			t.Fatalf("%s gives the tag pattern %d times, not once", filepath.Join(f.path...), len(m))
+		}
+		if pattern == "" {
+			pattern = m[0][1]
+		} else if m[0][1] != pattern {
+			t.Errorf("%s's tag pattern is %s, not %s", filepath.Join(f.path...), m[0][1], pattern)
+		}
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		tag   string
+		valid bool
+	}{
+		{"2026.11.3", true},
+		{"2026.11.3.2", true},
+		{"2026.11.3.10", true},
+		{"2026.1.31", true},
+		{"2026.11.3.1", false},
+		{"2026.01.3", false},
+		{"2026.11.03", false},
+		{"v2026.11.3", false},
+		{"2026.11", false},
+		{"2026.11.3.0", false},
+	} {
+		if got := re.MatchString(c.tag); got != c.valid {
+			t.Errorf("the pattern matches %s: %v, want %v", c.tag, got, c.valid)
+		}
+		if got := ValidTag(c.tag); got != c.valid {
+			t.Errorf("ValidTag(%s) = %v, want %v", c.tag, got, c.valid)
+		}
 	}
 }

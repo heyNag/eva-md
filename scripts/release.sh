@@ -49,9 +49,18 @@ for arg in "$@"; do
 	esac
 done
 
-# fail stops at a failed check, saying what is wrong and how to fix it.
+# fail stops at a failed check, saying what is wrong and how to fix it. In a
+# workflow it also prints an error command, so the run shows the failure as
+# an annotation; GitHub reads %, CR and LF in it encoded.
 fail() {
 	printf '  ✗ %s\n    Fix: %s\n' "$1" "$2" >&2
+	if [ "${GITHUB_ACTIONS:-}" = true ]; then
+		local msg="$1. Fix: $2" cr=$'\r' lf=$'\n'
+		msg=${msg//\%/%25}
+		msg=${msg//$cr/%0D}
+		msg=${msg//$lf/%0A}
+		printf '::error::%s\n' "$msg"
+	fi
 	exit 1
 }
 
@@ -342,10 +351,12 @@ fi
 ok "SHA256SUMS matches the assets"
 
 # The sums come from the same release as the assets, so only the provenance
-# shows they are what the workflow built. It is checked before anything
-# downloaded runs.
+# shows they are what the workflow built. A pushed tag's run has the tag as
+# its ref; gh matches the signer as a prefix, so only the source ref rules out
+# a run on a branch. It is checked before anything downloaded runs.
 for a in $assets; do
-	gh attestation verify "$dl/$a" --repo "$repo" --signer-workflow "$repo/.github/workflows/release.yml" >/dev/null 2>&1 ||
+	gh attestation verify "$dl/$a" --repo "$repo" --signer-workflow "$repo/.github/workflows/release.yml" \
+		--source-ref "refs/tags/$tag" >/dev/null 2>&1 ||
 		fail "$a's build provenance doesn't verify" "gh attestation verify $a --repo $repo shows why; make the release a draft and release a fix"
 done
 ok "the build provenance verifies"
