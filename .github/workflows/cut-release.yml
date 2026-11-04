@@ -1,0 +1,250 @@
+# Cuts a release from GitHub, so it needs no Mac: it makes the checks
+# scripts/release.sh makes, waits for a required reviewer to approve the
+# release environment, then pushes an unsigned annotated tag, publishes it
+# with the release workflow and checks what that published. The approval
+# GitHub records stands in for the tag's signature. docs/releasing.md
+# describes the flow; every action is pinned to a commit.
+name: Cut a release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only check main and show the release; tag nothing
+        type: boolean
+        default: false
+
+permissions: {}
+
+# One release at a time. A queued run waits rather than cancel one.
+concurrency:
+  group: cut-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: Plan the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # release.sh reads CI's runs for the commit; the release environment
+      # is read with the same permission.
+      actions: read
+      contents: read
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      commit: ${{ steps.plan.outputs.commit }}
+      notes: ${{ steps.plan.outputs.notes }}
+    steps:
+      - name: Refuse to run off main
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Releases are cut from main, not $GITHUB_REF; run this workflow on main"
+            exit 1
+          fi
+      - name: Check a release needs an approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Without the environment, GitHub would make it at the approve
+          # job, unprotected, and release with no approval.
+          setting="Settings > Environments > release, with Required reviewers set to the maintainer"
+          if ! env=$(gh api "repos/$GITHUB_REPOSITORY/environments/release" 2>&1); then
+            case $env in
+              *"HTTP 404"*) echo "::error::The repository has no release environment, so nothing would ask for an approval. Make it in $setting." ;;
+              *) echo "::error::Couldn't read the release environment ($env), so a release could go out without an approval. Check it in $setting." ;;
+            esac
+            exit 1
+          fi
+          reviewers=$(jq '[.protection_rules[]? | select(.type == "required_reviewers") | (.reviewers // [])[]] | length' <<<"$env")
+          if [ "$reviewers" = 0 ]; then
+            echo "::error::The release environment has no required reviewers, so a release would go out without an approval. Add them in $setting."
+            exit 1
+          fi
+          if [ "$(jq '.deployment_branch_policy == null' <<<"$env")" = true ]; then
+            echo "::warning::The release environment allows any branch; limit it to main in Settings > Environments > release > Deployment branches and tags."
+          fi
+          echo "The release environment needs an approval from $reviewers reviewer(s)."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check main is where the run started
+        run: |
+          # The build provenance names the commit the run started on, so the
+          # release is that commit.
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::main moved since this run started; run it again to release main as it is now"
+            exit 1
+          fi
+      - name: Check main is ready to release
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release.sh --plan
+      - name: Show the release
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          COMMIT: ${{ steps.plan.outputs.commit }}
+          SINCE: ${{ steps.plan.outputs.since }}
+          NOTES: ${{ steps.plan.outputs.notes }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "## Release $TAG"
+            echo
+            echo "Commit: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$COMMIT"
+            echo
+            echo "Notes, $SINCE:"
+            echo
+            printf '%s\n' "$NOTES"
+            echo
+            if [ "$DRY_RUN" = true ]; then
+              echo "Dry run: nothing was tagged or pushed."
+            else
+              echo "Approve the release environment to tag and publish $TAG."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  approve:
+    name: Approve releasing ${{ needs.plan.outputs.tag }}
+    needs: plan
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # GitHub holds this job until a required reviewer of the environment
+    # approves it, and records who did.
+    environment: release
+    permissions: {}
+    steps:
+      - name: Record the approval
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+        run: echo "Approved releasing $TAG from $COMMIT." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  tag:
+    name: Tag ${{ needs.plan.outputs.tag }}
+    needs: [plan, approve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      COMMIT: ${{ needs.plan.outputs.commit }}
+    steps:
+      - name: Check the plan
+        run: |
+          re='^[0-9]{4}\.[1-9][0-9]?\.[1-9][0-9]?(\.[2-9]|\.[1-9][0-9]+)?$'
+          if ! [[ $TAG =~ $re ]] || ! [[ $COMMIT =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The plan gave tag \"$TAG\" and commit \"$COMMIT\", not a release tag and a commit"
+            exit 1
+          fi
+      # The planned commit, not main's tip now: main may have moved while
+      # the release waited for its approval.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+      - name: Make the annotated tag
+        env:
+          NOTES: ${{ needs.plan.outputs.notes }}
+          # The tagger is who started the run; GitHub recorded who approved it.
+          GIT_COMMITTER_NAME: ${{ github.actor }}
+          GIT_COMMITTER_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::origin has $TAG already; a tag is never moved, so run this workflow again for the next one"
+            exit 1
+          fi
+          printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes"
+          git tag -a --no-sign --cleanup=verbatim -F "$RUNNER_TEMP/notes" "$TAG" "$COMMIT"
+          git cat-file -p "refs/tags/$TAG"
+      - name: Push only the tag
+        run: |
+          # Never forced: if the tag appeared meanwhile, the push fails.
+          if ! git push --no-follow-tags origin "refs/tags/$TAG"; then
+            echo "::error::Pushing $TAG failed. If origin has it now, it was made meanwhile; if GitHub refused to let the workflow create or update a workflow, main's workflows changed after $COMMIT, so run this workflow again. Nothing was published."
+            exit 1
+          fi
+          if [ "$(git ls-remote origin "refs/tags/$TAG" | cut -f1)" != "$(git rev-parse "refs/tags/$TAG")" ]; then
+            echo "::error::origin's $TAG isn't the tag this job made"
+            exit 1
+          fi
+
+  publish:
+    name: Publish
+    needs: [plan, tag]
+    # The release workflow's jobs need these: it reads the tag, attests the
+    # build and creates the release.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+
+  check:
+    name: Check the published release
+    needs: [plan, publish]
+    runs-on: macos-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      COMMIT: ${{ needs.plan.outputs.commit }}
+    steps:
+      - name: Check the assets, their sums, provenance and version
+        run: |
+          assets="eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh LICENSES.txt"
+          draft="make the release a draft (gh release edit $TAG --repo $GITHUB_REPOSITORY --draft=true) and release a fix"
+          dl=$RUNNER_TEMP/published
+          mkdir "$dl"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$dl"
+          for a in $assets SHA256SUMS; do
+            if ! [ -f "$dl/$a" ]; then
+              echo "::error::The release $TAG has no $a; $draft"
+              exit 1
+            fi
+          done
+          listed=$(awk '{ print $2 }' "$dl/SHA256SUMS" | sort | tr '\n' ' ')
+          # shellcheck disable=SC2086 # assets is a list of names, split on purpose.
+          want=$(printf '%s\n' $assets | sort | tr '\n' ' ')
+          if [ "$listed" != "$want" ] || ! (cd "$dl" && shasum -a 256 -c SHA256SUMS); then
+            echo "::error::The release's SHA256SUMS doesn't match its assets; $draft"
+            exit 1
+          fi
+          # The sums come from the same release as the assets, so only the
+          # provenance shows they are what the release workflow built, from
+          # the planned commit. It is checked before anything downloaded runs.
+          for a in $assets; do
+            if ! gh attestation verify "$dl/$a" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --source-digest "$COMMIT"; then
+              echo "::error::$a's build provenance doesn't verify; $draft"
+              exit 1
+            fi
+          done
+          chmod +x "$dl/eva-md-darwin-arm64"
+          got=$("$dl/eva-md-darwin-arm64" version | head -n 1)
+          if [ "$got" != "eva-md $TAG" ]; then
+            echo "::error::eva-md-darwin-arm64 says \"$got\", not \"eva-md $TAG\"; $draft"
+            exit 1
+          fi
+          {
+            echo "Released $TAG: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"
+            echo
+            echo "Install it with:"
+            echo
+            echo '```sh'
+            echo "curl -fsSL $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/latest/download/install.sh | bash"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
