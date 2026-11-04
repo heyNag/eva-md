@@ -81,6 +81,8 @@ jobs:
             *) echo "::error::Could not check for a release of $TAG: $out"; exit 1 ;;
           esac
       - name: Write the notes from the tag's annotation
+        env:
+          CALLED_TAG: ${{ inputs.tag }}
         run: |
           # The annotation without the tag's signature or trailing blank lines.
           all=$(git tag -l --format='%(contents)' "$TAG")
@@ -92,6 +94,12 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/release"
           printf '%s\n' "$notes" > "$RUNNER_TEMP/release/notes.md"
+          # Called by Cut a release, this run is the caller's, which records
+          # who approved the release; the tag doesn't name it, so the notes do.
+          if [ -n "$CALLED_TAG" ]; then
+            printf '\nCut on GitHub in run %s, which records who approved it.\n' \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$RUNNER_TEMP/release/notes.md"
+          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod

@@ -115,15 +115,19 @@ func TestReleaseWorkflowPublishesEveryAsset(t *testing.T) {
 }
 
 // lines is a pattern for the lines given, one after another, each with any
-// indent; "..." stands for any lines.
+// indent; "..." stands for any lines, and a line ending in @, an action's
+// name, for any line that starts with it.
 func lines(ls ...string) *regexp.Regexp {
 	var b strings.Builder
 	for _, l := range ls {
-		if l == "..." {
+		switch {
+		case l == "...":
 			b.WriteString(`(?:[^\n]*\n)*?`)
-			continue
+		case strings.HasSuffix(l, "@"):
+			b.WriteString(`[ \t]*` + regexp.QuoteMeta(l) + `[^\n]*\n`)
+		default:
+			b.WriteString(`[ \t]*` + regexp.QuoteMeta(l) + `\n`)
 		}
-		b.WriteString(`[ \t]*` + regexp.QuoteMeta(l) + `\n`)
 	}
 	return regexp.MustCompile(b.String())
 }
@@ -362,6 +366,40 @@ func TestReleaseCutWorkflowNeedsAnApproval(t *testing.T) {
 	}
 	if strings.Contains(release, "github.ref }}") {
 		t.Error("release.yml reads github.ref, which a called run doesn't set to the tag")
+	}
+	// A release cut from GitHub links its run, which records the approval,
+	// in the release's notes, after the tag's own; a pushed tag's notes are
+	// the annotation alone. The release is created from that notes file.
+	for what, re := range map[string]*regexp.Regexp{
+		"links a called run in the notes": lines(
+			"- name: Write the notes from the tag's annotation",
+			"env:",
+			"CALLED_TAG: ${{ inputs.tag }}",
+			"run: |",
+			"...",
+			`printf '%s\n' "$notes" > "$RUNNER_TEMP/release/notes.md"`,
+			"...",
+			`if [ -n "$CALLED_TAG" ]; then`,
+			`printf '\nCut on GitHub in run %s, which records who approved it.\n' \`,
+			`"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$RUNNER_TEMP/release/notes.md"`,
+			"fi",
+			"- uses: actions/setup-go@",
+		),
+		"uploads the notes with the build": lines(
+			"- uses: actions/upload-artifact@",
+			"...",
+			"path: ${{ runner.temp }}/release",
+		),
+		"creates the release from the notes": lines(
+			`--title "$TAG" --notes-file notes.md \`,
+		),
+	} {
+		if !re.MatchString(release) {
+			t.Errorf("release.yml no longer %s", what)
+		}
+	}
+	if n := strings.Count(release, "Cut on GitHub in run"); n != 1 {
+		t.Errorf("release.yml writes the run's line %d times, not once", n)
 	}
 }
 
