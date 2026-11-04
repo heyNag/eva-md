@@ -459,9 +459,12 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 	case <-time.After(hangGuard):
 		t.Fatalf("the fake git started no child within %v", hangGuard)
 	}
-	// The child sleeps until a kill ends it, so ps lists it now.
-	_, born := psRow(t, child)
-	if born == "" {
+	// The child runs until a kill ends it, so ps lists it now, if perhaps
+	// as the shell it was forked from, not yet sleep: what tells it from a
+	// later process given its pid is its start time, which exec keeps, and
+	// not its command.
+	_, born, _ := psRow(t, child)
+	if born.IsZero() {
 		t.Fatal("ps does not list the child the fake git started")
 	}
 	cancel()
@@ -471,47 +474,75 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 			t.Fatalf("live git out of time: %q", info.text)
 		}
 	case <-time.After(hangGuard):
+		// A child the kill missed holds git's output open, so live git
+		// returns only when its WaitDelay ends. TestMain raises that to the
+		// guard's minute, and os/exec starts it only once it has sent the
+		// kill, as a rule after the guard started, so the guard ends first.
+		// The test then kills the child, once ps shows it is still the
+		// child and not a zombie, and fails.
+		if state, start, comm := psRow(t, child); start.Equal(born) && !strings.HasPrefix(state, "Z") {
+			syscall.Kill(child, syscall.SIGKILL)
+			t.Fatalf("live git out of time hung: after %v, the child git started still ran, holding git's output open (%s, state %s)", hangGuard, comm, state)
+		}
 		t.Fatalf("live git out of time hung: it had not returned after %v", hangGuard)
 	}
-	// Live git returned, so its output reached its end: the child, which
-	// holds it open until it exits, had closed it, so the kill reached it.
-	// ps can still list it alive for a moment, as a system closes a killed
-	// process's files before it makes it a zombie: Linux shows it running
-	// (R), or in an uninterruptible wait (D), in between, and macOS may show
-	// it exiting (E). So the test waits for the child to be a zombie (Z) or
-	// gone, which a child the kill missed never is: it holds the output open
-	// and sleeps (S) until the guard ends. Once the child is reaped, its pid
-	// may go to another process, which a start time and command other than
-	// the child's tell apart.
+	// Live git returned. Either its output reached its end, or its
+	// WaitDelay ended about when the guard did, and the select took the
+	// return. In the first case the child, which holds the output open as
+	// long as it runs, had closed it: the kill reached it, though ps can
+	// still list it for a moment, as a system closes a killed process's
+	// files before it makes it a zombie. In between, Linux can show it
+	// running (R) or in an uninterruptible wait (D), and macOS can add an E
+	// to its state while it exits, as in RE. In the second, a child the kill
+	// missed still sleeps: ps shows it S, or I on macOS once it has slept
+	// about 20 seconds. So the test waits, as long as the guard, for the
+	// child to be a zombie (Z) or gone, its pid perhaps given to a later
+	// process, which another start time tells; a child still alive then is
+	// killed, and the test fails.
 	for end := time.Now().Add(hangGuard); ; time.Sleep(10 * time.Millisecond) {
-		state, who := psRow(t, child)
-		if state == "" || strings.HasPrefix(state, "Z") || who != born {
+		state, start, comm := psRow(t, child)
+		if state == "" || strings.HasPrefix(state, "Z") || !start.Equal(born) {
 			return
 		}
 		if time.Now().After(end) {
 			syscall.Kill(child, syscall.SIGKILL)
-			t.Fatalf("the child git started outlived live git (state %s %v after it returned)", state, hangGuard)
+			t.Fatalf("the child git started outlived live git (%s, state %s %v after it returned)", comm, state, hangGuard)
 		}
 	}
 }
 
-// psRow gives ps's state of the process pid, and its start time and command,
-// which are the same for as long as it runs; both are empty once no process
-// has the pid. Its twin is psRow in internal/coderef's git_test.go.
-func psRow(t *testing.T, pid int) (state, who string) {
+// psRow gives ps's state of the process pid, its start time, which stays the
+// same for as long as it runs, and its command, which exec changes, so it
+// serves only in messages. ps lists the start time in five fields, as "Wed
+// Nov  4 21:43:12 2026" in the C locale, on Linux and macOS alike. The state
+// is "" and the time zero once no process has the pid, which ps tells by
+// exiting 1 and printing nothing, to stdout or stderr; any other failure of
+// ps, or a row it can't read, fails the test. Its twin is psRow in
+// internal/coderef's git_test.go.
+func psRow(t *testing.T, pid int) (state string, start time.Time, comm string) {
 	t.Helper()
 	cmd := exec.Command("ps", "-o", "stat=", "-o", "lstart=", "-o", "comm=", "-p", strconv.Itoa(pid))
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	out, err := cmd.Output()
 	var exit *exec.ExitError
-	if err != nil && !errors.As(err, &exit) {
-		t.Fatalf("ps: %v", err)
+	if errors.As(err, &exit) {
+		if exit.ExitCode() == 1 && len(out) == 0 && len(exit.Stderr) == 0 {
+			return "", time.Time{}, ""
+		}
+		t.Fatalf("ps -p %d: %v, stdout %q, stderr %q", pid, err, out, exit.Stderr)
+	}
+	if err != nil {
+		t.Fatalf("ps -p %d: %v", pid, err)
 	}
 	f := strings.Fields(string(out))
-	if len(f) == 0 {
-		return "", ""
+	if len(f) < 6 {
+		t.Fatalf("ps -p %d listed no state, start time and command: %q", pid, out)
 	}
-	return f[0], strings.Join(f[1:], " ")
+	start, err = time.Parse("Mon Jan 2 15:04:05 2006", strings.Join(f[1:6], " "))
+	if err != nil {
+		t.Fatalf("ps -p %d listed no start time: %q", pid, out)
+	}
+	return f[0], start, strings.Join(f[6:], " ")
 }
 
 // To fit, a pointer's description is cut, then left out; then the note gives
