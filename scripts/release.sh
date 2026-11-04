@@ -4,7 +4,11 @@
 # that tag, watches the release workflow and checks what it published.
 # docs/releasing.md explains each step.
 #
-# Usage: scripts/release.sh [--dry-run]
+# Usage: scripts/release.sh [--dry-run | --plan]
+#
+# --plan is for the Cut a release workflow: it makes the same checks but the
+# signing setup's, asks nothing, and writes the tag, the commit and the notes
+# to $GITHUB_OUTPUT when that is set.
 #
 # It never force-pushes and never moves or deletes a tag.
 set -euo pipefail
@@ -17,14 +21,23 @@ tag_re='^[0-9]{4}\.[1-9][0-9]?\.[1-9][0-9]?(\.[2-9]|\.[1-9][0-9]+)?$'
 assets="eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh LICENSES.txt"
 
 usage() {
-	echo "usage: scripts/release.sh [--dry-run]"
+	echo "usage: scripts/release.sh [--dry-run | --plan]"
 	echo "  --dry-run  check everything and show the release, then stop before tagging"
+	echo "  --plan     the same without the signing check, for the Cut a release workflow:"
+	echo "             it also writes the tag, commit and notes to \$GITHUB_OUTPUT when set"
 }
 
-dry_run=false
+# mode is release, dry-run or plan.
+mode=release
 for arg in "$@"; do
 	case $arg in
-	--dry-run) dry_run=true ;;
+	--dry-run | --plan)
+		if [ "$mode" != release ]; then
+			usage >&2
+			exit 2
+		fi
+		mode=${arg#--}
+		;;
 	-h | --help)
 		usage
 		exit 0
@@ -76,21 +89,25 @@ for f in .github/workflows/ci.yml .github/workflows/release.yml scripts/install.
 done
 ok "main has the release workflow, the install scripts and the licenses"
 
-# Only whether a key is set: its value is never shown.
-if [ -z "$(git config user.signingkey || true)" ]; then
-	fail "tag signing isn't set up: user.signingkey is empty" "git config --global user.signingkey <your key>, as docs/releasing.md says"
+# A plan makes no tag: the workflow it is for makes an unsigned one, once the
+# release is approved on GitHub.
+if [ "$mode" != plan ]; then
+	# Only whether a key is set: its value is never shown.
+	if [ -z "$(git config user.signingkey || true)" ]; then
+		fail "tag signing isn't set up: user.signingkey is empty" "git config --global user.signingkey <your key>, as docs/releasing.md says"
+	fi
+	format=$(git config gpg.format || echo openpgp)
+	case $format in
+	openpgp) signer=$(git config gpg.openpgp.program || git config gpg.program || echo gpg) ;;
+	ssh) signer=$(git config gpg.ssh.program || echo ssh-keygen) ;;
+	x509) signer=$(git config gpg.x509.program || echo gpgsm) ;;
+	*) fail "gpg.format is $format, which git can't sign with" "git config --global gpg.format ssh, or openpgp" ;;
+	esac
+	if ! command -v "$signer" >/dev/null 2>&1; then
+		fail "git signs $format tags with $signer, which isn't installed" "install it, or point gpg.$format.program at the program you sign with"
+	fi
+	ok "tag signing is set up ($format)"
 fi
-format=$(git config gpg.format || echo openpgp)
-case $format in
-openpgp) signer=$(git config gpg.openpgp.program || git config gpg.program || echo gpg) ;;
-ssh) signer=$(git config gpg.ssh.program || echo ssh-keygen) ;;
-x509) signer=$(git config gpg.x509.program || echo gpgsm) ;;
-*) fail "gpg.format is $format, which git can't sign with" "git config --global gpg.format ssh, or openpgp" ;;
-esac
-if ! command -v "$signer" >/dev/null 2>&1; then
-	fail "git signs $format tags with $signer, which isn't installed" "install it, or point gpg.$format.program at the program you sign with"
-fi
-ok "tag signing is set up ($format)"
 
 # origin must be GitHub's eva-md: the tag is pushed there, and the release
 # workflow runs only there. The URLs are compared, never printed, since one
@@ -139,9 +156,17 @@ ok "main is origin/main ($short)"
 
 command -v gh >/dev/null 2>&1 ||
 	fail "gh, the GitHub CLI, isn't installed" "install it from https://cli.github.com, then gh auth login --hostname github.com"
-gh auth status --hostname github.com >/dev/null 2>&1 ||
-	fail "gh isn't signed in to github.com" "gh auth login --hostname github.com"
-ok "gh is signed in to github.com"
+if [ "$mode" = plan ]; then
+	# In a workflow gh signs in with GH_TOKEN, a token gh auth status may not
+	# recognise though it works, so the plan checks the token reads the repo.
+	gh api "repos/$repo" --silent >/dev/null 2>&1 ||
+		fail "gh can't read github.com/$repo" "set GH_TOKEN to a token that can read $repo and its Actions runs"
+	ok "gh can read github.com/$repo"
+else
+	gh auth status --hostname github.com >/dev/null 2>&1 ||
+		fail "gh isn't signed in to github.com" "gh auth login --hostname github.com"
+	ok "gh is signed in to github.com"
+fi
 
 runs=$(gh run list --repo "$repo" --workflow ci.yml --commit "$head" --limit 20 \
 	--json status,conclusion,databaseId --jq '.[] | "\(.status)/\(.conclusion)/\(.databaseId)"' 2>/dev/null) ||
@@ -233,7 +258,29 @@ echo "  notes, $since:"
 printf '%s\n' "$notes" | sed 's/^/    /'
 echo
 
-if $dry_run; then
+if [ "$mode" = plan ]; then
+	# For the workflow: the notes go in GitHub's multi-line form, between
+	# delimiter lines no note can be.
+	if [ -n "${GITHUB_OUTPUT:-}" ]; then
+		delim="EVA_MD_NOTES_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+		if [ "$delim" = EVA_MD_NOTES_ ] || printf '%s\n' "$notes" | grep -qxF "$delim"; then
+			fail "couldn't make a delimiter for the notes" "run it again"
+		fi
+		{
+			echo "tag=$tag"
+			echo "commit=$head"
+			echo "since=$since"
+			echo "notes<<$delim"
+			printf '%s\n' "$notes"
+			echo "$delim"
+		} >>"$GITHUB_OUTPUT" ||
+			fail "couldn't write the plan to \$GITHUB_OUTPUT" "check the file GITHUB_OUTPUT names can be written, then run it again"
+	fi
+	echo "Plan: nothing was tagged or pushed."
+	exit 0
+fi
+
+if [ "$mode" = dry-run ]; then
 	echo "Dry run: nothing was tagged or pushed."
 	exit 0
 fi
