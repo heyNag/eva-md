@@ -210,8 +210,8 @@ func TestDetachedJobOutlivesTheHook(t *testing.T) {
 	}
 	// Its own session: setsid made it the leader, so its session id is its
 	// pid, not the test's.
-	sid, err := syscall.Getsid(pid)
-	own, _ := syscall.Getsid(0)
+	sid, err := getsid(pid)
+	own, _ := getsid(0)
 	if err != nil || sid != pid || sid == own {
 		t.Fatalf("session %d (%v) for pid %d; the test's is %d", sid, err, pid, own)
 	}

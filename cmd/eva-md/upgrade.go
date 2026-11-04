@@ -29,10 +29,8 @@ var versionTimeout = 30 * time.Second
 // arm64, also for an amd64 binary that Rosetta runs on an Apple silicon
 // Mac, or amd64.
 var upgradeArch = func() string {
-	if runtime.GOARCH == "amd64" {
-		if v, err := syscall.SysctlUint32("sysctl.proc_translated"); err == nil && v == 1 {
-			return "arm64"
-		}
+	if runtime.GOARCH == "amd64" && rosettaTranslated() {
+		return "arm64"
 	}
 	return runtime.GOARCH
 }
