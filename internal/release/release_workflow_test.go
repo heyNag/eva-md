@@ -446,8 +446,10 @@ func TestReleaseChecksProvenanceAgainstOneSigner(t *testing.T) {
 }
 
 // The release tag's pattern is written out in scripts/release.sh, in the
-// release workflow and in Cut a release's tag job. All three are the same,
-// and agree with ValidTag, which eva-md upgrade reads releases with.
+// release workflow and in Cut a release's tag job. All three are the same.
+// The pattern checks only the format, while ValidTag, which eva-md upgrade
+// reads releases with, also refuses a month or day out of range, which a tag
+// named by a commit's date never has; they agree on every other tag here.
 func TestReleaseTagPatternIsTheSameEverywhere(t *testing.T) {
 	var pattern string
 	for _, f := range []struct {
@@ -477,22 +479,24 @@ func TestReleaseTagPatternIsTheSameEverywhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		tag   string
-		valid bool
+		tag            string
+		matches, valid bool // the pattern matches it; ValidTag accepts it
 	}{
-		{"2026.11.3", true},
-		{"2026.11.3.2", true},
-		{"2026.11.3.10", true},
-		{"2026.1.31", true},
-		{"2026.11.3.1", false},
-		{"2026.01.3", false},
-		{"2026.11.03", false},
-		{"v2026.11.3", false},
-		{"2026.11", false},
-		{"2026.11.3.0", false},
+		{"2026.11.3", true, true},
+		{"2026.11.3.2", true, true},
+		{"2026.11.3.10", true, true},
+		{"2026.1.31", true, true},
+		{"2026.11.3.1", false, false},
+		{"2026.01.3", false, false},
+		{"2026.11.03", false, false},
+		{"v2026.11.3", false, false},
+		{"2026.11", false, false},
+		{"2026.11.3.0", false, false},
+		// The format of a tag, with no thirteenth month.
+		{"2026.13.1", true, false},
 	} {
-		if got := re.MatchString(c.tag); got != c.valid {
-			t.Errorf("the pattern matches %s: %v, want %v", c.tag, got, c.valid)
+		if got := re.MatchString(c.tag); got != c.matches {
+			t.Errorf("the pattern matches %s: %v, want %v", c.tag, got, c.matches)
 		}
 		if got := ValidTag(c.tag); got != c.valid {
 			t.Errorf("ValidTag(%s) = %v, want %v", c.tag, got, c.valid)
