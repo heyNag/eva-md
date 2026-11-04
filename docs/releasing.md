@@ -31,13 +31,13 @@ Its jobs run in this order, each only after the one before it passes. The workfl
 4. **publish**. It calls the release workflow with the tag (see "What the workflow builds and publishes"), granting it `contents: write`, `id-token: write` and `attestations: write`, exactly what that workflow's jobs ask for. A tag pushed with a workflow's token starts no workflow, so the run calls it itself.
 5. **check** (macOS, `contents: read`, `attestations: read`). It downloads the published release and checks it as `scripts/release.sh` does: every asset is there, `SHA256SUMS` lists exactly the other five and matches them, `gh attestation verify` confirms each of those five was built by this repository's release workflow (`--signer-workflow heyNag/eva-md/.github/workflows/release.yml`) from the planned commit (`--source-digest <commit>`), and only then `eva-md-darwin-arm64` runs on the Apple silicon runner to show it prints the tag as its version. Nothing downloaded runs before its provenance verifies. It adds the release's URL and the install command to the summary.
 
-Every job but publish has a time limit, and so does each job of the release workflow publish calls; the wait for an approval doesn't count toward the approve job's. One Cut a release run goes at a time: a run started while one is going waits for it rather than cancel it.
+Every job but publish has a time limit, and so does each job of the release workflow publish calls; the wait for an approval doesn't count toward the approve job's. One Cut a release run goes at a time, and a run waiting for its approval holds the line too: a run started meanwhile, a dry run included, waits until that one is approved, rejected or cancelled. GitHub keeps only the newest waiting run, and cancels an older one still waiting. So reject or cancel a release you won't approve rather than leave it waiting.
 
 When a job fails, its error says what is wrong. Before the tag job pushes, nothing is published: fix what the plan named and run it again. When the push fails, either origin has the tag now, made meanwhile, or GitHub refused to let the workflow's token create the tag, which it can do when main's workflow files changed after the planned commit; run it again, or release from a Mac. After the push, the tag stays, as with `scripts/release.sh`: when publish fails, release a fix under the next tag; when check fails, its error says to make the release a draft and release a fix (see "Pull a bad release").
 
 ### A tag cut from GitHub
 
-A tag Cut a release makes is annotated but not signed: GitHub's record of who approved the release stands in for the signature. The run that pushed the tag shows who approved it, and so does the `release` environment's deployment history. The tagger the tag names is who started the run, which the tag alone doesn't prove. `git tag -v` checks only a tag cut from a Mac.
+A tag Cut a release makes is annotated but not signed: GitHub's record of who approved the release stands in for the signature. The run that pushed the tag shows who approved it, and GitHub's API lists the same: `gh api repos/heyNag/eva-md/actions/runs/<run id>/approvals`. That run is among Cut a release's runs, and its jobs are named after the tag: "Approve releasing <tag>" and "Tag <tag>". The tagger the tag names is who started the run, which the tag alone doesn't prove. `git tag -v` checks only a tag cut from a Mac.
 
 ### The GitHub settings Cut a release needs
 
@@ -46,7 +46,7 @@ Made once, in the repository's settings, by someone with admin access:
 1. **The environment.** Settings > Environments > New environment, named exactly `release`.
 2. **Required reviewers.** In it, tick Required reviewers and add the maintainer. Leave "Prevent self-review" unticked, since the maintainer approves the runs they start. Environments with required reviewers are free for a public repository. Without an environment named `release` that has a required reviewer, the plan job fails.
 3. **Deployment branches and tags.** Choose "Selected branches and tags" and add the branch rule `main`, so only a run on main can reach the approval. Without it, the plan job only warns.
-4. **Tag rulesets.** If a ruleset restricts who can create tags, add GitHub Actions to its bypass list; otherwise the tag job's push is refused.
+4. **Tag rulesets.** Leave release tags out of any ruleset that restricts creating tags: the tag job pushes them with the workflow's token, and such a ruleset refuses that push.
 
 ## scripts/release.sh from a Mac
 

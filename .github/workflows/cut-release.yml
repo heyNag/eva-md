@@ -16,7 +16,9 @@ on:
 
 permissions: {}
 
-# One release at a time. A queued run waits rather than cancel one.
+# One release at a time; a run waiting for its approval holds the line too.
+# GitHub keeps only the newest waiting run, cancelling an older one, so a
+# release that won't be approved is rejected or cancelled, not left waiting.
 concurrency:
   group: cut-release
   cancel-in-progress: false
