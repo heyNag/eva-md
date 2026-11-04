@@ -5,6 +5,7 @@
 # GitHub records stands in for the tag's signature. docs/releasing.md
 # describes the flow; every action is pinned to a commit.
 name: Cut a release
+run-name: ${{ inputs.dry_run && 'Cut a release (dry run)' || 'Cut a release' }}
 
 on:
   workflow_dispatch:
@@ -29,6 +30,8 @@ defaults:
   run:
     shell: bash
 
+# No job's name holds an expression: GitHub shows the name of a job it skips
+# unevaluated, so a dry run would list the expression itself.
 jobs:
   plan:
     name: Plan the release
@@ -116,7 +119,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   approve:
-    name: Approve releasing ${{ needs.plan.outputs.tag }}
+    name: Approve the release
     needs: plan
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
@@ -133,7 +136,7 @@ jobs:
         run: echo "Approved releasing $TAG from $COMMIT." | tee -a "$GITHUB_STEP_SUMMARY"
 
   tag:
-    name: Tag ${{ needs.plan.outputs.tag }}
+    name: Tag the release
     needs: [plan, approve]
     runs-on: ubuntu-latest
     timeout-minutes: 5

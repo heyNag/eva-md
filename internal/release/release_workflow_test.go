@@ -403,6 +403,45 @@ func TestReleaseCutWorkflowNeedsAnApproval(t *testing.T) {
 	}
 }
 
+// The runs list tells Cut a release's dry runs apart by the run's name, and
+// no job of either workflow has an expression in its name: GitHub doesn't
+// evaluate the name of a job it skips, so a dry run would show the approve
+// and tag jobs with the expression itself as their names. The plan's summary
+// names the tag.
+func TestReleaseWorkflowJobNamesAreFixed(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	cut := read("cut-release.yml")
+	runName := `(?m)^name: Cut a release\nrun-name: \$\{\{ inputs\.dry_run && 'Cut a release \(dry run\)' \|\| 'Cut a release' \}\}\n\non:\n`
+	if !regexp.MustCompile(runName).MatchString(cut) {
+		t.Errorf("cut-release.yml has nothing matching %s", runName)
+	}
+	for _, file := range []string{"cut-release.yml", "release.yml"} {
+		for name, j := range workflowJobs(t, read(file)) {
+			if got := j.keys["name"]; strings.Contains(got, "${{") {
+				t.Errorf("%s's job %s is named %q, an expression a skipped job shows as it is", file, name, got)
+			}
+		}
+	}
+	jobs := workflowJobs(t, cut)
+	for name, want := range map[string]string{"approve": "Approve the release", "tag": "Tag the release"} {
+		j, ok := jobs[name]
+		if !ok {
+			t.Errorf("cut-release.yml has no job %s", name)
+			continue
+		}
+		if got := j.keys["name"]; got != want {
+			t.Errorf("job %s is named %q, not %q", name, got, want)
+		}
+	}
+}
+
 // The provenance is checked against the workflow that signs it, release.yml,
 // whichever way the release was cut: called by Cut a release, release.yml is
 // still the workflow that runs the attest action, and so the signer.
