@@ -88,6 +88,14 @@ var (
 	errOtherFolder = errors.New("choose a new or empty folder instead")
 )
 
+// hostOS is the operating system setup's first check reads, as runtime.GOOS
+// names it. In a release build it is always runtime.GOOS. TestMain, and the
+// release stand-in the end-to-end tests build (see timelimits_raised.go), set
+// it to darwin, so the setup those tests run gets past the macOS check and
+// checks the rest on Linux too, as in a cloud session. The check itself has
+// its own test, which gives setup another operating system directly.
+var hostOS = runtime.GOOS
+
 func runSetupCommand(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
 	d, err := paths.Default()
 	if err != nil {
@@ -104,7 +112,7 @@ func runSetupCommand(ctx context.Context, args []string, in io.Reader, out, errO
 		dirs:        d,
 		interactive: isTerminal(in),
 		color:       useColor(os.Stdout, os.Getenv("NO_COLOR")),
-		goos:        runtime.GOOS,
+		goos:        hostOS,
 		home:        home,
 		cwd:         cwd,
 		lookPath:    exec.LookPath,

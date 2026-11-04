@@ -65,9 +65,16 @@ var goCaches = sync.OnceValues(func() ([]string, error) {
 // standInEnv is the environment the stand-in is built in, with home as its
 // HOME. A later value of a name wins, as os/exec reads it. Go's telemetry is
 // off in home, so no go command run there leaves a process behind that
-// writes into it after the command ends.
+// writes into it after the command ends. Go keeps its telemetry mode in its
+// config folder, os.UserConfigDir's: Library/Application Support on macOS,
+// and on Linux XDG_CONFIG_HOME, which is set to home's .config so an
+// inherited one can't move it out of home.
 func standInEnv(home string) ([]string, error) {
-	telemetry := filepath.Join(home, "Library", "Application Support", "go", "telemetry")
+	config := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		config = filepath.Join(home, "Library", "Application Support")
+	}
+	telemetry := filepath.Join(config, "go", "telemetry")
 	if err := os.MkdirAll(telemetry, 0o700); err != nil {
 		return nil, err
 	}
@@ -78,7 +85,7 @@ func standInEnv(home string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(append([]string{}, buildEnv...), "HOME="+home, "GOENV=off", "GOCACHE="+caches[0], "GOMODCACHE="+caches[1],
+	return append(append([]string{}, buildEnv...), "HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "GOENV=off", "GOCACHE="+caches[0], "GOMODCACHE="+caches[1],
 		"GOPROXY=off", "GOTOOLCHAIN=local", "GOFLAGS=-mod=readonly"), nil
 }
 
@@ -638,8 +645,8 @@ func TestReleaseStandInBuild(t *testing.T) {
 		k, v, _ := strings.Cut(kv, "=")
 		last[k] = v
 	}
-	if last["HOME"] != home {
-		t.Fatalf("built with HOME %q", last["HOME"])
+	if last["HOME"] != home || last["XDG_CONFIG_HOME"] != filepath.Join(home, ".config") {
+		t.Fatalf("built with HOME %q and XDG_CONFIG_HOME %q", last["HOME"], last["XDG_CONFIG_HOME"])
 	}
 }
 
