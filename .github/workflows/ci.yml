@@ -27,3 +27,25 @@ jobs:
       - run: go test ./...
       - run: go test -race ./...
       - run: go build -mod=readonly -o bin/eva-md ./cmd/eva-md
+
+  # eva-md runs only on macOS, so the job above is the test run of record.
+  # This one keeps eva-md building and its tests passing on Linux, where
+  # cloud sessions work on it.
+  test-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # eva-md's hooks skip folders under /tmp as temporary, and t.TempDir()
+      # would put every test project there (on macOS TMPDIR is elsewhere).
+      TMPDIR: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go test -race ./...
+      - run: go build -mod=readonly -o bin/eva-md ./cmd/eva-md
