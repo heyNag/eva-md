@@ -444,9 +444,34 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 	}
 	fakeGit(t, "case \"$*\" in *status*) sleep 600 &\necho $! > '"+fifo+"'\nwait;; esac\nexec '"+real+"' \"$@\"")
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	done := make(chan gitInfo, 1)
-	go func() { done <- gitSummary(ctx, identity.Project{Root: repo}, "") }()
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		done <- gitSummary(ctx, identity.Project{Root: repo}, "")
+	}()
+	// A cancel only starts the kill of git's group, which os/exec sends from
+	// a goroutine of its own, so a test that ended before live git returned
+	// could let the test binary exit before the kill was sent, as when it is
+	// the last test run, leaving the fake git and its child running. So
+	// however the test ends, a cleanup cancels live git and waits, as long
+	// as the guard, for it to return. os/exec returns only once it has
+	// reaped the fake git, after sending the kill if the cancel came before
+	// the fake git exited, and git's output has closed, which the child
+	// holds open as long as it runs, or WaitDelay has ended. Cleanups run
+	// the last registered first, so this one runs after the one below that
+	// kills a child the test last saw alive, which lets live git return when
+	// the kill missed it, and before the removal of the test's temporary
+	// folders, which the first t.TempDir registered earlier. On a pass live
+	// git has returned, so the wait ends at once.
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-returned:
+		case <-time.After(hangGuard):
+			t.Errorf("live git out of time hung: it had not returned %v after the test ended, so the processes git started may outlive the test", hangGuard)
+		}
+	})
 	said := make(chan []byte, 1)
 	go func() {
 		data, _ := os.ReadFile(fifo)
@@ -470,10 +495,9 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 	// fails, psRow's own failures included. So a cleanup kills the child if
 	// the test's last sample of it showed it alive: still the child, by its
 	// start time, and not a zombie. A sample that fails changes nothing, so
-	// the test signals no pid it didn't last see as the child. Cleanups run
-	// after the test's deferred cancel, the last registered first, so this
-	// one runs before the removal of the test's temporary folders, which the
-	// first t.TempDir registered earlier.
+	// the test signals no pid it didn't last see as the child. This cleanup,
+	// registered after the one above that waits for live git, runs before
+	// it.
 	alive := false
 	t.Cleanup(func() {
 		if alive {
