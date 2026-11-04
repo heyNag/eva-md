@@ -447,26 +447,54 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 	defer cancel()
 	done := make(chan gitInfo, 1)
 	go func() { done <- gitSummary(ctx, identity.Project{Root: repo}, "") }()
-	pid := make(chan int, 1)
+	said := make(chan []byte, 1)
 	go func() {
 		data, _ := os.ReadFile(fifo)
-		n, _ := strconv.Atoi(strings.TrimSpace(string(data)))
-		pid <- n
+		said <- data
 	}()
-	var child int
+	var data []byte
 	select {
-	case child = <-pid:
+	case data = <-said:
 	case <-time.After(hangGuard):
 		t.Fatalf("the fake git started no child within %v", hangGuard)
 	}
+	// The test may signal the child's pid, so it must be one, above 0 and
+	// within a pid's 32 bits: 0 would signal the test's own process group,
+	// and -1 every process the test may signal.
+	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 32)
+	if err != nil || n <= 0 {
+		t.Fatalf("the fake git gave no child's pid: the fifo delivered %q", data)
+	}
+	child := int(n)
+	// A child the kill missed must not outlive the test, however the test
+	// fails, psRow's own failures included. So a cleanup kills the child if
+	// the test's last sample of it showed it alive: still the child, by its
+	// start time, and not a zombie. A sample that fails changes nothing, so
+	// the test signals no pid it didn't last see as the child. Cleanups run
+	// after the test's deferred cancel, the last registered first, so this
+	// one runs before the removal of the test's temporary folders, which the
+	// first t.TempDir registered earlier.
+	alive := false
+	t.Cleanup(func() {
+		if alive {
+			syscall.Kill(child, syscall.SIGKILL)
+		}
+	})
 	// The child runs until a kill ends it, so ps lists it now, if perhaps
 	// as the shell it was forked from, not yet sleep: what tells it from a
 	// later process given its pid is its start time, which exec keeps, and
-	// not its command.
-	_, born, _ := psRow(t, child)
-	if born.IsZero() {
-		t.Fatal("ps does not list the child the fake git started")
+	// not its command. A child ps lists as gone, or as a zombie, had exited
+	// before the cancel, so the kill can't meet it, and the test can't
+	// check the kill.
+	state, born, comm := psRow(t, child)
+	if state == "" || strings.HasPrefix(state, "Z") {
+		seen := "ps lists no process with its pid"
+		if state != "" {
+			seen = comm + ", state " + state
+		}
+		t.Fatalf("the child the fake git started had exited before the cancel, so the test can't check the kill (%s)", seen)
 	}
+	alive = true
 	cancel()
 	select {
 	case info := <-done:
@@ -478,10 +506,11 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 		// returns only when its WaitDelay ends. TestMain raises that to the
 		// guard's minute, and os/exec starts it only once it has sent the
 		// kill, as a rule after the guard started, so the guard ends first.
-		// The test then kills the child, once ps shows it is still the
-		// child and not a zombie, and fails.
-		if state, start, comm := psRow(t, child); start.Equal(born) && !strings.HasPrefix(state, "Z") {
-			syscall.Kill(child, syscall.SIGKILL)
+		// The test then fails, naming the child's state if ps shows it is
+		// still the child and not a zombie, and the cleanup kills it.
+		state, start, comm := psRow(t, child)
+		alive = start.Equal(born) && !strings.HasPrefix(state, "Z")
+		if alive {
 			t.Fatalf("live git out of time hung: after %v, the child git started still ran, holding git's output open (%s, state %s)", hangGuard, comm, state)
 		}
 		t.Fatalf("live git out of time hung: it had not returned after %v", hangGuard)
@@ -497,15 +526,15 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 	// missed still sleeps: ps shows it S, or I on macOS once it has slept
 	// about 20 seconds. So the test waits, as long as the guard, for the
 	// child to be a zombie (Z) or gone, its pid perhaps given to a later
-	// process, which another start time tells; a child still alive then is
-	// killed, and the test fails.
+	// process, which another start time tells; a child still alive then
+	// fails the test, and the cleanup kills it.
 	for end := time.Now().Add(hangGuard); ; time.Sleep(10 * time.Millisecond) {
 		state, start, comm := psRow(t, child)
-		if state == "" || strings.HasPrefix(state, "Z") || !start.Equal(born) {
+		alive = start.Equal(born) && !strings.HasPrefix(state, "Z")
+		if !alive {
 			return
 		}
 		if time.Now().After(end) {
-			syscall.Kill(child, syscall.SIGKILL)
 			t.Fatalf("the child git started outlived live git (%s, state %s %v after it returned)", comm, state, hangGuard)
 		}
 	}
@@ -514,11 +543,13 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 // psRow gives ps's state of the process pid, its start time, which stays the
 // same for as long as it runs, and its command, which exec changes, so it
 // serves only in messages. ps lists the start time in five fields, as "Wed
-// Nov  4 21:43:12 2026" in the C locale, on Linux and macOS alike. The state
-// is "" and the time zero once no process has the pid, which ps tells by
-// exiting 1 and printing nothing, to stdout or stderr; any other failure of
-// ps, or a row it can't read, fails the test. Its twin is psRow in
-// internal/coderef's git_test.go.
+// Nov  4 21:43:12 2026" in the C locale, on Linux and macOS alike, to the
+// second; procps derives it from the boot time in /proc/stat, so a clock step
+// between samples can make the child look like another process, which counts
+// as gone, harmless when the kill worked. The state is "" and the time zero
+// once no process has the pid, which ps tells by exiting 1 and printing
+// nothing, to stdout or stderr; any other failure of ps, or a row it can't
+// read, fails the test. Its twin is psRow in internal/coderef's git_test.go.
 func psRow(t *testing.T, pid int) (state string, start time.Time, comm string) {
 	t.Helper()
 	cmd := exec.Command("ps", "-o", "stat=", "-o", "lstart=", "-o", "comm=", "-p", strconv.Itoa(pid))
