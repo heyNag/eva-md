@@ -221,13 +221,41 @@ go test ./...
 go test -race ./...
 ```
 
-Tests use temporary home folders and git configs. They never touch your real setup. The install, upgrade and uninstall tests build eva-md as a release is built, with the go command and Go's own caches, and serve it from a local stand-in for GitHub, through a fake curl or a local test server; nothing reaches the network. If Go's default cache is not writable, set `GOCACHE` to a writable temporary folder.
+Tests use temporary home folders and git configs, and clear any git configuration the environment carries. They never touch your real setup. The install, upgrade and uninstall tests build eva-md as a release is built, with the go command and Go's own caches, and serve it from a local stand-in for GitHub, through a fake curl or a local test server; nothing reaches the network. If Go's default cache is not writable, set `GOCACHE` to a writable temporary folder.
 
 The latency benchmark runs the built binary against an isolated temporary home. Targets: capture p95 under 50 ms and startup brief p95 under 300 ms. Pass a git repository outside temporary folders as `--cwd`, such as this checkout:
 
 ```sh
 python3 -I scripts/benchmark.py --binary bin/eva-md --cwd "$PWD"
 ```
+
+### In a Linux cloud session
+
+eva-md runs only on macOS, and setup refuses any other system, but it builds and its tests run on Linux, so you can work on it in a Linux cloud session. The tests need git 2.44 or newer and `ssh-keygen`, which Ubuntu 24.04's cloud image lacks: it ships git 2.43 and no `ssh-keygen`. This setup script for the cloud environment installs both, git from the Ubuntu Git Maintainers PPA:
+
+```bash
+#!/bin/bash
+# Tools eva-md's tests need that the cloud image lacks.
+apt-get update -qq
+apt-get install -y -qq openssh-client || true
+# git 2.44 or newer, from the Ubuntu Git Maintainers PPA (24.04 ships 2.43).
+mkdir -p /etc/apt/keyrings
+curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0xF911AB184317630C59970973E363C90F8F1B6217" \
+  | gpg --dearmor -o /etc/apt/keyrings/git-core.gpg || true
+echo "deb [signed-by=/etc/apt/keyrings/git-core.gpg] http://ppa.launchpad.net/git-core/ppa/ubuntu noble main" \
+  > /etc/apt/sources.list.d/git-core.list
+apt-get update -qq && apt-get install -y -qq git || true
+```
+
+It reaches only archive.ubuntu.com, keyserver.ubuntu.com and ppa.launchpad.net, which the default network allowlist includes. The PPA is served over plain HTTP, so apt checks its packages against the PPA's signing key, fetched by its full fingerprint, the one Launchpad lists for the PPA. A setup script must exit 0, and finish within about five minutes for the environment to be cached, so each install ends in `|| true`: a mirror that fails leaves the image's git rather than block the session.
+
+Then run the checks with one command from the repo root:
+
+```sh
+scripts/linux-check.sh
+```
+
+On Linux the tests need a `TMPDIR` outside `/tmp`, `/private/tmp`, `/var/tmp` and `/private/var/tmp`: eva-md's hooks skip folders under them as temporary, and `t.TempDir()` puts every test project in `TMPDIR`, which defaults to `/tmp` on Linux and is under `/var/folders` on macOS. Cloud sessions run as root, and as root about 20 tests fail by design: eva-md keeps no identity cache for root, since git's ownership checks then depend on `SUDO_UID`, and root reads and writes files whatever their modes, which the permission tests rely on. So the script makes a temporary folder of its own and, started as root, runs the tests as an unprivileged user on a snapshot of the working tree, rather than skip those tests. CI runs the same script on Linux, but its macOS job is the test run of record.
 
 Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
 

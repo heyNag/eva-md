@@ -37,7 +37,7 @@ It stops at the first check that fails, saying what is wrong and the exact fix:
 | origin is `github.com/heyNag/eva-md` (`https://github.com/heyNag/eva-md`, `git@github.com:heyNag/eva-md` or `ssh://git@github.com/heyNag/eva-md`, with or without `.git`), and so is any push URL it has. | The tag is pushed to origin and the workflow runs only on GitHub, so a tag pushed to a mirror or a fork would release nothing and stay there. The URLs are compared, never printed. |
 | After `git fetch`, HEAD is origin/main. | The workflow builds what origin has; a commit only this clone has can't be released. |
 | `gh` is installed and signed in to github.com (`gh auth status --hostname github.com`). | The script reads CI runs, watches the workflow and downloads the release with it. |
-| The CI workflow passed for HEAD (`gh run list --workflow ci.yml --commit <HEAD>`). | Only a commit that passed every test, the race detector included, is released. |
+| The CI workflow passed for HEAD (`gh run list --workflow ci.yml --commit <HEAD>`). | Only a commit whose CI run passed is released, and a run passes only when both its jobs do: the macOS job, which runs every check and test, the race detector included, and the Linux job, which builds eva-md and runs its tests on Linux, where cloud sessions work on it. |
 | No release tag is on HEAD already. | One commit is released once. A release tag on HEAD that origin has means it is released. One only this clone has never left it, as after a failed push, so the script says to push it; one whose name origin has on another commit is never moved. |
 
 ## The tag
