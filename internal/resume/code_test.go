@@ -497,7 +497,7 @@ func TestLiveGitKillsItsChildren(t *testing.T) {
 
 // psRow gives ps's state of the process pid, and its start time and command,
 // which are the same for as long as it runs; both are empty once no process
-// has the pid.
+// has the pid. Its twin is psRow in internal/coderef's git_test.go.
 func psRow(t *testing.T, pid int) (state, who string) {
 	t.Helper()
 	cmd := exec.Command("ps", "-o", "stat=", "-o", "lstart=", "-o", "comm=", "-p", strconv.Itoa(pid))
