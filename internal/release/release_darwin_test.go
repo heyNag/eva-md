@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -74,7 +76,9 @@ func newReleaseEnv(t *testing.T) *releaseEnv {
 	t.Setenv("PATH", e.bin+":/usr/bin:/bin:/usr/sbin:/sbin")
 	// Nothing from the environment go test runs in may point git at
 	// another repository, index or config.
-	for _, k := range []string{"GH_HOST", "GH_REPO", "GH_TOKEN", "GITHUB_TOKEN",
+	// Nor may a plan write to the output of a workflow running go test, or
+	// add the annotations it prints in a workflow.
+	for _, k := range []string{"GH_HOST", "GH_REPO", "GH_TOKEN", "GITHUB_TOKEN", "GITHUB_OUTPUT", "GITHUB_ACTIONS",
 		"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX", "GIT_CONFIG",
 		"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_TEMPLATE_DIR"} {
@@ -146,7 +150,8 @@ printf -- '-----BEGIN SSH SIGNATURE-----\nZmFrZQ==\n-----END SSH SIGNATURE-----\
 
 // fakeGH stands in for gh. It records each call and answers from the files
 // in STATE: ci-runs is what gh run list prints for CI; signed-out, a
-// watch-exit code and attest-fails change those answers. The release
+// watch-exit code and attest-fails change those answers, signed-out also
+// gh api's read of the repository. The release
 // workflow's run is listed only once origin has its tag, and the release's
 // assets are those in STATE/assets.
 const fakeGH = `#!/bin/bash
@@ -165,7 +170,7 @@ value() {
 	done
 }
 case "$1 $2" in
-"auth status")
+"auth status" | "api repos/heyNag/eva-md")
 	[ -e "$state/signed-out" ] && exit 1
 	exit 0
 	;;
@@ -626,7 +631,177 @@ func TestReleaseNamesTheTag(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(filepath.Dir(e.dir), "signer.log")); err == nil {
 				t.Error("a dry run signed something")
 			}
+
+			// A plan names the same tag and notes, and writes them for the
+			// workflow.
+			out := filepath.Join(t.TempDir(), "output")
+			t.Setenv("GITHUB_OUTPUT", out)
+			r = e.run(t, e.dir, false, "", "--plan")
+			if want := strings.TrimSuffix(want, "Dry run: nothing was tagged or pushed.\n") + "Plan: nothing was tagged or pushed.\n"; r.code != 0 || r.stderr != "" || !strings.HasSuffix(r.stdout, want) {
+				t.Fatalf("plan: code %d, stderr %q, stdout:\n%s\nwant it to end:\n%s", r.code, r.stderr, r.stdout, want)
+			}
+			lines := strings.Split(strings.TrimSuffix(c.notes, "\n"), "\n")
+			since := strings.TrimSuffix(strings.TrimPrefix(lines[0], "  notes, "), ":")
+			for i := range lines[1:] {
+				lines[i+1] = strings.TrimPrefix(lines[i+1], "    ")
+			}
+			planned(t, out, map[string]string{"tag": c.tag, "commit": gitIn(t, e.dir, "rev-parse", "HEAD"),
+				"since": since, "notes": strings.Join(lines[1:], "\n")})
+			if got := tags(t, e.dir); got != beforeHere {
+				t.Errorf("a plan made tags here: %q, not %q", got, beforeHere)
+			}
+			if got := tags(t, e.origin); got != beforeOrigin {
+				t.Errorf("a plan made tags on origin: %q, not %q", got, beforeOrigin)
+			}
 		})
+	}
+}
+
+// planned checks what a plan wrote to the workflow's output file, read as
+// GitHub reads it: name=value lines, and name<<delimiter, the lines of the
+// value, then the delimiter alone on a line. The notes' delimiter is random,
+// so no note can end them early.
+func planned(t *testing.T, path string, want map[string]string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	lines := strings.Split(string(data), "\n")
+	if lines[len(lines)-1] != "" {
+		t.Fatalf("the output doesn't end with a newline:\n%s", data)
+	}
+	for i := 0; i < len(lines)-1; i++ {
+		if name, delim, ok := strings.Cut(lines[i], "<<"); ok {
+			if !regexp.MustCompile(`^EVA_MD_NOTES_[0-9a-f]{32}$`).MatchString(delim) {
+				t.Errorf("the delimiter %q isn't random", delim)
+			}
+			var value []string
+			for i++; i < len(lines)-1 && lines[i] != delim; i++ {
+				value = append(value, lines[i])
+			}
+			if i == len(lines)-1 {
+				t.Fatalf("%s's value doesn't end:\n%s", name, data)
+			}
+			got[name] = strings.Join(value, "\n")
+		} else if name, value, ok := strings.Cut(lines[i], "="); ok {
+			got[name] = value
+		} else {
+			t.Fatalf("GitHub can't read the line %q in:\n%s", lines[i], data)
+		}
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("the plan wrote %q, not %q", got, want)
+	}
+}
+
+// A plan, for the Cut a release workflow, needs no signing setup and no
+// terminal: it makes every other check, shows the release and writes it for
+// the workflow, then stops with nothing tagged, pushed or signed. Without a
+// workflow's output file it only shows the release.
+func TestReleasePlanNeedsNoSigningOrTerminal(t *testing.T) {
+	e := newReleaseEnv(t)
+	gitIn(t, e.dir, "config", "--global", "--unset", "user.signingkey")
+	gitIn(t, e.dir, "config", "--global", "gpg.format", "pgp2")
+	out := filepath.Join(t.TempDir(), "output")
+	// What the workflow's earlier steps wrote stays.
+	writeFile(t, out, "earlier=step\n", 0o600)
+	t.Setenv("GITHUB_OUTPUT", out)
+	r := e.run(t, e.dir, false, "", "--plan")
+	head := gitIn(t, e.dir, "rev-parse", "HEAD")
+	want := "  ✓ gh can read github.com/heyNag/eva-md\n  ✓ CI passed for " + head[:7] + "\n  ✓ " + head[:7] + " isn't released yet\n" +
+		"\nRelease 2026.1.5\n  commit: " + head[:7] + " Fix a typo\n  notes, the first release:\n    - Fix a typo\n    - Add the release flow\n    - Start the project\n" +
+		"\nPlan: nothing was tagged or pushed.\n"
+	if r.code != 0 || r.stderr != "" || !strings.HasSuffix(r.stdout, want) || strings.Contains(r.stdout, "signing") {
+		t.Fatalf("code %d, stderr %q, stdout:\n%s\nwant it to end:\n%s", r.code, r.stderr, r.stdout, want)
+	}
+	planned(t, out, map[string]string{"earlier": "step", "tag": "2026.1.5", "commit": head, "since": "the first release",
+		"notes": "- Fix a typo\n- Add the release flow\n- Start the project"})
+	if here, there := tags(t, e.dir), tags(t, e.origin); here != "" || there != "" {
+		t.Errorf("tags here %q, on origin %q", here, there)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(e.dir), "signer.log")); err == nil {
+		t.Error("a plan signed something")
+	}
+	calls := e.ghCalls(t)
+	if want := "api repos/heyNag/eva-md --silent\nrun list --repo heyNag/eva-md --workflow ci.yml --commit " + head + " "; !strings.HasPrefix(calls, want) || strings.Count(calls, "\n") != 2 {
+		t.Errorf("gh calls:\n%s\nwant two, starting:\n%s", calls, want)
+	}
+
+	t.Setenv("GITHUB_OUTPUT", "")
+	if err := os.Unsetenv("GITHUB_OUTPUT"); err != nil {
+		t.Fatal(err)
+	}
+	r = e.run(t, e.dir, false, "", "--plan")
+	if r.code != 0 || r.stderr != "" || !strings.HasSuffix(r.stdout, want) {
+		t.Errorf("without an output file: code %d, stderr %q, stdout:\n%s", r.code, r.stderr, r.stdout)
+	}
+}
+
+// A plan stops at the checks a release makes, with the same problem and fix,
+// and writes nothing for the workflow; only the check that gh works is its
+// own, since a workflow's gh signs in with a token. A plan is never also a
+// dry run.
+func TestReleasePlanStopsAtTheFirstFailedCheck(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		prepare      func(t *testing.T, e *releaseEnv)
+		problem, fix string
+	}{
+		{"another branch", func(t *testing.T, e *releaseEnv) { gitIn(t, e.dir, "switch", "-q", "-c", "topic") },
+			"you're on topic, not main", "git switch main"},
+		{"main behind origin", func(t *testing.T, e *releaseEnv) {
+			other := filepath.Join(filepath.Dir(e.dir), "other")
+			gitIn(t, filepath.Dir(e.dir), "clone", "-q", e.origin, other)
+			commitAt(t, other, "Elsewhere", "2026-01-05T10:00:00Z")
+			gitIn(t, other, "push", "-q", "origin", "main")
+		}, "main is behind origin/main", "git pull --ff-only, then run it again"},
+		{"gh can't read the repository", func(t *testing.T, e *releaseEnv) {
+			writeFile(t, filepath.Join(e.state, "signed-out"), "", 0o600)
+		}, "gh can't read github.com/heyNag/eva-md", "set GH_TOKEN to a token that can read heyNag/eva-md and its Actions runs"},
+		{"CI failed", func(t *testing.T, e *releaseEnv) {
+			writeFile(t, filepath.Join(e.state, "ci-runs"), "completed/failure/101\n", 0o600)
+		}, "CI failed for SHORT", "fix it on main and push; release once CI passes"},
+		{"already released", func(t *testing.T, e *releaseEnv) {
+			gitIn(t, e.dir, "tag", "-a", "--no-sign", "-m", "- Fix a typo", "2026.1.5")
+			gitIn(t, e.dir, "push", "-q", "--no-follow-tags", "origin", "refs/tags/2026.1.5")
+		}, "SHORT is already released as 2026.1.5", "nothing to release; merge new work to main first"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newReleaseEnv(t)
+			c.prepare(t, e)
+			out := filepath.Join(t.TempDir(), "output")
+			t.Setenv("GITHUB_OUTPUT", out)
+			short := gitIn(t, e.dir, "rev-parse", "--short", "HEAD")
+			r := e.run(t, e.dir, false, "", "--plan")
+			e.failed(t, r, strings.ReplaceAll(c.problem, "SHORT", short), c.fix, tags(t, e.origin))
+			if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("a failed plan wrote the output: %v", err)
+			}
+			if strings.Contains(r.stdout, "::error::") {
+				t.Errorf("outside a workflow, it printed an annotation:\n%s", r.stdout)
+			}
+		})
+	}
+	// In a workflow, the failure is also an error annotation on the run,
+	// printed last on stdout with % encoded; stderr says the same as anywhere.
+	t.Run("in a workflow", func(t *testing.T) {
+		e := newReleaseEnv(t)
+		gitIn(t, e.dir, "switch", "-q", "-c", "half%done")
+		t.Setenv("GITHUB_ACTIONS", "true")
+		r := e.run(t, e.dir, false, "", "--plan")
+		e.failed(t, r, "you're on half%done, not main", "git switch main", "")
+		if want := "\n::error::you're on half%25done, not main. Fix: git switch main\n"; !strings.HasSuffix(r.stdout, want) {
+			t.Errorf("stdout:\n%s\nwant it to end %q", r.stdout, want)
+		}
+	})
+	e := newReleaseEnv(t)
+	for _, args := range [][]string{{"--plan", "--dry-run"}, {"--dry-run", "--plan"}, {"--plan", "--plan"}} {
+		r := e.run(t, e.dir, false, "", args...)
+		if r.code != 2 || !strings.HasPrefix(r.stderr, "usage: scripts/release.sh [--dry-run | --plan]\n") || r.stdout != "" {
+			t.Errorf("%v: code %d, stderr %q, stdout %q", args, r.code, r.stderr, r.stdout)
+		}
 	}
 }
 
@@ -722,7 +897,7 @@ func TestReleasePublishesTheTag(t *testing.T) {
 		}
 	}
 	for _, a := range []string{"eva-md-darwin-arm64", "eva-md-darwin-amd64", "install.sh", "uninstall.sh", "LICENSES.txt"} {
-		if !strings.Contains(calls, "/"+a+" --repo heyNag/eva-md --signer-workflow heyNag/eva-md/.github/workflows/release.yml\n") {
+		if !strings.Contains(calls, "/"+a+" --repo heyNag/eva-md --signer-workflow heyNag/eva-md/.github/workflows/release.yml --source-ref refs/tags/2026.1.5\n") {
 			t.Errorf("%s's provenance wasn't verified:\n%s", a, calls)
 		}
 	}

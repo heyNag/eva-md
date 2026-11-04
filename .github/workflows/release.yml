@@ -1,19 +1,29 @@
-# Publishes a release when scripts/release.sh pushes its tag. docs/releasing.md
-# describes the flow; every action is pinned to a commit.
+# Publishes a release when scripts/release.sh pushes its tag, or when the Cut
+# a release workflow calls it with the tag it pushed: a tag pushed with a
+# workflow's token starts no workflow. docs/releasing.md describes the flow;
+# every action is pinned to a commit.
 name: Release
 
 on:
   push:
     tags: ['[0-9]*']
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag Cut a release pushed
+        type: string
+        required: true
 
 permissions: {}
 
+# A pushed tag is the ref; a called run's ref is the caller's, so the tag is
+# its input.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
-  TAG: ${{ github.ref_name }}
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 defaults:
   run:
@@ -27,15 +37,22 @@ jobs:
       contents: read
     steps:
       - name: Check the tag's format
+        env:
+          CALLED_TAG: ${{ inputs.tag }}
         run: |
           re='^[0-9]{4}\.[1-9][0-9]?\.[1-9][0-9]?(\.[2-9]|\.[1-9][0-9]+)?$'
-          if [ "$GITHUB_REF_TYPE" != tag ] || ! [[ $TAG =~ $re ]]; then
+          # Run by a push, the ref must be the tag; called, the tag is given.
+          if [ -z "$CALLED_TAG" ] && [ "$GITHUB_REF_TYPE" != tag ]; then
             echo "::error::$GITHUB_REF is not a release tag such as 2026.11.3 or 2026.11.3.2"
+            exit 1
+          fi
+          if ! [[ $TAG =~ $re ]]; then
+            echo "::error::$TAG is not a release tag such as 2026.11.3 or 2026.11.3.2"
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: refs/tags/${{ env.TAG }}
           fetch-depth: 0
           persist-credentials: false
       - name: Check the tag is annotated and its commit is on main
@@ -43,7 +60,7 @@ jobs:
           # Fetch the tag again, so it is the annotated tag that was pushed.
           git fetch --quiet --no-tags --force origin "+refs/tags/$TAG:refs/tags/$TAG"
           if [ "$(git cat-file -t "refs/tags/$TAG")" != tag ]; then
-            echo "::error::$TAG is not an annotated tag; release with scripts/release.sh"
+            echo "::error::$TAG is not an annotated tag; release with scripts/release.sh or Cut a release"
             exit 1
           fi
           commit=$(git rev-parse "refs/tags/$TAG^{commit}")
@@ -64,17 +81,25 @@ jobs:
             *) echo "::error::Could not check for a release of $TAG: $out"; exit 1 ;;
           esac
       - name: Write the notes from the tag's annotation
+        env:
+          CALLED_TAG: ${{ inputs.tag }}
         run: |
           # The annotation without the tag's signature or trailing blank lines.
           all=$(git tag -l --format='%(contents)' "$TAG")
           sig=$(git tag -l --format='%(contents:signature)' "$TAG")
           notes=$(printf '%s' "${all%"$sig"}")
           if [ -z "$notes" ]; then
-            echo "::error::$TAG has no notes; release with scripts/release.sh"
+            echo "::error::$TAG has no notes; release with scripts/release.sh or Cut a release"
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/release"
           printf '%s\n' "$notes" > "$RUNNER_TEMP/release/notes.md"
+          # Called by Cut a release, this run is the caller's, which records
+          # who approved the release; the tag doesn't name it, so the notes do.
+          if [ -n "$CALLED_TAG" ]; then
+            printf '\nCut on GitHub in run %s, which records who approved it.\n' \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$RUNNER_TEMP/release/notes.md"
+          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
