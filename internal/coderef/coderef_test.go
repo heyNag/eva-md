@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/identity"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // Tests check what coderef finds, not how fast the machine runs git: the time
@@ -20,6 +21,7 @@ import (
 // clones, are raised for every test, before any test runs. A test of a limit
 // passes its own, shorter one.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	identity.Timeout, identity.WaitDelay = time.Minute, time.Minute
 	WaitDelay, CallTimeout = time.Minute, time.Minute
 	os.Exit(m.Run())

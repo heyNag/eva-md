@@ -21,6 +21,7 @@ import (
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/health"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/testlimits"
 )
 
@@ -29,6 +30,7 @@ import (
 // a host from either are lengthened for every test, before any test runs. A
 // test of a limit itself sets a short one on its own server.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	testlimits.Raise()
 	Slack = testlimits.Long
 	os.Exit(m.Run())

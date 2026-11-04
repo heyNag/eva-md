@@ -17,12 +17,15 @@ import (
 	"time"
 
 	"github.com/okf-memory/okf-agent-memory/pkg/okf"
+
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // Tests check what the adapter writes, not how fast the machine syncs its
 // disk: the wait for the wiki lock, which concurrent writes in a test hold
 // while they save, is raised for every test, before any test runs.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	LockTimeout = 10 * time.Minute
 	os.Exit(m.Run())
 }

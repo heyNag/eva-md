@@ -19,6 +19,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/testlimits"
 )
 
@@ -31,6 +32,7 @@ const hookProcess = "EVA_MD_TEST_HOOK_PROCESS"
 // git limits are raised for every test, before any test runs, and before a
 // hook process runs its hook, so the real-exec test's hook gets them too.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	testlimits.Raise()
 	if os.Getenv(hookProcess) == "1" {
 		os.Exit(runHookProcess())

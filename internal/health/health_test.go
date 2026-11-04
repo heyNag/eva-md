@@ -11,6 +11,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/testlimits"
 )
 
@@ -20,6 +21,7 @@ import (
 // before any test runs, the probe of the MCP server's included. The test of
 // a server that hangs gives the probe a short limit of its own.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	testlimits.Raise()
 	activityTimeout = time.Minute
 	inventoryTimeout = time.Minute

@@ -15,12 +15,14 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/redact"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // Tests check what Resolve finds, not how fast the machine runs git: its
 // time limits are raised for every test, before any test runs, far past
 // hangGuard, so a test of a deadline sees only the deadline it passes.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	Timeout = 10 * time.Minute
 	WaitDelay = 10 * time.Minute
 	os.Exit(m.Run())

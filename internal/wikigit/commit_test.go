@@ -20,6 +20,7 @@ import (
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/redact"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/wikigit"
 	"github.com/heyNag/eva-md/internal/wikiinit"
 )
@@ -35,6 +36,7 @@ const testLimit = 10 * time.Minute
 // time limits of the commit's git commands, and of those init runs to make
 // each test's wiki, are raised for every test, before any test runs.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	wikigit.GitTimeout = testLimit
 	wikigit.CommitTimeout = testLimit
 	wikigit.PushTimeout = testLimit

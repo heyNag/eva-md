@@ -16,6 +16,7 @@ import (
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/resume"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // fakeScript stands in for claude and codex. It works in $HOME/fake, the
@@ -72,6 +73,7 @@ var fakeBin string
 // raised for every test, before any test runs. A test of a CLI run's
 // timeout ends that timeout itself (see holdTimeouts).
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	// The time limits a slow machine could reach, raised for every test.
 	// internal/testlimits can't be imported here: it imports this package.
 	identity.Timeout, identity.WaitDelay = time.Minute, time.Minute

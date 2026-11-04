@@ -13,6 +13,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // Tests check what eva-md does, not how fast the machine runs git, gh or
@@ -24,6 +25,7 @@ import (
 // ends the command's time itself (see holdCLITimers). Setup takes the
 // machine for a Mac, so its tests run on Linux too (see hostOS).
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	raiseTimeLimits()
 	cliTimer = heldCLITimer
 	hostOS = "darwin"
