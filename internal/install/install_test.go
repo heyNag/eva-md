@@ -17,6 +17,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // installContext is the key of a value a test may put in the context it
@@ -29,6 +30,7 @@ type installContext struct{}
 // for every test, before any test runs. A test can also see the context an
 // interrupt of its install cancels.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	HostTimeout = 10 * time.Minute
 	HostWaitDelay = 10 * time.Minute
 	RollbackTimeout = 10 * time.Minute

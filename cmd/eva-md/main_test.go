@@ -13,6 +13,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // Tests check what eva-md does, not how fast the machine runs git, gh or
@@ -21,10 +22,14 @@ import (
 // hook's and the MCP server's limits are lengthened, in the child process of
 // TestMCPCommand too, and in the release stand-in the end-to-end tests
 // build (see raiseTimeLimits). A test of a gh or glab command that hangs
-// ends the command's time itself (see holdCLITimers).
+// ends the command's time itself (see holdCLITimers). Setup takes the
+// machine for a Mac, so its tests run on Linux too (see hostOS).
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
+	buildEnv = os.Environ()
 	raiseTimeLimits()
 	cliTimer = heldCLITimer
+	hostOS = "darwin"
 	code := m.Run()
 	removeReleases()
 	os.Exit(code)

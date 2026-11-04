@@ -12,6 +12,7 @@ import (
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/wikigit"
 	"github.com/heyNag/eva-md/internal/wikiinit"
 )
@@ -20,6 +21,7 @@ import (
 // takes a lock: the limits that protect a hook or a job from slow git and a
 // busy wiki lock are raised for every test, before any test runs.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	identity.Timeout, identity.WaitDelay = 10*time.Minute, 10*time.Minute
 	wikigit.GitTimeout, wikigit.CommitTimeout, wikigit.PushTimeout, wikigit.WaitDelay = 10*time.Minute, 10*time.Minute, 10*time.Minute, 10*time.Minute
 	wikiinit.GitTimeout = 10 * time.Minute

@@ -19,6 +19,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/testlimits"
 )
 
@@ -31,6 +32,7 @@ const hookProcess = "EVA_MD_TEST_HOOK_PROCESS"
 // git limits are raised for every test, before any test runs, and before a
 // hook process runs its hook, so the real-exec test's hook gets them too.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	testlimits.Raise()
 	if os.Getenv(hookProcess) == "1" {
 		os.Exit(runHookProcess())
@@ -210,8 +212,8 @@ func TestDetachedJobOutlivesTheHook(t *testing.T) {
 	}
 	// Its own session: setsid made it the leader, so its session id is its
 	// pid, not the test's.
-	sid, err := syscall.Getsid(pid)
-	own, _ := syscall.Getsid(0)
+	sid, err := getsid(pid)
+	own, _ := getsid(0)
 	if err != nil || sid != pid || sid == own {
 		t.Fatalf("session %d (%v) for pid %d; the test's is %d", sid, err, pid, own)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/threadpage"
 	"github.com/heyNag/eva-md/internal/wikigit"
 )
@@ -22,6 +23,7 @@ import (
 // limits of its git commands are raised for every test, before any test
 // runs.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	GitTimeout = 10 * time.Minute
 	wikigit.WaitDelay = 10 * time.Minute
 	os.Exit(m.Run())

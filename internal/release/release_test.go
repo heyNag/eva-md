@@ -11,11 +11,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // Tests check what the requests do, not how fast the machine answers them:
 // the time limits are raised before any test runs.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	LookupTimeout, DownloadTimeout = 10*time.Minute, 10*time.Minute
 	os.Exit(m.Run())
 }

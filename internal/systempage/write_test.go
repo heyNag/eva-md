@@ -21,6 +21,7 @@ import (
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/wikigit"
 	"github.com/heyNag/eva-md/internal/wikiinit"
 )
@@ -31,6 +32,7 @@ import (
 // of a page's code and coderef's wait for git's output. The test of the
 // check's own bound passes a shorter one in Options.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	identity.Timeout, identity.WaitDelay = time.Minute, time.Minute
 	wikigit.GitTimeout, wikigit.CommitTimeout, wikigit.PushTimeout, wikigit.WaitDelay = 10*time.Minute, 10*time.Minute, 10*time.Minute, 10*time.Minute
 	wikiinit.GitTimeout = 10 * time.Minute
