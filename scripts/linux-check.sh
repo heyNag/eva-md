@@ -73,10 +73,22 @@ if [ "$(id -u)" -eq 0 ]; then
     useradd --create-home --user-group --shell /usr/sbin/nologin "$user" || exit 2
   fi
   home=$(getent passwd "$user" | cut -d: -f6)
+  # A run that is killed outright, as by SIGKILL, can't remove its snapshot,
+  # so remove those left more than three hours ago. A folder's time is when
+  # its run started, or reached the benchmark, the last step, and a full run
+  # takes 6 to 10 minutes, so no run still going, here or in another
+  # session on this machine, is ever that old, even on a slow machine, while
+  # a killed run's leftovers don't stay long.
+  find "$home" -mindepth 1 -maxdepth 1 -type d -name 'check-??????' -mmin +180 \
+    -exec rm -rf {} + || true
   work=$(mktemp -d "$home/check-XXXXXX") || exit 2
   src=$work/src
   mkdir "$src" "$work/tmp" || exit 2
-  tar -C "$repo" --exclude=./.git --exclude=./bin --exclude=./.claude -cf - . | tar -C "$src" -xf - || exit 2
+  # pipefail, here only, so a failure in the tar that reads fails the copy too.
+  (
+    set -o pipefail
+    tar -C "$repo" --exclude=./.git --exclude=./bin --exclude=./.claude -cf - . | tar -C "$src" -xf -
+  ) || { echo "linux-check.sh: copying the working tree failed" >&2; exit 2; }
   chown -R "$user:$user" "$work" || exit 2
   # The second, empty commit lets the benchmark time the briefs that count
   # the commits since HEAD~1.
@@ -133,9 +145,17 @@ step() {
   fi
 }
 
+# The gofmt of the Go toolchain go.mod names, which go vet, test and build
+# switch to, and not whichever gofmt is first on PATH, which may be older.
 gofmt_check() {
-  local out
-  out=$(gofmt -l cmd internal) || return 1
+  local goroot out
+  goroot=$(go env GOROOT)
+  if [ -z "$goroot" ] || [ ! -x "$goroot/bin/gofmt" ]; then
+    echo "found no gofmt in the Go toolchain go.mod names (GOROOT ${goroot:-unknown})"
+    return 1
+  fi
+  echo "$goroot/bin/gofmt, $(go env GOVERSION)"
+  out=$("$goroot/bin/gofmt" -l cmd internal) || return 1
   [ -z "$out" ] || { echo "$out"; return 1; }
 }
 
