@@ -26,6 +26,7 @@ import (
 // machine for a Mac, so its tests run on Linux too (see hostOS).
 func TestMain(m *testing.M) {
 	testgitenv.Clear()
+	buildEnv = os.Environ()
 	raiseTimeLimits()
 	cliTimer = heldCLITimer
 	hostOS = "darwin"

@@ -34,7 +34,9 @@ import (
 // reading git, and the evamd_testlimits tag starts it with the limits
 // TestMain raises (see raiseTimeLimits).
 var (
-	buildEnv     = os.Environ()
+	// buildEnv is that environment, which TestMain captures once
+	// testgitenv.Clear has taken the git configuration out of it.
+	buildEnv     []string
 	buildDir, _  = os.Getwd()
 	buildTemp    = os.TempDir()
 	goTool       = findGo()
