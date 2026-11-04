@@ -142,24 +142,82 @@ func TestTimeoutKillsTheGroup(t *testing.T) {
 	}
 	fakeGit(t, "sleep 600 &\necho $! > '"+fifo+"'\nwait")
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	done := make(chan error, 1)
+	returned := make(chan struct{})
 	go func() {
+		defer close(returned)
 		_, err := Commits(ctx, t.TempDir(), "4e2bf4c", nil)
 		done <- err
 	}()
-	pid := make(chan int, 1)
+	// A cancel only starts the kill of git's group, which os/exec sends from
+	// a goroutine of its own, so a test that ended before the call returned
+	// could let the test binary exit before the kill was sent, as when it is
+	// the last test run, leaving the fake git and its child running. So
+	// however the test ends, a cleanup cancels the call and waits, as long
+	// as the guard, for it to return. os/exec returns only once it has
+	// reaped the fake git, after sending the kill if the cancel came before
+	// the fake git exited, and git's output has closed, which the child
+	// holds open as long as it runs, or WaitDelay has ended. Cleanups run
+	// the last registered first, so this one runs after the one below that
+	// kills a child the test last saw alive, which lets the call return when
+	// the kill missed it, and before the removal of the test's temporary
+	// folders, which the first t.TempDir registered earlier. On a pass the
+	// call has returned, so the wait ends at once.
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-returned:
+		case <-time.After(hangGuard):
+			t.Errorf("a git call out of time hung: it had not returned %v after the test ended, so the processes git started may outlive the test", hangGuard)
+		}
+	})
+	said := make(chan []byte, 1)
 	go func() {
 		data, _ := os.ReadFile(fifo)
-		n, _ := strconv.Atoi(strings.TrimSpace(string(data)))
-		pid <- n
+		said <- data
 	}()
-	var child int
+	var data []byte
 	select {
-	case child = <-pid:
+	case data = <-said:
 	case <-time.After(hangGuard):
 		t.Fatalf("the fake git started no child within %v", hangGuard)
 	}
+	// The test may signal the child's pid, so it must be one, above 0 and
+	// within a pid's 32 bits: 0 would signal the test's own process group,
+	// and -1 every process the test may signal.
+	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 32)
+	if err != nil || n <= 0 {
+		t.Fatalf("the fake git gave no child's pid: the fifo delivered %q", data)
+	}
+	child := int(n)
+	// A child the kill missed must not outlive the test, however the test
+	// fails, psRow's own failures included. So a cleanup kills the child if
+	// the test's last sample of it showed it alive: still the child, by its
+	// start time, and not a zombie. A sample that fails changes nothing, so
+	// the test signals no pid it didn't last see as the child. This cleanup,
+	// registered after the one above that waits for the call, runs before
+	// it.
+	alive := false
+	t.Cleanup(func() {
+		if alive {
+			syscall.Kill(child, syscall.SIGKILL)
+		}
+	})
+	// The child runs until a kill ends it, so ps lists it now, if perhaps
+	// as the shell it was forked from, not yet sleep: what tells it from a
+	// later process given its pid is its start time, which exec keeps, and
+	// not its command. A child ps lists as gone, or as a zombie, had exited
+	// before the cancel, so the kill can't meet it, and the test can't
+	// check the kill.
+	state, born, comm := psRow(t, child)
+	if state == "" || strings.HasPrefix(state, "Z") {
+		seen := "ps lists no process with its pid"
+		if state != "" {
+			seen = comm + ", state " + state
+		}
+		t.Fatalf("the child the fake git started had exited before the cancel, so the test can't check the kill (%s)", seen)
+	}
+	alive = true
 	cancel()
 	select {
 	case err := <-done:
@@ -167,17 +225,78 @@ func TestTimeoutKillsTheGroup(t *testing.T) {
 			t.Fatalf("a call out of time: %v", err)
 		}
 	case <-time.After(hangGuard):
+		// A child the kill missed holds git's output open, so the call
+		// returns only when its WaitDelay ends. TestMain raises that to the
+		// guard's minute, and os/exec starts it only once it has sent the
+		// kill, as a rule after the guard started, so the guard ends first.
+		// The test then fails, naming the child's state if ps shows it is
+		// still the child and not a zombie, and the cleanup kills it.
+		state, start, comm := psRow(t, child)
+		alive = start.Equal(born) && !strings.HasPrefix(state, "Z")
+		if alive {
+			t.Fatalf("a git call out of time hung: after %v, the child git started still ran, holding git's output open (%s, state %s)", hangGuard, comm, state)
+		}
 		t.Fatalf("a git call out of time hung: it had not returned after %v", hangGuard)
 	}
-	// The child closed git's output, so it was killed: ps lists it no
-	// longer once reaped, as a zombie before, or, as the system closes a
-	// process's files before it makes it a zombie, as exiting (E). A child
-	// the kill missed would hold the output open and sleep.
-	out, _ := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(child)).Output()
-	if state := strings.TrimSpace(string(out)); state != "" && !strings.HasPrefix(state, "Z") && !strings.Contains(state, "E") {
-		syscall.Kill(child, syscall.SIGKILL)
-		t.Fatalf("the child git started outlived the call (state %s)", state)
+	// The call returned. Either git's output reached its end, or the call's
+	// WaitDelay ended about when the guard did, and the select took the
+	// return. In the first case the child, which holds the output open as
+	// long as it runs, had closed it: the kill reached it, though ps can
+	// still list it for a moment, as a system closes a killed process's
+	// files before it makes it a zombie. In between, Linux can show it
+	// running (R) or in an uninterruptible wait (D), and macOS can add an E
+	// to its state while it exits, as in RE. In the second, a child the kill
+	// missed still sleeps: ps shows it S, or I on macOS once it has slept
+	// about 20 seconds. So the test waits, as long as the guard, for the
+	// child to be a zombie (Z) or gone, its pid perhaps given to a later
+	// process, which another start time tells; a child still alive then
+	// fails the test, and the cleanup kills it.
+	for end := time.Now().Add(hangGuard); ; time.Sleep(10 * time.Millisecond) {
+		state, start, comm := psRow(t, child)
+		alive = start.Equal(born) && !strings.HasPrefix(state, "Z")
+		if !alive {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatalf("the child git started outlived the call (%s, state %s %v after it returned)", comm, state, hangGuard)
+		}
 	}
+}
+
+// psRow gives ps's state of the process pid, its start time, which stays the
+// same for as long as it runs, and its command, which exec changes, so it
+// serves only in messages. ps lists the start time in five fields, as "Wed
+// Nov  4 21:43:12 2026" in the C locale, on Linux and macOS alike, to the
+// second; procps derives it from the boot time in /proc/stat, so a clock step
+// between samples can make the child look like another process, which counts
+// as gone, harmless when the kill worked. The state is "" and the time zero
+// once no process has the pid, which ps tells by exiting 1 and printing
+// nothing, to stdout or stderr; any other failure of ps, or a row it can't
+// read, fails the test. Its twin is psRow in internal/resume's code_test.go.
+func psRow(t *testing.T, pid int) (state string, start time.Time, comm string) {
+	t.Helper()
+	cmd := exec.Command("ps", "-o", "stat=", "-o", "lstart=", "-o", "comm=", "-p", strconv.Itoa(pid))
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		if exit.ExitCode() == 1 && len(out) == 0 && len(exit.Stderr) == 0 {
+			return "", time.Time{}, ""
+		}
+		t.Fatalf("ps -p %d: %v, stdout %q, stderr %q", pid, err, out, exit.Stderr)
+	}
+	if err != nil {
+		t.Fatalf("ps -p %d: %v", pid, err)
+	}
+	f := strings.Fields(string(out))
+	if len(f) < 6 {
+		t.Fatalf("ps -p %d listed no state, start time and command: %q", pid, out)
+	}
+	start, err = time.Parse("Mon Jan 2 15:04:05 2006", strings.Join(f[1:6], " "))
+	if err != nil {
+		t.Fatalf("ps -p %d listed no start time: %q", pid, out)
+	}
+	return f[0], start, strings.Join(f[6:], " ")
 }
 
 // With log.showSignature on in the user's git config, Last still gives the
