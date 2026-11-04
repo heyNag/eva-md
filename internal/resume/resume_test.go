@@ -38,6 +38,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// hangGuard is how long a test waits for what must happen however slow the
+// machine, such as live git returning once its time has run out, before it
+// reports a hang.
+const hangGuard = time.Minute
+
 func fixture(t *testing.T) Options {
 	t.Helper()
 	home := t.TempDir()
