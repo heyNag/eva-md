@@ -236,23 +236,41 @@ eva-md runs only on macOS, and setup refuses any other system, but it builds and
 ```bash
 #!/bin/bash
 # Tools eva-md's tests need that the cloud image lacks.
-set -o pipefail
 apt-get update -qq || true
 apt-get install -y -qq openssh-client || true
-# git 2.44 or newer, from the Ubuntu Git Maintainers PPA (24.04 ships 2.43),
-# added only once its signing key is in place.
+# git 2.44 or newer, from the Ubuntu Git Maintainers PPA (24.04 ships 2.43).
+# Its signing key is checked before it is installed, the PPA is added only
+# after that, and it is removed again if apt can't use it.
+fpr=F911AB184317630C59970973E363C90F8F1B6217
 key=/etc/apt/keyrings/git-core.gpg
-mkdir -p /etc/apt/keyrings
-if curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0xF911AB184317630C59970973E363C90F8F1B6217" |
-  gpg --dearmor --yes -o "$key"; then
-  echo "deb [signed-by=$key] http://ppa.launchpad.net/git-core/ppa/ubuntu noble main" \
-    >/etc/apt/sources.list.d/git-core.list
-  apt-get update -qq && apt-get install -y -qq git || true
+list=/etc/apt/sources.list.d/git-core.list
+tmp=$(mktemp -d) || exit 0
+trap 'rm -rf "$tmp"' EXIT
+export GNUPGHOME=$tmp/gnupg
+mkdir -m 700 "$GNUPGHOME"
+# The fingerprints of the primary keys in the file, one per line.
+primaries() {
+  gpg --show-keys --with-colons "$1" 2>/dev/null |
+    awk -F: '$1 == "fpr" && prev == "pub" { print $10 } { prev = $1 }'
+}
+if curl -fsSL -o "$tmp/key.asc" "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$fpr" &&
+  gpg --dearmor --yes -o "$tmp/key.gpg" "$tmp/key.asc" &&
+  [ "$(primaries "$tmp/key.gpg")" = "$fpr" ] &&
+  mkdir -p "$(dirname "$key")" &&
+  install -m 644 "$tmp/key.gpg" "$key"; then
+  echo "deb [signed-by=$key] http://ppa.launchpad.net/git-core/ppa/ubuntu noble main" >"$list"
+  if ! { apt-get update -qq && apt-get install -y -qq git; }; then
+    echo "The git PPA failed, so it is removed and the image's git kept." >&2
+    rm -f "$list" "$key"
+    apt-get update -qq || true
+  fi
+else
+  echo "The git PPA's signing key could not be fetched or checked, so the image's git is kept." >&2
 fi
 exit 0
 ```
 
-It reaches only archive.ubuntu.com, keyserver.ubuntu.com and ppa.launchpad.net, which the default network allowlist includes. The PPA is served over plain HTTP, so apt checks its packages against the PPA's signing key, fetched by its full fingerprint, the one Launchpad lists for the PPA; the PPA is added only once that key is in place. A setup script must exit 0, and finish within about five minutes for the environment to be cached, so nothing in it can fail the session: a mirror or key server that fails leaves the image's git rather than block it. It is safe to run again.
+Every `apt-get update` fetches all the configured sources, here the image's archive.ubuntu.com and security.ubuntu.com and the PPA; those and keyserver.ubuntu.com are on the cloud environments' default network allowlist. The PPA's HTTPS host, ppa.launchpadcontent.net, is not, so the script uses its plain-HTTP host, ppa.launchpad.net, and apt checks the packages against the PPA's signing key. The script fetches that key over HTTPS by its full fingerprint, the one Launchpad lists for the PPA, and installs it only if the download holds that key and no other. It adds the PPA only then, and removes it again if apt can't use it, so later `apt-get update` runs still work. A setup script must exit 0, and finish within about five minutes for the environment to be cached, so nothing in it can fail the session: a mirror or key server that fails leaves the image's git rather than block it. It is safe to run again.
 
 Then run the checks with one command from the repo root:
 
