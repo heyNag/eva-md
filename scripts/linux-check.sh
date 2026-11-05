@@ -26,9 +26,9 @@
 #   /var/cache/eva-md/gomod, with the modules and the Go toolchain go.mod
 #   names, and the user runs offline from it, with its own build cache.
 #
-# Git configuration in the environment, such as GIT_CONFIG_COUNT, is left as
-# it is: the tests shield themselves from it, and the checks should show they
-# do. Every step runs even when one fails; the script ends with a summary and
+# Git configuration in the environment, such as GIT_CONFIG_COUNT, and a commit
+# identity in it, such as GIT_AUTHOR_NAME, are left as they are: the tests
+# shield themselves from both, and the checks should show they do. Every step runs even when one fails; the script ends with a summary and
 # fails if any step did.
 set -u
 
