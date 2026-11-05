@@ -35,7 +35,8 @@ import (
 // TestMain raises (see raiseTimeLimits).
 var (
 	// buildEnv is that environment, which TestMain captures once
-	// testgitenv.Clear has taken the git configuration out of it.
+	// testgitenv.Clear has taken the git configuration and the commit
+	// identity out of it.
 	buildEnv     []string
 	buildDir, _  = os.Getwd()
 	buildTemp    = os.TempDir()
