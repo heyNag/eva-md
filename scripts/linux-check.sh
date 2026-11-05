@@ -28,8 +28,9 @@
 #
 # Git configuration in the environment, such as GIT_CONFIG_COUNT, and a commit
 # identity in it, such as GIT_AUTHOR_NAME, are left as they are: the tests
-# shield themselves from both, and the checks should show they do. Every step runs even when one fails; the script ends with a summary and
-# fails if any step did.
+# shield themselves from both, and the checks should show they do. Every step
+# runs even when one fails; the script ends with a summary and fails if any
+# step did.
 set -u
 
 if [ "$(uname -s)" != Linux ]; then

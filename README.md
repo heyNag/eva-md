@@ -221,7 +221,7 @@ go test ./...
 go test -race ./...
 ```
 
-Tests use temporary home folders and git configs, and clear any git configuration the environment carries. They never touch your real setup. The install, upgrade and uninstall tests build eva-md as a release is built, with the go command and Go's own caches, and serve it from a local stand-in for GitHub, through a fake curl or a local test server; nothing reaches the network. If Go's default cache is not writable, set `GOCACHE` to a writable temporary folder.
+Tests use temporary home folders and git configs, and clear any git configuration and commit identity the environment carries. They never touch your real setup. The install, upgrade and uninstall tests build eva-md as a release is built, with the go command and Go's own caches, and serve it from a local stand-in for GitHub, through a fake curl or a local test server; nothing reaches the network. If Go's default cache is not writable, set `GOCACHE` to a writable temporary folder.
 
 The latency benchmark runs the built binary against an isolated temporary home. Targets: capture p95 under 50 ms and startup brief p95 under 300 ms. Pass a git repository outside temporary folders as `--cwd`, such as this checkout:
 

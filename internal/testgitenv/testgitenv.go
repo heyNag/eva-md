@@ -35,8 +35,9 @@ import (
 // start, see only the configuration and the identity the tests write. It
 // keeps every other variable: GIT_CONFIG_GLOBAL and GIT_CONFIG_NOSYSTEM,
 // which tests set to isolate their git, and GIT_AUTHOR_DATE and
-// GIT_COMMITTER_DATE, which carry no identity and which some tests set to
-// date their commits. A test that checks how eva-md treats one of the
+// GIT_COMMITTER_DATE, which carry no identity and which no workspace is
+// known to set; the tests that date their commits set them themselves,
+// after Clear has run. A test that checks how eva-md treats one of the
 // variables Clear unsets sets it itself, with t.Setenv.
 func Clear() {
 	for _, kv := range os.Environ() {
