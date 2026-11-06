@@ -117,6 +117,9 @@ func TestBusyLockReportsErrLockBusy(t *testing.T) {
 			return err
 		}},
 		{"WriteFile", func() error { return other.WriteFile("blocked/index.md", []byte("# Blocked\n")) }},
+		// The lock file a killed save left stays while another write holds
+		// the lock: that write may be the save holding it.
+		{"RemoveLeftoverLock", func() error { return other.RemoveLeftoverLock() }},
 		{"Locked", func() error {
 			return other.Locked(func(*Wiki) error {
 				t.Error("Locked ran its function while the lock was busy")
@@ -124,6 +127,7 @@ func TestBusyLockReportsErrLockBusy(t *testing.T) {
 			})
 		}},
 	}
+	leaveOkfLock(t, w.Root())
 	err := w.Locked(func(*Wiki) error {
 		started := time.Now()
 		unlock, err := w.lockWithin(limit)
@@ -148,6 +152,9 @@ func TestBusyLockReportsErrLockBusy(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(w.Root(), "blocked")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("a write that found the lock busy saved its file: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(w.Root(), okfLock)); err != nil {
+		t.Fatalf("RemoveLeftoverLock removed the lock file while the wiki lock was busy: %v", err)
 	}
 }
 

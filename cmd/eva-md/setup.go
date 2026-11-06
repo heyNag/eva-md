@@ -18,6 +18,7 @@ import (
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/health"
 	"github.com/heyNag/eva-md/internal/install"
+	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/wikigit"
 	"github.com/heyNag/eva-md/internal/wikiinit"
@@ -647,7 +648,12 @@ func (s *setupRun) checkFolder(answer, remote string) (string, error) {
 		}
 		return folder, nil
 	}
-	if dirty(s.ctx, folder) {
+	switch changed, err := dirty(s.ctx, folder, s.env.dirs.Locks()); {
+	case errors.Is(err, okfadapter.ErrLockBusy):
+		return "", errors.New("this eva wiki is busy with a save; run setup again in a minute")
+	case err != nil:
+		return "", fmt.Errorf("a save that stopped left a lock in this eva wiki that setup can't remove (%v); fix that in %s and run setup again", err, folder)
+	case changed:
 		return "", fmt.Errorf("this eva wiki has uncommitted changes; commit them in %s (git add -A && git commit) and run setup again", folder)
 	}
 	found := "   This folder is already an eva wiki for " + origin + "."
@@ -1025,15 +1031,24 @@ func otherRepo(ctx context.Context, folder string) string {
 }
 
 // dirty reports whether the clone in folder has changes git hasn't
-// committed, which init refuses to adopt. A wiki with no commit yet, whose
-// first commit failed, is not dirty: init checks its scaffold and commits it
-// again.
-func dirty(ctx context.Context, folder string) bool {
+// committed, which init refuses to adopt. As init does, it first removes,
+// under the wiki lock in locks, the lock file a save killed midway leaves in
+// the wiki's root, which is never a change of yours and which the commit
+// setup advises for such changes would take; when that fails, as when the
+// wiki stays busy or its folder can't be written, it returns the error
+// instead. A wiki with no commit yet, whose first commit failed, is not
+// dirty: init checks its scaffold and commits it again.
+func dirty(ctx context.Context, folder, locks string) (bool, error) {
 	if _, err := wikigit.Run(ctx, setupGitTimeout, folder, "rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
-		return false
+		return false, nil
+	}
+	if w, err := okfadapter.Open(folder, locks); err == nil {
+		if err := w.RemoveLeftoverLock(); err != nil {
+			return false, err
+		}
 	}
 	status, err := wikigit.Run(ctx, setupGitTimeout, folder, "status", "--porcelain", "--untracked-files=all")
-	return err == nil && status != ""
+	return err == nil && status != "", nil
 }
 
 // peekRemote reads what remote holds, from a shallow clone in a temporary

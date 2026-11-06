@@ -196,6 +196,14 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		return result, errors.New("wikiinit: wiki validation has findings; run eva-md validate to inspect")
 	}
 	if hasHead {
+		// The lock file a save killed midway leaves in the root is never a
+		// change of yours, so it goes first. One that can't, as when the
+		// wiki stays busy or its folder can't be written, refuses the wiki
+		// with that reason: git status would count it, and a commit of
+		// everything would take it.
+		if err := w.RemoveLeftoverLock(); err != nil {
+			return result, err
+		}
 		status, err := git(ctx, root, "status", "--porcelain", "--untracked-files=all")
 		if err != nil {
 			return result, err

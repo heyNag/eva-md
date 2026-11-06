@@ -174,7 +174,9 @@ func (w *Wiki) Create(id string, c *okf.Concept, actor string) error {
 		return fmt.Errorf("wiki: create page folder: %w", err)
 	}
 	opts := okf.SaveOptions{IsNew: true, AutoLog: false, AutoIndex: false, Actor: actor}
-	clearOkfLock(w.root)
+	if err := clearOkfLock(w.root); err != nil {
+		return fmt.Errorf("wiki: create %s: %w", rel, okfFailure(err))
+	}
 	if err := okf.SaveConcept(w.root, &cp, opts); err != nil {
 		return fmt.Errorf("wiki: create %s: %w", rel, okfFailure(err))
 	}
@@ -228,7 +230,9 @@ func (w *Wiki) Update(id, expectHash string, render func(*okf.Concept) error, ac
 		return false, nil
 	}
 	opts := okf.SaveOptions{IsNew: false, AutoLog: false, AutoIndex: false, Actor: actor}
-	clearOkfLock(w.root)
+	if err := clearOkfLock(w.root); err != nil {
+		return false, fmt.Errorf("wiki: update %s: %w", rel, okfFailure(err))
+	}
 	if err := okf.SaveConcept(w.root, c, opts); err != nil {
 		return false, fmt.Errorf("wiki: update %s: %w", rel, okfFailure(err))
 	}
@@ -306,6 +310,23 @@ func (w *Wiki) WriteFile(rel string, data []byte) error {
 	return writeInRoot(w.root, rel, data)
 }
 
+// RemoveLeftoverLock removes, under the wiki lock, the lock file a save
+// killed midway leaves in the wiki's root, as the next save would. It is
+// never a change of yours, so a check for changes not yet committed calls
+// this first: git doesn't ignore the file, and a commit of everything, as
+// setup advises for such changes, would take it.
+func (w *Wiki) RemoveLeftoverLock() error {
+	unlock, err := w.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := clearOkfLock(w.root); err != nil {
+		return fmt.Errorf("wiki: %w", okfFailure(err))
+	}
+	return nil
+}
+
 // Validate loads the wiki again and runs okf's validator with drift checks
 // on and strict mode off.
 func (w *Wiki) Validate() (*okf.ValidationResult, error) {
@@ -370,7 +391,9 @@ func Init(root string) error {
 			return err
 		}
 	}
-	clearOkfLock(real)
+	if err := clearOkfLock(real); err != nil {
+		return fmt.Errorf("wiki: init: %w", okfFailure(err))
+	}
 	if err := okf.InitBundle(real); err != nil {
 		return fmt.Errorf("wiki: init: %w", okfFailure(err))
 	}
@@ -386,13 +409,20 @@ const okfLock = ".okf-write.lock"
 
 // clearOkfLock removes okf's lock file from root before an okf call that
 // takes it. okf removes the file when the call returns, so one that is there
-// was left by a process killed midway, and okf would make each save wait up
-// to 10 seconds for it, then refuse the save, until the file is 30 seconds
-// old. Only eva-md writes the wiki through okf, and only under its own lock
-// (setup's, for Init), which the kernel lets go of when a process dies, so
-// no okf call can hold the file when this runs.
-func clearOkfLock(root string) {
-	_ = os.Remove(filepath.Join(root, okfLock))
+// was left by a process killed midway. okf would make each save wait up to
+// 10 seconds for it, then refuse the save, until the file is 30 seconds
+// old, and from then on try to remove it itself, again and again with no
+// pause and no end when it can't. So when the file is there and can't be
+// removed, as in a wiki folder eva-md can't write, the error is returned
+// and the caller doesn't call okf. Only eva-md writes the wiki through okf,
+// and only under its own lock (init's, <locks>/init.lock, for Init), which
+// the kernel lets go of when a process dies, so no okf call can hold the
+// file when this runs.
+func clearOkfLock(root string) error {
+	if err := os.Remove(filepath.Join(root, okfLock)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // okfFailure is err, from an okf call, said in eva-md's words when the step
@@ -414,7 +444,9 @@ func okfFailure(err error) error {
 	if errors.As(err, &le) && strings.HasPrefix(filepath.Base(le.Old), okfTemp) {
 		return fmt.Errorf("%s a temporary file: %w", le.Op, le.Err)
 	}
-	if strings.Contains(err.Error(), okfLock) {
+	// okf quotes the lock file's path in its errors, so a page whose name
+	// only holds the lock file's never matches.
+	if strings.Contains(err.Error(), string(filepath.Separator)+okfLock+`"`) {
 		return fmt.Errorf("%w: a save's lock file stayed in the wiki", ErrLockBusy)
 	}
 	return err

@@ -147,6 +147,66 @@ func TestInitPushAndAdopt(t *testing.T) {
 	}
 }
 
+// The lock file a save killed midway leaves in the wiki's root is no change
+// of yours: init removes it, adopts the wiki, and still refuses a wiki with
+// any other change, with the lock file gone, so a commit of everything
+// can't take it.
+func TestAdoptionRemovesTheSavesLockFile(t *testing.T) {
+	o := fixture(t)
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	head := testGit(t, o.Dir, "rev-parse", "HEAD")
+	lock := filepath.Join(o.Dir, ".okf-write.lock")
+	leave := func() {
+		t.Helper()
+		if err := os.WriteFile(lock, []byte("pid=1\nacquired_at=2026-11-06T00:00:00Z\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gone := func(when string) {
+		t.Helper()
+		if _, err := os.Lstat(lock); !os.IsNotExist(err) {
+			t.Fatalf("%s: the leftover lock file is still there: %v", when, err)
+		}
+	}
+	leave()
+	r, err := Run(context.Background(), o)
+	if err != nil || !r.Adopted || testGit(t, o.Dir, "rev-parse", "HEAD") != head {
+		t.Fatalf("adopting a wiki with a leftover lock file: %+v, %v", r, err)
+	}
+	gone("adopted")
+	// A file that isn't a page, so the wiki still validates.
+	leave()
+	if err := os.WriteFile(filepath.Join(o.Dir, "general", "notes.txt"), []byte("Notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("adopted a wiki with a change of yours: %v", err)
+	}
+	gone("refused")
+	// One init can't remove, here in a wiki folder it can't write, refuses
+	// the wiki with that reason, not as a change of yours.
+	if os.Geteuid() == 0 {
+		return
+	}
+	if err := os.Remove(filepath.Join(o.Dir, "general", "notes.txt")); err != nil {
+		t.Fatal(err)
+	}
+	leave()
+	info, err := os.Stat(o.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(o.Dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(o.Dir, info.Mode().Perm()) })
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "remove the save's lock file: permission denied") || strings.Contains(strings.ToLower(err.Error()), "okf") {
+		t.Fatalf("adopting a wiki whose leftover lock file can't be removed: %v", err)
+	}
+}
+
 // A wiki the config names, whose folder is gone and whose repo is empty, as
 // when it was never pushed or the repo was made again, is not replaced by a
 // new wiki: the config and the empty repo stay as they are.

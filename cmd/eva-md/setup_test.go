@@ -852,12 +852,60 @@ func TestSetupRefusesARepoWithoutRemoteAndADirtyWiki(t *testing.T) {
 	}
 	f.bareRepo(t, "eva-wiki")
 	evaWiki(t, folder, "git@github.com:me/eva-wiki.git", "this-mac")
+	// The lock file a save killed midway leaves in the wiki's root is no
+	// change of yours: setup removes it, so it alone doesn't make the wiki
+	// dirty, and the commit setup advises for a change of yours doesn't
+	// take it.
+	lock := filepath.Join(folder, ".okf-write.lock")
+	leave := func() {
+		t.Helper()
+		if err := os.WriteFile(lock, []byte("pid=1\nacquired_at=2026-11-06T00:00:00Z\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gone := func(when string) {
+		t.Helper()
+		if _, err := os.Lstat(lock); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s: the leftover lock file is still there: %v", when, err)
+		}
+	}
+	leave()
+	if changed, err := dirty(context.Background(), folder, f.env.dirs.Locks()); changed || err != nil {
+		t.Fatalf("a leftover lock file makes the wiki dirty: %v, %v", changed, err)
+	}
+	gone("a clean wiki")
+	leave()
 	if err := os.WriteFile(filepath.Join(folder, "general", "notes.md"), []byte("# Notes\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	code, out, errOut = f.answers(t)
 	if code != 1 || len(f.inits) != 0 || strings.Contains(out, "[Y/n]") || !strings.Contains(out, "   Folder:    This eva wiki has uncommitted changes; commit them in "+folder+" (git add -A && git commit) and run setup again\n") {
 		t.Fatalf("a dirty wiki: code %d\n%s\n%s", code, out, errOut)
+	}
+	gone("a dirty wiki")
+	// A leftover setup can't remove, here in a wiki folder it can't write,
+	// is said as it is, never with the advice to commit everything, which
+	// would take it.
+	if os.Geteuid() != 0 {
+		leave()
+		info, err := os.Stat(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(folder, 0o555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(folder, info.Mode().Perm()) })
+		code, out, errOut = f.answers(t)
+		if err := os.Chmod(folder, info.Mode().Perm()); err != nil {
+			t.Fatal(err)
+		}
+		if code != 1 || len(f.inits) != 0 || strings.Contains(out, "git add -A") || !strings.Contains(out, "   Folder:    A save that stopped left a lock in this eva wiki that setup can't remove (wiki: remove the save's lock file: permission denied); fix that in "+folder+" and run setup again\n") {
+			t.Fatalf("a leftover lock file setup can't remove: code %d\n%s\n%s", code, out, errOut)
+		}
+		if err := os.Remove(lock); err != nil {
+			t.Fatalf("the leftover lock file: %v", err)
+		}
 	}
 	// An eva wiki whose remote was removed can neither be used nor made new.
 	if err := os.Remove(filepath.Join(folder, "general", "notes.md")); err != nil {

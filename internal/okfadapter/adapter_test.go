@@ -309,6 +309,7 @@ func TestOkfFailure(t *testing.T) {
 		{wrap("failed to set permissions on temporary file", &fs.PathError{Op: "chmod", Path: tmp, Err: syscall.EPERM}), "chmod a temporary file: operation not permitted"},
 		{wrap("failed to atomically replace "+page, &os.LinkError{Op: "rename", Old: tmp, New: page, Err: syscall.EPERM}), "rename a temporary file: operation not permitted"},
 		{fmt.Errorf("failed to acquire bundle write lock %q: %w", lock, &fs.PathError{Op: "open", Path: lock, Err: syscall.EROFS}), "open the save's lock file: read-only file system"},
+		{&fs.PathError{Op: "remove", Path: lock, Err: syscall.EACCES}, "remove the save's lock file: permission denied"},
 	} {
 		got := okfFailure(c.err)
 		var errno syscall.Errno
@@ -321,26 +322,62 @@ func TestOkfFailure(t *testing.T) {
 	if got := okfFailure(timeout); !errors.Is(got, ErrLockBusy) || strings.Contains(strings.ToLower(got.Error()), "okf") {
 		t.Errorf("%v: got %q", timeout, got)
 	}
-	other := fmt.Errorf("failed to create directory: %w", &fs.PathError{Op: "mkdir", Path: filepath.Join("wiki", "folder"), Err: syscall.EACCES})
-	if got := okfFailure(other); got != other {
-		t.Errorf("changed %v into %v", other, got)
+	// Errors about other files pass on as they are, also a page whose name
+	// holds the lock file's.
+	for _, other := range []error{
+		fmt.Errorf("failed to create directory: %w", &fs.PathError{Op: "mkdir", Path: filepath.Join("wiki", "folder"), Err: syscall.EACCES}),
+		fmt.Errorf("failed to create directory: %w", &fs.PathError{Op: "mkdir", Path: filepath.Join("wiki", "threads", "fix.okf-write.lockdown"), Err: syscall.EACCES}),
+		fmt.Errorf("cannot write concept to reserved bundle file %q", "notes/.okf-write.lock.md"),
+	} {
+		if got := okfFailure(other); got != other {
+			t.Errorf("changed %v into %v", other, got)
+		}
+	}
+}
+
+// RemoveLeftoverLock removes the lock file a killed save left, under the
+// wiki lock, does nothing when there is none, and says why in eva-md's
+// words when it can't.
+func TestRemoveLeftoverLock(t *testing.T) {
+	w := testWiki(t)
+	lock := filepath.Join(w.root, okfLock)
+	if err := w.RemoveLeftoverLock(); err != nil {
+		t.Fatalf("no lock file: %v", err)
+	}
+	leaveOkfLock(t, w.root)
+	if err := w.RemoveLeftoverLock(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(lock); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the lock file is still there: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(lock, "inside"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RemoveLeftoverLock(); !errors.Is(err, syscall.ENOTEMPTY) || !strings.Contains(err.Error(), "remove the save's lock file: ") || strings.Contains(strings.ToLower(err.Error()), "okf") {
+		t.Fatalf("a folder of that name: %v", err)
+	}
+}
+
+// leaveOkfLock writes a lock file in root as okf writes one, stamped as
+// taken a day from now, so okf never takes it for one left long ago: left
+// there, it makes okf wait for it and then refuse the save, however long a
+// test takes.
+func leaveOkfLock(t *testing.T, root string) {
+	t.Helper()
+	data := fmt.Sprintf("pid=%d\nacquired_at=%s\n", 1, time.Now().Add(24*time.Hour).UTC().Format(time.RFC3339Nano))
+	if err := os.WriteFile(filepath.Join(root, okfLock), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
 // A process killed in an okf call leaves okf's lock file in the wiki's
-// root, and okf would make each save wait for it, then refuse the save,
-// until the file is 30 seconds old. Create, Update and Init remove it first,
-// so each one goes ahead at once and leaves no lock file.
+// root, and okf would make each save wait for it, then refuse the save.
+// Create, Update and Init remove it first, so each one goes ahead at once
+// and leaves no lock file.
 func TestLeftoverOkfLock(t *testing.T) {
 	w := testWiki(t)
-	leave := func(root string) {
-		t.Helper()
-		// As okf writes it, just now.
-		data := fmt.Sprintf("pid=%d\nacquired_at=%s\n", 1, time.Now().UTC().Format(time.RFC3339Nano))
-		if err := os.WriteFile(filepath.Join(root, okfLock), []byte(data), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	leave := func(root string) { t.Helper(); leaveOkfLock(t, root) }
 	gone := func(root, step string) {
 		t.Helper()
 		if _, err := os.Lstat(filepath.Join(root, okfLock)); !errors.Is(err, fs.ErrNotExist) {
@@ -365,6 +402,83 @@ func TestLeftoverOkfLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	gone(root, "init")
+}
+
+// A leftover lock file eva-md can't remove fails the save at once, in
+// eva-md's words and keeping the errno, and okf is never called: once the
+// file was 30 seconds old, okf would try to remove it again and again,
+// with no pause and no end. A non-empty folder of that name can't be
+// removed, nor can a file in a wiki folder eva-md can't write.
+func TestUnremovableOkfLock(t *testing.T) {
+	// The hang guard is only that: each call returns at once, under the race
+	// detector too, or never.
+	const guard = 2 * time.Minute
+	within := func(t *testing.T, what string, fn func() error) error {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- fn() }()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(guard):
+			t.Fatalf("%s still running after %s: okf retries a lock file it can't remove", what, guard)
+			return nil
+		}
+	}
+	long := time.Now().Add(-time.Hour)
+	check := func(t *testing.T, w *Wiki, p *Page, want syscall.Errno, text string) {
+		t.Helper()
+		update := within(t, "update", func() error {
+			_, err := w.Update(p.ID, p.Hash, func(c *Concept) error { c.Body = "Changed"; return nil }, "codex/test")
+			return err
+		})
+		create := within(t, "create", func() error { return w.Create("folder/other", concept("Other", "Body"), "codex/test") })
+		for name, err := range map[string]error{"update": update, "create": create} {
+			if !errors.Is(err, want) || !strings.Contains(err.Error(), "remove the save's lock file: "+text) || strings.Contains(strings.ToLower(err.Error()), "okf") {
+				t.Errorf("%s: %v", name, err)
+			}
+		}
+	}
+	t.Run("folder", func(t *testing.T) {
+		w := testWiki(t)
+		p := mustCreate(t, w, "folder/page", concept("Page", "Body"))
+		lock := filepath.Join(w.root, okfLock)
+		if err := os.MkdirAll(filepath.Join(lock, "inside"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(lock, long, long); err != nil {
+			t.Fatal(err)
+		}
+		check(t, w, p, syscall.ENOTEMPTY, "directory not empty")
+		// Init in such a folder fails the same way.
+		root := filepath.Join(t.TempDir(), "wiki")
+		if err := os.MkdirAll(filepath.Join(root, okfLock, "inside"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(filepath.Join(root, okfLock), long, long); err != nil {
+			t.Fatal(err)
+		}
+		if err := within(t, "init", func() error { return Init(root) }); !errors.Is(err, syscall.ENOTEMPTY) || strings.Contains(strings.ToLower(err.Error()), "okf") {
+			t.Errorf("init: %v", err)
+		}
+	})
+	t.Run("unwritable wiki", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root writes a folder whatever its mode")
+		}
+		w := testWiki(t)
+		p := mustCreate(t, w, "folder/page", concept("Page", "Body"))
+		// As a killed save leaves it, an hour ago.
+		lock := filepath.Join(w.root, okfLock)
+		if err := os.WriteFile(lock, []byte("pid=1\nacquired_at="+long.UTC().Format(time.RFC3339Nano)+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(w.root, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(w.root, 0o700) })
+		check(t, w, p, syscall.EACCES, "permission denied")
+	})
 }
 
 func TestMetadataGoldenRoundTrip(t *testing.T) {
@@ -854,7 +968,8 @@ func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 		t.Fatalf("SIGKILL did not leave observed temp file: %v", err)
 	}
 	// okf holds its lock file for the whole save, so the kill left it too.
-	if _, err := os.Lstat(filepath.Join(w.root, okfLock)); err != nil {
+	lock := filepath.Join(w.root, okfLock)
+	if _, err := os.Lstat(lock); err != nil {
 		t.Fatalf("SIGKILL did not leave okf's lock file: %v", err)
 	}
 	page, err := w.Read("page")
@@ -869,22 +984,25 @@ func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 			t.Fatal("interrupted save left a partial page")
 		}
 	}
+	// Kernel releases flock when the child dies, including after SIGSTOP,
+	// and the next save removes okf's leftover lock file before its own.
+	// Stamped as taken a day from now, the lock file would make okf wait
+	// for it and refuse the save however long this test has taken.
+	leaveOkfLock(t, w.root)
+	if err := w.Create("after-kill", concept("After kill", "Body"), "codex/test"); err != nil {
+		t.Fatalf("lock was not released after SIGKILL: %v", err)
+	}
+	if _, err := os.Lstat(lock); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("okf's lock file is still there after the next save: %v", err)
+	}
 	git(t, w.root, "add", "--", ".")
-	if staged := git(t, w.root, "ls-files", "--cached"); strings.Contains(staged, ".tmp-okf-") || strings.Contains(staged, ".tmp-eva-") {
-		t.Fatalf("temporary file staged: %s", staged)
+	if staged := git(t, w.root, "ls-files", "--cached"); strings.Contains(staged, "okf") || strings.Contains(staged, ".tmp-eva-") {
+		t.Fatalf("a temporary or lock file staged: %s", staged)
 	}
 	if ignored := git(t, w.root, "check-ignore", "--", filepath.Base(leftover)); !strings.Contains(ignored, ".tmp-okf-") {
 		t.Fatalf("temp file not ignored: %q", ignored)
 	}
-	// Kernel releases flock when the child dies, including after SIGSTOP,
-	// and the next save removes okf's leftover lock file before its own.
-	if err := w.Create("after-kill", concept("After kill", "Body"), "codex/test"); err != nil {
-		t.Fatalf("lock was not released after SIGKILL: %v", err)
-	}
-	if _, err := os.Lstat(filepath.Join(w.root, okfLock)); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("okf's lock file is still there after the next save: %v", err)
-	}
-	t.Log("SIGKILL interrupted observed .tmp-okf-* save; page remains complete; git add . stages no temporary files; locks released")
+	t.Log("SIGKILL interrupted observed .tmp-okf-* save; page remains complete; locks released; the next save removed okf's lock file; git add . stages nothing naming okf")
 }
 
 // A person verifies a page in any form YAML allows, not only the flow
