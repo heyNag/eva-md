@@ -192,14 +192,18 @@ func readFailure(diagnostics string) string {
 }
 
 // Environment is the environment git runs with: this process's, without the
-// variables that could redirect a command to another repository, and with
-// terminal prompts off.
+// variables that could redirect a command to another repository or change
+// how git reads a pathspec, and with terminal prompts off. With
+// GIT_LITERAL_PATHSPECS set, git would take each ":(literal)<path>" the
+// commit stages, unstages and scans as a path that matches nothing, and
+// commit a page its secret scan never read.
 func Environment() []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
 		switch key {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX", "GIT_TERMINAL_PROMPT":
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX", "GIT_TERMINAL_PROMPT",
+			"GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS":
 			continue
 		}
 		env = append(env, kv)

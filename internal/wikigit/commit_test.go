@@ -353,6 +353,33 @@ func TestLeavesOutWhatIsNeverCommitted(t *testing.T) {
 	}
 }
 
+// git's pathspec settings in the environment never reach it. With
+// GIT_LITERAL_PATHSPECS set, the ":(literal)" paths the commit stages,
+// unstages and scans would match nothing, so a page holding a secret would
+// be committed and pushed unread, and what is never committed would stay
+// staged.
+func TestPathspecSettingsNeverReachGit(t *testing.T) {
+	keys := []string{"GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"}
+	t.Run("environment", func(t *testing.T) {
+		for _, key := range keys {
+			t.Setenv(key, "1")
+		}
+		for _, kv := range wikigit.Environment() {
+			if key, _, _ := strings.Cut(kv, "="); slices.Contains(keys, key) {
+				t.Errorf("git runs with %s", kv)
+			}
+		}
+	})
+	t.Run("secret scan", func(t *testing.T) {
+		t.Setenv("GIT_LITERAL_PATHSPECS", "1")
+		TestSecretLeftOutIdentifiersCommitted(t)
+	})
+	t.Run("left out", func(t *testing.T) {
+		t.Setenv("GIT_LITERAL_PATHSPECS", "1")
+		TestLeavesOutWhatIsNeverCommitted(t)
+	})
+}
+
 // A page holding a secret a current redact rule matches is left out and
 // recorded by path, never by value, while the other pages are committed,
 // including thread pages, and the area's overview, whose long, high-entropy

@@ -332,3 +332,29 @@ func TestLastWithShowSignature(t *testing.T) {
 		t.Fatalf("Last of a line without a day = %q %q %v", day, subject, err)
 	}
 }
+
+// git's pathspec settings in the environment never reach the code reads.
+// They name paths with --literal-pathspecs, which git refuses beside a
+// GIT_GLOB_PATHSPECS or GIT_ICASE_PATHSPECS setting, so every read of a cited
+// path would fail and a system write would check none.
+func TestPathspecSettingsNeverReachGit(t *testing.T) {
+	home := isolate(t)
+	dir := newRepo(t, filepath.Join(home, "orders"), "")
+	first := change(t, dir, "first", "a.go", "a")
+	change(t, dir, "Second change", "a.go", "b")
+	ctx := context.Background()
+	for _, key := range []string{"GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"} {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(key, "1")
+			if missing, err := Missing(ctx, dir, first, []string{"a.go", "gone.go"}); err != nil || strings.Join(missing, ",") != "gone.go" {
+				t.Errorf("Missing = %q, %v", missing, err)
+			}
+			if m, err := Commits(ctx, dir, first, []string{"a.go"}); err != nil || m.Count != 1 {
+				t.Errorf("Commits = %+v, %v", m, err)
+			}
+			if day, subject, err := Last(ctx, dir, first, []string{"a.go"}); err != nil || subject != "Second change" {
+				t.Errorf("Last = %q %q %v", day, subject, err)
+			}
+		})
+	}
+}

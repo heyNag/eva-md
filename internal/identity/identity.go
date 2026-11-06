@@ -283,9 +283,11 @@ var locatingVars = map[string]bool{
 
 // GitEnv is the environment of eva-md's read-only git calls: the process's,
 // without the variables that could point git at another repo or change its
-// config, and with prompts, optional locks, lazy fetches and translations
-// off, so a partial clone never fetches an object it lacks from its remote;
-// git older than 2.44 ignores GIT_NO_LAZY_FETCH.
+// config or how it reads a pathspec, and with prompts, optional locks, lazy
+// fetches and translations off, so a partial clone never fetches an object
+// it lacks from its remote; git older than 2.44 ignores GIT_NO_LAZY_FETCH.
+// coderef reads paths with --literal-pathspecs, which git refuses beside a
+// GIT_GLOB_PATHSPECS or GIT_ICASE_PATHSPECS setting.
 func GitEnv() []string { return gitEnv() }
 
 func gitEnv() []string {
@@ -294,7 +296,8 @@ func gitEnv() []string {
 		name, _, _ := strings.Cut(kv, "=")
 		if locatingVars[name] || name == "GIT_TERMINAL_PROMPT" || name == "GIT_OPTIONAL_LOCKS" || name == "GIT_NO_LAZY_FETCH" || name == "LC_ALL" ||
 			name == "GIT_CONFIG" || name == "GIT_CONFIG_PARAMETERS" || name == "GIT_CONFIG_COUNT" ||
-			strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
+			strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_") ||
+			name == "GIT_LITERAL_PATHSPECS" || name == "GIT_GLOB_PATHSPECS" || name == "GIT_NOGLOB_PATHSPECS" || name == "GIT_ICASE_PATHSPECS" {
 			continue
 		}
 		env = append(env, kv)
