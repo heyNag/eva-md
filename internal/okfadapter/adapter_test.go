@@ -267,12 +267,36 @@ func TestSaveFailureNamesNoTemporaryFile(t *testing.T) {
 	}
 }
 
-// tempFailure says each step of okf's atomic write that fails on its
-// temporary file in eva-md's words, keeping the errno, and passes on any
-// other error as it is.
-func TestTempFailure(t *testing.T) {
+// okf takes a lock file in the wiki's root for each save, so a root it
+// can't write fails the save there: the error says so in eva-md's words,
+// never with the lock file's name, and keeps the errno.
+func TestSaveFailureNamesNoLockFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes a folder whatever its mode")
+	}
+	w := testWiki(t)
+	p := mustCreate(t, w, "folder/page", concept("Page", "Body"))
+	if err := os.Chmod(w.root, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(w.root, 0o700) })
+	_, update := w.Update(p.ID, p.Hash, func(c *Concept) error { c.Body = "Changed"; return nil }, "codex/test")
+	create := w.Create("folder/other", concept("Other", "Body"), "codex/test")
+	for name, err := range map[string]error{"update": update, "create": create} {
+		if !errors.Is(err, syscall.EACCES) || !strings.Contains(err.Error(), "the save's lock file: ") || strings.Contains(strings.ToLower(err.Error()), "okf") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// okfFailure says each step of okf's atomic write that fails on its
+// temporary file, and of its lock, in eva-md's words, keeping the errno; a
+// lock okf waited for in vain is ErrLockBusy. It passes on any other error
+// as it is.
+func TestOkfFailure(t *testing.T) {
 	tmp := filepath.Join("wiki", "folder", ".tmp-okf-123456")
 	page := filepath.Join("wiki", "folder", "page.md")
+	lock := filepath.Join("wiki", ".okf-write.lock")
 	wrap := func(text string, err error) error { return fmt.Errorf("failed to write concept: %s: %w", text, err) }
 	for _, c := range []struct {
 		err  error
@@ -284,17 +308,63 @@ func TestTempFailure(t *testing.T) {
 		{wrap("failed to close temporary file", &fs.PathError{Op: "close", Path: tmp, Err: syscall.EIO}), "close a temporary file: input/output error"},
 		{wrap("failed to set permissions on temporary file", &fs.PathError{Op: "chmod", Path: tmp, Err: syscall.EPERM}), "chmod a temporary file: operation not permitted"},
 		{wrap("failed to atomically replace "+page, &os.LinkError{Op: "rename", Old: tmp, New: page, Err: syscall.EPERM}), "rename a temporary file: operation not permitted"},
+		{fmt.Errorf("failed to acquire bundle write lock %q: %w", lock, &fs.PathError{Op: "open", Path: lock, Err: syscall.EROFS}), "open the save's lock file: read-only file system"},
 	} {
-		got := tempFailure(c.err)
+		got := okfFailure(c.err)
 		var errno syscall.Errno
 		if got.Error() != c.want || !errors.As(got, &errno) {
 			t.Errorf("%v: got %q", c.err, got)
 		}
 	}
+	// okf's words when its lock file stayed for the whole of its wait.
+	timeout := fmt.Errorf("timed out waiting for bundle write lock %q after %s", lock, 10*time.Second)
+	if got := okfFailure(timeout); !errors.Is(got, ErrLockBusy) || strings.Contains(strings.ToLower(got.Error()), "okf") {
+		t.Errorf("%v: got %q", timeout, got)
+	}
 	other := fmt.Errorf("failed to create directory: %w", &fs.PathError{Op: "mkdir", Path: filepath.Join("wiki", "folder"), Err: syscall.EACCES})
-	if got := tempFailure(other); got != other {
+	if got := okfFailure(other); got != other {
 		t.Errorf("changed %v into %v", other, got)
 	}
+}
+
+// A process killed in an okf call leaves okf's lock file in the wiki's
+// root, and okf would make each save wait for it, then refuse the save,
+// until the file is 30 seconds old. Create, Update and Init remove it first,
+// so each one goes ahead at once and leaves no lock file.
+func TestLeftoverOkfLock(t *testing.T) {
+	w := testWiki(t)
+	leave := func(root string) {
+		t.Helper()
+		// As okf writes it, just now.
+		data := fmt.Sprintf("pid=%d\nacquired_at=%s\n", 1, time.Now().UTC().Format(time.RFC3339Nano))
+		if err := os.WriteFile(filepath.Join(root, okfLock), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gone := func(root, step string) {
+		t.Helper()
+		if _, err := os.Lstat(filepath.Join(root, okfLock)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s: okf's lock file is still there: %v", step, err)
+		}
+	}
+	leave(w.root)
+	p := mustCreate(t, w, "page", concept("Page", "Body"))
+	gone(w.root, "create")
+	leave(w.root)
+	if _, err := w.Update(p.ID, p.Hash, func(c *Concept) error { c.Body = "Changed"; return nil }, "codex/test"); err != nil {
+		t.Fatal(err)
+	}
+	gone(w.root, "update")
+	// A setup killed in Init leaves it in the new wiki's folder.
+	root := filepath.Join(t.TempDir(), "wiki")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	leave(root)
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	gone(root, "init")
 }
 
 func TestMetadataGoldenRoundTrip(t *testing.T) {
@@ -783,6 +853,10 @@ func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 	if _, err := os.Stat(leftover); err != nil {
 		t.Fatalf("SIGKILL did not leave observed temp file: %v", err)
 	}
+	// okf holds its lock file for the whole save, so the kill left it too.
+	if _, err := os.Lstat(filepath.Join(w.root, okfLock)); err != nil {
+		t.Fatalf("SIGKILL did not leave okf's lock file: %v", err)
+	}
 	page, err := w.Read("page")
 	if err != nil {
 		t.Fatalf("interrupted save damaged original: %v", err)
@@ -802,11 +876,15 @@ func TestSIGKILLDuringSaveExcludesTemporaryFiles(t *testing.T) {
 	if ignored := git(t, w.root, "check-ignore", "--", filepath.Base(leftover)); !strings.Contains(ignored, ".tmp-okf-") {
 		t.Fatalf("temp file not ignored: %q", ignored)
 	}
-	// Kernel releases flock when the child dies, including after SIGSTOP.
+	// Kernel releases flock when the child dies, including after SIGSTOP,
+	// and the next save removes okf's leftover lock file before its own.
 	if err := w.Create("after-kill", concept("After kill", "Body"), "codex/test"); err != nil {
 		t.Fatalf("lock was not released after SIGKILL: %v", err)
 	}
-	t.Log("SIGKILL interrupted observed .tmp-okf-* save; page remains complete; git add . stages no temporary files; lock released")
+	if _, err := os.Lstat(filepath.Join(w.root, okfLock)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("okf's lock file is still there after the next save: %v", err)
+	}
+	t.Log("SIGKILL interrupted observed .tmp-okf-* save; page remains complete; git add . stages no temporary files; locks released")
 }
 
 // A person verifies a page in any form YAML allows, not only the flow

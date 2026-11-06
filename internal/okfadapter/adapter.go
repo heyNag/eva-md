@@ -1,7 +1,8 @@
 // Package okfadapter is the only eva-md code that calls okf. It adds the
-// protections okf lacks: one wiki lock around every write, no-clobber
-// create, compare-and-swap updates, skipping saves that would only bump the
-// timestamp, actor checks and folder fsyncs.
+// protections okf lacks: one wiki lock around every write, which a killed
+// process can't leave behind, no-clobber create, compare-and-swap updates,
+// skipping saves that would only bump the timestamp, actor checks and
+// folder fsyncs.
 package okfadapter
 
 import (
@@ -173,8 +174,9 @@ func (w *Wiki) Create(id string, c *okf.Concept, actor string) error {
 		return fmt.Errorf("wiki: create page folder: %w", err)
 	}
 	opts := okf.SaveOptions{IsNew: true, AutoLog: false, AutoIndex: false, Actor: actor}
+	clearOkfLock(w.root)
 	if err := okf.SaveConcept(w.root, &cp, opts); err != nil {
-		return fmt.Errorf("wiki: create %s: %w", rel, tempFailure(err))
+		return fmt.Errorf("wiki: create %s: %w", rel, okfFailure(err))
 	}
 	if err := syncUp(w.root, filepath.Dir(full)); err != nil {
 		return err
@@ -226,8 +228,9 @@ func (w *Wiki) Update(id, expectHash string, render func(*okf.Concept) error, ac
 		return false, nil
 	}
 	opts := okf.SaveOptions{IsNew: false, AutoLog: false, AutoIndex: false, Actor: actor}
+	clearOkfLock(w.root)
 	if err := okf.SaveConcept(w.root, c, opts); err != nil {
-		return false, fmt.Errorf("wiki: update %s: %w", rel, tempFailure(err))
+		return false, fmt.Errorf("wiki: update %s: %w", rel, okfFailure(err))
 	}
 	if err := syncDir(filepath.Dir(full)); err != nil {
 		return true, err
@@ -367,8 +370,9 @@ func Init(root string) error {
 			return err
 		}
 	}
+	clearOkfLock(real)
 	if err := okf.InitBundle(real); err != nil {
-		return fmt.Errorf("wiki: init: %w", tempFailure(err))
+		return fmt.Errorf("wiki: init: %w", okfFailure(err))
 	}
 	return syncDir(real)
 }
@@ -376,18 +380,42 @@ func Init(root string) error {
 // okfTemp starts the names of the temporary files okf's saves write.
 const okfTemp = ".tmp-okf-"
 
-// tempFailure is err, from an okf save, said in eva-md's words when the
-// step that failed was on okf's temporary file, whose name names okf: the
-// step and its error, which stays wrapped, so an errno still tells a file
-// system failure from a page okf refused.
-func tempFailure(err error) error {
+// okfLock is the lock file okf holds in the wiki's root for the length of
+// each save and of InitBundle.
+const okfLock = ".okf-write.lock"
+
+// clearOkfLock removes okf's lock file from root before an okf call that
+// takes it. okf removes the file when the call returns, so one that is there
+// was left by a process killed midway, and okf would make each save wait up
+// to 10 seconds for it, then refuse the save, until the file is 30 seconds
+// old. Only eva-md writes the wiki through okf, and only under its own lock
+// (setup's, for Init), which the kernel lets go of when a process dies, so
+// no okf call can hold the file when this runs.
+func clearOkfLock(root string) {
+	_ = os.Remove(filepath.Join(root, okfLock))
+}
+
+// okfFailure is err, from an okf call, said in eva-md's words when the step
+// that failed was on a file whose name names okf, its temporary file or its
+// lock file: the step and its error, which stays wrapped, so an errno still
+// tells a file system failure from a page okf refused. A lock file okf
+// waited for in vain is ErrLockBusy, as a busy wiki lock is.
+func okfFailure(err error) error {
 	var pe *fs.PathError
-	if errors.As(err, &pe) && strings.HasPrefix(filepath.Base(pe.Path), okfTemp) {
-		return fmt.Errorf("%s a temporary file: %w", pe.Op, pe.Err)
+	if errors.As(err, &pe) {
+		switch base := filepath.Base(pe.Path); {
+		case strings.HasPrefix(base, okfTemp):
+			return fmt.Errorf("%s a temporary file: %w", pe.Op, pe.Err)
+		case base == okfLock:
+			return fmt.Errorf("%s the save's lock file: %w", pe.Op, pe.Err)
+		}
 	}
 	var le *os.LinkError
 	if errors.As(err, &le) && strings.HasPrefix(filepath.Base(le.Old), okfTemp) {
 		return fmt.Errorf("%s a temporary file: %w", le.Op, le.Err)
+	}
+	if strings.Contains(err.Error(), okfLock) {
+		return fmt.Errorf("%w: a save's lock file stayed in the wiki", ErrLockBusy)
 	}
 	return err
 }

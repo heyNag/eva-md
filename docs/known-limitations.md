@@ -284,7 +284,7 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 
 ## Health check
 
-- A save killed midway can leave a temporary file named `.tmp-okf-...` in the wiki folder. okf names its own temporary files, and renaming them would mean patching it, so okf's name shows there. git ignores these files, the daily commit never stages them, and the doctor counts them as interrupted-save temporary files.
+- A save killed midway can leave a temporary file named `.tmp-okf-...` in the wiki folder. okf names its own temporary files, and renaming them would mean patching it, so okf's name shows there. git ignores these files, the daily commit never stages them, and the doctor counts them as interrupted-save temporary files. Such a save also leaves okf's lock file, `.okf-write.lock`, at the wiki's root, where it stays until the next save removes it. git doesn't ignore it, but the daily commit never stages it.
 - Chats in excluded, temporary or wiki folders write no heartbeat but do create host transcripts. The capture-freshness check can then report a false FAIL and a false "no matching capture heartbeat" notice.
 - The capture-freshness scan gives up after 4096 entries, 512 folders or 35 ms in a host's chat store, and every saved chat file counts as an entry. Once a store is that large, the check stays UNKNOWN and no longer flags a trust lapse.
 - The start-of-chat notice reads at most 64 KB of each day's run log and 16 KB of each month's commit records, so on a very busy day it can miss an older failure.
