@@ -195,6 +195,57 @@ func TestUninstallAll(t *testing.T) {
 	}
 }
 
+// Uninstall names the wiki and its remote as the config has them, another
+// wiki than the record's too, and as the record has them when the config
+// names no wiki, can't be read or is missing, and says which it found, as
+// it read the config before removing anything: an --all that removes the
+// config still says the config named the wiki.
+func TestUninstallSaysWhetherTheConfigNamedTheWiki(t *testing.T) {
+	opts, f := setup(t)
+	ctx := context.Background()
+	if _, err := runInstall(ctx, opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	file := opts.Dirs.ConfigFile()
+	c, err := config.Load(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, none := c, c
+	other.WikiPath, other.ExpectedRemote = filepath.Join(t.TempDir(), "other-wiki"), "github.com/example/other"
+	none.WikiPath, none.ExpectedRemote = "", ""
+	for _, tc := range []struct {
+		what         string
+		config       func() error
+		wiki, remote string
+		fromConfig   bool
+	}{
+		{"the config's wiki", func() error { return nil }, c.WikiPath, c.ExpectedRemote, true},
+		{"another wiki in the config", func() error { return config.Save(file, other) }, other.WikiPath, other.ExpectedRemote, true},
+		{"a config that names no wiki", func() error { return config.Save(file, none) }, c.WikiPath, c.ExpectedRemote, false},
+		{"a config that can't be read", func() error { return os.WriteFile(file, []byte("wiki_path = [broken\n"), 0o600) }, c.WikiPath, c.ExpectedRemote, false},
+		{"no config", func() error { return os.Remove(file) }, c.WikiPath, c.ExpectedRemote, false},
+	} {
+		if err := tc.config(); err != nil {
+			t.Fatal(err)
+		}
+		r, err := uninstallWith(ctx, UninstallOptions{Dirs: opts.Dirs}, f.run)
+		if err != nil || r.Wiki != tc.wiki || r.Remote != tc.remote || r.WikiFromConfig != tc.fromConfig {
+			t.Fatalf("%s: %+v, %v", tc.what, r, err)
+		}
+	}
+	if err := config.Save(file, c); err != nil {
+		t.Fatal(err)
+	}
+	r, err := uninstallWith(ctx, UninstallOptions{Dirs: opts.Dirs, Apply: true, All: true}, f.run)
+	if err != nil || r.Wiki != c.WikiPath || !r.WikiFromConfig {
+		t.Fatalf("--all: %+v, %v", r, err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("--all kept the config: %v", err)
+	}
+}
+
 // Setup's command adds a config.env that setup wrote after its install to
 // the record, once; without a record it writes none.
 func TestRecordConfigFiles(t *testing.T) {

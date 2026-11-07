@@ -30,8 +30,9 @@ const (
 	maxKnowledge = 256 << 10
 )
 
-// knowledgeFacts says what a knowledge page's hit is, when one is shown.
-const knowledgeFacts = "[knowledge] lines are lasting facts the background update promoted from earlier chats; decision and constraint lines rest on the user's words."
+// knowledgeFacts says what a knowledge page's hit is, when one is shown,
+// and what its tags rest on.
+const knowledgeFacts = "[knowledge] lines are lasting facts the background update promoted from earlier chats; decision and constraint lines rest on the user's words, and fact and procedure lines on them too or, tagged [observed], on a command, file or MCP result the assistant reported."
 
 // constraintsBlock returns the brief's constraint lines: one for each of up
 // to 3 constraints that hold for the project, those of every project and

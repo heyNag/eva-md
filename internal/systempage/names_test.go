@@ -45,7 +45,9 @@ func TestNamesIndex(t *testing.T) {
 
 // eva-md doctor writes the index again when it is missing, damaged or out of
 // date, as after a hand edit of a page, and leaves it alone otherwise.
-// eva-md status reports such an index as stale and leaves it as it is.
+// eva-md status reports such an index as stale and leaves it as it is. Once
+// the last page is removed by hand, status reports the index as one the
+// doctor removes rather than writes again, and the doctor removes it.
 func TestRefreshNames(t *testing.T) {
 	o := fixture(t)
 	mustWrite(t, o, "orders", valid, false)
@@ -73,19 +75,33 @@ func TestRefreshNames(t *testing.T) {
 		}
 		before, _ := os.ReadFile(index)
 		r, err := RefreshNames(context.Background(), o, false)
-		if after, _ := os.ReadFile(index); err != nil || r.Stale != (tc.name != "current") || r.Rebuilt || string(after) != string(before) {
+		if after, _ := os.ReadFile(index); err != nil || r.NamesStale != (tc.name != "current") || r.ReposStale || r.NamesGone || r.ReposGone || r.NamesRebuilt || r.ReposRebuilt || string(after) != string(before) {
 			t.Fatalf("%s: status %+v %v, index\n%s", tc.name, r, err, after)
 		}
 		r, err = RefreshNames(context.Background(), o, true)
-		if err != nil || r.Rebuilt != (tc.name != "current") || r.Stale || r.Pages != 1 || r.Names != strings.Count(tc.want, "\n") {
+		if err != nil || r.NamesRebuilt != (tc.name != "current") || r.ReposRebuilt || r.NamesStale || r.ReposStale || r.Pages != 1 || r.Names != strings.Count(tc.want, "\n") {
 			t.Fatalf("%s: %+v %v", tc.name, r, err)
 		}
 		if got := file(t, o, NamesFile); got != tc.want {
 			t.Fatalf("%s: index\n%s", tc.name, got)
 		}
 	}
-	if r, err := RefreshNames(context.Background(), o, true); err != nil || r.Rebuilt {
+	if r, err := RefreshNames(context.Background(), o, true); err != nil || r.NamesRebuilt || r.ReposRebuilt {
 		t.Fatalf("a current index was written again: %+v %v", r, err)
+	}
+	if err := os.Remove(page); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(index)
+	r, err := RefreshNames(context.Background(), o, false)
+	if after, _ := os.ReadFile(index); err != nil || !r.NamesStale || !r.NamesGone || r.ReposStale || r.ReposGone || r.Pages != 0 || len(before) == 0 || string(after) != string(before) {
+		t.Fatalf("status with no page left: %+v %v, index\n%s", r, err, after)
+	}
+	if r, err := RefreshNames(context.Background(), o, true); err != nil || !r.NamesRemoved || r.NamesRebuilt || r.NamesStale || r.NamesGone {
+		t.Fatalf("doctor with no page left: %+v %v", r, err)
+	}
+	if _, err := os.Lstat(index); !os.IsNotExist(err) {
+		t.Fatalf("the doctor left the index: %v", err)
 	}
 }
 

@@ -107,7 +107,9 @@ func status(ctx context.Context, s *server, a arguments) result {
 		reads = append(reads, "eva_show "+page.Page+"#Now", "eva_show "+page.Page+"#Timeline")
 	}
 	if total > 0 {
-		reads = append(reads, "eva_show systems/map")
+		// The index lists each system in a line of its title and
+		// description, where the map adds its repos and every code source.
+		reads = append(reads, "eva_show systems/index")
 	}
 	if know.Map {
 		reads = append(reads, "eva_show knowledge/map")

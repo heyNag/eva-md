@@ -71,8 +71,8 @@ func render(host, binary string) (map[string][]byte, error) {
 	events := []event{
 		{"SessionStart", "startup|resume|clear|compact|fork", 10, false},
 		{"UserPromptSubmit", "", 5, false},
-		{"PostToolUse", "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|mcp__.*", 0, true},
-		{"PostToolUseFailure", "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|mcp__.*", 0, true},
+		{"PostToolUse", "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|WebSearch|mcp__.*", 0, true},
+		{"PostToolUseFailure", "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|WebSearch|mcp__.*", 0, true},
 		{"Stop", "", 5, false}, {"StopFailure", "", 3, false},
 		{"PreCompact", "manual|auto", 10, false}, {"PostCompact", "", 5, false},
 		{"PostModelSwitch", "", 3, false}, {"SessionEnd", "", 0, false},

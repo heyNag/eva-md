@@ -310,6 +310,32 @@ func (w *Wiki) WriteFile(rel string, data []byte) error {
 	return writeInRoot(w.root, rel, data)
 }
 
+// RemoveFile removes, under the wiki lock, a wiki file that is not a concept
+// page, such as an index eva-md builds that no page calls for any more, and
+// fsyncs its folder. A file already gone is no error. It refuses what
+// WriteFile refuses, a path through a symlink, and anything but a regular
+// file.
+func (w *Wiki) RemoveFile(rel string) error {
+	if err := checkFileRel(rel); err != nil {
+		return err
+	}
+	unlock, err := w.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	full, err := checkNoSymlinks(w.root, rel, true)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(full); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("wiki: remove %s: %w", rel, err)
+	}
+	return syncDir(filepath.Dir(full))
+}
+
 // RemoveLeftoverLock removes, under the wiki lock, the lock file a save
 // killed midway leaves in the wiki's root, as the next save would. It is
 // never a change of yours, so a check for changes not yet committed calls

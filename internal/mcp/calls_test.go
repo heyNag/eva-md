@@ -332,7 +332,7 @@ func TestShowPagesAndSections(t *testing.T) {
 			t.Fatalf("%v:\n%s", tc.args, got)
 		}
 	}
-	if r := f.call(t, "eva_show", map[string]any{"ref": "systems/nothing-here"}); !r.IsError || r.Content[0].Text != "eva-md: no such page or file; eva_search finds refs, systems/map lists the system pages and knowledge/map the knowledge pages" {
+	if r := f.call(t, "eva_show", map[string]any{"ref": "systems/nothing-here"}); !r.IsError || r.Content[0].Text != "eva-md: no such page or file; eva_search finds refs, systems/index lists the system pages and knowledge/map the knowledge pages" {
 		t.Fatalf("a missing page: %+v", r)
 	}
 	// A knowledge page, its Statement and its History, with no line of the
@@ -492,7 +492,7 @@ func TestStatus(t *testing.T) {
 		"hooks: claude-code not installed, codex ran 3 hours ago; Codex hooks await approval in /hooks",
 		"updates: claude-code not installed, codex none today or yesterday; no daily commit yet",
 		"notice: review its hooks in Codex /hooks; run eva-md doctor to verify.",
-		"read: eva_show projects/orders/threads/main#Now · eva_show projects/orders/threads/main#Timeline · eva_show systems/map",
+		"read: eva_show projects/orders/threads/main#Now · eva_show projects/orders/threads/main#Timeline · eva_show systems/index",
 	}
 	if out != strings.Join(want, "\n") || len(out) > statusCap {
 		t.Fatalf("status:\n%s\nwant:\n%s", out, strings.Join(want, "\n"))
@@ -528,7 +528,7 @@ func TestStatusCountsKnowledge(t *testing.T) {
 		t.Fatalf("knowledge:\n%s", out)
 	}
 	writeFile(t, filepath.Join(f.c.WikiPath, "knowledge", "map.md"), "---\ntype: map\ntitle: Knowledge map\n---\n\n# Knowledge map\n")
-	if out := f.answer(t, "eva_status", nil); !strings.HasSuffix(out, " · eva_show systems/map · eva_show knowledge/map") {
+	if out := f.answer(t, "eva_status", nil); !strings.HasSuffix(out, " · eva_show systems/index · eva_show knowledge/map") {
 		t.Fatalf("the map:\n%s", out)
 	}
 	writeFile(t, filepath.Join(f.c.WikiPath, ".eva-md", "knowledge.tsv"), "# eva-md knowledge index 1\n"+row("k4", "fact", "project", f.project.Key))

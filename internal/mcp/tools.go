@@ -92,7 +92,7 @@ var tools = []tool{
 	},
 	{
 		Name:        "eva_show",
-		Description: "Read a wiki page or section (systems/map, knowledge/map, <thread>#Now, #Timeline, #YYYY-MM-DD, #Heading) or a source ref s:<id>#<line> from eva_search.",
+		Description: "Read a wiki page or section (systems/index, knowledge/map, <thread>#Now, #Timeline, #YYYY-MM-DD, #Heading) or a source ref s:<id>#<line> from eva_search.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"ref":{"type":"string","minLength":1,"maxLength":1024,"description":"A ref eva_search printed, or page#section."},` +
 			`"last":{"type":"integer","minimum":1,"description":"#Timeline only: newest N date groups."},` +

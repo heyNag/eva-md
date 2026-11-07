@@ -40,10 +40,12 @@ var recordMarker = []byte(`_record"`)
 // typedMarker is in the line of every prompt the user typed, as json.Marshal
 // writes an entry: its role and kind come before its text, so they are in
 // the first read of a long line, and text never holds them unescaped.
-// hostMarker is in every host_prompt event line.
+// hostMarker is in every host_prompt event line, and toolMarker in every
+// tool entry's line.
 var (
 	typedMarker = []byte(`"role":"user","kind":"prompt"`)
 	hostMarker  = []byte(`"text":"host_prompt"`)
+	toolMarker  = []byte(`"role":"tool","kind":"tool"`)
 )
 
 // Prefix reads the bytes of a session file before the watermark, a byte
@@ -58,23 +60,26 @@ func Prefix(r io.Reader) (lines int, off bool, err error) {
 }
 
 // prefixScan is what scanPrefix finds before the watermark: Prefix's
-// results, and whether a prompt the user typed or a host prompt is there.
+// results, whether a prompt the user typed or a host prompt is there, and
+// whether the turn open where it ends used a web fetch or web search.
 type prefixScan struct {
 	lines         int
-	off           bool
+	off, web      bool
 	typed, hosted bool
 }
 
-// scanPrefix is Prefix, and also looks for prompts: a host_prompt line is
+// scanPrefix is Prefix, and also looks for prompts and the tools that read
+// the web: a host_prompt line, and a tool line that names such a tool, is
 // decoded as a marker line is, and a typed prompt is told by typedMarker.
+// A line is looked at only while it can change what is found.
 func scanPrefix(r io.Reader) (prefixScan, error) {
 	var p prefixScan
 	br := bufio.NewReaderSize(r, 64<<10)
 	whole := true // the line so far came in one read; a marker line always does
 	for {
 		frag, err := br.ReadSlice('\n')
-		if whole && !p.typed && bytes.Contains(frag, typedMarker) {
-			p.typed = true
+		if whole && (!p.typed || p.web) && bytes.Contains(frag, typedMarker) {
+			p.typed, p.web = true, p.web && p.off
 		}
 		switch {
 		case errors.Is(err, bufio.ErrBufferFull):
@@ -86,17 +91,43 @@ func scanPrefix(r io.Reader) (prefixScan, error) {
 			return p, err
 		}
 		p.lines++
-		if whole && (bytes.Contains(frag, recordMarker) || !p.hosted && bytes.Contains(frag, hostMarker)) {
+		if whole && (bytes.Contains(frag, recordMarker) || (!p.hosted || p.web) && bytes.Contains(frag, hostMarker) || !p.web && webLine(frag)) {
 			var e inbox.Entry
 			if json.Unmarshal(frag, &e) == nil {
 				if marker(e) {
 					p.off = e.Text == "off_record"
+				} else if !p.off {
+					p.web = turnWeb(p.web, e)
 				}
 				p.hosted = p.hosted || hostEvent(e)
 			}
 		}
 		whole = true
 	}
+}
+
+// webLine reports a line that may be a tool entry of a tool that reads the
+// web: it holds toolMarker and the name of such a tool. turnWeb judges it
+// once decoded.
+func webLine(line []byte) bool {
+	return bytes.Contains(line, toolMarker) && slices.ContainsFunc(webNames, func(name []byte) bool { return bytes.Contains(line, name) })
+}
+
+// turnWeb is the web state of the turn open after entry e, given web, its
+// state before e: a prompt, typed or a host's, opens a turn that hasn't
+// read the web, and a tool entry of a tool that reads it marks the turn it
+// is in (see webTurn). The job carries it from one pass to the next, as it
+// carries the off-the-record state, so a pass that starts inside a turn,
+// where an earlier pass's 60 KB stopped, knows whether that pass saw the
+// turn read the web.
+func turnWeb(web bool, e inbox.Entry) bool {
+	switch {
+	case typed(e) || hostEvent(e):
+		return false
+	case e.Role == "tool" && webTool(e.Text):
+		return true
+	}
+	return web
 }
 
 // typed reports a prompt the user typed.
@@ -145,6 +176,7 @@ type Options struct {
 	Parent       *threadpage.Now // a new thread's parent Now, shown for context; nil otherwise
 	ParentBranch string          // the parent thread's branch
 	OffRecord    bool            // the chat was off the record where the entries start (see Prefix)
+	Web          bool            // the turn open where the entries start used a web fetch or web search (see turnWeb)
 	FullRef      bool            // another session file starts with this session's first 8 characters
 	Continued    bool            // the last pass over this file stopped with More: the rest of a group that passed the size check
 	Rules        RuleSet         // the standing rules on file
@@ -177,6 +209,8 @@ type Numbered struct {
 	At         time.Time // zero when the entry's time can't be read
 	Text       string    // the raw redacted text; a run of tool entries, one per line
 	report     bool      // the first assistant reply after a tool entry with no prompt between: a report of a result
+	opening    bool      // a reply before any prompt, tool or other reply of the batch, which may report a tool an earlier pass held (see webTurn)
+	web        bool      // a tool entry, or a report, of a turn that used a web fetch or web search (see webTurn)
 }
 
 // ErrTooSmall reports a group under one exchange or 600 characters. Its
@@ -248,7 +282,8 @@ func Build(entries []Entry, page threadpage.Page, o Options) (Batch, error) {
 	}
 	var body strings.Builder
 	var last Entry
-	report := false
+	report, opening := false, true // opening: no prompt, tool or reply has come yet
+	turn, fetched := 0, o.Web      // where the turn began in b.Entries, and whether one of its tools read the web, in an earlier pass too
 	for i, u := range units(kept) {
 		text := u.render(i + 1)
 		if i > 0 && body.Len()+len(text) > chunkBytes {
@@ -259,15 +294,20 @@ func Build(entries []Entry, page threadpage.Page, o Options) (Batch, error) {
 		n := u.numbered(session)
 		switch {
 		case n.Role == "user" && n.Kind == "prompt", n.Role == "event" && n.Text == "host_prompt":
-			report = false
+			webTurn(b.Entries[turn:], fetched)
+			turn, fetched = len(b.Entries), false
+			report, opening = false, false
 		case n.Role == "tool":
-			report = true
+			report, opening = true, false
+			fetched = fetched || u.fetches()
 		case n.Role == "assistant":
-			n.report, report = report, false
+			n.report, n.opening = report, opening
+			report, opening = false, false
 		}
 		b.Entries = append(b.Entries, n)
 		last = u[len(u)-1]
 	}
+	webTurn(b.Entries[turn:], fetched)
 	b.End = last.End
 	if !b.More {
 		b.End, b.Off = entries[len(entries)-1].End, off
@@ -371,6 +411,51 @@ func units(entries []Entry) []unit {
 func command(e Entry) bool {
 	name, _, _, _, ok := toolParts(e.Text)
 	return ok && name == "Bash"
+}
+
+// webTools are the tools that read the web: Claude Code's WebFetch and
+// WebSearch, and Codex's web search. Every other tool, a command, a file
+// read or edit and an MCP tool among them, reads what is local or what an
+// MCP server the user set up returns. webNames are their names as bytes,
+// which webLine looks for.
+var (
+	webTools = map[string]bool{"WebFetch": true, "WebSearch": true, "web_search": true}
+	webNames = func() (names [][]byte) {
+		for name := range webTools {
+			names = append(names, []byte(name))
+		}
+		return names
+	}()
+)
+
+// webTool reports a tool line of a tool that reads the web, by the tool
+// name the stored line starts with.
+func webTool(text string) bool {
+	name, _, _ := strings.Cut(strings.TrimSpace(text), " ")
+	return webTools[name]
+}
+
+// fetches reports a run of tool entries one of which read the web.
+func (u unit) fetches() bool {
+	return slices.ContainsFunc(u, func(e Entry) bool { return webTool(e.Text) })
+}
+
+// webTurn marks the tool entries and the reports of a turn, the entries from
+// one prompt, typed or a host's, to the next, when one of its tools read the
+// web: nothing such a turn reports can make knowledge observed, since what
+// the assistant says of a command's result may come from the page it read.
+//
+// A batch that opens with a reply, where an earlier pass's 60 KB stopped
+// right after a tool, may open with that tool's report, which the batch
+// can't tell. Such an opening reply is marked as a report would be, on the
+// safe side, though it counts as no result: a done line or observed fact
+// still needs a tool entry, or a report the batch can tell, to cite.
+func webTurn(turn []Numbered, fetched bool) {
+	for i := range turn {
+		if fetched && (turn[i].Role == "tool" || turn[i].report || turn[i].opening) {
+			turn[i].web = true
+		}
+	}
 }
 
 // render writes the unit as entry n, cut to its size.

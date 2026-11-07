@@ -347,7 +347,11 @@ func TestRecordsAreReadFromTheEnd(t *testing.T) {
 
 // The lint rows read <state>/lint.json: pages over 512 KB and refs that
 // resolve to nothing fail, a clean result passes, and a lint that hasn't run
-// or can't be read is unknown.
+// or can't be read is unknown. Refs to chats removed with eva-md inbox
+// clear, or that another Mac captured, are said and never fail the row; a
+// failing row's fix names the command that records a chat removed by hand.
+// Refs the lint couldn't check, while inbox folders it names couldn't be
+// read in full, make the row unknown.
 func TestLintRows(t *testing.T) {
 	d := isolated(t)
 	var r Report
@@ -365,25 +369,45 @@ func TestLintRows(t *testing.T) {
 		result       lint.Result
 		size, refs   string
 		sizeHas, has string
+		fix          string
 	}{
-		{lint.Result{At: ago(time.Hour), Oversize: []string{}, BadRefPages: []string{}, Pages: 12}, "PASS", "PASS", "none of 12 thread pages", "every ref in 12 thread pages resolves"},
+		{lint.Result{At: ago(time.Hour), Oversize: []string{}, BadRefPages: []string{}, Pages: 12}, "PASS", "PASS", "none of 12 thread pages", "every ref in 12 thread pages resolves", ""},
 		{lint.Result{At: ago(time.Hour), Oversize: []string{"projects/a/threads/main", "projects/b/threads/main", "projects/c/threads/main", "projects/d/threads/main"}, BadRefs: 7, BadRefPages: []string{"general/threads/default"}, Pages: 12},
-			"FAIL", "FAIL", "4 of 12 thread pages over 512 KB: projects/a/threads/main, projects/b/threads/main, projects/c/threads/main and 1 more", "7 refs in 1 page name inbox lines that are gone: general/threads/default"},
+			"FAIL", "FAIL", "4 of 12 thread pages over 512 KB: projects/a/threads/main, projects/b/threads/main, projects/c/threads/main and 1 more", "7 refs in 1 page name inbox lines that are gone: general/threads/default",
+			"restore the inbox files they name; for chats you removed by hand, record it with eva-md inbox clear --session <id> --apply"},
+		{lint.Result{At: ago(time.Hour), Oversize: []string{}, BadRefPages: []string{}, RemovedRefs: 5, ElsewhereRefs: 1, Pages: 12}, "PASS", "PASS", "none of 12 thread pages",
+			"no ref in 12 thread pages names a lost inbox line; 5 refs name chats removed with eva-md inbox clear; 1 ref names a chat this Mac never captured, as another Mac's (lint of ", ""},
+		{lint.Result{At: ago(time.Hour), Oversize: []string{}, BadRefs: 1, BadRefPages: []string{"general/threads/default"}, ElsewhereRefs: 40, Pages: 12}, "PASS", "FAIL", "none of 12 thread pages",
+			"1 ref in 1 page names an inbox line that is gone: general/threads/default; 40 refs name chats this Mac never captured, as another Mac's (lint of ", "eva-md inbox clear --session <id> --apply"},
+		// While an inbox folder can't be read in full, the refs the lint
+		// couldn't check make the row unknown, naming the folders, and never
+		// read as another Mac's.
+		{lint.Result{At: ago(time.Hour), Oversize: []string{}, BadRefPages: []string{}, RemovedRefs: 5, UnknownRefs: 3, UnreadFolders: []string{"github.com__example__acme"}, Pages: 12}, "PASS", "UNKNOWN", "none of 12 thread pages",
+			"3 refs in 12 thread pages couldn't be checked, as 1 inbox folder couldn't be read in full: github.com__example__acme; 5 refs name chats removed with eva-md inbox clear (lint of ", "make those inbox folders and the chats in them readable to you again"},
+		{lint.Result{At: ago(time.Hour), Oversize: []string{}, BadRefs: 1, BadRefPages: []string{"general/threads/default"}, UnknownRefs: 1, UnreadFolders: []string{"a", "b"}, Pages: 12}, "PASS", "FAIL", "none of 12 thread pages",
+			"1 ref in 1 page names an inbox line that is gone: general/threads/default; 1 ref couldn't be checked, as 2 inbox folders couldn't be read in full: a, b (lint of ", "eva-md inbox clear --session <id> --apply"},
+		{lint.Result{At: ago(time.Hour), Oversize: []string{}, BadRefPages: []string{}, UnreadFolders: []string{"github.com__example__acme"}, Pages: 12}, "PASS", "PASS", "none of 12 thread pages",
+			"no ref in 12 thread pages names a lost inbox line; 1 inbox folder couldn't be read in full: github.com__example__acme (lint of ", ""},
 	} {
 		data, _ := json.Marshal(tc.result)
 		put(t, filepath.Join(d.State, "lint.json"), data)
 		r = Report{}
 		inspectLint(&r, d)
 		size, refs := findRow(t, r, "oversize pages"), findRow(t, r, "source refs")
-		if size.Status != tc.size || refs.Status != tc.refs || !strings.Contains(size.Detail, tc.sizeHas) || !strings.Contains(refs.Detail, tc.has) || !strings.Contains(refs.Detail, "(lint of ") {
+		if size.Status != tc.size || refs.Status != tc.refs || !strings.Contains(size.Detail, tc.sizeHas) || !strings.Contains(refs.Detail, tc.has) || !strings.Contains(refs.Detail, "(lint of ") || !strings.Contains(refs.Fix, tc.fix) || tc.fix == "" && refs.Fix != "" {
 			t.Fatalf("rows\n%+v\n%+v", size, refs)
+		}
+		if len(tc.result.UnreadFolders) > 0 && strings.Contains(refs.Detail, "never captured") {
+			t.Fatalf("refs the lint couldn't check read as another Mac's: %+v", refs)
 		}
 	}
 }
 
-// The system map row checks the map against the folder: every page on the
-// map passes; a page left out, a listed page gone or a missing map fails;
-// no system pages is unknown. Only the map and the folder's names are read.
+// The system map row checks the map and the folder's index against the
+// folder: every page on the map and in the index passes; a page the map or
+// the index leaves out, a page the map lists that is gone, or a missing map
+// or index fails, with the write that rebuilds both; no system pages is
+// unknown. Only the map, the index and the folder's names are read.
 func TestSystemMapRow(t *testing.T) {
 	isolated(t)
 	c := wikiConfig(t)
@@ -407,7 +431,8 @@ func TestSystemMapRow(t *testing.T) {
 	}
 	page("orders")
 	page("billing")
-	if got := row(); got.Status != "FAIL" || !strings.Contains(got.Detail, "systems/map.md is missing") {
+	const rebuild = "write any system page again with eva-md system write <slug> --replace, which rebuilds the map and systems/index.md"
+	if got := row(); got != (Check{"system map", "FAIL", "2 system pages, but systems/map.md and systems/index.md are missing, unreadable or over 256 KB", rebuild}) {
 		t.Fatalf("no map: %+v", got)
 	}
 	writeMap := func(slugs ...string) {
@@ -417,12 +442,34 @@ func TestSystemMapRow(t *testing.T) {
 		}
 		put(t, filepath.Join(dir, "map.md"), []byte(text))
 	}
+	writeIndex := func(slugs ...string) {
+		text := "# Systems\n\n* [System map](map.md) - One line per system page, built from their frontmatter\n"
+		for _, s := range slugs {
+			text += fmt.Sprintf("* [%s \\[v2\\]](%s.md) - Takes it\n", strings.ToUpper(s), s)
+		}
+		put(t, filepath.Join(dir, "index.md"), []byte(text))
+	}
 	writeMap("billing", "orders")
-	if got := row(); got.Status != "PASS" || got.Detail != "2 system pages, all on the map" {
+	// A map the write saved before it was stopped, or an index a person
+	// removed, leaves every pointer to the index going nowhere.
+	if got := row(); got != (Check{"system map", "FAIL", "2 system pages, but systems/index.md is missing, unreadable or over 256 KB", rebuild}) {
+		t.Fatalf("no index: %+v", got)
+	}
+	writeIndex("billing", "orders")
+	if got := row(); got != (Check{"system map", "PASS", "2 system pages, all on the map and in systems/index.md", ""}) {
 		t.Fatalf("consistent: %+v", got)
 	}
+	writeIndex("orders")
+	if got := row(); got != (Check{"system map", "FAIL", "systems/index.md leaves out 1 of 2 system pages: billing", rebuild}) {
+		t.Fatalf("an index that leaves out a page: %+v", got)
+	}
+	put(t, filepath.Join(dir, "index.md"), []byte(strings.Repeat("* [Billing](billing.md) - Takes it\n", 256<<10/34+1)))
+	if got := row(); got.Status != "FAIL" || !strings.Contains(got.Detail, "systems/index.md is missing, unreadable or over 256 KB") {
+		t.Fatalf("an index over 256 KB: %+v", got)
+	}
+	writeIndex("billing", "orders")
 	writeMap("orders", "shipping")
-	if got := row(); got.Status != "FAIL" || !strings.Contains(got.Detail, "leaves out 1 of 2 system pages: billing") || !strings.Contains(got.Detail, "it lists 1 page that no longer exists: shipping") || !strings.Contains(got.Fix, "system write") {
+	if got := row(); got.Status != "FAIL" || !strings.Contains(got.Detail, "leaves out 1 of 2 system pages: billing") || !strings.Contains(got.Detail, "it lists 1 page that no longer exists: shipping") || got.Fix != rebuild {
 		t.Fatalf("inconsistent: %+v", got)
 	}
 }

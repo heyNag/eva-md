@@ -316,24 +316,50 @@ func show(ctx context.Context, s *server, a arguments) result {
 	hint := func(string) string {
 		return "the text goes on; " + bin + " show " + shellQuote(ref) + " prints it whole"
 	}
-	switch {
-	case strings.TrimSuffix(page, ".md") == knowledgepage.MapRef:
+	switch strings.TrimSuffix(page, ".md") {
+	case knowledgepage.MapRef:
 		// The map is one list, oldest page first, with no section to ask
 		// for: the rest is the newest pages.
 		hint = func(string) string {
 			return "the newest pages are in the rest; " + bin + " show " + shellQuote(ref) + " prints it whole, and eva_search finds a knowledge page by its words"
 		}
-	case section == "" && !strings.HasPrefix(ref, "s:"):
-		hint = func(rest string) string { return sections(out, rest, page) }
+	case systemMap:
+		// The system map and its index are one list each, the map by slug and
+		// the index by file name, with no section to ask for; the index says
+		// the least of each system.
+		hint = func(string) string {
+			return "the rest lists more systems; " + systemIndex + " lists them all in shorter lines, " + bin + " show " + shellQuote(ref) + " prints the map whole, and eva_search finds a system page by its words"
+		}
+	case systemIndex:
+		hint = func(string) string {
+			return "the rest lists more systems; " + bin + " show " + shellQuote(ref) + " prints it whole, and eva_search finds a system page by its words"
+		}
+	default:
+		if section == "" && !strings.HasPrefix(ref, "s:") {
+			whole := hint
+			hint = func(rest string) string {
+				if h := sections(out, rest, page); h != "" {
+					return h
+				}
+				return whole(rest)
+			}
+		}
 	}
 	return text(capText(out, limit+len(showLabel)+1, hint))
 }
+
+// The system map and the system index, as eva_show names them.
+const (
+	systemMap   = "systems/map"
+	systemIndex = "systems/index"
+)
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'" }
 
 // sections is the hint after a cut page: the sections an agent can ask for
 // instead, the thread page's own and up to 12 "## " headings in the rest of
-// the text, by their anchors.
+// the text, by their anchors. A page with no "## " heading has no section
+// to ask for, and gets "".
 func sections(text, rest, id string) string {
 	var names []string
 	if strings.Contains(text, "\n## Now") || strings.Contains(text, "\n## Timeline") {
@@ -349,7 +375,10 @@ func sections(text, rest, id string) string {
 		names = append(names, cut(anchor, 80))
 		headings++
 	}
-	if len(names) == 0 {
+	switch {
+	case len(names) == 0 && !strings.Contains("\n"+text, "\n## "):
+		return ""
+	case len(names) == 0:
 		return "ask for one section, as " + id + "#<heading>"
 	}
 	if len(names) == 1 {
@@ -403,7 +432,7 @@ func callError(err error) string {
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return "eva-md: the call passed its time limit"
 	case errors.Is(err, fs.ErrNotExist):
-		return "eva-md: no such page or file; eva_search finds refs, systems/map lists the system pages and knowledge/map the knowledge pages"
+		return "eva-md: no such page or file; eva_search finds refs, " + systemIndex + " lists the system pages and knowledge/map the knowledge pages"
 	}
 	return "eva-md: " + strings.TrimPrefix(err.Error(), "resume: ")
 }

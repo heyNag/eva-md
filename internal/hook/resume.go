@@ -150,7 +150,9 @@ func brief(ctx context.Context, host string, p payload, env Env, project identit
 	if p.Event == "SessionStart" && updatesOn(env.Config) {
 		store := inbox.Store{Root: env.Dirs.Inbox()}
 		own, recovered := start.files(store, project.Key, host, p.Session)
-		queueUpdate(spawns, env, idleBacklogs(ctx, store, own, result.Files, recovered, now)...)
+		// A person's chat start asks for the day's sweep too; a program's
+		// starts no model calls for other projects' chats.
+		queueCatchUp(spawns, env, !p.headless, idleBacklogs(ctx, store, own, result.Files, recovered, now)...)
 	}
 	if variant == "refresh" {
 		// An unchanged Now injects nothing, uses no refresh and leaves the
@@ -201,20 +203,31 @@ func saveMarker(ctx context.Context, markers session.Markers, host, id, name, va
 // find a host's last 20 runs, whichever events they were.
 const maxRuns = 20
 
-// beatRun is one hook run in a heartbeat's history: when it ran and whether
-// it failed.
+// beatRun is one hook run in a heartbeat's history: when it ran, whether it
+// failed, and how long it took, in milliseconds, from the start of Run to
+// just before its heartbeat is saved: the process's start and the save
+// itself, an atomic write with fsync, are left out.
 type beatRun struct {
-	At     string `json:"at"`
-	Failed bool   `json:"failed,omitempty"`
+	At         string  `json:"at"`
+	Failed     bool    `json:"failed,omitempty"`
+	DurationMS float64 `json:"duration_ms,omitempty"`
 }
 
-// heartbeat records the run of p's event, with the event's last maxRuns runs
-// and the Claude Code entrypoint the run inherited.
-func heartbeat(ctx context.Context, dirs paths.Dirs, host string, p payload, failed bool, now time.Time) {
-	event := p.Event
+// beatEvent reports whether event is one the hooks keep a heartbeat for.
+func beatEvent(event string) bool {
 	switch event {
 	case "SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "PreCompact", "PostCompact", "PostModelSwitch", "Interrupt":
-	default:
+		return true
+	}
+	return false
+}
+
+// heartbeat records the run of p's event, which took took, with the
+// event's last maxRuns runs, the Claude Code entrypoint the run inherited
+// and whether its transcript lies where recovery can't read it.
+func heartbeat(ctx context.Context, dirs paths.Dirs, host string, p payload, failed bool, now time.Time, took time.Duration) {
+	event := p.Event
+	if !beatEvent(event) {
 		return
 	}
 	root, err := paths.OpenRoot(filepath.Join(dirs.State, "heartbeats"), true)
@@ -227,7 +240,7 @@ func heartbeat(ctx context.Context, dirs paths.Dirs, host string, p payload, fai
 	}
 	name := filepath.Join(host, event+".json")
 	at := now.Format(time.RFC3339Nano)
-	runs := append(previousRuns(root, name), beatRun{at, failed})
+	runs := append(previousRuns(root, name), beatRun{at, failed, float64(took.Microseconds()) / 1000})
 	runs = runs[max(0, len(runs)-maxRuns):]
 	data, _ := json.Marshal(struct {
 		V          int       `json:"v"`
@@ -235,11 +248,69 @@ func heartbeat(ctx context.Context, dirs paths.Dirs, host string, p payload, fai
 		Host       string    `json:"host"`
 		Event      string    `json:"event"`
 		Transcript bool      `json:"transcript_available"`
+		Elsewhere  bool      `json:"transcript_elsewhere,omitempty"`
 		Runs       []beatRun `json:"runs"`
 		Entrypoint string    `json:"entrypoint,omitempty"`
 		Headless   bool      `json:"headless,omitempty"`
-	}{1, at, host, event, p.Transcript != "", runs, p.entrypoint, p.headless})
+	}{1, at, host, event, p.Transcript != "", p.elsewhere, runs, p.entrypoint, p.headless})
 	_ = paths.WriteFileAtomicAt(ctx, root, name, data, 0600)
+}
+
+// uncapturedFile is the stamp a run that captures nothing leaves in the
+// host's heartbeats folder.
+const uncapturedFile = "uncaptured.json"
+
+// stampLayout writes the stamp's time, in UTC, at one width whatever the
+// time, so every stamp is as long as any other.
+const stampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
+// uncaptured stamps the time of a run that stops before capture because
+// eva-md doesn't capture its folder: an excluded path or remote, a
+// temporary folder, the wiki, eva-md's state folder, a Codex memory-writing
+// run or a desktop spare. The host still keeps the chat, so the
+// capture-freshness check reads the stamp as proof that the host's hooks
+// ran, and raises no false alarm. It holds the time alone, never the
+// folder, the session or the event, and the hook-failure count never reads
+// it. Losing it costs at most a false alarm, so it is written in place
+// without fsync, as the prompt state is, which an atomic save would cost
+// about 11 ms. Runs that stamp at once, as the async hooks of parallel tool
+// calls do, take no lock: each writes a stamp of the same width over the
+// last, never truncating it, so once a stamp is written the file holds one
+// whole stamp, the last one written.
+func uncaptured(env Env, host, event string, now time.Time) {
+	dirs := env.Dirs
+	if !beatEvent(event) || !filepath.IsAbs(dirs.State) {
+		return
+	}
+	root, err := paths.OpenRoot(filepath.Join(dirs.State, "heartbeats"), true)
+	if err != nil {
+		return
+	}
+	defer root.Close()
+	if root.MkdirAll(host, 0o700) != nil {
+		return
+	}
+	f, err := root.OpenFile(filepath.Join(host, uncapturedFile), os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	// The stamp is written only once it is known to be a regular file of
+	// its own.
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
+		return
+	}
+	data, _ := json.Marshal(struct {
+		At string `json:"at"`
+	}{now.UTC().Format(stampLayout)})
+	if env.stamping != nil {
+		env.stamping()
+	}
+	_, _ = f.WriteAt(data, 0)
 }
 
 // previousRuns reads the history of the heartbeat about to be replaced. Two
@@ -259,16 +330,22 @@ func previousRuns(root *os.Root, name string) []beatRun {
 	return old.Runs
 }
 
-// lateBeat records a run whose capture ran out of time as failed. It has a
-// moment of its own, as the run's time is up, lengthened by the hook's
-// slack, and reads the system clock, since env.Now may be what held the
-// capture up.
-func lateBeat(ctx context.Context, dirs paths.Dirs, host string, p payload, slack time.Duration) {
+// lateBeat records a run whose capture ran out of time as failed, with the
+// time it took and whether its transcript lies elsewhere, once its output
+// was written. It has a moment of its own, as the run's time is up,
+// lengthened by the hook's slack, and reads the system clock, since
+// env.Now may be what held the capture up.
+func lateBeat(ctx context.Context, env Env, host string, p payload, took time.Duration) {
 	defer func() { _ = recover() }()
-	if !filepath.IsAbs(dirs.State) {
+	if !filepath.IsAbs(env.Dirs.State) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond+slack)
+	getenv := env.Getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	p.elsewhere = transcriptElsewhere(host, p.Transcript, getenv("HOME"))
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond+env.Slack)
 	defer cancel()
-	heartbeat(ctx, dirs, host, p, true, time.Now())
+	heartbeat(ctx, env.Dirs, host, p, true, time.Now(), took)
 }

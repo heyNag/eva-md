@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -395,6 +396,154 @@ func TestDryRunHasNoFilesystemOrHostEffects(t *testing.T) {
 	for _, dir := range []string{opts.Dirs.Share, opts.Dirs.State} {
 		if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("dry run created %s", dir)
+		}
+	}
+}
+
+// Setup runs install's checks before there is a config, as a preflight: a
+// dry run that needs none, plans the same actions as a dry run and changes
+// nothing, on the hosts or on disk. Every other run still needs the config.
+func TestPreflightNeedsNoConfig(t *testing.T) {
+	opts, f := setup(t)
+	opts.DryRun = true
+	planned, err := runInstall(context.Background(), opts, f.run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(opts.Dirs.ConfigFile()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runInstall(context.Background(), opts, f.run); err == nil || !strings.Contains(err.Error(), "no wiki is set up") {
+		t.Fatalf("a dry run without the config: %v", err)
+	}
+	opts.DryRun, opts.Preflight = false, true
+	f.calls = nil
+	checked, err := runInstall(context.Background(), opts, f.run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(checked.Actions, planned.Actions) || !reflect.DeepEqual(checked.Hosts, planned.Hosts) || !slices.Contains(f.calls, "codex features list") {
+		t.Fatalf("checked %+v, calls %v; a dry run planned %+v", checked, f.calls, planned)
+	}
+	if len(mutateCalls(f.calls)) != 0 {
+		t.Fatalf("the checks changed a host: %v", f.calls)
+	}
+	for _, dir := range []string{opts.Dirs.Share, opts.Dirs.State} {
+		if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the checks created %s", dir)
+		}
+	}
+}
+
+// A Codex whose hooks feature is off is refused, by install and by the
+// checks setup runs, with both ways out: turning the feature on, or
+// installing for Claude Code only, through EVA_MD_HOSTS in the answers file
+// for setup and upgrades, or --host claude, once Claude Code is installed
+// when this Mac has no claude command, also for --host codex. For Claude
+// Code only, Codex's features are never read.
+func TestHooksOffNamesBothWaysOut(t *testing.T) {
+	opts, f := setup(t)
+	f.disabled = true
+	ways := "or pass --host claude"
+	only := "Codex's hooks feature is off; turn it on with codex features enable hooks, or install for Claude Code only: set EVA_MD_HOSTS=claude in " + opts.Dirs.AnswersFile() + " for setup and upgrades, " + ways
+	first := "Codex's hooks feature is off; turn it on with codex features enable hooks, or install Claude Code, then install for Claude Code only: set EVA_MD_HOSTS=claude in " + opts.Dirs.AnswersFile() + " for setup and upgrades, " + ways
+	refused := func(want string) {
+		t.Helper()
+		for _, host := range []string{"all", "codex"} {
+			for _, preflight := range []bool{false, true} {
+				opts.Host, opts.Preflight = host, preflight
+				_, err := runInstall(context.Background(), opts, f.run)
+				if !errors.Is(err, ErrHooksOff) || !strings.Contains(err.Error(), want) {
+					t.Errorf("--host %s, preflight %t: %v\nwant %q", host, preflight, err, want)
+				}
+			}
+		}
+	}
+	refused(only)
+	// With no claude command, Claude Code is installed first.
+	if err := os.Remove(filepath.Join(os.Getenv("PATH"), "claude")); err != nil {
+		t.Fatal(err)
+	}
+	refused(first)
+	if len(mutateCalls(f.calls)) != 0 {
+		t.Fatalf("a refusal changed a host: %v", f.calls)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "claude"), []byte("#!/bin/sh\nexit 99\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opts.Preflight, opts.Host = false, "claude"
+	f.calls = nil
+	if r, err := runInstall(context.Background(), opts, f.run); err != nil || !reflect.DeepEqual(r.Hosts, []string{"claude"}) || slices.Contains(f.calls, "codex features list") {
+		t.Fatalf("for Claude Code only: %+v %v, calls %v", r, err, f.calls)
+	}
+}
+
+// Codex 0.167 lists the hooks feature as "hooks stable <state>", where
+// earlier versions said "experimental": install reads the state either way.
+func TestHooksFeatureInEitherStage(t *testing.T) {
+	for list, off := range map[string]bool{"hooks stable false": true, "hooks experimental false": true, "hooks stable true": false, "hooks experimental true": false} {
+		opts, f := setup(t)
+		run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+			if host == "codex" && strings.Join(args, " ") == "features list" {
+				return []byte(list + "\n"), nil
+			}
+			return f.run(ctx, host, args...)
+		}
+		opts.Preflight = true
+		if _, err := runInstall(context.Background(), opts, run); errors.Is(err, ErrHooksOff) != off || !off && err != nil {
+			t.Errorf("%q: %v", list, err)
+		}
+	}
+}
+
+// Command names the stable binary eva-md only while the link on PATH
+// reaches it, as setup's closing lines do, and by its full path with no
+// link, with a link to something else, or with eva-md's link in a folder
+// that isn't on PATH.
+func TestCommandNamesTheLinkOnPath(t *testing.T) {
+	opts, _ := setup(t)
+	link := LinkPath(opts.Dirs)
+	binary := filepath.Join(opts.Dirs.Share, "bin", "eva-md")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	off := os.Getenv("PATH")
+	on := off + string(filepath.ListSeparator) + filepath.Dir(link)
+	for _, c := range []struct {
+		name, path, to, want string
+	}{
+		{"no link", on, "", binary},
+		{"eva-md's link on PATH", on, binary, "eva-md"},
+		{"eva-md's link off PATH", off, binary, binary},
+		{"a link to something else", on, opts.Binary, binary},
+	} {
+		t.Setenv("PATH", c.path)
+		if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if c.to != "" {
+			if err := os.Symlink(c.to, link); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := Command(opts.Dirs); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// FailedCommand names the host command a failure is, also when wrapped, so
+// setup can say to run it, and nothing else.
+func TestFailedCommand(t *testing.T) {
+	failed := &hostError{msg: "install: codex plugin marketplace list --json failed", diagnostics: "a made-up diagnostic"}
+	for _, err := range []error{failed, fmt.Errorf("%w; none of the planned actions ran", failed)} {
+		if command, ok := FailedCommand(err); !ok || command != "codex plugin marketplace list --json" {
+			t.Fatalf("%v: %q %t", err, command, ok)
+		}
+	}
+	for _, err := range []error{errors.New("install: codex plugin marketplace list --json failed"), ErrHooksOff, nil} {
+		if command, ok := FailedCommand(err); ok {
+			t.Fatalf("%v: %q", err, command)
 		}
 	}
 }

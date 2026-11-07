@@ -170,7 +170,8 @@ var testCommands = []string{"go test", "go build", "go vet", "npm test", "pnpm t
 // activity reports the chat's last test or build command with its exit code,
 // and up to 5 distinct files its edit and write tools touched, newest first.
 // It reads the stored tool lines (see hook.toolLine), so it is a heuristic: a
-// test run after cd or through a script is not recognised.
+// test run after cd is recognised (see afterCd), one through a script is
+// not. The command is shown as it ran, cd included.
 func activity(h history, root string) string {
 	var test string
 	var files []string
@@ -183,7 +184,7 @@ func activity(h history, root string) string {
 		switch {
 		case !ok:
 		case name == "Bash":
-			if command := strings.Join(strings.Fields(detail), " "); test == "" && testCommand(command) {
+			if command := strings.Join(strings.Fields(detail), " "); test == "" && testCommand(afterCd(command)) {
 				exit = " (exit " + oneLine(exit, 12) + ")"
 				head := "Last test or build command: "
 				test = head + oneLine(command, 150-runes(head)-runes(exit)) + exit
@@ -235,6 +236,46 @@ func testCommand(command string) bool {
 		}
 	}
 	return false
+}
+
+// afterCd returns a command, its spaces made single, with each "cd <folder>
+// &&" or "cd <folder>;" it starts with taken off, so a test run in another
+// folder, as in "cd internal && go test ./...", is recognised. The folder is
+// a word, or text in quotes; a command that goes on any other way after cd
+// comes back as it is.
+func afterCd(command string) string {
+	for {
+		rest, ok := strings.CutPrefix(command, "cd ")
+		if !ok {
+			return command
+		}
+		rest = strings.TrimLeft(skipFolder(rest), " ")
+		switch {
+		case strings.HasPrefix(rest, "&&"):
+			rest = rest[2:]
+		case strings.HasPrefix(rest, ";"):
+			rest = rest[1:]
+		default:
+			return command
+		}
+		command = strings.TrimLeft(rest, " ")
+	}
+}
+
+// skipFolder returns what follows the folder a cd names at the start of s:
+// a word, which a space, ';' or '&' ends, or text in single or double
+// quotes. An unclosed quote takes the rest.
+func skipFolder(s string) string {
+	if s != "" && (s[0] == '"' || s[0] == '\'') {
+		if end := strings.IndexByte(s[1:], s[0]); end >= 0 {
+			return s[end+2:]
+		}
+		return ""
+	}
+	if i := strings.IndexAny(s, " ;&"); i >= 0 {
+		return s[i:]
+	}
+	return ""
 }
 
 // shortPath shows a file relative to the worktree when it is inside it, and

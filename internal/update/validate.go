@@ -235,6 +235,7 @@ type cites struct {
 	newest        time.Time // the newest cited entry
 	assistant     bool      // an assistant entry is cited
 	result        bool      // a tool entry, or an assistant's report of a result, is cited
+	web           bool      // a cited tool entry or report is of a turn that read the web (see webTurn)
 	onlyAssistant bool      // entries are cited, and all of them are the assistant's
 }
 
@@ -277,6 +278,7 @@ func (v *validator) cite(nums []int) cites {
 		case e.Role == "tool":
 			c.result = true
 		}
+		c.web = c.web || e.web
 		c.onlyAssistant = c.onlyAssistant && e.Role == "assistant"
 	}
 	c.onlyAssistant = c.onlyAssistant && len(c.nums) > 0

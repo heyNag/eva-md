@@ -104,7 +104,7 @@ func TestBriefSaysHowFarTheCodeMoved(t *testing.T) {
 					"System: Billing: Takes orders (code moved 2 commits since 2026-10-28): " + usualBin + " show systems/billing",
 					"System: Ledger: Takes orders (code unchanged since 2026-10-28): " + usualBin + " show systems/ledger",
 					"System: Orders: Takes orders (as of 2026-10-28): " + usualBin + " show systems/orders",
-					"System map: 3 systems: " + usualBin + " show systems/map",
+					"System index: 3 systems: " + usualBin + " show systems/index",
 				}
 				if got := pointers(r.Text); !reflect.DeepEqual(got, want) {
 					t.Fatalf("pointers\n%s\nin:\n%s", strings.Join(got, "\n"), r.Text)
@@ -142,7 +142,14 @@ func TestBriefCountsNothingAtHead(t *testing.T) {
 	if got := pointers(r.Text); len(got) != 2 || got[0] != "System: Ledger: Takes orders (code unchanged since 2026-10-28): "+usualBin+" show systems/ledger" {
 		t.Fatalf("pointers %q", got)
 	}
-	if log := logged(); !strings.Contains(log, "rev-parse --verify HEAD") || strings.Contains(log, "rev-list") {
+	// No commit was counted: live git's stash count walks the stash's
+	// reflog, which counts no commits.
+	log := logged()
+	counted := false
+	for _, line := range strings.Split(log, "\n") {
+		counted = counted || strings.Contains(line, "rev-list") && !strings.Contains(line, "rev-list --walk-reflogs --count refs/stash")
+	}
+	if !strings.Contains(log, "rev-parse --verify HEAD") || counted {
 		t.Fatalf("git ran:\n%s", log)
 	}
 }
@@ -190,7 +197,7 @@ func TestBriefTakesNoCountTheStatusCantMeasure(t *testing.T) {
 		return "System: " + title + ": Takes orders (as of 2026-10-28): " + usualBin + " show systems/" + slug
 	}
 	moved := "System: Orders: Takes orders (code moved 1 commit since 2026-10-28): " + usualBin + " show systems/orders"
-	last := "System map: 3 systems: " + usualBin + " show systems/map"
+	last := "System index: 3 systems: " + usualBin + " show systems/index"
 	for _, tc := range []struct {
 		name, head string
 		want       []string
@@ -315,7 +322,7 @@ func TestBriefCodeWithinItsDeadline(t *testing.T) {
 		codeLine("ledger", "Ledger", key, key+"@"+c[1][:7]+":internal/orders"))
 	asOf := "System: Billing: Takes orders (as of 2026-10-28): " + usualBin + " show systems/billing\n" +
 		"System: Ledger: Takes orders (as of 2026-10-28): " + usualBin + " show systems/ledger\n" +
-		"System map: 2 systems: " + usualBin + " show systems/map"
+		"System index: 2 systems: " + usualBin + " show systems/index"
 	// Less time is left before the deadline, less gitReserve, than a count
 	// needs.
 	logged := gitLog(t, false)
@@ -418,7 +425,7 @@ func TestBriefFetchesNothingInAPartialClone(t *testing.T) {
 				want := []string{
 					"System: Billing: Takes orders (as of 2026-10-28): " + usualBin + " show systems/billing",
 					"System: Ledger: Takes orders " + ledger + ": " + usualBin + " show systems/ledger",
-					"System map: 2 systems: " + usualBin + " show systems/map",
+					"System index: 2 systems: " + usualBin + " show systems/index",
 				}
 				if got := pointers(r.Text); !reflect.DeepEqual(got, want) || !strings.Contains(r.Text, "HEAD changed; previous commit unavailable") {
 					t.Fatalf("pointers\n%s\nin:\n%s", strings.Join(got, "\n"), r.Text)

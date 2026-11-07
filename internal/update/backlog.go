@@ -32,6 +32,7 @@ type backlog struct {
 	start   int64 // the watermark: entries[0] starts here
 	lines   int   // the physical lines before start
 	off     bool  // the chat was off the record at start
+	web     bool  // the turn open at start used a web fetch or web search
 	more    bool  // the pass that set the watermark stopped inside a group
 	typed   bool  // a prompt the user typed comes before start
 	hosted  bool  // a host prompt comes before start
@@ -43,7 +44,8 @@ type backlog struct {
 
 // openBacklog opens a session file at its watermark. It counts the lines
 // before the watermark once, with scanPrefix, which also tells whether the
-// chat was off the record there and whether prompts come before it.
+// chat was off the record there, whether the turn open there used the web
+// and whether prompts come before it.
 func openBacklog(store inbox.Store, path string) (*backlog, error) {
 	m, err := store.Mark(path)
 	if err != nil {
@@ -63,7 +65,7 @@ func openBacklog(store inbox.Store, path string) (*backlog, error) {
 		f.Close()
 		return nil, fmt.Errorf("update: read the session file: %w", err)
 	}
-	b.lines, b.off, b.typed, b.hosted = p.lines, p.off, p.typed, p.hosted
+	b.lines, b.off, b.web, b.typed, b.hosted = p.lines, p.off, p.web, p.typed, p.hosted
 	if err := b.load(windowBytes); err != nil {
 		f.Close()
 		return nil, err
@@ -217,15 +219,23 @@ func (b *backlog) wait() error {
 
 // advance moves the watermark to end, just past an entry, and saves it with
 // more, so the next pass continues a group this one stopped in; off is
-// whether the chat was off the record there.
+// whether the chat was off the record there. Whether the turn open there
+// used the web follows from the entries it passes, those on the record, as
+// Build reads them.
 func (b *backlog) advance(end int64, more, off bool) error {
 	if err := b.store.SetMark(b.path, inbox.Mark{Offset: end, More: more}); err != nil {
 		return fmt.Errorf("update: save the watermark: %w", err)
 	}
-	n := 0
+	n, was := 0, b.off
 	for n < len(b.entries) && b.entries[n].End <= end {
-		b.typed = b.typed || typed(b.entries[n].Entry)
-		b.hosted = b.hosted || hostEvent(b.entries[n].Entry)
+		e := b.entries[n].Entry
+		b.typed = b.typed || typed(e)
+		b.hosted = b.hosted || hostEvent(e)
+		if marker(e) {
+			was = e.Text == "off_record"
+		} else if !was {
+			b.web = turnWeb(b.web, e)
+		}
 		n++
 	}
 	b.entries = b.entries[n:]

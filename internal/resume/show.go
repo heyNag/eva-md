@@ -512,12 +512,28 @@ func showSource(ctx context.Context, dirs paths.Dirs, ref string) (string, error
 		}
 	}
 	if len(found) == 0 {
+		if removedFromInbox(dirs, sid) {
+			return "", errors.New("resume: that chat was removed from the inbox with eva-md inbox clear, so its lines are gone")
+		}
 		return "", errors.New("resume: source not found")
 	}
 	if len(found) > 1 {
 		return "", errors.New("resume: ambiguous source reference; use the full session id, as in s:<session>#<line>")
 	}
 	return found[0], nil
+}
+
+// removedFromInbox reports whether the record of the chats removed from the
+// inbox names the session a ref gives, in full or by its first 8
+// characters, as a ref names it. It is read only when a ref finds no line.
+func removedFromInbox(dirs paths.Dirs, sid string) bool {
+	removals, _ := (inbox.Store{Root: dirs.Inbox()}).Removed()
+	for _, r := range removals {
+		if r.Session == sid || inbox.Ref(r.Session, 1) == "s:"+sid+"#1" {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceLine(ctx context.Context, f *os.File, line int) (inbox.Entry, error) {

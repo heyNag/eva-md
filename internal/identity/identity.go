@@ -1,5 +1,6 @@
 // Package identity works out which project and branch a folder belongs to,
-// using hardened, read-only git calls.
+// using hardened, read-only git calls. It also holds the environment every
+// git eva-md runs starts from (GitEnviron).
 package identity
 
 import (
@@ -144,24 +145,12 @@ func Resolve(ctx context.Context, cwd string) (Project, error) {
 	if remote, ok := NormalizeRemote(raw); err == nil && ok {
 		p.Kind = KindRepo
 		p.Remote = remote
-		// Escape literal underscores before joining path components. Otherwise
-		// team__sub/repo and team/sub__repo would share the same inbox key.
-		p.Key = strings.ReplaceAll(strings.ReplaceAll(remote, "_", "_u"), "/", "__")
-		if !plainKey(p.Key) {
-			sum := sha256.Sum256([]byte(remote))
-			p.Key = "repo-" + hex.EncodeToString(sum[:])[:12]
-		}
+		p.Key = repoKey(remote)
 		p.Slug = path.Base(remote)
 		return p, nil
 	}
-	sum := sha256.Sum256([]byte(root))
-	name := folderName(filepath.Base(root)) + "-" + hex.EncodeToString(sum[:])[:6]
 	p.Kind = KindLocal
-	p.Key = "local-" + name
-	if !plainKey(p.Key) {
-		p.Key = "local-" + hex.EncodeToString(sum[:])[:12]
-	}
-	p.Slug = name
+	p.Key, p.Slug = localKey(root)
 	return p, nil
 }
 
@@ -272,38 +261,6 @@ type exitError struct {
 }
 
 func (e *exitError) Error() string { return fmt.Sprintf("git %s exited with %d", e.arg, e.code) }
-
-// locatingVars are the git environment variables that would point a git call
-// at a different repo than the folder being resolved.
-var locatingVars = map[string]bool{
-	"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true, "GIT_COMMON_DIR": true,
-	"GIT_OBJECT_DIRECTORY": true, "GIT_ALTERNATE_OBJECT_DIRECTORIES": true,
-	"GIT_NAMESPACE": true, "GIT_PREFIX": true,
-}
-
-// GitEnv is the environment of eva-md's read-only git calls: the process's,
-// without the variables that could point git at another repo or change its
-// config or how it reads a pathspec, and with prompts, optional locks, lazy
-// fetches and translations off, so a partial clone never fetches an object
-// it lacks from its remote; git older than 2.44 ignores GIT_NO_LAZY_FETCH.
-// coderef reads paths with --literal-pathspecs, which git refuses beside a
-// GIT_GLOB_PATHSPECS or GIT_ICASE_PATHSPECS setting.
-func GitEnv() []string { return gitEnv() }
-
-func gitEnv() []string {
-	env := make([]string, 0, len(os.Environ())+4)
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if locatingVars[name] || name == "GIT_TERMINAL_PROMPT" || name == "GIT_OPTIONAL_LOCKS" || name == "GIT_NO_LAZY_FETCH" || name == "LC_ALL" ||
-			name == "GIT_CONFIG" || name == "GIT_CONFIG_PARAMETERS" || name == "GIT_CONFIG_COUNT" ||
-			strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_") ||
-			name == "GIT_LITERAL_PATHSPECS" || name == "GIT_GLOB_PATHSPECS" || name == "GIT_NOGLOB_PATHSPECS" || name == "GIT_ICASE_PATHSPECS" {
-			continue
-		}
-		env = append(env, kv)
-	}
-	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
-}
 
 // git runs one read-only git command in dir with fsmonitor and hooks off and
 // no optional locks, and returns its stdout without the final newline.

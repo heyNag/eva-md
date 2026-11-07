@@ -922,7 +922,7 @@ func (c repoCLI) runSorted(ctx context.Context, timeout time.Duration, sort io.W
 		}
 		return nil, fmt.Errorf("%s %s failed", c.name, strings.Join(args[:2], " "))
 	}
-	return out.Bytes(), nil
+	return out.buffer.Bytes(), nil
 }
 
 // repoCLIEnv is the environment c runs with: git's (wikigit.Environment
@@ -957,12 +957,18 @@ func repoCLIEnv(c repoCLI) []string {
 	return env
 }
 
-// cliOutput keeps a CLI's output, failing the command past 1 MiB.
-type cliOutput struct{ bytes.Buffer }
+// cliOutputLimit is the most gh or glab may print before setup fails the
+// command.
+const cliOutputLimit = 1 << 20
+
+// cliOutput keeps a CLI's output, failing the command past cliOutputLimit.
+// The buffer is a named field, not an embedded bytes.Buffer, whose ReadFrom
+// os/exec would call in place of Write, so the limit would never hold.
+type cliOutput struct{ buffer bytes.Buffer }
 
 func (b *cliOutput) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > 1<<20 {
+	if b.buffer.Len()+len(p) > cliOutputLimit {
 		return 0, errors.New("output exceeds limit")
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }

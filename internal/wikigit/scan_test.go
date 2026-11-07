@@ -70,6 +70,38 @@ func TestSecretLine(t *testing.T) {
 	}
 }
 
+// Page lines that carry a password in the shapes redaction learned at
+// version 5 are flagged, so such a line is never committed; lines about
+// passwords that hold none are not.
+func TestSecretLineCatchesPasswordShapes(t *testing.T) {
+	pw := "S3cr3t" + "Pw9"
+	for i, line := range []string{
+		"- decision [stated]: Use DB_PASS=" + pw + " for staging s:3f2a91c0#14",
+		"Set MYSQL_PWD=" + pw + " before the import.",
+		"The user said: my password is Hunter" + "2!x",
+		"Run mysql -u root -p" + pw + " app to check.",
+		"Ran curl -u admin:" + pw + " https://x.example/api",
+		"The token is hf_" + "AbCdEfGhIjKlMnOpQrStUvWxYz01234567",
+		"Publish with npm_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+	} {
+		if !secretLine(line) {
+			t.Errorf("secret %d missed", i)
+		}
+	}
+	for i, line := range []string{
+		"- decision [stated]: The password is in the vault s:3f2a91c0#14",
+		"Run mysql -u root -p and type the password when asked.",
+		"Use mkdir -p and git add -p as before.",
+		"A pass is required for the staging hosts.",
+		"The password is base64-encoded in the config.",
+		"Read DB_PASS from the environment, never from the repo.",
+	} {
+		if secretLine(line) {
+			t.Errorf("clean line %d counted as a secret", i)
+		}
+	}
+}
+
 // The diff reader judges only added lines, and counts a binary file or a
 // line too long to judge as a secret.
 func TestDiffScan(t *testing.T) {

@@ -76,8 +76,22 @@ type SessionFile struct {
 }
 
 // maxFiles is how many of the project's most recently changed session files
-// a brief reads.
+// a brief reads, not counting those it finds to hold a chat a program ran.
 const maxFiles = 64
+
+// A file found to hold a chat a program ran doesn't count toward maxFiles,
+// so a burst of them can't push the person's chats out of the brief: at
+// most programFiles of them, and programBytes in all, are read beyond the
+// 64, which adds about 25 ms at most to the brief's 300 ms target: a MiB of
+// what such a chat holds, many short tool lines and replies with quotes and
+// line breaks, takes about 13 ms to read on an Apple M1 Max with other jobs
+// running, three times a MiB of a few long plain strings
+// (BenchmarkProgramRunFiles). The brief tells such a file only when the last
+// MiB it reads holds the file's first line, so none is longer than that.
+const (
+	programFiles = 64
+	programBytes = 2 << 20
+)
 
 // openSession opens a session file for readHistories. Tests count the files
 // a brief reads through it.
@@ -88,10 +102,11 @@ var openSession = regular
 const generalWindow = 12 * time.Hour
 
 // readHistories returns the chats in the project's maxFiles most recently
-// changed session files, and those files, newest first. It reads no more
-// than those files, however few chats it keeps from them, and in the
-// general area it lists but does not read one changed before its 12-hour
-// window.
+// changed session files, and the files it read or listed, newest first. It
+// reads no more than those files, however few chats it keeps from them,
+// besides the files of chats a program ran, within programFiles and
+// programBytes, and in the general area it lists but does not read one
+// changed before its 12-hour window.
 func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, error) {
 	key := safeProject(o.Project)
 	if key == "" {
@@ -119,7 +134,7 @@ func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, er
 	general := o.Project.Key == "general"
 	var all []history
 	var files []SessionFile
-	seen := 0
+	seen, programs, programSize := 0, 0, int64(0)
 	for _, info := range names {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -168,6 +183,11 @@ func readHistories(ctx context.Context, o Options) ([]history, []SessionFile, er
 			}
 		}
 		program := first && !typed && hosted
+		if program && programs < programFiles && programSize+info.Size() <= programBytes {
+			seen--
+			programs++
+			programSize += info.Size()
+		}
 		off := false
 		for _, r := range recs {
 			if !belongs(r.Entry, o, info.Name()) {
@@ -620,13 +640,16 @@ func plainName(s string) bool {
 	return !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.In(r, unicode.Cf) || unicode.IsSpace(r) })
 }
 
-// nowSection reads the Now section of the thread page id.
+// nowSection reads the Now section of the thread page id: the page's
+// frontmatter and its body up to the end of the Now, at most 2 MiB of them,
+// so a page whose Timeline grew past that still shows its Now. What follows
+// the Now is never parsed, and at most 64 KiB of it is read.
 func nowSection(w *okfadapter.Wiki, id string) page {
-	got, err := w.ReadMax(id, pageCap)
+	got, err := w.ReadHead(id, threadpage.NowEnd, pageCap)
 	if err != nil {
 		return page{}
 	}
-	body := got.Concept.Body
+	body := got.Body
 	if strings.Count(body, threadpage.NowStart) != 1 || strings.Count(body, threadpage.NowEnd) != 1 {
 		return page{}
 	}
@@ -638,15 +661,15 @@ func nowSection(w *okfadapter.Wiki, id string) page {
 	if now == "" {
 		return page{}
 	}
-	as, _ := got.Concept.Extra["as_of"].(string)
+	as, _ := got.Extra["as_of"].(string)
 	ts, _ := time.Parse(time.RFC3339Nano, as)
 	// Initialization creates this undated placeholder before any chat exists.
 	// It is structure, not saved memory, and must not make an empty project
 	// look as though a previous conversation was found.
-	if now == threadpage.Placeholder && ts.IsZero() && len(got.Concept.Sources) == 0 {
+	if now == threadpage.Placeholder && ts.IsZero() && len(got.Sources) == 0 {
 		return page{}
 	}
-	head, _ := got.Concept.Extra["head"].(string)
+	head, _ := got.Extra["head"].(string)
 	return page{now: now, hash: hash(now), id: id, head: head, asOf: ts}
 }
 

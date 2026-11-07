@@ -311,7 +311,7 @@ func appendRecord(state string, r Record) error {
 		return fmt.Errorf("update: run log: %w", err)
 	}
 	defer root.Close()
-	f, err := root.OpenFile(day(r.At)+".jsonl", os.O_WRONLY|os.O_APPEND|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	f, err := paths.OpenOrCreate(root, day(r.At)+".jsonl", os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		return fmt.Errorf("update: run log: %w", err)
 	}
@@ -449,7 +449,7 @@ func OpenLog(dirs paths.Dirs, now time.Time) (*os.File, error) {
 	if _, err := root.Lstat(name); errors.Is(err, fs.ErrNotExist) {
 		pruneLogs(root, now)
 	}
-	f, err := root.OpenFile(name, os.O_WRONLY|os.O_APPEND|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	f, err := paths.OpenOrCreate(root, name, os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("update: log: %w", err)
 	}

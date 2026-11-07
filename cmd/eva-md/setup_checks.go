@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/wikiinit"
 )
 
@@ -114,6 +116,55 @@ func checkHostCLI(ctx context.Context, ck checklist, r *repoCLIs, host string, h
 		return true
 	}
 	ck.fail(what, fix)
+	return false
+}
+
+// checkInstall runs install's checks before it changes anything, as a dry
+// run that needs no config, so that whatever install would refuse, such as
+// Codex with its hooks feature off, stops setup here, before it makes or
+// pushes a wiki. hosts names the apps setup found for the plugins. Codex's
+// hooks feature off gets both ways out: turning it on, or installing for
+// Claude Code only, with --host when the flag chose the hosts (hostFlag),
+// and in the answers file otherwise, after installing Claude Code when this
+// Mac has no claude command. Any other refusal is said as install words it,
+// with its fix. It returns false when setup must stop.
+func checkInstall(ctx context.Context, ck checklist, env setupEnv, opts install.Options, hosts []string, hostFlag bool, answersFile string) bool {
+	ctx, cancel := context.WithTimeout(ctx, installTimeout)
+	_, err := env.preflight(ctx, opts)
+	cancel()
+	if err == nil {
+		ck.pass("The plugins can be installed for " + strings.Join(hosts, " and "))
+		return true
+	}
+	if errors.Is(err, install.ErrHooksOff) {
+		only := "set " + config.KeyHosts + "=claude in " + answersFile
+		if hostFlag {
+			only = "run setup with --host claude"
+		}
+		// Claude Code is looked for by its command, as the host check
+		// looks, not among the hosts: --host codex leaves it out of them.
+		if _, err := env.lookPath("claude"); err != nil {
+			only = "install Claude Code, then " + only
+		}
+		ck.fail("Codex's hooks feature is off, so eva-md can't capture Codex chats", "run codex features enable hooks, or "+only+" to install for Claude Code only")
+		return false
+	}
+	what, fix, _ := strings.Cut(strings.TrimPrefix(err.Error(), "install: "), "; ")
+	switch command, failed := install.FailedCommand(err); {
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		ck.fail("Install's checks of the apps were stopped or ran out of time", "check that claude plugin list and codex plugin marketplace list answer in a terminal")
+		return false
+	case failed:
+		// The host's own words can name paths or credentials, so install
+		// never shows them; the person can run the command.
+		fix = "run " + command + " to see why"
+	case fix != "":
+	case errors.Is(err, install.ErrConflict):
+		fix = "remove the other eva-md registration with that app's plugin commands"
+	default:
+		fix = "fix that first; setup makes no wiki until install's checks pass"
+	}
+	ck.fail("The plugins can't be installed: "+what, fix)
 	return false
 }
 

@@ -136,23 +136,32 @@ func native(ctx context.Context, host string, args ...string) ([]byte, error) {
 	if stdout.overflow {
 		return nil, errors.New("install: host inventory exceeded limit")
 	}
-	return stdout.Bytes(), nil
+	return stdout.buffer.Bytes(), nil
 }
 
+// hostOutputLimit is how much of what a host command prints, on stdout and
+// on stderr each, eva-md keeps.
+const hostOutputLimit = 2 << 20
+
+// limitedBuffer keeps the first hostOutputLimit bytes a host command prints
+// and drops the rest, noting that it did. The buffer is a named field, not
+// an embedded bytes.Buffer, whose ReadFrom os/exec would call in place of
+// Write, so the limit would never hold.
 type limitedBuffer struct {
-	bytes.Buffer
+	buffer   bytes.Buffer
 	overflow bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	n := len(p)
-	if b.Len()+n > 2<<20 {
-		b.overflow = true
-		return n, nil
+	if room := hostOutputLimit - b.buffer.Len(); n > room {
+		p, b.overflow = p[:max(room, 0)], true
 	}
-	_, _ = b.Buffer.Write(p)
+	_, _ = b.buffer.Write(p)
 	return n, nil
 }
+
+func (b *limitedBuffer) String() string { return b.buffer.String() }
 
 func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Status, error) {
 	s := Status{Host: host}

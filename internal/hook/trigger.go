@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/resume"
+	"github.com/heyNag/eva-md/internal/update"
 )
 
 // The thresholds of the update triggers (docs/design.md "Triggers").
@@ -28,14 +30,54 @@ func updatesOn(c config.Config) bool { return c.Updates && c.WikiPath != "" }
 // queueUpdate asks for a detached eva-md update of sessions, each
 // "<host>:<id>", unless updates are off.
 func queueUpdate(spawns *[][]string, env Env, sessions ...string) {
-	if !updatesOn(env.Config) || len(sessions) == 0 {
+	queueCatchUp(spawns, env, false, sessions...)
+}
+
+// sweepFlag asks a catch-up job to take the day's sweep too (see eva-md
+// update --sweep).
+const sweepFlag = "--sweep"
+
+// queueCatchUp asks for the start-of-chat catch-up of sessions, and with
+// sweep for the day's sweep in the same job, so the two never race for the
+// update lock, and the day's maintain, its own job, never waits for either.
+// Asking costs the hook nothing here: launch drops the sweep once a job has
+// taken it today, and the job with it when it has no session to update
+// (see withSweep).
+func queueCatchUp(spawns *[][]string, env Env, sweep bool, sessions ...string) {
+	if !updatesOn(env.Config) {
 		return
 	}
 	args := []string{"update"}
 	for _, s := range sessions {
 		args = append(args, "--session", s)
 	}
-	*spawns = append(*spawns, args)
+	if sweep {
+		args = append(args, sweepFlag)
+	}
+	if len(args) > 1 {
+		*spawns = append(*spawns, args)
+	}
+}
+
+// withSweep keeps a catch-up job's --sweep only while the day's sweep is
+// due on the hook's day, now's, which takes one small read of the day the
+// update last took it (see update.SweepDue), after the hook's output, and
+// gives the job that day, --sweep=YYYY-MM-DD, to claim the sweep on. A job
+// left with no session to update is dropped: nil.
+func withSweep(env Env, args []string, now time.Time) []string {
+	i := slices.Index(args, sweepFlag)
+	if i < 0 {
+		return args
+	}
+	args = slices.Clone(args)
+	if day := now.Format(time.DateOnly); update.SweepDue(env.Dirs.State, day) {
+		args[i] = sweepFlag + "=" + day
+		return args
+	}
+	if args = slices.Delete(args, i, i+1); len(args) == 1 {
+		return nil
+	}
+	return args
 }
 
 // pending is how many bytes of a session file size bytes long the update

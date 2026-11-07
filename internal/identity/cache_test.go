@@ -3,6 +3,8 @@ package identity
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
@@ -14,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/heyNag/eva-md/internal/redact"
 )
 
 // gitCounter puts a git first on PATH that counts its runs and then runs the
@@ -955,4 +959,67 @@ func touchEntry(t *testing.T, c Cache, path string, at time.Time) string {
 	}
 	t.Fatalf("no entry for %s", path)
 	return ""
+}
+
+// A project's key depends on the redaction rules as well as on git's files:
+// a name that reads as a provider token is keyed by a hash (see plainKey).
+// An entry an older eva-md stored keeps the key its rules gave, and git's
+// files don't change when eva-md is upgraded. So an entry whose key the
+// current rules give differently is resolved live and replaced: a readable
+// key the inbox now refuses, which would stop the project's capture, and a
+// hash where the readable key now passes.
+func TestCacheKeyFollowsTheRedactionRules(t *testing.T) {
+	f := newCacheFixture(t)
+	tokenLike := newRepo(t, filepath.Join(f.home, "code", "ops_runbooks_2026"), true)
+	plain := newRepo(t, filepath.Join(f.home, "code", "billing"), true)
+	remote := newRepo(t, filepath.Join(f.home, "code", "tools"), true)
+	runGit(t, remote, "remote", "add", "origin", "https://github.com/acme/tools.sk-learn-pipeline-tools.git")
+	sum := sha256.Sum256([]byte(plain))
+	for _, c := range []struct{ name, repo, stored string }{
+		{"a key the inbox refuses", tokenLike, "local-ops_runbooks_2026-" + hash6(tokenLike)},
+		{"a hash where the readable key passes", plain, "local-" + hex.EncodeToString(sum[:])[:12]},
+		{"a remote's key the inbox refuses", remote, "github.com__acme__tools.sk-learn-pipeline-tools"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			want := f.miss(t, c.repo)
+			if want.Key == c.stored {
+				t.Fatalf("the stored key is the current one, so the case proves nothing: %q", want.Key)
+			}
+			setEntryKey(t, f.cache, c.repo, c.stored)
+			// The entry still matches git's files; its key alone sends it live.
+			if got, hit := f.resolve(t, c.repo); hit || got != want {
+				t.Fatalf("got %+v from the cache: %v; want %+v resolved live", got, hit, want)
+			}
+			if clean, n := redact.RedactKnown(want.Key); n != 0 || clean != want.Key {
+				t.Fatalf("the live key %q is one the inbox refuses", want.Key)
+			}
+			// The live answer replaced the entry.
+			if got := f.hit(t, c.repo); got != want {
+				t.Fatalf("got %+v", got)
+			}
+		})
+	}
+}
+
+// setEntryKey rewrites the key in the cache's entry for path, keeping its
+// signature and a valid checksum, as an older eva-md with other redaction
+// rules would have stored it.
+func setEntryKey(t *testing.T, c Cache, path, key string) {
+	t.Helper()
+	file := filepath.Join(c.Dir, touchEntry(t, c, path, time.Now()))
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e cacheEntry
+	if err := json.Unmarshal(data, &e); err != nil || e.Sig == "" {
+		t.Fatalf("entry %s: %v", file, err)
+	}
+	e.Project.Key = key
+	e.Sum = e.checksum()
+	out, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, file, string(out))
 }

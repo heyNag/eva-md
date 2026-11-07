@@ -110,11 +110,7 @@ func setupStopped(ctx context.Context, d paths.Dirs, tag string) string {
 	if got, err := binaryVersion(ctx, stable); err != nil || got != tag {
 		return "setup stopped; when it named a problem, fix it, then run eva-md upgrade again"
 	}
-	name := stable
-	if to, err := os.Readlink(install.LinkPath(d)); err == nil && to == stable {
-		name = "eva-md"
-	}
-	return fmt.Sprintf("setup stopped after installing eva-md %s; when it named a problem, fix it, then run %s setup to finish", tag, name)
+	return fmt.Sprintf("setup stopped after installing eva-md %s; when it named a problem, fix it, then run %s setup to finish", tag, install.Command(d))
 }
 
 // upgradeTo downloads and checks release tag, then runs its setup and

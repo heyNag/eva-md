@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,10 +46,11 @@ func TestDryRunIsByteIdenticalAndShowsNoValues(t *testing.T) {
 		"\n  claude -p --safe-mode --tools '' --strict-mcp-config --no-session-persistence --permission-prompts none --effort max --system-prompt '<the rules below>' --output-format json --json-schema '<the schema below>'",
 		"SSL_CERT_FILE", "EVA_MD_INNER", "== Rules ==\n" + Rules, "== Input ==\nBranch: main\n", "[1] user 2026-01-14 10:01: Plan the amber step 0.",
 		"== Schema ==\n{\"type\":\"object\"",
-		// The rules of version 3: sharper Now items, standing rules and
-		// knowledge.
-		"== Rules ==\neva-md update rules, version 3.\n", "Make every Now item concrete and specific", "Standing rules on file, by id: none.\n", `"rules":{"type":"array","maxItems":10`,
+		// The rules of version 4: sharper Now items, standing rules,
+		// knowledge, never observed from the web, and no credential copied.
+		"== Rules ==\neva-md update rules, version 4.\n", "Make every Now item concrete and specific", "Standing rules on file, by id: none.\n", `"rules":{"type":"array","maxItems":10`,
 		"\nknowledge: lasting facts, decisions, procedures and constraints", "Knowledge on file, by id (supersede or drop rather than repeat): none.\n",
+		"used a web fetch or web search settles no observed knowledge", "Never copy a password, token, key or other credential",
 		`"knowledge":{"type":"array","maxItems":10,"description":"At most 5 are kept."`,
 	} {
 		if !strings.Contains(got, want) {
@@ -352,6 +355,77 @@ func TestOffRecordCarriesAcrossPasses(t *testing.T) {
 			}
 			if p, _ := e.page("projects/eva-md/threads/" + threadpage.ThreadName("feature/plum")); p.Now.Summary != "The amber work goes on." {
 				t.Fatalf("feature/plum: %+v", p.Now)
+			}
+		})
+	}
+}
+
+// A turn whose web fetch one pass covers and whose report the next pass
+// covers, as when 60 KB stops inside the turn, stays a turn that used the
+// web: a fact the report gives is no observed knowledge in the later pass,
+// within one run and, through the lines before the watermark, in a later
+// one. So it is when the run before ended with the chat off the record and
+// the first pass comes back on the record before the turn.
+func TestWebTurnCarriesAcrossPasses(t *testing.T) {
+	for _, name := range []string{"one run", "two runs", "back on the record"} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			c := newChat("3f2a91c0-webp", start)
+			before := 0 // the model calls of the run before
+			if name == "back on the record" {
+				// The run before ends off the record, as capture leaves a
+				// chat: past the marker, only fixed events.
+				talk(c, 1, "cobalt")
+				c.event("off_record")
+				c.event("compact")
+				file := e.write(c)
+				if s := e.run(c); outcomes(s) != "ok" || e.mark(file).Offset != size(t, file) {
+					t.Fatalf("the run before: %q, watermark %+v of %d\n%s", outcomes(s), e.mark(file), size(t, file), e.log)
+				}
+				before = len(e.fake.Requests())
+				e.clock = e.clock.Add(time.Hour)
+				c.event("on_record")
+			}
+			c.user("Summarize the runner docs. " + filler)
+			for range 7 {
+				c.assistant(strings.Repeat("Reading old notes aloud settles nothing new. ", 170))
+			}
+			c.user("What do the docs say about the runner?")
+			c.tool("WebFetch https://docs.example.com/runner (exit 0)")
+			c.tool("Bash make runner-check (exit 0)")
+			c.tool("Bash make runner-check-again ARGS=" + strings.Repeat("x", 8000) + " (exit 0)")
+			c.assistant("The docs say the runner reads the RUNNER_POOL variable.")
+			file := e.write(c)
+			report := regexp.MustCompile(`(?m)^\[([0-9]+)\] assistant [^\n]*RUNNER_POOL`)
+			calls := 0
+			e.fake.Respond = func(r Request) (Result, error) {
+				if calls++; name == "two runs" && calls == 2 {
+					return Result{Reason: ReasonRateLimit, Attempts: 1}, nil
+				}
+				o := keeps(r)
+				o.Summary, o.LastChat = "The runner work goes on.", "Read the runner docs."
+				if m := report.FindStringSubmatch(string(r.Input)); m != nil {
+					n, _ := strconv.Atoi(m[1])
+					o.Knowledge = []knowledgeOp{kAdd("fact", "Runner pool", "The runner reads the RUNNER_POOL variable", "observed", n-1, n)}
+				}
+				return Result{Output: encode(t, o), Attempts: 1}, nil
+			}
+			records := e.run(c).Records
+			if name == "two runs" {
+				e.clock = e.clock.Add(time.Hour)
+				records = append(records, e.run(c).Records...)
+			}
+			requests := e.fake.Requests()[before:]
+			first, last := string(requests[0].Input), string(requests[len(requests)-1].Input)
+			if !strings.Contains(first, "WebFetch") || strings.Contains(first, "RUNNER_POOL") || strings.Contains(last, "WebFetch") || strings.Contains(last, "] user ") || !report.MatchString(last) {
+				t.Fatalf("the passes don't split the turn after its fetch:\n%s\n---\n%s", first, last)
+			}
+			pass := records[len(records)-1]
+			if !success(pass) || pass.Validation == nil || pass.Validation.Knowledge != (KnowledgeCounts{Refused: 1}) || e.mark(file).Offset != size(t, file) {
+				t.Fatalf("the later pass %+v, %+v\n%s", pass, pass.Validation, e.log)
+			}
+			if _, err := e.wiki().Read("knowledge/k1"); err == nil {
+				t.Fatal("a fact the web turn reported was saved as observed knowledge")
 			}
 		})
 	}

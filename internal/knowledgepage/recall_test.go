@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/heyNag/eva-md/internal/identity"
 )
 
 // recallRows is the labelled fixture's index: facts of two projects, some
@@ -58,12 +60,52 @@ var recallRows = func() []Row {
 	return rows
 }()
 
-// labelled is a prompt and the pages it should recall: none for a prompt
-// the facts don't answer.
+// labelled is a prompt, the project it is asked in, and the pages it should
+// recall: none for a prompt the facts in its scope don't answer.
 type labelled struct {
 	prompt string
 	want   []string // pages it must recall
 	also   []string // pages that help too, right when recalled, never missed
+	in     string   // the project it is asked in
+	near   []string // in place of want, the pages it must recall when the two projects share a system page
+}
+
+// ask is a labelled prompt as the fixture lists it: the prompt, the pages it
+// must recall and those that help too.
+type ask struct {
+	prompt     string
+	want, also []string
+}
+
+// askedIn returns the prompts asked in the project in.
+func askedIn(in string, asks []ask) []labelled {
+	var out []labelled
+	for _, a := range asks {
+		out = append(out, labelled{prompt: a.prompt, want: a.want, also: a.also, in: in})
+	}
+	return out
+}
+
+// unnamed returns the prompts asked in the project in about the other
+// project's facts, without naming it: they recall nothing, unless the two
+// projects share a system page, when they must recall the pages wanted.
+func unnamed(in string, asks []ask) []labelled {
+	var out []labelled
+	for _, a := range asks {
+		out = append(out, labelled{prompt: a.prompt, in: in, near: a.want})
+	}
+	return out
+}
+
+// billingAsks are prompts the other project's facts answer.
+var billingAsks = []ask{
+	{"how do invoices round line amounts?", []string{"k7"}, nil},
+	{"after how many attempts do payment retries stop?", []string{"k8"}, nil},
+	{"can we log the card numbers for debugging the checkout?", []string{"k9"}, nil},
+	{"what happens when the tax service times out?", []string{"k15"}, nil},
+	{"do refunds over 500 dollars need approval?", []string{"k19"}, nil},
+	{"should money amounts be stored as floats?", []string{"k23"}, nil},
+	{"do we round invoices with banker's rounding?", []string{"k7"}, nil},
 }
 
 // filler repeats a few words that no fact holds, as a pasted log does.
@@ -75,8 +117,10 @@ func filler(words string, size int) string {
 	return b.String()
 }
 
-// recallPrompts are the labelled prompts, asked in the first project.
-var recallPrompts = []labelled{
+// recallPrompts are the labelled prompts, each asked in one project: the
+// first project's facts asked there, the other's asked there by name, in
+// the other and, unnamed, in the first, and a few of the first's in the other.
+var recallPrompts = slices.Concat(askedIn(project, []ask{
 	// Prompts the facts answer.
 	{"what format does the inbox use for entries? is it JSONL?", []string{"k1"}, nil},
 	{"can the hooks make a network call to fetch the latest version?", []string{"k2"}, nil},
@@ -84,28 +128,22 @@ var recallPrompts = []labelled{
 	{"what is the p95 latency target for capture?", []string{"k4"}, nil},
 	{"walk me through the release checklist before I tag v1", []string{"k5"}, nil},
 	{"how is the daily wiki commit signed?", []string{"k6"}, []string{"k30"}},
-	{"how do invoices round line amounts?", []string{"k7"}, nil},
-	{"after how many attempts do payment retries stop?", []string{"k8"}, nil},
-	{"can we log the card numbers for debugging the checkout?", []string{"k9"}, nil},
 	{"should I change the baseline redaction rules to catch this token?", []string{"k10"}, nil},
 	{"can I delete the search index to save disk space?", []string{"k11"}, nil},
 	{"which okf version are we pinned to? can we patch it?", []string{"k12"}, nil},
 	{"should I use docker or the container cli for the linux build?", []string{"k13"}, nil},
 	{"does each branch get its own thread page?", []string{"k14"}, nil},
-	{"what happens when the tax service times out?", []string{"k15"}, nil},
 	{"my test reads the real home folder, is that allowed?", []string{"k16"}, nil},
 	{"which model does the background update use and at what effort?", []string{"k17"}, nil},
 	{"how long do writers wait for the wiki lock?", []string{"k18"}, nil},
-	{"do refunds over 500 dollars need approval?", []string{"k19"}, nil},
 	{"why does the knowledge map list retired pages?", []string{"k20"}, nil},
 	{"what's the budget of the prompt hook in ms?", []string{"k21"}, nil},
 	{"is it fine to log the captured text while debugging?", []string{"k22"}, nil},
-	{"should money amounts be stored as floats?", []string{"k23"}, nil},
 	{"why does codex ask to trust the hooks again after upgrading the plugin?", []string{"k24"}, nil},
 	{"is the startup brief p95 under 300 ms?", []string{"k4"}, nil},
-	{"do we round invoices with banker's rounding?", []string{"k7"}, nil},
 	{"is the session start hook budget 1.5 seconds?", []string{"k21"}, nil},
-	// Prompts that name another project's fact.
+	// Prompts that name the other project, of the same owner, and ask
+	// about its facts.
 	{"in the billing service, are card numbers ever written to the logs?", []string{"k9"}, nil},
 	{"billing: how many attempts before payment retries give up?", []string{"k8"}, nil},
 	// Prompts the facts don't answer.
@@ -148,7 +186,21 @@ var recallPrompts = []labelled{
 	{filler("lorem ipsum dolor sit amet consectetur adipiscing elit sed eiusmod", 80<<10) + "\nwhy does the inbox use JSONL files per session?", []string{"k1"}, nil},
 	{filler("goroutine 17 [running]: main.process(0xc000010000) /src/main.go:42 +0x1d panic: runtime error: slice bounds out of range", 90<<10), nil, nil},
 	{strings.Repeat("Our pipeline builds every branch, runs the unit suite and uploads an artifact to the registry. Reviewers approve the change, and a bot merges it once the checks pass. ", 40) + "Can you shorten this paragraph?", nil, nil},
-}
+}),
+	// The other project's facts, asked in it, and in the first project
+	// without naming it.
+	askedIn(other, billingAsks),
+	unnamed(project, billingAsks),
+	// The first project's facts asked in the other: by name, and without.
+	askedIn(other, []ask{
+		{"in eva, what is the p95 latency target for capture?", []string{"k4"}, nil},
+		{"in eva, the release notes need a typo fix", nil, nil},
+	}),
+	unnamed(other, []ask{
+		{"can I delete the search index to save disk space?", []string{"k11"}, nil},
+		{"how long do writers wait for the wiki lock?", []string{"k18"}, nil},
+	}),
+)
 
 // recallSizes are the index sizes TestRecallPrecision measures, and the
 // indexes of each: every row alone, runs of 3 and of 10 rows of the
@@ -194,11 +246,12 @@ func neutralRows(t *testing.T, n int) []Row {
 }
 
 // TestRecallPrecision measures recall on the labelled prompts at indexes of
-// 1, 3, 10, 36 and 500 rows: each prompt gets at most MaxRecall rows, best
-// first, as the hook shows them, and must recall the pages it wants that
-// the index holds. It fails below 90% precision or 60% recall at any size,
-// and reports the precision and recall Floor gives at each, and what nearby
-// floors would give.
+// 1, 3, 10, 36 and 500 rows, in both scopes: with the two projects apart,
+// and sharing a system page. Each prompt, asked in its project, gets at most
+// MaxRecall rows, best first, as the hook shows them, and must recall the
+// pages it wants that the index holds. It fails below 90% precision or 60%
+// recall at any size in either scope, and reports the precision and recall
+// Floor gives at each, and what nearby floors would give.
 func TestRecallPrecision(t *testing.T) {
 	isolate(t)
 	if len(recallPrompts) < 30 || len(recallRows) < 20 {
@@ -206,31 +259,38 @@ func TestRecallPrecision(t *testing.T) {
 	}
 	sizes := recallSizes(t)
 	order := []int{1, 3, 10, 36, 500}
-	measure := func(size int, floor float64, report bool) (precision, coverage float64) {
+	measure := func(size int, floor float64, near, report bool) (precision, coverage float64) {
 		tp, fp, fn := 0, 0, 0
 		for _, index := range sizes[size] {
 			holds := func(id string) bool { return slices.ContainsFunc(index, func(r Row) bool { return r.ID == id }) }
 			for _, p := range recallPrompts {
+				want, siblings := p.want, func() map[string]bool { return nil }
+				if near {
+					siblings = func() map[string]bool { return map[string]bool{project: true, other: true} }
+					if p.near != nil {
+						want = p.near
+					}
+				}
 				var rows []Row
-				for _, s := range recall(index, p.prompt, project, nil, floor) {
+				for _, s := range recall(index, p.prompt, p.in, siblings, nil, floor) {
 					rows = append(rows, s.Row)
 				}
 				got := recallIDs(rows)
 				for _, id := range got {
-					if slices.Contains(p.want, id) || slices.Contains(p.also, id) {
+					if slices.Contains(want, id) || slices.Contains(p.also, id) {
 						tp++
 					} else {
 						fp++
 						if report {
-							t.Logf("%d rows: false positive %s on prompt %.60q", size, id, p.prompt)
+							t.Logf("%d rows: false positive %s on prompt %.60q in %s", size, id, p.prompt, p.in)
 						}
 					}
 				}
-				for _, id := range p.want {
+				for _, id := range want {
 					if holds(id) && !slices.Contains(got, id) {
 						fn++
 						if report && size == len(recallRows) {
-							t.Logf("%d rows: missed %s on prompt %.60q", size, id, p.prompt)
+							t.Logf("%d rows: missed %s on prompt %.60q in %s", size, id, p.prompt, p.in)
 						}
 					}
 				}
@@ -241,19 +301,25 @@ func TestRecallPrecision(t *testing.T) {
 		}
 		return float64(tp) / float64(tp+fp), float64(tp) / float64(tp+fn)
 	}
-	for _, floor := range []float64{2, 3, 3.5, 3.75, 4, 4.1, 4.25, 4.5, 5} {
-		line := fmt.Sprintf("floor %4.2f:", floor)
-		for _, size := range order {
-			p, r := measure(size, floor, false)
-			line += fmt.Sprintf(" %d rows %5.1f%%/%5.1f%%", size, 100*p, 100*r)
+	for _, near := range []bool{false, true} {
+		scope := "apart"
+		if near {
+			scope = "sharing a system page"
 		}
-		t.Log(line + " (precision/recall)")
-	}
-	for _, size := range order {
-		p, r := measure(size, Floor, true)
-		t.Logf("Floor %.2f at %d rows: precision %.1f%%, recall %.1f%% over %d prompts and %d indexes", Floor, size, 100*p, 100*r, len(recallPrompts), len(sizes[size]))
-		if p < 0.9 || r < 0.6 {
-			t.Errorf("%d rows: precision %.1f%% and recall %.1f%% at Floor %.2f, want at least 90%% and 60%%", size, 100*p, 100*r, Floor)
+		for _, floor := range []float64{2, 2.25, 2.5, 2.75, 3, 3.5, 4, 4.5, 5} {
+			line := fmt.Sprintf("%s, floor %4.2f:", scope, floor)
+			for _, size := range order {
+				p, r := measure(size, floor, near, false)
+				line += fmt.Sprintf(" %d rows %5.1f%%/%5.1f%%", size, 100*p, 100*r)
+			}
+			t.Log(line + " (precision/recall)")
+		}
+		for _, size := range order {
+			p, r := measure(size, Floor, near, true)
+			t.Logf("%s, Floor %.2f at %d rows: precision %.1f%%, recall %.1f%% over %d prompts and %d indexes", scope, Floor, size, 100*p, 100*r, len(recallPrompts), len(sizes[size]))
+			if p < 0.9 || r < 0.6 {
+				t.Errorf("%s, %d rows: precision %.1f%% and recall %.1f%% at Floor %.2f, want at least 90%% and 60%%", scope, size, 100*p, 100*r, Floor)
+			}
 		}
 	}
 }
@@ -267,11 +333,11 @@ func TestRecallScoreHoldsAtEverySize(t *testing.T) {
 	fact := recallRows[0]
 	const prompt = "Does the inbox store entries as JSONL, one file per session?"
 	for _, rows := range [][]Row{{fact}, append([]Row{fact}, neutralRows(t, 999)...)} {
-		got := recall(rows, prompt, project, nil, 0)
+		got := recall(rows, prompt, project, nil, nil, 0)
 		if len(got) != 1 || math.Abs(got[0].score-6) > 1e-9 {
 			t.Fatalf("%d rows: %+v, want k1 at 6", len(rows), got)
 		}
-		if got := Recall(rows, prompt, project, nil); len(got) != 1 || got[0].ID != "k1" {
+		if got := Recall(rows, prompt, project, nil, nil); len(got) != 1 || got[0].ID != "k1" {
 			t.Fatalf("%d rows: recalled %+v", len(rows), got)
 		}
 	}
@@ -304,15 +370,21 @@ func TestRecallRules(t *testing.T) {
 		row("k3", ScopeAll, other, "Ledger export format", "The ledger export writes Parquet files nightly"),
 	}, pad...)
 	// The rules are checked with no floor; the floor is checked after them.
+	// The other project shares a system page with the first, so its row
+	// counts, after the project's and every project's.
+	sibling := func() map[string]bool { return map[string]bool{other: true} }
 	ids := func(prompt string, skip func(string) bool) []string {
 		var got []Row
-		for _, s := range recall(rows, prompt, project, skip, 0) {
+		for _, s := range recall(rows, prompt, project, sibling, skip, 0) {
 			got = append(got, s.Row)
 		}
 		return recallIDs(got)
 	}
 	if got := ids("ledger export parquet", nil); !slices.Equal(got, []string{"k1", "k3", "k2"}) {
 		t.Errorf("equal scores = %q, want the project's and every project's first", got)
+	}
+	if got := Recall(rows, "ledger export parquet", project, nil, nil); !slices.Equal(recallIDs(got), []string{"k1", "k3"}) {
+		t.Errorf("apart from the other project = %+v", got)
 	}
 	if got := ids("ledger export parquet", func(id string) bool { return id == "k1" }); !slices.Equal(got, []string{"k3", "k2"}) {
 		t.Errorf("with k1 skipped = %q", got)
@@ -329,7 +401,7 @@ func TestRecallRules(t *testing.T) {
 	// A match of two terms names the whole title.
 	two := append(slices.Clone(rows), row("k4", ScopeProject, project, "Release checklist", "Run every step before a tag"))
 	var whole []Row
-	for _, s := range recall(two, "walk me through the release checklist", project, nil, 0) {
+	for _, s := range recall(two, "walk me through the release checklist", project, nil, nil, 0) {
 		whole = append(whole, s.Row)
 	}
 	if got := recallIDs(whole); !slices.Equal(got, []string{"k4"}) {
@@ -341,7 +413,7 @@ func TestRecallRules(t *testing.T) {
 	if got := ids("ledger parquet nightly", nil); len(got) == 0 {
 		t.Error("three terms didn't match")
 	}
-	if got := Recall(nil, "ledger export", project, nil); got != nil {
+	if got := Recall(nil, "ledger export", project, nil, nil); got != nil {
 		t.Errorf("no rows = %+v", got)
 	}
 	// The floor keeps out a match made of words most rows hold: the
@@ -351,10 +423,10 @@ func TestRecallRules(t *testing.T) {
 	if got := ids("padding unrelated filler statement", nil); len(got) == 0 {
 		t.Fatal("the padding prompt matches no row, so the floor's check proves nothing")
 	}
-	if got := Recall(rows, "padding unrelated filler statement", project, nil); got != nil {
+	if got := Recall(rows, "padding unrelated filler statement", project, sibling, nil); got != nil {
 		t.Errorf("a match under the floor = %+v", got)
 	}
-	if got := Recall(rows, "ledger export parquet", project, nil); len(got) != 3 {
+	if got := Recall(rows, "ledger export parquet", project, sibling, nil); len(got) != 3 {
 		t.Errorf("a match over the floor = %+v", got)
 	}
 	// A long prompt counts its first and last halves.
@@ -376,6 +448,174 @@ func TestRecallRules(t *testing.T) {
 	}
 	if got := promptTerms("The THE the of to Ledger ledger éclair ÉCLAIR x1 ab"); !slices.Equal(got, []string{"ledger", "éclair"}) {
 		t.Errorf("terms = %q", got)
+	}
+}
+
+// A project's name and owner come from its key, and a key that hides the
+// name gives none.
+func TestProjectName(t *testing.T) {
+	isolate(t)
+	for key, want := range map[string][2]string{
+		"github.com__acme__billing":                 {"billing", "github.com__acme"},
+		"gitlab.example.com__team__sub__pay_uments": {"pay_ments", "gitlab.example.com__team__sub"},
+		"git.example.com__ledger":                   {"ledger", "git.example.com"},
+		"local-notes-1a2b3c":                        {"notes", ""},
+		"local-my-notes-1a2b3c":                     {"my-notes", ""},
+		"local-0123456789ab":                        {"", ""},
+		"repo-0123456789ab":                         {"", ""},
+		"general":                                   {"", ""},
+		"github.com__acme__":                        {"", ""},
+	} {
+		if name, owner := projectName(key); name != want[0] || owner != want[1] {
+			t.Errorf("%s: %q under %q, want %q under %q", key, name, owner, want[0], want[1])
+		}
+	}
+}
+
+// A prompt names a project by its owner's whole path and its name, as
+// acme/billing or clientb/backend/api, also in a clone URL, or a local repo
+// by its whole key, from any chat; by its name alone, a content word, as a
+// whole word in any case, from a chat under the same owner or under none;
+// and never by a name another word or path joins, nor by the end of an
+// owner's path, which another owner's may share.
+func TestPromptNamesAProject(t *testing.T) {
+	isolate(t)
+	const acme, billing = "github.com__acme", "github.com__acme__billing"
+	const clienta, clientb = "gitlab.example.com__clienta__backend", "gitlab.example.com__clientb__backend__api"
+	for _, tc := range []struct {
+		owner, key, prompt string
+		want               bool
+	}{
+		{clienta, clientb, "why do backend/api retries stop?", false},
+		{clienta, clientb, "in services/backend/api/retry.go, why do retries stop?", false},
+		{"github.com__you", clientb, "in services/backend/api/retry.go, why do retries stop?", false},
+		{clienta, clientb, "in the api, why do retries stop?", false},
+		{clienta, clientb, "in clientb/backend/api, why do retries stop?", true},
+		{clienta, clientb, "see gitlab.example.com/clientb/backend/api/src", true},
+		{clienta, clientb, "clone git@gitlab.example.com:clientb/backend/api.git", true},
+		{clienta, clientb, "in clienta/backend/api, why do retries stop?", false},
+		{"github.com__other", billing, "clone git@github.com:acme/billing.git and check how invoices round", true},
+		{"github.com__other", billing, "clone https://github.com/acme/billing.git.", true},
+		{"github.com__other", billing, "see acme/billing.github.io", false},
+		{"github.com__other", billing, "see acme/billing.gitignore", false},
+		{acme, billing, "clone billing.git first", true},
+		{acme, "git.example.com__ledger", "clone git@git.example.com:ledger.git", true},
+		{acme, "local-notes-1a2b3c", "in local-notes-1a2b3c, how do invoices round?", true},
+		{"repo-0123456789ab", "local-notes-1a2b3c", "see inbox/local-notes-1a2b3c/codex", true},
+		{"", "local-notes-1a2b3c", "in Local-Notes-1A2B3C", true},
+		{acme, "local-notes-1a2b3c", "in my-local-notes-1a2b3c", false},
+		{acme, "local-notes-1a2b3c", "in local-notes-1a2b3cd", false},
+		{acme, "local-0123456789ab", "in local-0123456789ab", false},
+		{acme, billing, "in the billing service, are cards logged?", true},
+		{acme, billing, "Billing: how many retries?", true},
+		{acme, billing, "billing's retries", true},
+		{acme, billing, "see billing/src/retry.go", true},
+		{acme, billing, "see /billing", true},
+		{acme, billing, "the billing-api client", false},
+		{acme, billing, "my-billing tool", false},
+		{acme, billing, "billing.go fails", false},
+		{acme, billing, "rebilling the order", false},
+		{acme, billing, "see other/billing", false},
+		{acme, billing, "see acme/billing", true},
+		{acme, billing, "clone github.com/acme/billing/src", true},
+		{"github.com__other", billing, "in the billing service", false},
+		{"github.com__other", billing, "in the Acme/Billing service", true},
+		{"github.com__other", billing, "in my-acme/billing", false},
+		{"", billing, "in the billing service", true},
+		{acme, "local-notes-1a2b3c", "in notes", false},
+		{"", "local-notes-1a2b3c", "in notes", true},
+		{acme, "github.com__acme__the", "the retries", false},
+		{acme, "github.com__acme__the", "acme/the retries", true},
+		{acme, "repo-0123456789ab", "repo-0123456789ab retries", false},
+		{acme, "github.com__acme__pay_uments", "pay_ments retries", true},
+		{acme, "github.com__my_uteam__api", "my_team/api retries", true},
+		{acme, "git.example.com__ledger", "see git.example.com/ledger", true},
+		{acme, "git.example.com__ledger", "see ledger", false},
+	} {
+		if got := names(lowered(tc.prompt), tc.owner, tc.key); got != tc.want {
+			t.Errorf("%q in %q, %s: %v, want %v", tc.prompt, tc.owner, tc.key, got, tc.want)
+		}
+	}
+}
+
+// Recall shows rows of the chat's project, of every project, of the
+// projects that share a system page with it and of those the prompt names,
+// and no other: it asks for the siblings once, and only when a strong row
+// of another project needs them. A chat in a repo whose key hides its name
+// names another project only with its owner.
+func TestRecallScope(t *testing.T) {
+	isolate(t)
+	const ledger, shop, notes = "github.com__acme__ledger", "github.com__other__shop", "local-notes-1a2b3c"
+	row := func(id, scope, proj string) Row {
+		return Row{ID: id, Kind: Fact, Tag: "stated", Scope: scope, Project: proj, AsOf: "2026-10-01", Title: "Export format", Statement: "The export writes Parquet files nightly"}
+	}
+	rows := []Row{row("k1", ScopeProject, project), row("k2", ScopeAll, shop), row("k3", ScopeProject, ledger), row("k4", ScopeProject, other),
+		row("k5", ScopeProject, shop), row("k6", ScopeProject, notes)}
+	for i := range 30 {
+		rows = append(rows, Row{ID: Name(100 + i), Kind: Fact, Tag: "stated", Scope: ScopeProject, Project: project, AsOf: "2026-09-01", Title: fmt.Sprintf("Padding %d", i), Statement: "Unrelated filler statement"})
+	}
+	// The first project shares a system page with the ledger.
+	asked := 0
+	ids := func(prompt, in string) []string {
+		siblings := func() map[string]bool {
+			asked++
+			if in == project {
+				return map[string]bool{ledger: true}
+			}
+			return nil
+		}
+		var got []string
+		for _, r := range Recall(rows, prompt, in, siblings, nil) {
+			got = append(got, r.ID)
+		}
+		slices.Sort(got)
+		return got
+	}
+	for _, tc := range []struct {
+		prompt, in string
+		want       []string
+		asked      int
+	}{
+		{"what format does the export write, parquet?", project, []string{"k1", "k2", "k3"}, 1},
+		{"in billing, what format does the export write, parquet?", project, []string{"k1", "k2", "k3", "k4"}, 1},
+		{"in shop, what format does the export write, parquet?", project, []string{"k1", "k2", "k3"}, 1},
+		{"in other/shop, what format does the export write, parquet?", project, []string{"k1", "k2", "k3", "k5"}, 1},
+		{"what format does the export write, parquet?", identity.GeneralKey, []string{"k2"}, 1},
+		{"in billing and notes, what format does the export write, parquet?", identity.GeneralKey, []string{"k2", "k4", "k6"}, 1},
+		{"in billing, what format does the export write, parquet?", "repo-0123456789ab", []string{"k2"}, 1},
+		{"in acme/billing, what format does the export write, parquet?", "repo-0123456789ab", []string{"k2", "k4"}, 1},
+		{"what is the unrelated filler statement of padding?", project, nil, 0},
+	} {
+		asked = 0
+		if got := ids(tc.prompt, tc.in); !slices.Equal(got, tc.want) || asked != tc.asked {
+			t.Errorf("%q in %s: %q, siblings asked %d times, want %q and %d", tc.prompt, tc.in, got, asked, tc.want, tc.asked)
+		}
+	}
+	// Without siblings, only the project's, every project's and the named.
+	if got := Recall(rows, "in billing, what format does the export write, parquet?", project, nil, nil); len(got) != 3 {
+		t.Errorf("no siblings: %+v", got)
+	}
+	// Two clients' projects in nested groups share the end of their path:
+	// only the whole path names the other's, and a local repo is named by
+	// its key from a chat in a repo with a remote.
+	const clienta, clientb = "gitlab.example.com__clienta__backend__api", "gitlab.example.com__clientb__backend__api"
+	retries := []Row{{ID: "k1", Kind: Fact, Tag: "observed", Scope: ScopeProject, Project: clientb, AsOf: "2026-10-28", Title: "Retry limit", Statement: "Payment retries back off exponentially and stop after five attempts"},
+		{ID: "k2", Kind: Fact, Tag: "observed", Scope: ScopeProject, Project: notes, AsOf: "2026-10-28", Title: "Invoice rounding", Statement: "Invoices round each line amount half up to the cent"}}
+	none := func() map[string]bool { return nil }
+	for _, tc := range []struct {
+		prompt, in string
+		want       int
+	}{
+		{"Why do backend/api payment retries stop after five attempts?", clienta, 0},
+		{"In services/backend/api/retry.go, why do payment retries stop after five attempts?", clienta, 0},
+		{"In services/backend/api/retry.go, why do payment retries stop after five attempts?", "github.com__you__shop", 0},
+		{"In clientb/backend/api, why do payment retries stop after five attempts?", clienta, 1},
+		{"In notes, how do invoices round each line amount?", "github.com__you__shop", 0},
+		{"In local-notes-1a2b3c, how do invoices round each line amount?", "github.com__you__shop", 1},
+	} {
+		if got := Recall(retries, tc.prompt, tc.in, none, nil); len(got) != tc.want {
+			t.Errorf("%q in %s: %+v, want %d rows", tc.prompt, tc.in, got, tc.want)
+		}
 	}
 }
 
@@ -416,6 +656,6 @@ func BenchmarkRecall(b *testing.B) {
 	prompt := "what is the p95 latency target for capture, and how do invoices round line amounts?"
 	b.ResetTimer()
 	for b.Loop() {
-		Recall(rows, prompt, project, nil)
+		Recall(rows, prompt, project, nil, nil)
 	}
 }

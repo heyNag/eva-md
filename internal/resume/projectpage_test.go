@@ -79,7 +79,9 @@ func TestProjectPage(t *testing.T) {
 }
 
 // SystemsFor returns the map's systems whose repos include the project, in
-// the map's order, and how many the map lists.
+// the map's order when none cites the project's code (for the order when
+// some do, see TestBriefRanksSystemsCitingTheProjectsCode), and how many the
+// map lists.
 func TestSystemsFor(t *testing.T) {
 	o := fixture(t)
 	if got, total := SystemsFor(context.Background(), o); got != nil || total != 0 {

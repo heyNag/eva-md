@@ -71,6 +71,8 @@ func newFakeSetup(t *testing.T, interactive bool) *fakeSetup {
 			f.installs = append(f.installs, o)
 			return install.Result{Binary: filepath.Join(o.Dirs.Share, "bin", "eva-md"), Actions: []string{"replace stable binary"}, NeedsTrust: true}, nil
 		},
+		// Install's checks pass, unless a test runs them.
+		preflight: func(context.Context, install.Options) (install.Result, error) { return install.Result{}, nil },
 		inspect: func(context.Context, paths.Dirs) health.Report {
 			return health.Report{Checks: []health.Check{{Name: "wiki", Status: "PASS"}, {Name: "updates", Status: "UNKNOWN"}}}
 		},
@@ -421,11 +423,17 @@ func TestSetupNamesTheInstalledBinary(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code %d\n%s\n%s", code, out, errOut)
 	}
-	wantIn(t, "stdout", out, "Run "+filepath.Join(f.env.dirs.Share, "bin", "eva-md")+" doctor after fixing them.\n")
+	stable := filepath.Join(f.env.dirs.Share, "bin", "eva-md")
+	wantIn(t, "stdout", out, "Run "+stable+" doctor after fixing them.\n")
+	if !strings.HasSuffix(out, "\nRun "+stable+" doctor --live to test background updates, with one model call for each host; until your first chats, many of the doctor's checks stay unknown.\n") {
+		t.Fatalf("the last line:\n%s", out)
+	}
 }
 
 // With the link on PATH to the stable binary, setup's closing lines name
-// the command as eva-md.
+// the command as eva-md, the doctor's live check of background updates
+// last, with the doctor's unknown checks, whether the checks passed or not.
+// Setup itself makes no model call.
 func TestSetupNamesTheCommandOnPath(t *testing.T) {
 	f := newFakeSetup(t, true)
 	f.env.install = func(_ context.Context, o install.Options) (install.Result, error) {
@@ -439,6 +447,17 @@ func TestSetupNamesTheCommandOnPath(t *testing.T) {
 		t.Fatalf("code %d\n%s\n%s", code, out, errOut)
 	}
 	wantIn(t, "stdout", out, "Run eva-md doctor after fixing them.\n")
+	live := "\nRun eva-md doctor --live to test background updates, with one model call for each host; until your first chats, many of the doctor's checks stay unknown.\n"
+	if !strings.HasSuffix(out, live) {
+		t.Fatalf("the last line:\n%s", out)
+	}
+	f.env.inspect = func(context.Context, paths.Dirs) health.Report {
+		return health.Report{Checks: []health.Check{{Name: "wiki", Status: "PASS"}, {Name: "updates", Status: "UNKNOWN"}}}
+	}
+	code, out, errOut = f.run("~/projects/wiki2\ngit@github.com:me/eva-wiki.git\ny\n")
+	if code != 0 || !strings.Contains(out, "eva.md is ready.\n") || !strings.HasSuffix(out, live) {
+		t.Fatalf("code %d\n%s\n%s", code, out, errOut)
+	}
 }
 
 func TestSetupKeepsAHealthyWiki(t *testing.T) {

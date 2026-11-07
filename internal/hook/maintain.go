@@ -1,8 +1,6 @@
 package hook
 
 import (
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -66,15 +64,20 @@ func due(env Env, args []string, now time.Time, started *bool) bool {
 }
 
 // firstOfDay creates the day's attempt marker, and reports whether this
-// call created it: one open with O_EXCL, and the folder made once, by the
-// first event ever.
+// call created it. Each event costs one stat, which finds the marker after
+// the day's first event; that one creates it with O_EXCL in <state>/commit,
+// which commitRoot opens, and makes when missing, through no link.
 func firstOfDay(state string, now time.Time) bool {
-	file := filepath.Join(state, "commit", "attempt-"+now.Format(time.DateOnly))
-	err := create(file, os.O_EXCL)
-	if errors.Is(err, fs.ErrNotExist) && paths.EnsureDir(filepath.Dir(file)) == nil {
-		err = create(file, os.O_EXCL)
+	name := "attempt-" + now.Format(time.DateOnly)
+	if _, err := os.Lstat(filepath.Join(state, "commit", name)); err == nil {
+		return false
 	}
-	return err == nil
+	root, err := commitRoot(state)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	return create(root, name, os.O_EXCL) == nil
 }
 
 // retryDue reports whether a push retry is due: the newest commit record's
@@ -83,23 +86,37 @@ func firstOfDay(state string, now time.Time) bool {
 // now, due or not. Between checks a chat start costs one stat; a check adds
 // a read of the newest commit records.
 func retryDue(dirs paths.Dirs, now time.Time) bool {
-	marker := filepath.Join(dirs.State, "commit", "push-retry")
-	if info, err := os.Lstat(marker); err == nil {
+	const marker = "push-retry"
+	if info, err := os.Lstat(filepath.Join(dirs.State, "commit", marker)); err == nil {
 		if age := now.Sub(info.ModTime()); age >= 0 && age < retryEvery {
 			return false
 		}
 	}
 	pending := health.RetryPush(dirs, now)
-	if paths.EnsureDir(filepath.Dir(marker)) != nil || create(marker, 0) != nil || os.Chtimes(marker, now, now) != nil {
+	root, err := commitRoot(dirs.State)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	if create(root, marker, 0) != nil || root.Chtimes(marker, now, now) != nil {
 		return false
 	}
 	return pending
 }
 
-// create opens file for writing, creating it, never through a symlink, and
-// closes it.
-func create(file string, flag int) error {
-	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|flag, 0o600)
+// commitRoot opens <state>/commit, making it if missing, as every state
+// folder is opened: through no link in any part of its path but macOS's
+// /var, /tmp and /etc aliases (paths.OpenRoot). Under a home that is
+// itself a symlink, where eva-md's state folder is refused, the hooks then
+// write no marker and start no maintain.
+func commitRoot(state string) (*os.Root, error) {
+	return paths.OpenRoot(filepath.Join(state, "commit"), true)
+}
+
+// create opens name in root for writing, creating it, and closes it. No
+// symlink leads it out of root, and with O_EXCL none is followed.
+func create(root *os.Root, name string, flag int) error {
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|flag, 0o600)
 	if err != nil {
 		return err
 	}

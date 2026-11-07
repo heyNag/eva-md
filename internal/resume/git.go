@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -127,9 +128,12 @@ func gitSummary(parent context.Context, p identity.Project, head string) gitInfo
 			break
 		}
 	}
-	stashes, e := git(ctx, p.Root, "reflog", "show", "--format=%H", "refs/stash")
-	if e == nil && stashes != "" {
-		parts = append(parts, fmt.Sprintf("stashes: %d", len(strings.Split(stashes, "\n"))))
+	// git counts the stashes itself, in one short line, so the cap on what
+	// a call prints never cuts the count, as it would cut a list of them.
+	// "--" keeps a file named refs/stash from making the name ambiguous.
+	stashes, e := git(ctx, p.Root, "rev-list", "--walk-reflogs", "--count", "refs/stash", "--")
+	if n, err := strconv.Atoi(stashes); e == nil && err == nil && n > 0 {
+		parts = append(parts, fmt.Sprintf("stashes: %d", n))
 		r.changed = true
 	} else {
 		parts = append(parts, "stashes: 0 or unavailable")
@@ -140,8 +144,9 @@ func gitSummary(parent context.Context, p identity.Project, head string) gitInfo
 
 // No hook, fsmonitor, optional locks or inherited locator can redirect a
 // read, no signature is checked, and a partial clone never fetches what it
-// lacks (see coderef.Partial). A call killed at its deadline takes any
-// process it started with it.
+// lacks (see coderef.Partial). git runs with the environment of every
+// read-only git eva-md runs (identity.GitEnv). A call killed at its
+// deadline takes any process it started with it.
 func git(ctx context.Context, root string, args ...string) (string, error) {
 	argv := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false", "--no-optional-locks"}
 	if coderef.Partial(root) {
@@ -151,14 +156,7 @@ func git(ctx context.Context, root string, args ...string) (string, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return coderef.KillGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = GitWaitDelay
-	for _, e := range os.Environ() {
-		key := strings.SplitN(e, "=", 2)[0]
-		if strings.HasPrefix(key, "GIT_") && key != "GIT_CONFIG_GLOBAL" && key != "GIT_CONFIG_NOSYSTEM" {
-			continue
-		}
-		cmd.Env = append(cmd.Env, e)
-	}
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
+	cmd.Env = identity.GitEnv()
 	var out limitBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = &limitBuffer{}
@@ -166,16 +164,21 @@ func git(ctx context.Context, root string, args ...string) (string, error) {
 	return strings.TrimSpace(out.String()), err
 }
 
-type limitBuffer struct{ bytes.Buffer }
+// gitOutputLimit is how much of what one live git call prints the brief
+// keeps.
+const gitOutputLimit = 64 << 10
+
+// limitBuffer keeps the first gitOutputLimit bytes git prints and drops the
+// rest, never failing the call. The buffer is a named field, not an
+// embedded bytes.Buffer, whose ReadFrom os/exec would call in place of
+// Write, so the limit would never hold.
+type limitBuffer struct{ buffer bytes.Buffer }
 
 func (b *limitBuffer) Write(p []byte) (int, error) {
-	n := len(p)
-	if b.Len() < 64<<10 {
-		left := (64 << 10) - b.Len()
-		if len(p) > left {
-			p = p[:left]
-		}
-		_, _ = b.Buffer.Write(p)
+	if room := gitOutputLimit - b.buffer.Len(); room > 0 {
+		_, _ = b.buffer.Write(p[:min(len(p), room)])
 	}
-	return n, nil
+	return len(p), nil
 }
+
+func (b *limitBuffer) String() string { return b.buffer.String() }

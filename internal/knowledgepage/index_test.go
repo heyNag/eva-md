@@ -317,7 +317,7 @@ func TestATaglessPageStaysInRecall(t *testing.T) {
 			t.Errorf("row %+v, want read-only with no tag and the statement %q", r, want[r.ID])
 		}
 	}
-	if got := Recall(rows, "can I change the ledger schema while the audit runs?", project, nil); len(got) != 1 || got[0].ID != "k1" {
+	if got := Recall(rows, "can I change the ledger schema while the audit runs?", project, nil, nil); len(got) != 1 || got[0].ID != "k1" {
 		t.Errorf("recall = %+v, want k1", got)
 	}
 	if got := Constraints(rows, project); len(got) != 1 || got[0].ID != "k1" {

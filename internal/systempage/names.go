@@ -20,7 +20,8 @@ import (
 // name, the page's id and its title, separated by tabs, sorted by name: the
 // names are each system page's title, slug and aliases, as normalName makes
 // them. Every write builds it again from the pages, and so does eva-md
-// doctor when it is missing, unreadable or out of date.
+// doctor when it is missing, unreadable or out of date. With no system page
+// it is no file: the doctor removes one left after the last page went.
 const NamesFile = ".eva-md/names.tsv"
 
 // Bounds of the names index. Past them, the aliases of the pages with the
@@ -37,15 +38,24 @@ type Name struct{ Name, ID, Title string }
 
 func (n Name) line() string { return n.Name + "\t" + n.ID + "\t" + n.Title }
 
-// NamesReport is what the names index lists.
+// NamesReport is what the names index lists, and what RefreshNames found of
+// it and of the repos index.
 type NamesReport struct {
 	Pages, Names int // the system pages and the names the index lists
 	// NoAliases and LeftOut count the oldest pages whose aliases, and whose
 	// every name, the bounds left out.
 	NoAliases, LeftOut int
-	// Rebuilt reports an index that was missing, unreadable or out of date,
-	// and was written again, and Stale one that was left so.
-	Rebuilt, Stale bool
+	// NamesRebuilt and ReposRebuilt report a names or repos index that was
+	// missing, unreadable or out of date and was written again,
+	// NamesRemoved and ReposRemoved one that would list nothing, as when the
+	// last system page, or the last that lists two repos, is gone, and was
+	// removed, and NamesStale and ReposStale one that was left so.
+	// NamesGone and ReposGone report that such a stale index would list
+	// nothing, so a write removes it rather than writes it again.
+	NamesRebuilt, ReposRebuilt bool
+	NamesRemoved, ReposRemoved bool
+	NamesStale, ReposStale     bool
+	NamesGone, ReposGone       bool
 }
 
 // names builds the names index's text from the system pages, within its
@@ -146,49 +156,79 @@ func ParseNames(data []byte) []Name {
 	return out
 }
 
-// RefreshNames writes the names index again from the system pages when it
-// is missing, unreadable or out of date, as eva-md doctor does, and reports
-// what it lists. It reads the pages without the wiki lock, and takes the
-// lock, reading them again under it, only to write; it waits for the lock
-// as any write of the wiki does, up to a minute, whatever ctx says. Without
-// write, as eva-md status, it writes nothing and reports such an index as
-// Stale.
+// RefreshNames writes the names index, and the repos index (see ReposFile),
+// again from the system pages when either is missing, unreadable or out of
+// date, as eva-md doctor does, and reports what the names index lists and,
+// for each index, whether it was written again. An index that would list
+// nothing is removed instead. It reads the pages without the wiki lock, and
+// takes the lock, reading them again under it, only to write; it waits for
+// the lock as any write of the wiki does, up to a minute, whatever ctx
+// says. Without write, as eva-md status, it writes nothing and reports such
+// an index as stale, and whether it would be removed rather than written
+// again, as it does with its error one it couldn't write.
 func RefreshNames(ctx context.Context, o Options, write bool) (NamesReport, error) {
 	w, err := openWiki(o.Config, o.Dirs)
 	if err != nil {
 		return NamesReport{}, err
 	}
-	text, r := names(systems(w))
-	if r.Stale = !current(w, text); !r.Stale || !write {
+	entries := systems(w)
+	text, r := names(entries)
+	listed, _ := reposIndex(entries)
+	r.NamesStale, r.ReposStale = !current(w, NamesFile, text), !current(w, ReposFile, listed)
+	r.NamesGone, r.ReposGone = r.NamesStale && text == "", r.ReposStale && listed == ""
+	if !r.NamesStale && !r.ReposStale || !write {
 		return r, nil
 	}
 	if err := ctx.Err(); err != nil {
-		return NamesReport{}, err
+		return r, err
 	}
+	// A lock that stays busy leaves r as it was found; a write that fails
+	// leaves its index stale.
 	err = w.Locked(func(lw *okfadapter.Wiki) error {
-		if text, r = names(systems(lw)); current(lw, text) {
-			return nil
+		entries := systems(lw)
+		text, r = names(entries)
+		listed, _ := reposIndex(entries)
+		var err error
+		if r.NamesRebuilt, r.NamesRemoved, err = refreshFile(lw, NamesFile, text); err != nil {
+			r.NamesStale, r.NamesGone = true, text == ""
+			return err
 		}
-		r.Rebuilt = true
-		return lw.WriteFile(NamesFile, []byte(text))
+		r.ReposRebuilt, r.ReposRemoved, err = refreshFile(lw, ReposFile, listed)
+		r.ReposStale = err != nil
+		r.ReposGone = r.ReposStale && listed == ""
+		return err
 	})
-	if err != nil {
-		return NamesReport{}, err
-	}
-	return r, nil
+	return r, err
 }
 
-// current reports whether the names index on disk is text: no file when
-// text is empty, and otherwise a regular file of text's size that holds it,
+// refreshFile makes the hidden file name, the names or the repos index,
+// text on disk when it isn't: it writes text, or removes the file when text
+// is empty, and reports which it did.
+func refreshFile(w *okfadapter.Wiki, name, text string) (written, removed bool, err error) {
+	switch {
+	case current(w, name, text):
+		return false, false, nil
+	case text == "":
+		err = w.RemoveFile(name)
+		return false, err == nil, err
+	default:
+		err = w.WriteFile(name, []byte(text))
+		return err == nil, false, err
+	}
+}
+
+// current reports whether the hidden file name, the names or the repos
+// index, is text on disk: no file at all when text is empty, so an empty
+// file is not, and otherwise a regular file of text's size that holds it,
 // so a file far too large is never read.
-func current(w *okfadapter.Wiki, text string) bool {
-	info, err := os.Lstat(filepath.Join(w.Root(), filepath.FromSlash(NamesFile)))
-	if err != nil {
-		return errors.Is(err, fs.ErrNotExist) && text == ""
+func current(w *okfadapter.Wiki, name, text string) bool {
+	info, err := os.Lstat(filepath.Join(w.Root(), filepath.FromSlash(name)))
+	if err != nil || text == "" {
+		return text == "" && errors.Is(err, fs.ErrNotExist)
 	}
 	if !info.Mode().IsRegular() || info.Size() != int64(len(text)) {
 		return false
 	}
-	old, err := readWikiFile(w, NamesFile)
+	old, err := readWikiFile(w, name)
 	return err == nil && old == text
 }

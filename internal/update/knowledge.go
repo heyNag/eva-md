@@ -63,16 +63,18 @@ type KnowledgeCounts struct {
 	PathsDropped   int `json:"paths_dropped"`   // paths no cited entry writes, or past 3, or that the save couldn't cite
 }
 
-// promotable reports whether a statement of kind may carry tag: a decision
-// or a constraint only the user's own words or agreement, a fact or a
-// procedure those or a tool result. A suggestion or an inference is never
-// promoted.
-func promotable(kind, tag string) bool {
+// promotable reports whether a statement of kind may carry tag on its
+// citations c: a decision or a constraint only the user's own words or
+// agreement, a fact or a procedure those or a tool result, a command's, a
+// file's or an MCP tool's, when no cited tool entry or report is of a turn
+// that read the web (see webTurn): what a web page or search said stays a
+// suggestion. A suggestion or an inference is never promoted.
+func promotable(kind, tag string, c cites) bool {
 	switch kind {
 	case knowledgepage.Decision, knowledgepage.Constraint:
 		return userTag(tag)
 	case knowledgepage.Fact, knowledgepage.Procedure:
-		return userTag(tag) || tag == "observed"
+		return userTag(tag) || tag == "observed" && !c.web
 	}
 	return false
 }
@@ -123,7 +125,7 @@ func (v *validator) addKnowledge(op knowledgeOp) {
 	}
 	tag := v.tag(op.Tag, c, nil, "add", text)
 	switch {
-	case !promotable(op.Kind, tag) || userTag(tag) && !usersWords(text, c):
+	case !promotable(op.Kind, tag, c) || userTag(tag) && !usersWords(text, c):
 		n.Refused++
 	case v.kKeys[normalize(text)]:
 		n.Duplicates++
@@ -213,7 +215,7 @@ func (v *validator) changeKnowledge(op knowledgeOp, acted map[string]bool) {
 	}
 	tag := v.tag(op.Tag, c, nil, "add", text)
 	switch {
-	case !promotable(op.Kind, tag) || userTag(tag) && !usersWords(text, fresh):
+	case !promotable(op.Kind, tag, c) || userTag(tag) && !usersWords(text, fresh):
 		n.Refused++
 	case v.kKeys[normalize(text)]:
 		n.Duplicates++

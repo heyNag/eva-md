@@ -15,7 +15,7 @@ import (
 )
 
 // Version identifies the rule set. Raise it whenever a rule changes.
-const Version = 4
+const Version = 5
 
 // marker starts every replacement. Only a complete marker (markerRe) counts
 // as earlier redaction, so text that merely starts like one shields nothing.
@@ -44,9 +44,17 @@ const (
 type rule struct {
 	kind  string
 	re    *regexp.Regexp
-	group int               // submatch to replace; 0 replaces the whole match
-	hints []string          // lower-case literals; the rule runs only when one appears
-	check func(string) bool // optional: the replaced text must pass it
+	group int      // submatch to replace; 0 replaces the whole match
+	hints []string // lower-case literals; the rule runs only when one appears
+	// gate, when set, stands in for hints: the rule runs only when it holds
+	// for the text in lower case. It suits a rule whose exact hints would be
+	// many strings to look for.
+	gate func(lower string) bool
+	// command, when set, makes re one of that command's options, matched at
+	// the start of the words of each command its name starts, in place of a
+	// search of the whole text (see commandMatches).
+	command *command
+	check   func(string) bool // optional: the replaced text must pass it
 	// value, when set, picks the span to replace from a match's submatch
 	// indexes, given the markers already in the text.
 	value func(text string, m []int, marks []span) (span, bool)
@@ -95,6 +103,14 @@ const (
 // only after '_', '-', '.' or a capital letter, so "tokenizer" and
 // "input_tokens" are not keys while "tokenSecret" and "API_KEY_PROD" are.
 const keyTail = `(?:[A-Z_.\-][A-Za-z0-9_.\-]*)?`
+
+// laterKey finds, inside a quoted value, another key of a secret or
+// password and its separator, after a blank or a character that can end a
+// value or start a key: , ; & ? { ( or a quote. Such a value is no one
+// value: its string ran on to the next key on the line, as one that ends in
+// a backslash or is left open does. It is left to the rules that take each
+// key's value on its own.
+var laterKey = regexp.MustCompile(`[ \t,;&?{("'][A-Za-z0-9_.\-]*(?i:pass|pwd|secret|private[_\-]?key|token|api[_\-]?key|apikey|access[_\-]?key)` + keyTail + `["']?[ \t]*[:=]`)
 
 // rules run in order. Specific formats come before the generic rules, so a
 // known token is labelled with its own kind.
@@ -181,6 +197,58 @@ var rules = []rule{
 		format: true,
 	},
 	{
+		kind:   "huggingface_token",
+		re:     regexp.MustCompile(`\bhf_[A-Za-z0-9]{34,}\b`),
+		hints:  []string{"hf_"},
+		check:  generated,
+		format: true,
+	},
+	{
+		kind:   "npm_token",
+		re:     regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`),
+		hints:  []string{"npm_"},
+		check:  generated,
+		format: true,
+	},
+	{
+		// An API token macaroon for pypi.org or test.pypi.org.
+		kind:   "pypi_token",
+		re:     regexp.MustCompile(`\bpypi-AgE[A-Za-z0-9_\-]{50,}`),
+		hints:  []string{"pypi-age"},
+		format: true,
+	},
+	{
+		// A HashiCorp Vault service or batch token.
+		kind:   "vault_token",
+		re:     regexp.MustCompile(`\bhv[sb]\.[A-Za-z0-9_\-]{90,}`),
+		hints:  []string{"hvs.", "hvb."},
+		format: true,
+	},
+	{
+		kind:   "digitalocean_token",
+		re:     regexp.MustCompile(`\bdo[opr]_v1_[a-f0-9]{64}\b`),
+		hints:  []string{"_v1_"},
+		format: true,
+	},
+	{
+		kind:   "sendgrid_key",
+		re:     regexp.MustCompile(`\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}`),
+		hints:  []string{"sg."},
+		format: true,
+	},
+	{
+		kind:   "shopify_token",
+		re:     regexp.MustCompile(`\bshp(?:at|ca|pa|ss)_[a-fA-F0-9]{32}\b`),
+		hints:  []string{"shp"},
+		format: true,
+	},
+	{
+		kind:   "docker_token",
+		re:     regexp.MustCompile(`\bdckr_pat_[A-Za-z0-9_\-]{27,}`),
+		hints:  []string{"dckr_pat_"},
+		format: true,
+	},
+	{
 		kind:  "jwt",
 		re:    regexp.MustCompile(`\b[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{5,}`),
 		hints: []string{"."},
@@ -198,21 +266,23 @@ var rules = []rule{
 		re:    regexp.MustCompile(`(?i)\bauthorization["']?[ \t]*[:=][ \t]*["']?(?:bearer|basic|token|digest|negotiate)[ \t]+([^\s"'\x60,;]+)`),
 		group: 1,
 		hints: []string{"authorization"},
-		check: func(s string) bool { return !opRef(s) },
+		// A command substitution is no token: the command inside it, as
+		// $(curl -u client:pw ...), is read by the command rules instead.
+		check: func(s string) bool { return !opRef(s) && !strings.HasPrefix(s, "$(") },
 	},
 	{
 		kind:  "secret_value",
 		re:    regexp.MustCompile(`[A-Za-z0-9_.\-]*(?i:password|passwd|passphrase|secret|private[_\-]?key|token|api[_\-]?key|apikey|access[_\-]?key)` + keyTail + `["']?[ \t]*[:=][=>]?[ \t]*"((?:\\.|[^"\\\r\n])+)"`),
 		group: 1,
 		hints: []string{"passw", "passphrase", "secret", "token", "key"},
-		check: func(s string) bool { return len(s) >= minValueLen && !opRef(s) },
+		check: func(s string) bool { return len(s) >= minValueLen && !opRef(s) && !laterKey.MatchString(s) },
 	},
 	{
 		kind:  "secret_value",
 		re:    regexp.MustCompile(`[A-Za-z0-9_.\-]*(?i:password|passwd|passphrase|secret|private[_\-]?key|token|api[_\-]?key|apikey|access[_\-]?key)` + keyTail + `["']?[ \t]*[:=][=>]?[ \t]*'((?:\\.|[^'\\\r\n])+)'`),
 		group: 1,
 		hints: []string{"passw", "passphrase", "secret", "token", "key"},
-		check: func(s string) bool { return len(s) >= minValueLen && !opRef(s) },
+		check: func(s string) bool { return len(s) >= minValueLen && !opRef(s) && !laterKey.MatchString(s) },
 	},
 	{
 		kind:  "auth_header",
@@ -261,6 +331,86 @@ var rules = []rule{
 		value:  floorValue,
 		family: 2,
 		floor:  true,
+	},
+	// Password shapes the baseline rules miss (see passwords.go). They have no
+	// floor: the baseline rules take nothing here. A pass or pwd key's quoted
+	// value comes first, whole, as a password key's does above.
+	{
+		kind:  "secret_value",
+		re:    regexp.MustCompile(passKeyQuoted),
+		group: 2,
+		gate:  passGate,
+		value: quotedPassValue,
+	},
+	{
+		kind:  "secret_value",
+		re:    regexp.MustCompile(passKeySingle),
+		group: 2,
+		gate:  passGate,
+		value: quotedPassValue,
+	},
+	{
+		kind:   "secret_value",
+		re:     regexp.MustCompile(passKeyRe),
+		group:  2,
+		gate:   passGate,
+		value:  passValue,
+		resume: true,
+	},
+	{
+		kind:    "password",
+		re:      regexp.MustCompile(mysqlPassword),
+		group:   1,
+		hints:   []string{"mysql", "maria"},
+		command: mysqlCommand,
+		value:   flagValue,
+	},
+	{
+		kind:    "password",
+		re:      regexp.MustCompile(curlPassword),
+		group:   1,
+		hints:   []string{"curl"},
+		command: curlCommand,
+		value:   userPassword,
+	},
+	{
+		kind:    "password",
+		re:      regexp.MustCompile(sshpassPassword),
+		group:   1,
+		hints:   []string{"sshpass"},
+		command: sshpassCommand,
+		value:   flagValue,
+	},
+	{
+		kind:    "password",
+		re:      regexp.MustCompile(loginPassword),
+		group:   1,
+		hints:   []string{"login"},
+		command: loginCommand,
+		value:   flagValue,
+	},
+	{
+		kind:    "password",
+		re:      regexp.MustCompile(redisPassword),
+		group:   1,
+		hints:   []string{"redis-cli"},
+		command: redisCommand,
+		value:   flagValue,
+	},
+	{
+		kind:    "password",
+		re:      regexp.MustCompile(opensslPassword),
+		group:   1,
+		hints:   []string{"openssl"},
+		command: opensslCommand,
+		value:   passArgument,
+	},
+	{
+		kind:  "password",
+		re:    regexp.MustCompile(prosePassword),
+		group: 1,
+		gate:  proseGate,
+		value: proseValue,
 	},
 }
 
@@ -422,7 +572,7 @@ func pass(text string, m mode) (string, int) {
 	count := 0
 	var missed [3]bool // a family's value rule stopped resuming its search
 	for _, r := range rules {
-		if !hinted(lower, r.hints) || r.floor && !missed[r.family] {
+		if !r.runs(lower) || r.floor && !missed[r.family] {
 			continue
 		}
 		var n int
@@ -461,6 +611,15 @@ func clean(s string) string {
 		s = strings.NewReplacer("\x1b", "", "\u009b", "").Replace(s)
 	}
 	return s
+}
+
+// runs reports whether r can match a text, given in lower case: its gate
+// holds, or one of its hints appears.
+func (r rule) runs(lower string) bool {
+	if r.gate != nil {
+		return r.gate(lower)
+	}
+	return hinted(lower, r.hints)
 }
 
 func hinted(lower string, hints []string) bool {
@@ -513,7 +672,10 @@ func apply(text string, r rule, md mode) (out string, n int, missed bool) {
 				return s, false
 			}
 		}
-		if containedBy(marks, s) || inRef(refs, s) {
+		// A span that starts or ends inside a marker would leave part of the
+		// marker behind, as a user:password's ':' found inside the marker of
+		// the token that named the user.
+		if containedBy(marks, s) || cuts(marks, s) || inRef(refs, s) {
 			return s, false
 		}
 		if r.check != nil && !r.check(text[s.start:s.end]) {
@@ -525,12 +687,22 @@ func apply(text string, r rule, md mode) (out string, n int, missed bool) {
 		return s, true
 	}
 	if !r.resume {
-		for _, m := range r.re.FindAllStringSubmatchIndex(text, -1) {
+		var matches [][]int
+		if r.command != nil {
+			matches = commandMatches(text, r.re, r.command, (*regexp.Regexp).FindStringIndex)
+		} else {
+			matches = r.re.FindAllStringSubmatchIndex(text, -1)
+		}
+		for _, m := range matches {
 			if s, ok := pick(m, r.value); ok {
 				spans = append(spans, s)
 			}
 		}
-		spans = dropOverlaps(spans)
+		if r.command != nil {
+			spans = mergeOverlaps(spans)
+		} else {
+			spans = dropOverlaps(spans)
+		}
 		return replace(text, spans, r.kind), len(spans), false
 	}
 	// A match takes its value to the next whitespace or quote, but the value
@@ -541,9 +713,9 @@ func apply(text string, r rule, md mode) (out string, n int, missed bool) {
 	// the bytes searched twice are bounded; past the bound the search goes on
 	// after each whole match, and the floor rule looks at the text itself.
 	//
-	// A rejected match gets the floor's verdict on the spot: the value
-	// the baseline rules would take at the same key (see floorValue). An
-	// accepted value always covers that one.
+	// A rejected match of a family with a floor gets the floor's verdict on
+	// the spot: the value the baseline rules would take at the same key (see
+	// floorValue). An accepted value always covers that one.
 	again := len(text) + 64<<10
 	for pos := 0; pos < len(text); {
 		m := r.re.FindStringSubmatchIndex(text[pos:])
@@ -557,7 +729,7 @@ func apply(text string, r rule, md mode) (out string, n int, missed bool) {
 		}
 		next := m[1]
 		s, ok := pick(m, r.value)
-		if !ok {
+		if !ok && r.family > 0 {
 			if fm, has := floorMatch(text, m); has {
 				s, ok = pick(fm, floorValue)
 			}
@@ -1267,6 +1439,26 @@ func markerAt(marks []span, i int) (span, bool) {
 	return span{}, false
 }
 
+// markerOver returns the marker text[i] is part of, if any.
+func markerOver(marks []span, i int) (span, bool) {
+	k := sort.Search(len(marks), func(k int) bool { return marks[k].end > i })
+	if k < len(marks) && marks[k].start <= i {
+		return marks[k], true
+	}
+	return span{}, false
+}
+
+// cuts reports whether s starts or ends strictly inside one of marks, so
+// that replacing s would leave part of that marker behind.
+func cuts(marks []span, s span) bool {
+	for _, i := range []int{s.start, s.end} {
+		if m, ok := markerOver(marks, i); ok && m.start < i {
+			return true
+		}
+	}
+	return false
+}
+
 // covered reports whether markers cover all of s, leaving nothing to redact.
 // marks are in order and do not overlap.
 func covered(marks []span, s span) bool {
@@ -1554,6 +1746,22 @@ func dropOverlaps(spans []span) []span {
 	out := spans[:0]
 	for _, s := range spans {
 		if len(out) > 0 && s.start < out[len(out)-1].end {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// mergeOverlaps joins spans that overlap into one, as a command rule's two
+// readings give when they take the same password with different bounds (see
+// commandMatches), so what either takes is replaced.
+func mergeOverlaps(spans []span) []span {
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+	out := spans[:0]
+	for _, s := range spans {
+		if n := len(out); n > 0 && s.start < out[n-1].end {
+			out[n-1].end = max(out[n-1].end, s.end)
 			continue
 		}
 		out = append(out, s)

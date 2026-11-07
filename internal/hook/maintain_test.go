@@ -99,7 +99,7 @@ func commitFolder(t *testing.T, env Env) []string {
 
 // The first hook event of the local day starts maintain, whatever the
 // event; every later event that day starts none, and the day after starts
-// it again. Each costs one open of the day's attempt marker, which is all
+// it again. Each costs one stat of the day's attempt marker, which is all
 // the commit folder holds besides the marker of a chat start's push-retry
 // check. updates = false and commits = false still start it (maintain
 // lints, and commits unless commits = false), and so does a config with no

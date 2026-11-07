@@ -40,7 +40,7 @@ func main() {
 
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errOut, "usage: eva-md setup | version | upgrade | init | install | uninstall | doctor | status | brief | show | search | index | update | commit | maintain | system | validate | hook | mcp")
+		fmt.Fprintln(errOut, "usage: eva-md setup | version | upgrade | init | install | uninstall | doctor | status | brief | show | search | index | inbox | update | commit | maintain | system | validate | hook | mcp")
 		return 2
 	}
 	if args[0] == "hook" {
@@ -77,6 +77,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return runMaintain(ctx, args, out, errOut)
 	case "index":
 		return runIndex(ctx, args, out, errOut)
+	case "inbox":
+		return runInbox(ctx, args, out, errOut)
 	case "system":
 		return runSystem(ctx, args, in, out, errOut)
 	case "mcp":

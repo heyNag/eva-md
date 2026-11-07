@@ -243,6 +243,39 @@ func knowledgeWiki(t *testing.T, o Options) *okfadapter.Wiki {
 	return w
 }
 
+// The labels say what [observed] rests on wherever a tag can show: the
+// brief's, with the Now's other tags and what its constraint lines rest on,
+// and search's, on page lines and on knowledge lines, whose observed facts
+// and procedures rest on a command, a file or an MCP tool alone.
+func TestLabelsSayWhatObservedRestsOn(t *testing.T) {
+	t.Run("brief", func(t *testing.T) {
+		o := briefFixture(t)
+		knowledgeWiki(t, o)
+		r, err := Build(context.Background(), o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"Now lines tagged [stated] or [accepted] rest on the user's words, [observed] ones on a tool result the assistant reported, [suggested] ones on the assistant's and [inferred] ones on neither.",
+			" Constraint lines rest on the user's words. ", "\nConstraint: Hooks stay offline: "} {
+			if !strings.Contains(r.Text, want) {
+				t.Errorf("the brief lacks %q:\n%s", want, r.Text)
+			}
+		}
+	})
+	t.Run("search", func(t *testing.T) {
+		o := fixture(t)
+		knowledgeWiki(t, o)
+		out := search(t, withPages(o, "quince"))
+		for _, want := range []string{"On page lines, [stated] and [accepted] rest on the user's words, [observed] on a tool result the assistant reported, [suggested] on the assistant's and [inferred] on neither;",
+			"decision and constraint lines rest on the user's words, and fact and procedure lines on them too or, tagged [observed], on a command, file or MCP result the assistant reported.",
+			"\n[retired] 2026-10-27 · knowledge/k3 · fact [observed]: Quince: "} {
+			if !strings.Contains(out, want) {
+				t.Errorf("search lacks %q:\n%s", want, out)
+			}
+		}
+	})
+}
+
 // A brief lists the constraint the writer saved, through the recall index
 // it built.
 func TestBriefListsWrittenConstraints(t *testing.T) {

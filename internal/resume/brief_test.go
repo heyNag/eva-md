@@ -449,7 +449,14 @@ func TestToolActivityHeuristic(t *testing.T) {
 		"Bash go  test   ./... (exit unknown)":           true,
 		"Bash make (exit 2)":                             true,
 		"Bash makefile-lint (exit 0)":                    false,
-		"Bash cd internal && go test ./... (exit 0)":     false,
+		"Bash cd internal && go test ./... (exit 0)":     true,
+		"Bash cd /repo/web; npm test (exit 1)":           true,
+		`Bash cd "my folder"&&make (exit 2)`:             true,
+		"Bash cd a && cd 'b c' && cargo test (exit 101)": true,
+		"Bash cd && go vet ./... (exit 0)":               true,
+		"Bash cd internal && ls (exit 0)":                false,
+		"Bash cd internal || go test ./... (exit 0)":     false,
+		"Bash cd go test (exit 0)":                       false,
 		"Bash pytestify (exit 0)":                        false,
 		"Edit /repo/go test (exit 0)":                    false,
 		"Bash go test ./... without an exit code at all": false,
@@ -458,6 +465,11 @@ func TestToolActivityHeuristic(t *testing.T) {
 		if got := strings.Contains(activity(h, ""), "Last test or build command:"); got != want {
 			t.Errorf("%q: test command found %v, want %v", line, got, want)
 		}
+	}
+	// A run after cd is shown as it ran, cd included.
+	cd := history{records: []record{{Entry: inbox.Entry{Kind: "tool", Text: "Bash cd internal  &&  go test ./... (exit 1)"}}}}
+	if got := activity(cd, ""); got != "Tool activity (heuristic):\nLast test or build command: cd internal && go test ./... (exit 1)" {
+		t.Fatalf("after cd: %q", got)
 	}
 	var h history
 	for i := 0; i < 7; i++ {

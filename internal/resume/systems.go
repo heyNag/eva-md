@@ -48,12 +48,14 @@ var (
 )
 
 // systemPointers returns the brief's pointers to the system pages: a line for
-// each of up to 3 systems whose repos include the project, in the map's
-// order, then one for the map, as long as the map lists a system. A pointer
-// to a system that cites the project's code says how far that code has
-// moved (see codeNote); head is the commit HEAD names, when live git read
-// it. A line that cleaning as wiki text would change is left out, so the
-// length counted is the length shown, identifiers such as a slug included.
+// each of up to 3 systems whose repos include the project, those that cite
+// the project's code first (see projectSystems), then one for the system
+// index, which lists every system in a line of its title and description, as
+// long as the map lists a system. A pointer to a system that cites the
+// project's code says how far that code has moved (see codeNote); head is
+// the commit HEAD names, when live git read it. A line that cleaning as wiki
+// text would change is left out, so the length counted is the length shown,
+// identifiers such as a slug included.
 func systemPointers(ctx context.Context, o Options, head string) string {
 	return pointersWithin(ctx, o, head, &codeClock{left: codeLeft, call: CodeCall, budget: CodeBudget})
 }
@@ -65,19 +67,16 @@ func pointersWithin(ctx context.Context, o Options, head string, clock *codeCloc
 		return ""
 	}
 	bin := filepath.Join(o.Dirs.Share, "bin", "eva-md")
-	last := AsShown(fmt.Sprintf("System map: %d %s: %s show systems/map", len(entries), plural(len(entries), "system"), bin))
+	last := AsShown(fmt.Sprintf("System index: %d %s: %s show systems/index", len(entries), plural(len(entries), "system"), bin))
 	if last == "" || runes(last) > systemsCap {
 		return ""
 	}
 	left := systemsCap - runes(last)
 	var lines []string
 	saved := &savedStatus{state: o.Dirs.State}
-	for _, e := range entries {
+	for _, e := range projectSystems(entries, o.Project.Key) {
 		if len(lines) == maxPointers {
 			break
-		}
-		if !slices.Contains(e.Repos, o.Project.Key) {
-			continue
 		}
 		if line := AsShown(pointer(e, codeNote(ctx, o, e, head, clock, saved), bin, min(pointerCap, left-1))); line != "" {
 			lines = append(lines, line)
@@ -85,6 +84,27 @@ func pointersWithin(ctx context.Context, o Options, head string, clock *codeCloc
 		}
 	}
 	return strings.Join(append(lines, last), "\n")
+}
+
+// projectSystems returns the systems of the map whose repos include the
+// project key, those that cite the project's own code first, each part in
+// the map's order, which is by slug: the page about the project's code
+// comes before a platform page that only lists it among its repos. The
+// order reads only the map's lines, no git, so it costs the brief nothing of
+// its time, and it never changes between briefs of the same map, which the
+// prompt hook's record of the pages a brief named relies on.
+func projectSystems(entries []systempage.MapEntry, key string) []systempage.MapEntry {
+	var citing, rest []systempage.MapEntry
+	for _, e := range entries {
+		switch {
+		case !slices.Contains(e.Repos, key):
+		case slices.ContainsFunc(e.Code, func(r coderef.Ref) bool { return r.Key == key }):
+			citing = append(citing, e)
+		default:
+			rest = append(rest, e)
+		}
+	}
+	return append(citing, rest...)
 }
 
 // codeNote says how far the project's code a system cites has moved since

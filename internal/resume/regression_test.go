@@ -107,6 +107,29 @@ func TestEndingIgnoresEventWordsInMessages(t *testing.T) {
 	}
 }
 
+// A ref to a chat removed with eva-md inbox clear says so, by the session's
+// full id or its first 8 characters, while a ref to a chat never captured,
+// or still here, reads as before.
+func TestShowSaysAChatWasRemoved(t *testing.T) {
+	o := fixture(t)
+	capture(t, o, "codex", "019a2b3c-kept", "main", o.Now.Add(-time.Hour), "kept words")
+	removed := inbox.Capture{Project: "github.com__example__app", Host: "claude-code", ID: "0199dead-0001"}
+	if err := (inbox.Store{Root: o.Dirs.Inbox()}).RecordRemoved(context.Background(), o.Now, []inbox.Capture{removed}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"s:0199dead#3", "s:0199dead-0001#3"} {
+		if _, err := Show(context.Background(), o.Dirs, o.Config, ref); err == nil || !strings.Contains(err.Error(), "removed from the inbox with eva-md inbox clear") {
+			t.Errorf("%s: %v", ref, err)
+		}
+	}
+	if _, err := Show(context.Background(), o.Dirs, o.Config, "s:0199beef#1"); err == nil || err.Error() != "resume: source not found" {
+		t.Errorf("a chat never captured: %v", err)
+	}
+	if text, err := Show(context.Background(), o.Dirs, o.Config, "s:019a2b3c#1"); err != nil || !strings.Contains(text, "kept words") {
+		t.Errorf("a chat still here: %q %v", text, err)
+	}
+}
+
 // Time-ordered ids can share their first 8 characters; the full id still
 // names one session, and the short ref still works when it is unique.
 func TestShowAcceptsFullSessionID(t *testing.T) {

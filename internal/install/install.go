@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -30,6 +31,10 @@ type Options struct {
 	Binary string
 	Host   string // claude, codex, all; empty means all available hosts
 	DryRun bool
+	// Preflight is a dry run that needs no config yet. Setup runs it in its
+	// checks of this Mac, before it makes the wiki, so that whatever install
+	// would refuse stops setup before anything is made.
+	Preflight bool
 }
 type Result struct {
 	Binary     string
@@ -73,12 +78,55 @@ var notifyInterrupt = signal.NotifyContext
 // before any test runs.
 var RollbackTimeout = 90 * time.Second
 
+// ErrHooksOff marks install's refusal of a Codex whose hooks feature is off,
+// as a managed Mac may set it: eva-md's hooks would never run there.
+var ErrHooksOff = errors.New("install: Codex's hooks feature is off")
+
+// hooksOff is that refusal with both ways out: turning the feature on, or
+// installing for Claude Code only, which setup and upgrades read from
+// EVA_MD_HOSTS in the answers file and install itself from --host. When PATH
+// has no claude command, looked for as inspect does, whatever --host chose,
+// it says to install Claude Code first.
+func hooksOff(dirs paths.Dirs) error {
+	only := "install for Claude Code only"
+	if _, err := exec.LookPath("claude"); err != nil {
+		only = "install Claude Code, then install for Claude Code only"
+	}
+	return fmt.Errorf("%w; turn it on with codex features enable hooks, or %s: set EVA_MD_HOSTS=claude in %s for setup and upgrades, or pass --host claude", ErrHooksOff, only, dirs.AnswersFile())
+}
+
+// Command is how a person runs the stable binary on this Mac, as setup's
+// closing lines name it: eva-md when the link on PATH reaches it (see
+// linkPlan), and its full path otherwise.
+func Command(dirs paths.Dirs) string {
+	binary := filepath.Join(dirs.Share, "bin", "eva-md")
+	if _, linked := linkPlan(LinkPath(dirs), binary); linked {
+		return "eva-md"
+	}
+	return binary
+}
+
+// FailedCommand names the host command whose failure err is, when it is
+// one, so that a caller can say to run it for the host's own words, which
+// install never shows.
+func FailedCommand(err error) (string, bool) {
+	var e *hostError
+	if !errors.As(err, &e) {
+		return "", false
+	}
+	command, ok := strings.CutSuffix(strings.TrimPrefix(e.msg, "install: "), " failed")
+	return command, ok
+}
+
 func runInstall(ctx context.Context, opts Options, run runner) (result Result, err error) {
 	// Ctrl-C or SIGTERM fails the next step, so the rollback below still runs.
 	ctx, stop := notifyInterrupt(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	run = finishStarted(run)
 	result.Binary = filepath.Join(opts.Dirs.Share, "bin", "eva-md")
+	if opts.Preflight {
+		opts.DryRun = true
+	}
 	// The planned actions are printed with a failed run's error, so an error
 	// before the first change says that none of them ran.
 	mutated := false
@@ -87,11 +135,14 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			err = fmt.Errorf("%w; none of the planned actions ran", err)
 		}
 	}()
-	if _, err = config.LoadContext(ctx, opts.Dirs.ConfigFile()); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return result, errors.New("install: no wiki is set up; run eva-md setup first")
+	// Setup's checks run before there is a config; every other run needs it.
+	if !opts.Preflight {
+		if _, err = config.LoadContext(ctx, opts.Dirs.ConfigFile()); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return result, errors.New("install: no wiki is set up; run eva-md setup first")
+			}
+			return result, errors.New("install: the eva-md config can't be read; run eva-md doctor")
 		}
-		return result, errors.New("install: the eva-md config can't be read; run eva-md doctor")
 	}
 	hosts, err := selectedHosts(opts.Host)
 	if err != nil {
@@ -117,7 +168,7 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			continue
 		}
 		if status.Installed && !status.Valid {
-			return result, fmt.Errorf("install: existing %s eva-md registration needs attention: %s", host, status.Reason)
+			return result, fmt.Errorf("install: existing %s eva-md registration needs attention: %s; run eva-md uninstall --apply, or the uninstall script with --apply, then install eva-md again", host, status.Reason)
 		}
 		files, err := render(host, result.Binary)
 		if err != nil {
@@ -133,7 +184,7 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			for _, line := range strings.Split(string(features), "\n") {
 				fields := strings.Fields(line)
 				if len(fields) >= 2 && fields[0] == "hooks" && fields[len(fields)-1] == "false" {
-					return result, errors.New("install: Codex hooks feature is disabled; enable it in Codex before installing")
+					return result, hooksOff(opts.Dirs)
 				}
 			}
 		}
@@ -181,7 +232,7 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		if errors.Is(err, fs.ErrNotExist) {
 			err = nil
 		} else if err == nil && !owned {
-			return result, errors.New("install: refusing to replace an unmanaged binary")
+			return result, fmt.Errorf("install: refusing to replace an unmanaged binary, %s; move it aside", result.Binary)
 		}
 		if err != nil {
 			return result, err
@@ -602,7 +653,7 @@ func treeChanged(root *os.Root, base string, expected map[string][]byte, clean b
 		return false, err
 	}
 	if !owned {
-		return false, errors.New("install: refusing an unmanaged marketplace folder")
+		return false, fmt.Errorf("install: refusing an unmanaged marketplace folder, %s; move it aside", filepath.Join(root.Name(), base))
 	}
 	changed := false
 	allowedDirs := map[string]bool{base: true}
@@ -620,7 +671,7 @@ func treeChanged(root *os.Root, base string, expected map[string][]byte, clean b
 		}
 		if d.IsDir() {
 			if !allowedDirs[name] {
-				return fmt.Errorf("install: unexpected directory %s in managed marketplace", filepath.Join(root.Name(), name))
+				return fmt.Errorf("install: unexpected directory %s in managed marketplace; move it out of that folder", filepath.Join(root.Name(), name))
 			}
 			return nil
 		}
@@ -636,7 +687,7 @@ func treeChanged(root *os.Root, base string, expected map[string][]byte, clean b
 			return nil
 		}
 		if !ok {
-			return fmt.Errorf("install: unexpected file %s in managed marketplace; refusing to overwrite it", filepath.Join(root.Name(), name))
+			return fmt.Errorf("install: unexpected file %s in managed marketplace; move it out of that folder", filepath.Join(root.Name(), name))
 		}
 		actual, e := readAt(root, name, 2<<20)
 		if e != nil {
@@ -740,7 +791,7 @@ func lock(ctx context.Context, dir string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := r.OpenFile("install.lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	f, err := paths.OpenOrCreate(r, "install.lock", os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	r.Close()
 	if err != nil {
 		return nil, err

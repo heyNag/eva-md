@@ -2,6 +2,8 @@ package resume
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -109,4 +111,94 @@ func TestProgramRunChatThatSwitchesBranch(t *testing.T) {
 	if r, err := Build(context.Background(), o); err != nil || !strings.Contains(r.Text, "Continuing from main") || strings.Contains(r.Text, "WORKER_REPLY") {
 		t.Fatalf("feature/new: %v:\n%s", err, r.Text)
 	}
+}
+
+// programChats stores n chats a program ran, newest first from newest, a
+// minute apart, each with replies until its file holds size bytes or more.
+func programChats(t *testing.T, o Options, n int, newest time.Time, size int64) {
+	t.Helper()
+	store := inbox.Store{Root: o.Dirs.Inbox()}
+	for i := 0; i < n; i++ {
+		sid := fmt.Sprintf("worker-%03d", i)
+		when := newest.Add(-time.Duration(i) * time.Minute)
+		programChat(t, o, sid, "main", when.Add(-10*time.Second), "WORKER_REPLY from the program.")
+		file := store.Path(o.Project.Key, "claude-code", sid)
+		for {
+			info, err := os.Stat(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() >= size {
+				break
+			}
+			// An entry's text is kept up to 200 KB.
+			e := inbox.Entry{V: 1, Host: "claude-code", Session: sid, Project: o.Project.Key, Branch: "main", TS: when.Format(time.RFC3339), Role: "assistant", Kind: "reply", Text: strings.Repeat("x", int(min(size-info.Size(), 150<<10))), Origin: "hook"}
+			if err := store.Append(e); err != nil {
+				t.Fatal(err)
+			}
+		}
+		touch(t, o, "claude-code", sid, when)
+	}
+}
+
+// A session file found to hold a chat a program ran doesn't count toward
+// the 64 files the brief reads, so a burst of 70 program-run chats newer
+// than the person's last one, as a script that runs claude -p in a loop
+// leaves, doesn't push it out of the brief: it is still the previous chat.
+// The brief reads, and lists for the catch-up, all 71 files.
+func TestProgramRunChatsDontCountTowardThe64(t *testing.T) {
+	o := fixture(t)
+	o.Variant = "startup"
+	capture(t, o, "codex", "person-chat", "main", o.Now.Add(-5*time.Hour), "PERSON_PROMPT about the replay check.")
+	touch(t, o, "codex", "person-chat", o.Now.Add(-5*time.Hour))
+	programChats(t, o, 70, o.Now.Add(-time.Minute), 100)
+	reads := countReads(t)
+	r, err := Build(context.Background(), o)
+	if err != nil || !strings.Contains(r.Text, "PERSON_PROMPT") || strings.Contains(r.Text, "WORKER_REPLY") {
+		t.Fatalf("%v:\n%s", err, r.Text)
+	}
+	if *reads != 71 || len(r.Files) != 71 {
+		t.Fatalf("the brief read %d session files and listed %d, want 71", *reads, len(r.Files))
+	}
+}
+
+// The files of chats a program ran that don't count are bounded too, so
+// the brief stays within its time: at most 64 of them, and 2 MiB of them in
+// all, are read beyond the 64, and the rest count as any file does.
+func TestProgramRunFilesBeyondThe64AreBounded(t *testing.T) {
+	t.Run("files", func(t *testing.T) {
+		o := fixture(t)
+		o.Variant = "startup"
+		capture(t, o, "codex", "person-chat", "main", o.Now.Add(-5*time.Hour), "PERSON_PROMPT about the replay check.")
+		touch(t, o, "codex", "person-chat", o.Now.Add(-5*time.Hour))
+		programChats(t, o, 130, o.Now.Add(-time.Minute), 100)
+		reads := countReads(t)
+		r, err := Build(context.Background(), o)
+		if err != nil || strings.Contains(r.Text, "PERSON_PROMPT") {
+			t.Fatalf("%v:\n%s", err, r.Text)
+		}
+		if *reads != programFiles+maxFiles || len(r.Files) != programFiles+maxFiles {
+			t.Fatalf("the brief read %d session files and listed %d, want %d", *reads, len(r.Files), programFiles+maxFiles)
+		}
+	})
+	t.Run("bytes", func(t *testing.T) {
+		o := fixture(t)
+		o.Variant = "startup"
+		// 10 program-run chats of about 900 KB each: 2 of them fit in the
+		// 2 MiB, and the other 8 count, with 56 of the person's chats.
+		programChats(t, o, 10, o.Now.Add(-time.Minute), 900<<10)
+		for i := 0; i < 70; i++ {
+			sid := fmt.Sprintf("person-%02d", i)
+			when := o.Now.Add(-time.Hour - time.Duration(i)*time.Minute)
+			capture(t, o, "codex", sid, "main", when.Add(-10*time.Second), "PERSON_PROMPT about the replay check.")
+			touch(t, o, "codex", sid, when)
+		}
+		reads := countReads(t)
+		if _, err := Build(context.Background(), o); err != nil {
+			t.Fatal(err)
+		}
+		if *reads != 2+maxFiles {
+			t.Fatalf("the brief read %d session files, want %d", *reads, 2+maxFiles)
+		}
+	})
 }

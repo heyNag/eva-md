@@ -472,20 +472,54 @@ func inspectLint(r *Report, d paths.Dirs) {
 	} else {
 		r.add("oversize pages", "PASS", fmt.Sprintf("none of %d thread pages is over 512 KB%s", l.Pages, of), "")
 	}
-	if l.BadRefs > 0 {
-		r.add("source refs", "FAIL", fmt.Sprintf("%d %s in %d %s name inbox lines that are gone: %s%s", l.BadRefs, plural(l.BadRefs, "ref", "refs"), len(l.BadRefPages), plural(len(l.BadRefPages), "page", "pages"), list(l.BadRefPages), of),
-			"restore the inbox files they name, or leave them if those chats were removed on purpose")
-	} else {
+	// Refs to chats removed on purpose, or that another Mac captured, are
+	// said but never fail the row. While an inbox folder couldn't be read in
+	// full, a ref to a chat the rest holds nothing of may name a chat in it,
+	// so it couldn't be checked: the row names the folders and is unknown.
+	var apart, unread, unchecked string
+	if n := len(l.UnreadFolders); n > 0 {
+		unread = fmt.Sprintf("%d inbox %s couldn't be read in full: %s", n, plural(n, "folder", "folders"), list(l.UnreadFolders))
+	} else if l.UnknownRefs > 0 {
+		unread = "an inbox folder couldn't be read in full"
+	}
+	if unread != "" {
+		unchecked = "; " + unread
+		if l.UnknownRefs > 0 {
+			unchecked = fmt.Sprintf("; %d %s couldn't be checked, as %s", l.UnknownRefs, plural(l.UnknownRefs, "ref", "refs"), unread)
+		}
+	}
+	if l.RemovedRefs > 0 {
+		apart += fmt.Sprintf("; %d %s removed with eva-md inbox clear", l.RemovedRefs, plural(l.RemovedRefs, "ref names a chat", "refs name chats"))
+	}
+	if l.ElsewhereRefs > 0 {
+		apart += fmt.Sprintf("; %d %s this Mac never captured, as another Mac's", l.ElsewhereRefs, plural(l.ElsewhereRefs, "ref names a chat", "refs name chats"))
+	}
+	switch {
+	case l.BadRefs > 0:
+		r.add("source refs", "FAIL", fmt.Sprintf("%d %s in %d %s %s: %s%s%s%s", l.BadRefs, plural(l.BadRefs, "ref", "refs"), len(l.BadRefPages), plural(len(l.BadRefPages), "page", "pages"), plural(l.BadRefs, "names an inbox line that is gone", "name inbox lines that are gone"), list(l.BadRefPages), unchecked, apart, of),
+			"restore the inbox files they name; for chats you removed by hand, record it with eva-md inbox clear --session <id> --apply")
+	case l.UnknownRefs > 0:
+		r.add("source refs", "UNKNOWN", fmt.Sprintf("%d %s in %d thread pages couldn't be checked, as %s%s%s", l.UnknownRefs, plural(l.UnknownRefs, "ref", "refs"), l.Pages, unread, apart, of),
+			"make those inbox folders and the chats in them readable to you again; the next day's maintenance checks the refs again")
+	case unchecked != "" || apart != "":
+		r.add("source refs", "PASS", fmt.Sprintf("no ref in %d thread pages names a lost inbox line%s%s%s", l.Pages, unchecked, apart, of), "")
+	default:
 		r.add("source refs", "PASS", fmt.Sprintf("every ref in %d thread pages resolves%s", l.Pages, of), "")
 	}
 }
 
-// mapLine is a line of the system map, which names its page's slug.
-var mapLine = regexp.MustCompile(`^- \[.*?\]\(([a-z][a-z0-9-]{1,63})\.md\)`)
+// mapLine is a line of the system map, and indexLine one of the folder's
+// index, systems/index.md; each names its page's slug.
+var (
+	mapLine   = regexp.MustCompile(`^- \[.*?\]\(([a-z][a-z0-9-]{1,63})\.md\)`)
+	indexLine = regexp.MustCompile(`^\* \[.*?\]\(([a-z][a-z0-9-]{1,63})\.md\)`)
+)
 
 // inspectSystems checks that the system map lists exactly the system pages
-// in systems/. It reads the map, bounded, and the folder's names, never a
-// page.
+// in systems/, and that the folder's index, systems/index.md, which the
+// brief, the reminder, eva_status and eva_show point readers at, lists each
+// of them. It reads the map and the index, each bounded, and the folder's
+// names, never a page.
 func inspectSystems(r *Report, c config.Config) {
 	dir := filepath.Join(c.WikiPath, "systems")
 	entries, err := os.ReadDir(dir)
@@ -503,47 +537,68 @@ func inspectSystems(r *Report, c config.Config) {
 			pages[slug] = true
 		}
 	}
-	rebuild := "write any system page again with eva-md system write <slug> --replace, which rebuilds the map"
-	data, err := readPrivate(filepath.Join(dir, "map.md"), maxMap)
-	if err != nil {
-		if len(pages) == 0 {
-			r.add("system map", "UNKNOWN", "no system pages yet", "")
-		} else {
-			r.add("system map", "FAIL", fmt.Sprintf("%d system pages, but systems/map.md is missing, unreadable or over 256 KB", len(pages)), rebuild)
+	var unread, facts []string
+	// slugs reads the pages a file of the folder lists, by line, or nil when
+	// it can't be read.
+	slugs := func(file string, line *regexp.Regexp) map[string]bool {
+		data, err := readPrivate(filepath.Join(dir, file), maxMap)
+		if err != nil {
+			unread = append(unread, "systems/"+file)
+			return nil
 		}
+		listed := map[string]bool{}
+		for _, l := range strings.Split(string(data), "\n") {
+			if m := line.FindStringSubmatch(l); m != nil {
+				listed[m[1]] = true
+			}
+		}
+		return listed
+	}
+	leftOut := func(listed map[string]bool) []string {
+		var out []string
+		for slug := range pages {
+			if !listed[slug] {
+				out = append(out, slug)
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+	onMap := slugs("map.md", mapLine)
+	if len(pages) == 0 && onMap == nil {
+		r.add("system map", "UNKNOWN", "no system pages yet", "")
 		return
 	}
-	listed := map[string]bool{}
-	for _, line := range strings.Split(string(data), "\n") {
-		if m := mapLine.FindStringSubmatch(line); m != nil {
-			listed[m[1]] = true
+	if onMap != nil {
+		var gone []string
+		for slug := range onMap {
+			if !pages[slug] {
+				gone = append(gone, slug)
+			}
+		}
+		slices.Sort(gone)
+		if missing := leftOut(onMap); len(missing) > 0 {
+			facts = append(facts, fmt.Sprintf("the map leaves out %d of %d system pages: %s", len(missing), len(pages), list(missing)))
+		}
+		if len(gone) > 0 {
+			facts = append(facts, fmt.Sprintf("it lists %d %s: %s", len(gone), plural(len(gone), "page that no longer exists", "pages that no longer exist"), list(gone)))
 		}
 	}
-	var missing, gone []string
-	for slug := range pages {
-		if !listed[slug] {
-			missing = append(missing, slug)
+	if len(pages) > 0 {
+		if listed := slugs("index.md", indexLine); listed != nil {
+			if missing := leftOut(listed); len(missing) > 0 {
+				facts = append(facts, fmt.Sprintf("systems/index.md leaves out %d of %d system pages: %s", len(missing), len(pages), list(missing)))
+			}
 		}
 	}
-	for slug := range listed {
-		if !pages[slug] {
-			gone = append(gone, slug)
-		}
+	if len(unread) > 0 {
+		facts = append([]string{fmt.Sprintf("%d system %s, but %s %s missing, unreadable or over 256 KB", len(pages), plural(len(pages), "page", "pages"), strings.Join(unread, " and "), plural(len(unread), "is", "are"))}, facts...)
 	}
-	if len(missing)+len(gone) == 0 {
-		r.add("system map", "PASS", fmt.Sprintf("%d system %s, all on the map", len(pages), plural(len(pages), "page", "pages")), "")
+	if len(facts) > 0 {
+		r.add("system map", "FAIL", strings.Join(facts, "; "), "write any system page again with eva-md system write <slug> --replace, which rebuilds the map and systems/index.md")
 		return
 	}
-	slices.Sort(missing)
-	slices.Sort(gone)
-	var facts []string
-	if len(missing) > 0 {
-		facts = append(facts, fmt.Sprintf("the map leaves out %d of %d system pages: %s", len(missing), len(pages), list(missing)))
-	}
-	if len(gone) > 0 {
-		facts = append(facts, fmt.Sprintf("it lists %d %s: %s", len(gone), plural(len(gone), "page that no longer exists", "pages that no longer exist"), list(gone)))
-	}
-	r.add("system map", "FAIL", strings.Join(facts, "; "), rebuild)
+	r.add("system map", "PASS", fmt.Sprintf("%d system %s, all on the map and in systems/index.md", len(pages), plural(len(pages), "page", "pages")), "")
 }
 
 // Installed reports whether eva-md's plugin is installed for host,

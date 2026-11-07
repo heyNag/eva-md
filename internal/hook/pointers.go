@@ -138,7 +138,7 @@ func saveState(ctx context.Context, markers session.Markers, host, id string, s 
 	if err := root.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	f, err := root.OpenFile(filepath.Join(dir, promptsMarker), os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	f, err := paths.OpenOrCreate(root, filepath.Join(dir, promptsMarker), os.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		return err
 	}
@@ -214,14 +214,16 @@ func promptLines(ctx context.Context, env Env, project, prompt string, brief boo
 func reminderDue(every, n int) bool { return every > 0 && (n-1)%every == 0 }
 
 // reminder is the line reminding the agent of its memory, naming the system
-// map when the wiki has system pages: the fullest of its forms that fits in
-// 100 characters, or "" when none does.
+// index, a line for each system, when the wiki has system pages: the
+// fullest of its forms that fits in 100 characters, or "" when none does.
+// The shortest form that names the index fits a default install's path for
+// a user name of up to 9 characters.
 func reminder(dirs paths.Dirs, systems bool) string {
 	bin := filepath.Join(dirs.Share, "bin", "eva-md")
 	search := "eva.md: earlier chats: " + bin + " search <terms>"
 	forms := []string{search}
 	if systems {
-		forms = []string{search + "; system map: " + bin + " show systems/map", search + "; system map: show systems/map", search + "; show systems/map", search}
+		forms = []string{search + "; systems: " + bin + " show systems/index", search + "; systems: show systems/index", search + "; show systems/index", search + "; systems/index", search}
 	}
 	for _, line := range forms {
 		if runes(line) <= reminderCap {

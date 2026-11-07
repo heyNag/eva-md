@@ -22,7 +22,7 @@ func saveBeat(t *testing.T, d paths.Dirs, host, event string, at time.Time) {
 func hostActivity(t *testing.T, d paths.Dirs, host string, at time.Time) {
 	t.Helper()
 	market := "codex"
-	hostDir := filepath.Join(os.Getenv("HOME"), ".codex", "sessions", "2026", "10", "29")
+	hostDir := filepath.Join(os.Getenv("HOME"), ".codex", "sessions", at.Format("2006"), at.Format("01"), at.Format("02"))
 	if host == "claude-code" {
 		market = "claude"
 		hostDir = filepath.Join(os.Getenv("HOME"), ".claude", "projects", "project-a")

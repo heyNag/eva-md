@@ -18,13 +18,9 @@ func TryLock(dir, name string) (unlock func(), busy bool, err error) {
 		return nil, false, fmt.Errorf("lock folder: %w", err)
 	}
 	defer root.Close()
-	// The lock is created with O_EXCL, then opened as it is when it exists:
-	// on macOS, callers that create the same file through os.Root without
-	// O_EXCL at once can get ENOENT, not the lock or busy.
-	f, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		f, err = root.OpenFile(name, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	}
+	// Callers that take a new lock at once each get it or busy, never
+	// ENOENT (see OpenOrCreate).
+	f, err := OpenOrCreate(root, name, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		return nil, false, fmt.Errorf("lock: %w", err)
 	}
@@ -40,4 +36,18 @@ func TryLock(dir, name string) (unlock func(), busy bool, err error) {
 		return nil, false, fmt.Errorf("lock: %w", err)
 	}
 	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }, false, nil
+}
+
+// OpenOrCreate opens name in root with flag, creating it with perm when it
+// doesn't exist: it creates the file with O_EXCL, and opens the one there
+// when that fails because it exists. On macOS, callers that create the same
+// file through os.Root without O_EXCL at once can get ENOENT, so of two
+// hooks or jobs that start a lock, a log or a marker at the same moment, one
+// would fail. flag holds neither os.O_CREATE, os.O_EXCL nor os.O_TRUNC.
+func OpenOrCreate(root *os.Root, name string, flag int, perm os.FileMode) (*os.File, error) {
+	f, err := root.OpenFile(name, flag|os.O_CREATE|os.O_EXCL, perm)
+	if errors.Is(err, fs.ErrExist) {
+		f, err = root.OpenFile(name, flag, 0)
+	}
+	return f, err
 }

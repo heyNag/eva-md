@@ -36,10 +36,12 @@ var liveTexts = []string{
 // built-in fixture: the two exchanges above as a batch for an empty thread
 // page. It asks for the host's default model at the effort the config gives
 // the host, with the update's rules and schema, in an empty run folder, and
-// checks the answer with the validator a real pass uses. It writes nothing:
+// checks the answer with the validator a real pass uses. It starts the CLI
+// a run starts: the path install recorded in the state folder, state, while
+// that is still the CLI, and otherwise the one on PATH. It writes nothing:
 // no page, no watermark and no run log, so its call counts toward no budget
 // and its failure holds nothing. An error means the run could not start.
-func Live(ctx context.Context, runner Runner, host string, c config.Config) (LiveResult, error) {
+func Live(ctx context.Context, runner Runner, host string, c config.Config, state string) (LiveResult, error) {
 	h, ok := lookupHost(host)
 	if !ok {
 		return LiveResult{}, fmt.Errorf("update: unknown host %q", host)
@@ -59,7 +61,7 @@ func Live(ctx context.Context, runner Runner, host string, c config.Config) (Liv
 	defer os.RemoveAll(dir)
 	start := time.Now()
 	res, err := runner.Run(ctx, Request{Host: host, Effort: effort, Rules: Rules, Input: batch.Input, Schema: Schema(page),
-		RunDir: dir, IgnoreUserConfig: c.CodexIgnoreUserConfig})
+		RunDir: dir, IgnoreUserConfig: c.CodexIgnoreUserConfig, CLI: cliPaths(state)[cliName(host)]})
 	if err != nil {
 		return LiveResult{}, err
 	}

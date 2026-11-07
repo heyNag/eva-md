@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -334,7 +335,7 @@ type stagedFile struct{ path, mode string }
 
 // stagedFiles lists the paths whose staged content differs from HEAD.
 func stagedFiles(ctx context.Context, wiki string) ([]stagedFile, error) {
-	var out limitedBuffer
+	out := limitedBuffer{limit: stagedLimit}
 	if err := run(ctx, GitTimeout, wiki, &out, "diff", "--cached", "--raw", "--no-renames", "-z"); err != nil {
 		return nil, err
 	}
@@ -424,6 +425,45 @@ func pagesText(n int) string {
 		return "1 page"
 	}
 	return fmt.Sprintf("%d pages", n)
+}
+
+// Unsaved counts what the wiki holds that its remote lacks, as far as this
+// clone knows, reading local refs and files only: commits are those on HEAD
+// that no branch of origin's holds, as a pending push or a first commit
+// never pushed leaves them, and files the files changed under the commit
+// paths that no commit holds yet, but for those a commit always leaves out
+// by their names, JSONL and temporary files. A wiki with no commit yet has
+// none to push. It never fetches, stages, commits or pushes; uninstall
+// reads it to say what only this Mac has.
+func Unsaved(ctx context.Context, wiki string) (commits, files int, err error) {
+	if _, err := Run(ctx, GitTimeout, wiki, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err == nil {
+		n, err := Run(ctx, GitTimeout, wiki, "rev-list", "--count", "HEAD", "--not", "--remotes=origin")
+		if err != nil {
+			return 0, 0, err
+		}
+		if commits, err = strconv.Atoi(n); err != nil {
+			return 0, 0, errors.New("wikigit: unexpected git rev-list output")
+		}
+	}
+	// The list takes the daily commit's limit for its staged files, so as
+	// many changed files as a commit can take are counted, never refused.
+	out := limitedBuffer{limit: stagedLimit}
+	args := []string{"status", "--porcelain", "-z", "--untracked-files=all", "--no-renames", "--"}
+	// git reads only the commit paths, so a big folder elsewhere in the wiki
+	// can't fill its output; leftOut drops any other path too.
+	for _, p := range commitPaths {
+		args = append(args, literal(p))
+	}
+	if err := run(ctx, GitTimeout, wiki, &out, args...); err != nil {
+		return 0, 0, err
+	}
+	// Each entry is "XY <path>", NUL-terminated.
+	for _, entry := range strings.Split(out.String(), "\x00") {
+		if len(entry) > 3 && !leftOut(stagedFile{path: entry[3:]}) {
+			files++
+		}
+	}
+	return commits, files, nil
 }
 
 // ahead reports whether HEAD has commits its upstream branch lacks, as far
@@ -528,7 +568,7 @@ func lockFile(dir, name string) (*os.File, error) {
 		return nil, err
 	}
 	defer root.Close()
-	f, err := root.OpenFile(name, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	f, err := paths.OpenOrCreate(root, name, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -552,7 +592,7 @@ func appendRecord(state string, t time.Time, r Result) error {
 		return fmt.Errorf("wikigit: record: %w", err)
 	}
 	defer root.Close()
-	f, err := root.OpenFile(t.Format("2006-01")+".jsonl", os.O_APPEND|os.O_CREATE|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+	f, err := paths.OpenOrCreate(root, t.Format("2006-01")+".jsonl", os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return fmt.Errorf("wikigit: record: %w", err)
 	}

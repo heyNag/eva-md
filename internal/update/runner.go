@@ -250,6 +250,32 @@ func joinNotes(notes ...string) string {
 // The rest allows aliases, dated ids, provider prefixes and "[1m]".
 var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,199}$`)
 
+var errModelName = errors.New("update: the model name has characters a CLI flag can't take")
+
+// CheckFlags checks the host, effort, model and CLI path a request would
+// carry, as a command takes them from its flags, so it can refuse a bad one
+// before it asks for anything: the host must be claude-code or codex, the
+// effort one of the host's levels or highest, and the model a name a CLI
+// flag can take, as Run requires, with Run's errors. A CLI path, when given,
+// must be one Run starts: the absolute path of an executable file named for
+// the host's CLI, where Run would quietly start the one on PATH instead.
+func CheckFlags(host, effort, model, cli string) error {
+	h, ok := lookupHost(host)
+	if !ok {
+		return fmt.Errorf("update: unknown host %q", host)
+	}
+	if _, err := resolveEffort(h.efforts, effort); err != nil {
+		return err
+	}
+	if model != "" && !modelName.MatchString(model) {
+		return errModelName
+	}
+	if name := cliName(host); cli != "" && (!filepath.IsAbs(cli) || cliFor(name, cli) != cli) {
+		return fmt.Errorf("update: the CLI path %s is not the absolute path of an executable file named %s", cli, name)
+	}
+	return nil
+}
+
 // check refuses a request with nothing to run, with a value a CLI could read
 // as another flag, or without an empty run folder, so nothing unexpected
 // reaches the child. Blank rules would replace Claude's system prompt with
@@ -261,7 +287,7 @@ func check(r Request) error {
 	case strings.TrimSpace(r.Rules) == "":
 		return errors.New("update: the rules are empty")
 	case r.Model != "" && !modelName.MatchString(r.Model):
-		return errors.New("update: the model name has characters a CLI flag can't take")
+		return errModelName
 	case strings.HasPrefix(r.Rules, "-") || strings.ContainsRune(r.Rules, 0):
 		return errors.New("update: the rules must not start with a dash or hold a NUL byte")
 	case !isObject(r.Schema):

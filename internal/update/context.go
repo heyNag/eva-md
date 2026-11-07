@@ -108,7 +108,8 @@ func commitsOf(ctx context.Context, root, branch string) (subjects []string, hea
 }
 
 // gitRead runs one read-only git command in dir with fsmonitor and hooks
-// off, no optional locks, no signature checked, lazy fetches off and no
+// off, no optional locks, no signature checked and the environment of every
+// read-only git eva-md runs (identity.GitEnv), with lazy fetches off and no
 // inherited git variable that could point it at another repo, and returns
 // its stdout without the final newline. Its commands read only commits,
 // which a partial clone always has, so it needs no --no-lazy-fetch, which
@@ -118,14 +119,7 @@ func gitRead(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append(argv, args...)...)
 	cmd.Dir = "/"
 	cmd.WaitDelay = GitWaitDelay
-	for _, kv := range os.Environ() {
-		key, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(key, "GIT_") && key != "GIT_CONFIG_GLOBAL" && key != "GIT_CONFIG_NOSYSTEM" || key == "LC_ALL" {
-			continue
-		}
-		cmd.Env = append(cmd.Env, kv)
-	}
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
+	cmd.Env = identity.GitEnv()
 	out := &capped{limit: 64 << 10}
 	cmd.Stdout = out
 	if err := cmd.Run(); err != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,9 +148,17 @@ func TestUpdateCommandErrors(t *testing.T) {
 		code int
 		want string
 	}{
-		{[]string{"update"}, 2, "needs --session host:id or --pending"},
+		{[]string{"update"}, 2, "needs --session host:id or --pending, or --sweep"},
 		{[]string{"update", "--pending", "--session", "codex:x"}, 2, "not both"},
+		{[]string{"update", "--pending", "--sweep"}, 2, "takes --pending or --sweep, not both"},
 		{[]string{"update", "--pending", "--dry-run"}, 2, "--dry-run needs --session"},
+		{[]string{"update", "--session", "codex:x", "--sweep", "--dry-run"}, 2, "--dry-run takes no --sweep"},
+		{[]string{"update", "--pending", "--sweep=2026-01-15"}, 2, "takes --pending or --sweep, not both"},
+		{[]string{"update", "--sweep=false"}, 2, "needs --session host:id or --pending, or --sweep"},
+		{[]string{"update", "--sweep=tomorrow"}, 2, "invalid arguments"},
+		{[]string{"update", "--sweep=2026-02-30"}, 2, "invalid arguments"},
+		{[]string{"update", "--sweep=2026-1-5"}, 2, "invalid arguments"},
+		{[]string{"update", "--sweep", "2026-01-15"}, 2, "invalid arguments"},
 		{[]string{"update", "--session", "codex"}, 2, "takes host:id"},
 		{[]string{"update", "--session", "gemini:x"}, 2, "takes host:id"},
 		{[]string{"update", "--session", "codex:x", "extra"}, 2, "invalid arguments"},
@@ -211,6 +220,91 @@ func TestUpdateTakesSeveralSessions(t *testing.T) {
 	if out.String() != "update: 2 passes: 2 ok\n" || len(fake.Requests()) != 2 {
 		t.Fatalf("update printed %q, stderr %q, %d calls", out.String(), errOut.String(), len(fake.Requests()))
 	}
+}
+
+// eva-md update --sweep, which the day's first chat start of a person adds
+// to its catch-up, drains a session idle an hour or more in any project,
+// with --session or alone, and takes the sweep once a day: a second run that
+// day drains nothing more, though a session idles with a backlog. The job's
+// clock is pinned, a second before midnight, so the two runs share a day
+// however slow the machine. A chat start gives the day it found the sweep
+// due on, --sweep=YYYY-MM-DD, and the job takes the sweep on that day, here
+// the next, whatever its own clock says.
+func TestUpdateSweepsOnceADay(t *testing.T) {
+	d, fake := updateFixture(t, tangerine)
+	at := time.Date(2026, 1, 14, 23, 59, 59, 0, time.UTC)
+	saved := updateClock
+	updateClock = func() time.Time { return at }
+	t.Cleanup(func() { updateClock = saved })
+	store := inbox.Store{Root: d.Inbox()}
+	record := filepath.Join(d.State, "updates", "sweep")
+	// Each chat is a thread of its own, so the canned answer, a new page's,
+	// fits each.
+	write := func(sid, branch string, idle time.Duration) string {
+		var lines []byte
+		for i, kind := range []string{"prompt", "reply", "prompt", "reply"} {
+			role := map[string]string{"prompt": "user", "reply": "assistant"}[kind]
+			e := inbox.Entry{V: 1, TS: time.Date(2026, 1, 14, 10, i, 0, 0, time.UTC).Format(time.RFC3339), Host: update.HostClaude, Session: sid,
+				Role: role, Kind: kind, Text: "Plan the tangerine migration, part " + strconv.Itoa(i) + ", with the switch kept behind a flag. " + strings.Repeat("Context. ", 40), Project: "github.com__you__demo", Branch: branch, Origin: "hook"}
+			data, err := json.Marshal(e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines = append(append(lines, data...), '\n')
+		}
+		file := store.Path("github.com__you__demo", update.HostClaude, sid)
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, lines, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(file, at.Add(-idle), at.Add(-idle)); err != nil {
+			t.Fatal(err)
+		}
+		return file
+	}
+	first := write("swept-first", "main", 2*time.Hour)
+	var out, errOut bytes.Buffer
+	if code := run(context.Background(), []string{"update", "--sweep", "--foreground"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("update %d: %s %s", code, out.String(), errOut.String())
+	}
+	if out.String() != "update: 1 pass: 1 ok\n" || len(fake.Requests()) != 1 || !strings.Contains(errOut.String(), "the day's sweep: 1 session idle an hour or more with a backlog") {
+		t.Fatalf("update printed %q, stderr %q", out.String(), errOut.String())
+	}
+	if m, err := store.Mark(first); err != nil || m.Pending(int64(len(mustRead(t, first)))) != 0 {
+		t.Fatalf("watermark %+v %v", m, err)
+	}
+	if data := string(mustRead(t, record)); data != "2026-01-14\n" {
+		t.Fatalf("the sweep was recorded on %q, not the job's day", data)
+	}
+	second := write("swept-second", "next", 3*time.Hour)
+	out.Reset()
+	errOut.Reset()
+	if code := run(context.Background(), []string{"update", "--session", "claude-code:swept-first", "--sweep", "--foreground"}, strings.NewReader(""), &out, &errOut); code != 0 || out.String() != "update: nothing pending\n" || len(fake.Requests()) != 1 {
+		t.Fatalf("second sweep %d: %q %q", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run(context.Background(), []string{"update", "--sweep=2026-01-15", "--foreground"}, strings.NewReader(""), &out, &errOut); code != 0 || out.String() != "update: 1 pass: 1 ok\n" || len(fake.Requests()) != 2 {
+		t.Fatalf("the chat start's day %d: %q %q", code, out.String(), errOut.String())
+	}
+	if m, err := store.Mark(second); err != nil || m.Pending(int64(len(mustRead(t, second)))) != 0 {
+		t.Fatalf("watermark %+v %v", m, err)
+	}
+	if data := string(mustRead(t, record)); data != "2026-01-15\n" {
+		t.Fatalf("the sweep was recorded on %q, not the chat start's day", data)
+	}
+}
+
+// mustRead reads a file's bytes.
+func mustRead(t *testing.T, file string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 // A stop exits 0 with its summary line, a failed pass exits 1 with its, and
@@ -278,7 +372,10 @@ func TestUsageNamesUpdate(t *testing.T) {
 }
 
 // Install's line for chats from before updates it couldn't set aside says
-// so, and not that the first update will.
+// so, and not that the first update will. It says the doctor names each
+// once an update has listed it, which the day's sweep does for at most
+// SweepLeft, not once an update has tried it: every update tries each, but
+// only one that lists it records it for the doctor.
 func TestSetAsideSaysWhatIsLeft(t *testing.T) {
 	d := isolated(t)
 	file := inbox.Store{Root: d.Inbox()}.Path("github.com__you__demo", update.HostClaude, "left-behind")
@@ -295,7 +392,8 @@ func TestSetAsideSaysWhatIsLeft(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(state, 0o700) })
 	var errOut bytes.Buffer
 	setAside(d, &errOut)
-	if got := errOut.String(); !strings.HasPrefix(got, "eva-md: 1 chat captured before updates couldn't be set aside yet, as its file or watermarks can't be read or written;") || strings.Contains(got, "will be set aside by the first update") || strings.Contains(got, "folder") {
-		t.Fatalf("stderr %q", got)
+	want := fmt.Sprintf("eva-md: 1 chat captured before updates couldn't be set aside yet, as its file or watermarks can't be read or written; each update tries again, and eva-md doctor names each once an update has listed it (the day's sweep lists up to %d, newest first)\n", update.SweepLeft)
+	if got := errOut.String(); got != want {
+		t.Fatalf("stderr %q, want %q", got, want)
 	}
 }

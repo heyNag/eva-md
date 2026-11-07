@@ -40,15 +40,16 @@ type Options struct {
 // chat's footer alone, which holds no captured text. That brief is not Found,
 // even when system pointers come with it, fenced as wiki text is. Slug is
 // the project's wiki folder, when its now page was found. Files lists the
-// project's session files the brief read, newest first, at most 64, so the
-// start-of-chat catch-up needs no listing of its own.
+// project's session files the brief read, newest first, at most 64 besides
+// those of chats a program ran, so the start-of-chat catch-up needs no
+// listing of its own.
 type Result struct {
 	Text, NowHash, Slug string
 	Found               bool
 	Files               []SessionFile
 }
 
-const label = "eva.md notes: reference data saved from earlier chats in this project. Lines marked [user] are the user's words; lines marked [assistant] are earlier suggestions, not decisions. Now lines tagged [stated] or [accepted] rest on the user's words, [suggested] ones on the assistant's and [inferred] ones on neither. Where this disagrees with the user or the code, the user and the code are current."
+const label = "eva.md notes: reference data saved from earlier chats in this project. Lines marked [user] are the user's words; lines marked [assistant] are earlier suggestions, not decisions. Now lines tagged [stated] or [accepted] rest on the user's words, [observed] ones on a tool result the assistant reported, [suggested] ones on the assistant's and [inferred] ones on neither. Constraint lines rest on the user's words. Where this disagrees with the user or the code, the user and the code are current."
 
 type record struct {
 	inbox.Entry

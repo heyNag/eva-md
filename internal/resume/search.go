@@ -47,7 +47,7 @@ type SearchOptions struct {
 
 const (
 	searchFacts = "Lines marked [user] are the user's words; [assistant] lines are earlier suggestions, not decisions."
-	pageFacts   = "On page lines, [stated] and [accepted] rest on the user's words, [suggested] on the assistant's and [inferred] on neither; [suggested] and [inferred] lines are not decisions."
+	pageFacts   = "On page lines, [stated] and [accepted] rest on the user's words, [observed] on a tool result the assistant reported, [suggested] on the assistant's and [inferred] on neither; [suggested] and [inferred] lines are not decisions."
 	systemFacts = "[system] lines are notes an agent wrote from documentation and code, and [unverified] lines were not found in a source; \"code moved 14 commits\" counts the commits since the page's as_of that changed the code it cites."
 	codeFacts   = "\"code:\" lines name the code a page cites; a path finds the pages that cite it or a folder holding it."
 )

@@ -23,14 +23,29 @@ var hosts = []string{"claude-code", "codex"}
 
 // triggerSetup is setup with a wiki set up, so that updates are on, and
 // with the commands the hooks start recorded, which the returned function
-// reads.
+// reads. The day's sweep has been taken (see sweptOn), so a chat start asks
+// only for its catch-up, unless a test of the sweep says otherwise.
 func triggerSetup(t *testing.T) (Env, payload, func() [][]string) {
 	t.Helper()
 	env, p := setup(t)
 	env.Config.WikiPath = filepath.Join(os.Getenv("HOME"), "wiki")
+	sweptOn(t, env, env.Now())
 	var runs [][]string
 	env.spawn = func(args ...string) { runs = append(runs, append([]string(nil), args...)) }
 	return env, p, func() [][]string { return runs }
+}
+
+// sweptOn records day as the day an update job last took the day's sweep,
+// as the job records it.
+func sweptOn(t *testing.T, env Env, day time.Time) {
+	t.Helper()
+	file := filepath.Join(env.Dirs.State, "updates", "sweep")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(day.Format(time.DateOnly)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // sessionFile writes a session file of exactly size bytes of valid entries
@@ -449,20 +464,33 @@ func TestSessionStartCatchesUpTheChatsOwnBacklog(t *testing.T) {
 
 // A resumed chat's backlog is updated once: its SessionStart takes it, and
 // its next prompt finds the file the start has just changed and starts
-// nothing more. A real clock, since the start's own append dates the file.
+// nothing more. A real clock, since the start's own append dates the file;
+// no job has taken a sweep on any day, so the start asks for the day's
+// sweep with its catch-up.
 func TestResumedChatSpawnsOnce(t *testing.T) {
 	for _, host := range hosts {
 		t.Run(host, func(t *testing.T) {
 			env, p, spawned := triggerSetup(t)
 			env.Now = time.Now
+			if err := os.Remove(filepath.Join(env.Dirs.State, "updates", "sweep")); err != nil {
+				t.Fatal(err)
+			}
 			sessionFile(t, env, host, p.Session, 3*promptBacklog, inbox.Mark{}, time.Now().Add(-time.Hour))
+			before := time.Now().Format(time.DateOnly)
 			p.Event, p.Source = "SessionStart", "resume"
 			invoke(t, host, p, env)
+			after := time.Now().Format(time.DateOnly)
 			p.Event, p.Source = "UserPromptSubmit", ""
 			invoke(t, host, p, env)
-			if got, want := spawned(), updateOf(host+":"+p.Session); !reflect.DeepEqual(got, want) {
-				t.Fatalf("spawned %q, want %q", got, want)
+			// The start gives the job its day, which the clock read between
+			// these two.
+			got := spawned()
+			for _, day := range []string{before, after} {
+				if want := [][]string{{"update", "--session", host + ":" + p.Session, "--sweep=" + day}}; reflect.DeepEqual(got, want) {
+					return
+				}
 			}
+			t.Fatalf("spawned %q, want the session with --sweep=%s", got, before)
 		})
 	}
 }

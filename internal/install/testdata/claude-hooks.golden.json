@@ -46,7 +46,7 @@
             "type": "command"
           }
         ],
-        "matcher": "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|mcp__.*"
+        "matcher": "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|WebSearch|mcp__.*"
       }
     ],
     "PostToolUseFailure": [
@@ -63,7 +63,7 @@
             "type": "command"
           }
         ],
-        "matcher": "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|mcp__.*"
+        "matcher": "Bash|Edit|Write|NotebookEdit|TaskCreate|TaskUpdate|TodoWrite|Read|Grep|Glob|WebFetch|WebSearch|mcp__.*"
       }
     ],
     "PreCompact": [

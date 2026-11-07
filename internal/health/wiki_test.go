@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -49,6 +50,52 @@ func TestWikiRemoteAcceptsInitializedCanonicalIdentity(t *testing.T) {
 		}
 		if !found {
 			t.Fatal("remote check missing")
+		}
+	}
+}
+
+// A new wiki's folder is 0700, so only this account can open it; one
+// adopted from a clone made by hand keeps git's 0755, which the doctor fails
+// with the fix that closes it, the folder quoted as a shell takes it, and so
+// is any access for the group or other accounts.
+func TestWikiPermissionsRow(t *testing.T) {
+	d := isolated(t)
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wiki := filepath.Join(dir, "my wiki")
+	if err := os.Mkdir(wiki, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := config.Default()
+	c.WikiPath, c.ExpectedRemote, c.Instance = wiki, "github.com/example/wiki", "test"
+	for _, tc := range []struct {
+		mode           os.FileMode
+		status, detail string
+	}{
+		{0o755, "FAIL", "the wiki folder is 0755, so other accounts on this Mac can read it"},
+		{0o711, "FAIL", "the wiki folder is 0711, so other accounts on this Mac can read it"},
+		{0o750, "FAIL", "the wiki folder is 0750, so other accounts on this Mac can read it"},
+		{0o700, "PASS", "only your account can open the wiki folder"},
+	} {
+		if err := os.Chmod(wiki, tc.mode); err != nil {
+			t.Fatal(err)
+		}
+		var report Report
+		inspectWiki(context.Background(), &report, d, c, false)
+		var row *Check
+		for i := range report.Checks {
+			if report.Checks[i].Name == "wiki permissions" {
+				row = &report.Checks[i]
+			}
+		}
+		fix := ""
+		if tc.status == "FAIL" {
+			fix = "run chmod 700 '" + wiki + "'"
+		}
+		if row == nil || row.Status != tc.status || row.Detail != tc.detail || row.Fix != fix {
+			t.Fatalf("mode %04o: %+v", tc.mode, row)
 		}
 	}
 }

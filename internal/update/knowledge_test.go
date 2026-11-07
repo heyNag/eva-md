@@ -219,6 +219,58 @@ func TestValidateKnowledgeAdds(t *testing.T) {
 	}
 }
 
+// A fact or a procedure is observed only on a command's, a file's or an MCP
+// tool's result: a tool entry or a report of a turn that used a web fetch or
+// web search, from the user's prompt to the next, supports no observed
+// knowledge, cited alone or beside another turn's, while the user's own
+// words in that turn still settle a fact.
+func TestValidateKnowledgeOffTheWeb(t *testing.T) {
+	isolate(t)
+	c := newChat("3f2a91c0-webk", start)
+	c.user("Check the deploy steps. " + filler)                               // 1
+	c.tool("Bash make deploy-check (exit 0)")                                 // 2
+	c.assistant("The check passes: deploys read the DEPLOY_TARGET variable.") // 3
+	c.user("What do the docs say about the runner?")                          // 4
+	c.tool("WebFetch https://docs.example.com/runner (exit 0)")               // 5: a run of a web fetch
+	c.tool("Bash make runner-check (exit 0)")                                 // and a command
+	c.assistant("The docs say the runner reads the RUNNER_POOL variable.")    // 6
+	c.user("And the notes?")                                                  // 7
+	c.tool("mcp__notes__read_page id=42 (exit 0)")                            // 8
+	c.assistant("The note says builds read the BUILD_QUEUE variable.")        // 9
+	known := KnowledgeSet{Project: "github.com__you__eva-md", Rows: []knowledgepage.Row{{ID: "k3", Kind: "fact", Tag: "stated", Scope: "project",
+		Project: "github.com__you__eva-md", AsOf: "2026-01-13", At: start, Title: "Runner pool", Statement: "The runner pool is fixed"}}}
+	b := build(t, c, threadpage.Page{}, Options{Knowledge: known})
+	if !slices.Equal(b.Knowledge.Shown, []string{"k3"}) {
+		t.Fatalf("shown %v", b.Knowledge.Shown)
+	}
+	runner := "The runner reads the RUNNER_POOL variable"
+	observed := func(id, text string, refs ...int) knowledgeOp {
+		op := kSupersede(id, "fact", text, refs...)
+		op.Tag = "observed"
+		return op
+	}
+	for _, tc := range []struct {
+		name string
+		op   knowledgeOp
+		want KnowledgeCounts
+	}{
+		{"a command's result", kAdd("fact", "Deploy target", "Deploys read the DEPLOY_TARGET variable", "observed", 2, 3), KnowledgeCounts{Added: 1}},
+		{"a web turn's run and report", kAdd("fact", "Runner pool", runner, "observed", 5, 6), KnowledgeCounts{Refused: 1}},
+		{"a web turn's report", kAdd("fact", "Runner pool", runner, "observed", 6), KnowledgeCounts{Refused: 1}},
+		{"a web turn's command", kAdd("fact", "Runner pool", runner, "observed", 5), KnowledgeCounts{Refused: 1}},
+		{"a web turn's report beside a command's", kAdd("fact", "Deploy target", "Deploys read the DEPLOY_TARGET variable", "observed", 3, 6), KnowledgeCounts{Refused: 1}},
+		{"a procedure of a web turn", kAdd("procedure", "Runner pool", "Set the RUNNER_POOL variable before a runner check", "observed", 5, 6), KnowledgeCounts{Refused: 1}},
+		{"an MCP tool's result", kAdd("fact", "Build queue", "Builds read the BUILD_QUEUE variable", "observed", 8, 9), KnowledgeCounts{Added: 1}},
+		{"the user's words in a web turn", kAdd("fact", "Runner docs", "The runner has docs", "stated", 4), KnowledgeCounts{Added: 1}},
+		{"a supersede on a web turn", observed("k3", "The runner pool is set by the RUNNER_POOL variable", 4, 6), KnowledgeCounts{Refused: 1}},
+		{"a supersede on an MCP tool's result", observed("k3", "The runner pool is set by the BUILD_QUEUE variable", 7, 9), KnowledgeCounts{Superseded: 1}},
+	} {
+		if _, ops, r := knownOps(t, b, tc.op); r.Knowledge != tc.want || len(ops) != tc.want.Added+tc.want.Superseded {
+			t.Errorf("%s: %+v, ops %+v", tc.name, r.Knowledge, ops)
+		}
+	}
+}
+
 // A statement holds for all projects only when a cited prompt says so in
 // the user's own words, or the chat is outside a project.
 func TestKnowledgeScope(t *testing.T) {

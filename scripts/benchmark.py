@@ -172,6 +172,33 @@ def main():
             if "MARIGOLD" not in context or "eva-memory" not in context or len(context)>7000:
                 raise RuntimeError("cross-host startup failed")
             startup.append(elapsed)
+        # Chats a program ran, newer than the person's: 64 files of 32 KiB of
+        # short tool lines and replies with quotes and line breaks, as an
+        # agent loop leaves them, 2 MiB in all, the most the brief reads
+        # beyond its 64 files. Each starts with the host_prompt event and has
+        # no typed prompt. Timed, then removed, so nothing later sees them.
+        programs=[]
+        def entry(sid,role,kind,text):
+            return json.dumps(dict(sample,session=sid,role=role,kind=kind,text=text)).encode()+b"\n"
+        for i in range(64):
+            sid="m1-program-%02d"%i
+            body=entry(sid,"event","event","session_start: startup")+entry(sid,"event","event","host_prompt")
+            pair=entry(sid,"tool","tool",'Bash go test ./internal/... -run "TestReplay" (exit 0)')+entry(sid,"assistant","reply",'The worker\'s "report": the step passed.\n\tDetail: /src/replay/step.go:12 returned {"ok": true}.\n'*3)
+            while len(body)+len(pair)<=32<<10:
+                body+=pair
+            path=files[0].parent/("claude-code-"+sid+".jsonl")
+            path.write_bytes(body);path.chmod(0o600)
+            programs.append(path)
+        startup_programs=[]
+        for i in range(10):
+            output,elapsed=hook("codex","SessionStart","m1-programs-"+str(i),source="startup")
+            value=json.loads(output)
+            context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
+            if "MARIGOLD" not in context:
+                raise RuntimeError("the chats a program ran pushed the person's chat out of the brief")
+            startup_programs.append(elapsed)
+        for path in programs:
+            path.unlink()
         # Search with no window over every project: first as a search finds
         # an inbox with no index, which also indexes up to 16 MiB of it for
         # the next search, then after eva-md index. Figures only: process
@@ -247,6 +274,19 @@ def main():
         for i in range(10):
             _,elapsed=hook("codex","SessionStart","m1-records-"+str(i),source="startup")
             startup_records.append(elapsed)
+            if i==0:
+                # The day's first chat start with updates on asked for the
+                # day's sweep, giving the job the hook's day. The stand-in
+                # can't take it, so record it as taken on that day, as the
+                # job would, and later chat starts ask for none.
+                deadline=time.time()+10
+                sweeps=[]
+                while not sweeps and time.time()<deadline:
+                    sweeps=[a for line in spawned.read_text().splitlines() for a in line.split() if a.startswith("--sweep=")]
+                    time.sleep(0.05)
+                if len(sweeps)!=1:
+                    raise RuntimeError("the day's first chat start did not ask for the day's sweep once")
+                (state/"updates"/"sweep").write_text(sweeps[0][len("--sweep="):])
         # With a wiki set up, updates are on: each Stop also checks the
         # session's backlog, one stat, which here never reaches 60 KB.
         capture=[]
@@ -303,22 +343,26 @@ def main():
         for i in range(30):
             _,elapsed=hook("claude-code","SessionEnd","m1-end-"+str(i))
             ends.append(elapsed)
-        expected=len(stop_spawn)+len(ends)+1
+        # The first chat start's sweep came alone, a job of its own.
+        expected=len(stop_spawn)+len(ends)+2
         runs=lambda: len(spawned.read_text().splitlines())-1
         deadline=time.time()+10
         while runs()<expected and time.time()<deadline:
             time.sleep(0.05)
-        if runs()!=expected or spawned.read_text().splitlines().count("maintain")!=1:
-            raise RuntimeError("the hooks started the stand-in %d times, not %d with maintain once"%(runs(),expected))
+        started=spawned.read_text().splitlines()
+        if runs()!=expected or started.count("maintain")!=1 or sum(line.startswith("update --sweep=") for line in started)!=1:
+            raise RuntimeError("the hooks started the stand-in %d times, not %d with maintain and the sweep once each"%(runs(),expected))
         # The MCP server, started in the project as Claude Code starts it,
         # with the padded inbox, the wiki and the records above in place.
         mcp_starts,mcp_exits,mcp_searches,mcp_shows,mcp_statuses=mcp_timings(binary,env,cwd)
         p95=lambda values: sorted(values)[int((len(values)-1)*.95)]
         code=code_scenarios(hook,cwd,wiki,state,sample["project"])
-        recalled=recall_scenario(hook,wiki)
+        recalled=recall_scenario(hook,wiki,sample["project"])
         report={"offline":True,"isolated_home":True,"cross_host_resume":True,"inbox_bytes":files[0].stat().st_size,
                 "capture_samples":len(capture),"capture_p95_ms":round(p95(capture),3),
                 "startup_samples":len(startup),"startup_p95_ms":round(p95(startup),3),
+                "startup_with_programs_samples":len(startup_programs),"startup_with_programs_p95_ms":round(p95(startup_programs),3),
+                "startup_with_programs_target_met":p95(startup_programs)<300,
                 "transcript_capture_samples":len(recovery),"transcript_capture_p95_ms":round(p95(recovery),3),
                 "transcript_capture_target_met":p95(recovery)<50,
                 "prompt_after_brief_samples":len(prompts),"prompt_after_brief_p95_ms":round(p95(prompts),3),
@@ -411,13 +455,18 @@ def code_scenarios(hook, cwd, wiki, state, key):
     return {"brief":briefs,"prompts":prompts}
 
 
-def recall_scenario(hook, wiki):
+def recall_scenario(hook, wiki, key):
     """Times prompts that recall knowledge. The recall index is full: active
     facts near its 512 KiB bound, each titled by its own number, desk and
-    route. Each chat starts untimed and gets four prompts, each asking about
-    three facts it has not had by their numbers, desks and routes, so every
-    prompt reads and scores the whole index, beside the full names index
-    above, and must get the three facts in one fenced block."""
+    route. They are another project's, which a system page shares with the
+    project in --cwd, whose key is key, as the repos index says. Each chat
+    starts untimed and gets four prompts, each asking about three facts it
+    has not had by their numbers, desks and routes, so every prompt reads and
+    scores the whole index, beside the full names index above, then reads
+    the repos index for the facts' project, and must get the three facts in
+    one fenced block."""
+    repos=wiki/".eva-md/repos.tsv"
+    repos.write_text("# eva-md repos index 1\nsystems/quartz-desks\t%s\tgithub.com__example__ledger\n"%key);repos.chmod(0o600)
     lines=["# eva-md knowledge index 1\n"]
     size,n=len(lines[0]),0
     while True:
@@ -445,7 +494,7 @@ def recall_scenario(hook, wiki):
             output,elapsed=hook("codex","UserPromptSubmit","m1-recall-%d"%c,turn_id=str(k),prompt=prompt)
             value=json.loads(output)
             context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
-            if not context.startswith("eva.md knowledge: ") or "\n````eva-memory\n" not in context or len(context)>900 or \
+            if not context.startswith("eva.md knowledge: ") or "\n````eva-memory\n" not in context or len(context)>1000 or \
                any("\nk%d · fact [observed] · github.com__example__ledger · 2026-10-28: "%m not in context for m in numbers):
                 raise RuntimeError("a prompt about three facts did not get them fenced")
             prompts.append(elapsed)

@@ -17,6 +17,12 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	return wikigit.Run(ctx, GitTimeout, dir, args...)
 }
 
+// dirty reports whether git status finds a change in dir, however many,
+// within GitTimeout (see wikigit.Dirty).
+func dirty(ctx context.Context, dir string) (bool, error) {
+	return wikigit.Dirty(ctx, GitTimeout, dir)
+}
+
 // gitEnvironment is the environment the runner gives git.
 func gitEnvironment() []string { return wikigit.Environment() }
 

@@ -26,6 +26,7 @@ func TestMain(m *testing.M) {
 	activityTimeout = time.Minute
 	inventoryTimeout = time.Minute
 	commandTimeout = time.Minute
+	commandWaitDelay = time.Minute
 	trustTimeout = time.Minute
 	mcpProbeTimeout = time.Minute
 	os.Exit(m.Run())

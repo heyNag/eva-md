@@ -21,10 +21,11 @@ const systemUsage = "usage: eva-md system write <slug> [--replace] < page.md | e
 // page from stdin and writes it to the wiki with the system map, from any
 // folder. It prints "wrote systems/<slug>.md (<n> bytes); the map has <m>
 // systems", then a line for each repo and commit of the code the page cites,
-// saying whether a local clone confirmed its paths and why not; or the
-// problems it refused the page for, each naming its lines and never their
-// text. It exits 0 on a write, 1 on a refusal and 2 on a usage error. eva-md
-// system status is runSystemStatus.
+// saying whether a local clone confirmed its paths and why not, and a line
+// for a page that lists no repo and cites no code, which no brief points at;
+// or the problems it refused the page for, each naming its lines and never
+// their text. It exits 0 on a write, 1 on a refusal and 2 on a usage error.
+// eva-md system status is runSystemStatus.
 func runSystem(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) >= 2 && args[1] == "status" {
 		return runSystemStatus(ctx, args[2:], out, errOut)

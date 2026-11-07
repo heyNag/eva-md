@@ -204,11 +204,11 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		if err := w.RemoveLeftoverLock(); err != nil {
 			return result, err
 		}
-		status, err := git(ctx, root, "status", "--porcelain", "--untracked-files=all")
+		changed, err := dirty(ctx, root)
 		if err != nil {
 			return result, err
 		}
-		if status != "" {
+		if changed {
 			return result, errors.New("wikiinit: existing wiki has uncommitted changes; left untouched")
 		}
 	} else {

@@ -219,7 +219,7 @@ func TestUsageListsEveryCommand(t *testing.T) {
 		t.Fatal(code)
 	}
 	listed := strings.Fields(strings.NewReplacer("usage: eva-md", "", "|", " ").Replace(errOut.String()))
-	built := []string{"setup", "version", "upgrade", "init", "install", "uninstall", "doctor", "status", "brief", "show", "search", "index", "update", "commit", "maintain", "system", "validate", "hook", "mcp"}
+	built := []string{"setup", "version", "upgrade", "init", "install", "uninstall", "doctor", "status", "brief", "show", "search", "index", "inbox", "update", "commit", "maintain", "system", "validate", "hook", "mcp"}
 	if strings.Join(listed, " ") != strings.Join(built, " ") {
 		t.Fatalf("usage lists %q", listed)
 	}
@@ -314,6 +314,22 @@ func TestDoctorLive(t *testing.T) {
 	rows, _ = live()
 	if codex = rows["codex live update"]; codex.Status != "FAIL" || !strings.HasPrefix(codex.Detail, "auth after ") || codex.Fix != "log in with codex login, then run eva-md doctor --live again" {
 		t.Fatalf("codex: %+v", codex)
+	}
+	// The check starts the CLI install recorded, as the update job does,
+	// here in a folder that isn't on PATH.
+	recorded := filepath.Join(t.TempDir(), "claude")
+	if err := os.Rename(filepath.Join(pathFolder(), "claude"), recorded); err != nil {
+		t.Fatal(err)
+	}
+	if err := paths.EnsureDir(d.State); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d.State, "cli-paths.json"), []byte(`{"claude":`+jsonQuote(recorded)+"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = live()
+	if claude = rows["claude-code live update"]; claude.Status != "PASS" {
+		t.Fatalf("claude by its recorded path: %+v", claude)
 	}
 	if after := fileTree(t, wiki); after != before {
 		t.Fatalf("the live check changed the wiki:\n%s\n---\n%s", before, after)

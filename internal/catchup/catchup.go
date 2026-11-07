@@ -946,13 +946,20 @@ func safeRedact(text string, lim limits, redactor func(string) (string, int)) (o
 // text. Text over lim.full keeps a head and a tail window, cut at line
 // boundaries, and drops the middle, as the inbox does for text over its own
 // limit. The rules of both of the redactor's rule sets match within a line,
-// with two exceptions, so each window is redacted as the whole text would be:
+// with three exceptions, so each window is redacted as the whole text would
+// be:
 //   - private key blocks span lines. They are replaced first, as redact.Redact
 //     replaces them first, so no cut lands inside one;
 //   - the entropy rule looks past a trigger word, across lines. The tail is
 //     redacted with windowContext bytes before it, and those lines are then
 //     dropped by counting newlines, which no remaining rule removes. If the
-//     count changes anyway, the tail is dropped rather than risk a cut.
+//     count changes anyway, the tail is dropped rather than risk a cut;
+//   - a command written over several lines, each but the last ending in a
+//     backslash, is read across them from its name, as a curl whose -u
+//     comes lines later. The tail never starts on such a line's
+//     continuation: those lines are dropped with the middle, however far
+//     the command's name is. A cut at the head's end only drops the rest of
+//     a command.
 //
 // Positions are taken on the text the redactor sees, after its cleaning.
 // When neither window holds a whole line, nothing is kept and the result is a
@@ -977,6 +984,14 @@ func boundedRedact(text string, lim limits, redactor func(string) (string, int))
 	if i := strings.IndexByte(text[len(text)-lim.tail:], '\n'); i >= 0 {
 		tailStart = len(text) - lim.tail + i + 1
 	}
+	for tailStart < len(text) && continued(text, tailStart) {
+		i := strings.IndexByte(text[tailStart:], '\n')
+		if i < 0 {
+			tailStart = len(text)
+			break
+		}
+		tailStart += i + 1
+	}
 	var b strings.Builder
 	red := keys
 	if headEnd > 0 {
@@ -999,6 +1014,13 @@ func boundedRedact(text string, lim limits, redactor func(string) (string, int))
 		return redaction{gap: true}
 	}
 	return redaction{text: b.String(), red: red, trunc: tailStart - headEnd}
+}
+
+// continued reports whether the line that starts at text[i] continues a
+// command: the line before it ends in a backslash.
+func continued(text string, i int) bool {
+	before, ok := strings.CutSuffix(text[:i], "\n")
+	return ok && strings.HasSuffix(strings.TrimSuffix(before, "\r"), "\\")
 }
 
 // afterLines returns the index just past the nth newline in s.
@@ -1071,8 +1093,9 @@ func RecoverProject(ctx context.Context, dirs paths.Dirs, project, excludeHost, 
 			continue
 		}
 		// At most 4096 records, so the listing stays within the startup
-		// budget, and of those the 256 newest. Records are never pruned, so
-		// past 4096 a recent chat can still be missed.
+		// budget, and of those the 256 newest. The daily maintain keeps at
+		// most RecordsKept a host (see Prune), so the listing holds them
+		// all unless more than that many chats start between two runs.
 		items, _ := d.ReadDir(4096)
 		d.Close()
 		type record struct {
@@ -1239,31 +1262,81 @@ func openTranscript(s Source) (*os.File, error) {
 	if clean, n := redact.Redact(s.Path); n != 0 || clean != s.Path {
 		return nil, errors.New("catchup: invalid path")
 	}
-	var base string
 	switch s.Host {
 	case "claude-code":
-		base = filepath.Join(s.Home, ".claude", "projects")
 		if filepath.Base(s.Path) != s.Session+".jsonl" {
 			return nil, errors.New("catchup: wrong transcript")
 		}
 	case "codex":
-		base = filepath.Join(s.Home, ".codex", "sessions")
 		if !strings.HasSuffix(filepath.Base(s.Path), "-"+s.Session+".jsonl") {
 			return nil, errors.New("catchup: wrong transcript")
 		}
 	default:
 		return nil, errors.New("catchup: invalid host")
 	}
-	rel, err := filepath.Rel(base, s.Path)
-	if err != nil || !filepath.IsLocal(rel) || rel == "." {
+	path, ok := storePath(s.Host, s.Home, s.Path)
+	if !ok {
 		return nil, errors.New("catchup: outside host store")
 	}
-	root, err := paths.OpenRoot(filepath.Dir(s.Path), false)
+	root, err := paths.OpenRoot(filepath.Dir(path), false)
 	if err != nil {
 		return nil, err
 	}
 	defer root.Close()
-	return openRegular(root, filepath.Base(s.Path))
+	return openRegular(root, filepath.Base(path))
+}
+
+// InStore reports whether path, a transcript a hook names, lies in the
+// folder of the host's chats that transcript recovery reads, under home:
+// ~/.claude/projects on Claude Code and ~/.codex/sessions on Codex. It is
+// recovery's own rule, which the hook's heartbeat shares to tell the doctor
+// when recovery is off. The folder and the transcript's own folder count
+// where their symlinks lead, so a ~/.claude or ~/.codex linked elsewhere,
+// as a dotfiles setup links it, is still the host's folder, and a
+// transcript path a host writes through a link to the home is in it, while
+// a link from inside the folder to elsewhere leads out of it. A transcript
+// whose folder doesn't exist yet is judged by its path as written, against
+// the folder as written and where it leads, macOS's /private aliases of
+// /var, /tmp and /etc counting as the same folders. A home that is itself
+// a symlink isn't supported: eva-md's own folders under it are refused.
+func InStore(host, home, path string) bool {
+	_, ok := storePath(host, home, path)
+	return ok
+}
+
+// storePath is InStore, and also gives the transcript's path with its
+// folder's symlinks resolved, the path recovery opens, which paths.OpenRoot
+// then walks refusing any symlink.
+func storePath(host, home, path string) (string, bool) {
+	if !filepath.IsAbs(home) || !filepath.IsAbs(path) {
+		return "", false
+	}
+	var store string
+	switch host {
+	case "claude-code":
+		store = filepath.Join(home, ".claude", "projects")
+	case "codex":
+		store = filepath.Join(home, ".codex", "sessions")
+	default:
+		return "", false
+	}
+	path = filepath.Clean(path)
+	target, err := filepath.EvalSymlinks(store)
+	if err != nil {
+		target = ""
+	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		resolved := filepath.Join(dir, filepath.Base(path))
+		return resolved, target != "" && within(target, resolved)
+	}
+	path = systemAliases(path)
+	return path, within(systemAliases(store), path) || target != "" && within(target, path)
+}
+
+// within reports whether path lies inside dir, and is not dir itself.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != "." && filepath.IsLocal(rel)
 }
 func fileID(info os.FileInfo) (uint64, uint64) {
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {

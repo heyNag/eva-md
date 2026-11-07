@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/health"
 	"github.com/heyNag/eva-md/internal/lint"
@@ -31,14 +32,16 @@ const attemptsKept = 14
 // pages, when they are out of date (see knowledgeStep), the day's commit and
 // push, unless commits = false in the config, then the lint, which writes
 // <state>/lint.json, the code status of the system pages (see codeStep),
-// and the removal of attempt markers older than 14 days.
+// the removal of attempt markers older than 14 days, and that of the
+// transcript-recovery records not saved for 30 days or past the newest
+// 2,048 of a host (see pruneRecords).
 // With --push-only, which a chat start spawns while a push is pending, it
 // only pushes, and only while the newest commit record's push is still
 // pending. It runs under <locks>/maintain.lock; a run that finds it held
 // exits 0 at once. It prints a line a step, counts and reasons only, and
 // exits 1 when a step was refused or failed. Last it brings the search
-// index up to date (see indexStep), the one step it also runs without a
-// wiki.
+// index up to date (see indexStep). Without a wiki, as in a capture-only
+// install, it runs only that step and then the two removals.
 func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet("maintain", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
@@ -70,9 +73,11 @@ func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int 
 	}
 	defer unlock()
 	if !wiki {
-		// A capture-only install: maintain keeps the search index alone.
+		// A capture-only install: maintain keeps the search index, and
+		// prunes the markers and records the hooks leave.
 		code := indexStep(ctx, dirs, out, errOut)
 		pruneAttempts(dirs.State, time.Now())
+		pruneRecords(ctx, dirs, time.Now(), out)
 		return code
 	}
 	code := 0
@@ -96,6 +101,7 @@ func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int 
 		code = 1
 	}
 	pruneAttempts(dirs.State, time.Now())
+	pruneRecords(ctx, dirs, time.Now(), out)
 	if indexStep(ctx, dirs, out, errOut) != 0 {
 		code = 1
 	}
@@ -129,6 +135,22 @@ func commitStep(ctx context.Context, c config.Config, dirs paths.Dirs, pushOnly 
 		return 1
 	}
 	return 0
+}
+
+// pruneRecords removes the transcript-recovery records, in
+// <state>/catchup/<host>/, not saved for 30 days or past the newest 2,048
+// of a host, so the chat-start catch-up, which lists at most 4,096, still
+// finds the newest; it never removes the drift records beside them. It
+// prints a line only when it removed any. A record it can't remove waits
+// for the next run, as an attempt marker does.
+func pruneRecords(ctx context.Context, dirs paths.Dirs, now time.Time, out io.Writer) {
+	n, _ := catchup.Prune(ctx, dirs, now)
+	switch {
+	case n == 1:
+		fmt.Fprintln(out, "maintain: transcript recovery: removed 1 record")
+	case n > 1:
+		fmt.Fprintf(out, "maintain: transcript recovery: removed %d records\n", n)
+	}
 }
 
 // pruneAttempts removes the daily trigger's markers, <state>/commit/attempt-

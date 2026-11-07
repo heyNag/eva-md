@@ -4,6 +4,7 @@ package wikigit
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +29,29 @@ func Run(ctx context.Context, timeout time.Duration, dir string, args ...string)
 		return "", err
 	}
 	return strings.TrimSpace(out.String()), nil
+}
+
+// Dirty reports whether git status finds a change in dir's work tree,
+// tracked or not, as setup and init ask before they adopt a wiki. It keeps
+// none of git's output, so no output limit applies: a list of changes longer
+// than Run would take is still a change, never a failed git.
+func Dirty(ctx context.Context, timeout time.Duration, dir string) (bool, error) {
+	var seen sawOutput
+	if err := run(ctx, timeout, dir, &seen, "status", "--porcelain", "--untracked-files=all"); err != nil {
+		return false, err
+	}
+	return bool(seen), nil
+}
+
+// sawOutput notes whether a command printed anything but white space, and
+// keeps none of it.
+type sawOutput bool
+
+func (s *sawOutput) Write(p []byte) (int, error) {
+	if len(bytes.TrimSpace(p)) > 0 {
+		*s = true
+	}
+	return len(p), nil
 }
 
 // WaitDelay bounds the wait for a git command's output once git has exited
@@ -76,7 +100,7 @@ func run(ctx context.Context, timeout time.Duration, dir string, out io.Writer, 
 	cmd.Env = Environment()
 	cmd.WaitDelay = WaitDelay
 	cmd.Stdout = out
-	var diagnostics limitedBuffer
+	diagnostics := limitedBuffer{truncate: true}
 	cmd.Stderr = &diagnostics
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -192,33 +216,49 @@ func readFailure(diagnostics string) string {
 }
 
 // Environment is the environment git runs with: this process's, without the
-// variables that could redirect a command to another repository or change
-// how git reads a pathspec, and with terminal prompts off. With
+// variables every git eva-md runs leaves out (identity.GitEnviron), such as
+// those that could redirect a command to another repository, carry config
+// or change how git reads a pathspec, and with terminal prompts off and
+// git's messages in English, which classify and readFailure read. With
 // GIT_LITERAL_PATHSPECS set, git would take each ":(literal)<path>" the
 // commit stages, unstages and scans as a path that matches nothing, and
 // commit a page its secret scan never read.
-func Environment() []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		key, _, _ := strings.Cut(kv, "=")
-		switch key {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX", "GIT_TERMINAL_PROMPT",
-			"GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS":
-			continue
-		}
-		env = append(env, kv)
-	}
-	return append(env, "GIT_TERMINAL_PROMPT=0")
-}
+func Environment() []string { return identity.GitEnviron(os.Environ()) }
 
-type limitedBuffer struct{ bytes.Buffer }
+// outputLimit is the most a git command may print before Run fails it, and
+// stagedLimit the most the daily commit's list of staged files may take.
+// That list costs about 100 bytes and the path for each file, so a commit
+// of a few hundred thousand files still fits.
+const (
+	outputLimit = 1 << 20
+	stagedLimit = 64 << 20
+)
+
+// limitedBuffer keeps what a git command prints, up to limit bytes, or
+// outputLimit when limit is 0. Past it, Write fails, and so does the
+// command, unless truncate is set, as for git's diagnostics, which are only
+// read to sort a failure: then the rest is dropped. The buffer is a named
+// field, not an embedded bytes.Buffer, whose ReadFrom os/exec would call in
+// place of Write, so the limit would never hold.
+type limitedBuffer struct {
+	buffer   bytes.Buffer
+	limit    int
+	truncate bool
+}
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > 1<<20 {
-		return 0, fmt.Errorf("git output exceeds limit")
+	room := cmp.Or(b.limit, outputLimit) - b.buffer.Len()
+	if len(p) <= room {
+		return b.buffer.Write(p)
 	}
-	return b.Buffer.Write(p)
+	if !b.truncate {
+		return 0, errors.New("git output exceeds limit")
+	}
+	_, _ = b.buffer.Write(p[:max(room, 0)])
+	return len(p), nil
 }
+
+func (b *limitedBuffer) String() string { return b.buffer.String() }
 
 // RemoteIdentity checks a remote and returns it as git is given it and as
 // the normalized identity the config records: "file://" and the real path

@@ -272,13 +272,16 @@ func plural(n int, one, many string) string {
 
 // setAside sets aside the chats captured before updates, once, so the
 // update starts from the install; if it can't now, the first update does.
+// Every update tries a chat left again, but only one that lists it, as its
+// own trigger, its project's catch-up, the day's sweep, which lists at most
+// update.SweepLeft, or --pending, records it for the doctor to name.
 func setAside(d paths.Dirs, errOut io.Writer) {
 	err := update.Baseline(d, time.Now())
 	var left *update.LeftError
 	switch {
 	case errors.As(err, &left):
 		if left.Files > 0 {
-			fmt.Fprintf(errOut, "eva-md: %d %s captured before updates couldn't be set aside yet, as %s or watermarks can't be read or written; each update tries again, and eva-md doctor names each once an update has tried it\n", left.Files, plural(left.Files, "chat", "chats"), plural(left.Files, "its file", "their files"))
+			fmt.Fprintf(errOut, "eva-md: %d %s captured before updates couldn't be set aside yet, as %s or watermarks can't be read or written; each update tries again, and eva-md doctor names each once an update has listed it (the day's sweep lists up to %d, newest first)\n", left.Files, plural(left.Files, "chat", "chats"), plural(left.Files, "its file", "their files"), update.SweepLeft)
 		}
 		if left.Folders > 0 {
 			fmt.Fprintf(errOut, "eva-md: %d inbox project %s couldn't be read, so %s chats from before updates wait; each update tries again and says so in its log\n", left.Folders, plural(left.Folders, "folder", "folders"), plural(left.Folders, "its", "their"))
@@ -357,7 +360,7 @@ func liveChecks(ctx context.Context, d paths.Dirs, errOut io.Writer) []health.Ch
 			continue
 		}
 		fmt.Fprintf(errOut, "eva-md doctor --live: running %s's update command on a built-in fixture (one model call)\n", host)
-		res, err := update.Live(ctx, newRunner(host), host, c)
+		res, err := update.Live(ctx, newRunner(host), host, c, d.State)
 		if err != nil {
 			checks = append(checks, health.Check{Name: name, Status: "UNKNOWN", Detail: "the check could not run: " + err.Error()})
 			continue

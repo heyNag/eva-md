@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -204,6 +205,30 @@ func TestAdoptionRemovesTheSavesLockFile(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(o.Dir, info.Mode().Perm()) })
 	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "remove the save's lock file: permission denied") || strings.Contains(strings.ToLower(err.Error()), "okf") {
 		t.Fatalf("adopting a wiki whose leftover lock file can't be removed: %v", err)
+	}
+}
+
+// A wiki whose list of changes passes one git command's output limit, here
+// 1,400 files with long paths, over 1 MiB, is refused for its changes, as
+// any other with changes is, and never for git's output.
+func TestAdoptionRefusesAnyNumberOfChanges(t *testing.T) {
+	o := fixture(t)
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	// Files that aren't pages, so the wiki still validates.
+	dir := filepath.Join(o.Dir, "general", strings.Repeat("a", 200), strings.Repeat("b", 200), strings.Repeat("c", 200))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 1400 {
+		name := strings.Repeat("d", 190) + "-" + strconv.Itoa(i) + ".txt"
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("adopting a wiki with 1,400 changed files: %v", err)
 	}
 }
 

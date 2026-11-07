@@ -645,6 +645,53 @@ func TestSymlinkAndPathProtections(t *testing.T) {
 	}
 }
 
+// RemoveFile removes a wiki file that is not a page, and a file or folder
+// already gone is no error; it refuses what WriteFile refuses, a path
+// through a symlink and a folder, and leaves each of them as it is.
+func TestRemoveFile(t *testing.T) {
+	w := testWiki(t)
+	writeFixture(t, w, ".eva-md/repos.tsv", "# eva-md repos index 1\n")
+	index := filepath.Join(w.root, ".eva-md", "repos.tsv")
+	for i := range 2 {
+		if err := w.RemoveFile(".eva-md/repos.tsv"); err != nil {
+			t.Fatalf("remove %d: %v", i+1, err)
+		}
+		if _, err := os.Lstat(index); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("remove %d left the file: %v", i+1, err)
+		}
+	}
+	if err := w.RemoveFile("gone/names.tsv"); err != nil {
+		t.Fatalf("a folder already gone: %v", err)
+	}
+	outside := filepath.Join(filepath.Dir(w.root), "outside")
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "names.tsv"), []byte("kept\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(w.root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "names.tsv"), filepath.Join(w.root, "linked.tsv")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(w.root, "folder.tsv"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustCreate(t, w, "nested/page", concept("Page", "Body"))
+	for _, rel := range []string{"escape/names.tsv", "linked.tsv", "folder.tsv", "nested/page.md", "../outside/names.tsv", "/absolute", ".git/config", "a/README.md", "control\nfile"} {
+		if err := w.RemoveFile(rel); err == nil {
+			t.Errorf("RemoveFile accepted %q", rel)
+		}
+	}
+	for _, kept := range []string{filepath.Join(outside, "names.tsv"), filepath.Join(w.root, "linked.tsv"), filepath.Join(w.root, "folder.tsv"), filepath.Join(w.root, "nested", "page.md")} {
+		if _, err := os.Lstat(kept); err != nil {
+			t.Errorf("a refused remove took %s: %v", kept, err)
+		}
+	}
+}
+
 func TestInitRefusesIndexSymlink(t *testing.T) {
 	dir := isolated(t)
 	root := filepath.Join(dir, "wiki")

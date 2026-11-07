@@ -444,6 +444,50 @@ func TestBoundedRedactMatchesFullRedaction(t *testing.T) {
 	}
 }
 
+// A command written over lines that end in a backslash is read from its
+// name, so a tail window that starts on one of its later lines, more than
+// windowContext after the name, would keep the password its -u line holds.
+// The tail starts after the command instead.
+func TestBoundedRedactDropsACommandCutFromItsName(t *testing.T) {
+	pw := strings.Join([]string{"Xk9m", "P2vLq7"}, "")
+	lim := limits{full: 8 << 10, head: 2 << 10, tail: 2 << 10}
+	var b strings.Builder
+	for b.Len() < 4<<10 {
+		b.WriteString("Some ordinary reply text that fills the head of a long answer.\n")
+	}
+	name := b.Len()
+	b.WriteString("curl -X POST https://x.example/v1/items \\\n")
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&b, "  -H 'X-Trace-%03d: %s' \\\n", i, strings.Repeat("a", 44))
+	}
+	user := b.Len()
+	b.WriteString("  -u admin:" + pw + " \\\n  -d '{}'\n")
+	after := b.Len()
+	for b.Len() < after+3<<9 {
+		b.WriteString("Some ordinary reply text that fills the tail of a long answer.\n")
+	}
+	text := b.String()
+	// Where the tail would start, cut at a line end, lies inside the command,
+	// before its -u line and more than windowContext after its name.
+	cut := len(text) - lim.tail + strings.IndexByte(text[len(text)-lim.tail:], '\n') + 1
+	if cut-name <= windowContext || cut > user {
+		t.Fatalf("the cut at %d is not inside the command (%d to %d)", cut, name, user)
+	}
+	full, _ := redact.Redact(text)
+	if strings.Contains(full, pw) {
+		t.Fatal("redacting the whole text keeps the password")
+	}
+	out := boundedRedact(text, lim, redact.Redact)
+	if strings.Contains(out.text, pw) {
+		t.Fatal("the tail keeps the password redacting the whole text removes")
+	}
+	// The tail starts at the line after the command.
+	headEnd := strings.LastIndexByte(text[:lim.head], '\n') + 1
+	if out.gap || out.trunc != after-headEnd || !strings.HasSuffix(out.text, text[after:]) || !headAndTailOf(full, out.text) {
+		t.Fatalf("gap=%v trunc=%d, want %d", out.gap, out.trunc, after-headEnd)
+	}
+}
+
 // headAndTailOf reports whether kept is some leading lines of full followed by
 // some trailing lines of full.
 func headAndTailOf(full, kept string) bool {

@@ -46,7 +46,7 @@ func TestRecallSkill(t *testing.T) {
 			t.Fatalf("%s skill body is %d bytes", host, len(body))
 		}
 		bin := shellQuote(binary)
-		for _, want := range []string{bin + " search <terms>", bin + " show <ref>", bin + " show knowledge/map", bin + " show systems/map", "`--all`",
+		for _, want := range []string{bin + " search <terms>", bin + " show <ref>", bin + " show knowledge/map", bin + " show systems/index", "`--all`",
 			"before re-deciding what earlier chats may have settled",
 			"search the file's path, as the repo writes it, to find the system pages and knowledge that cite it or its folder",
 			"when the user refers to earlier work",

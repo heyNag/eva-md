@@ -2,7 +2,6 @@ package update
 
 import (
 	"fmt"
-	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -10,57 +9,43 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/threadpage"
+	"github.com/heyNag/eva-md/internal/update/accuracy"
 )
 
-// The accuracy suite is script-first. Each history is a fact script: the
-// facts said in one or more chats, each with its speaker, time, validity,
-// the fact it replaces, the tag a correct page gives it, its branch and a
-// codename no model could infer, which finds it on a page. Code renders the
-// script into inbox entries and derives the obligations. Enforceable ones
-// are what the validator guarantees whatever the model writes, and are
-// checked after every canned output; content ones depend on the model
-// getting the facts right, and are checked here only on the correct outputs,
-// to keep the fixtures and the metrics honest, and later in live runs.
+// The accuracy suite is script-first. Its twelve fact scripts, the
+// obligations they derive and the measures of a page against them are in
+// internal/update/accuracy, which cmd/live-accuracy also runs through a
+// host's real update command. Here each pass's batch is built as the job
+// builds it, and every canned output for it, correct and adversarial, goes
+// through the validator and threadpage.Apply. Enforceable obligations are
+// checked after every output; content ones are checked on the correct
+// outputs, to keep the fixtures and the metrics honest.
 
-// fact is one planted fact.
-type fact struct {
-	code     string    // the codename
-	says     string    // what the turn says; an acceptance may not repeat the codename
-	speaker  string    // user, assistant, tool or host (a prompt the user didn't type)
-	session  int       // the chat it is said in
-	at       time.Time // when
-	until    time.Time // when it stopped holding; zero while it holds
-	replaces string    // the codename of the fact it replaces
-	tag      string    // the tag a correct page gives it
-	where    string    // decisions, next, open or timeline; empty for a fact no page may assert
-	branch   string
-	off      bool // said off the record
-	pasted   bool // pasted text posing as a decision
-	cond     bool // a conditional fact, whose condition the page must keep
-}
-
-// turn is one inbox entry of a script.
-type turn struct {
-	role, kind, text string
-	at               time.Time
-}
-
-// script is one history: its chats, its facts and the passes over them.
+// script is a history, in the suite's form, with the canned outputs of its
+// passes. A fact script comes from the suite; a rule or knowledge history
+// says its chats here, under its name.
 type script struct {
 	name   string
-	turns  [][]turn // by chat
-	facts  []fact
+	data   accuracy.Script
 	passes []pass
 }
 
-// pass is one chat's batch, in the order the job processes them, with the
-// canned outputs for it. kept says every entry of the chat predates the page,
-// so the out-of-order guard keeps the Now.
+// fromSuite is a fact script of the suite; the caller adds the canned
+// outputs of its passes, in the suite's order.
+func fromSuite(d *accuracy.Script) *script { return &script{name: d.Name, data: *d} }
+
+// suite is the history in the suite's form, under its name.
+func (s *script) suite() *accuracy.Script {
+	s.data.Name = s.name
+	return &s.data
+}
+
+// pass is the canned outputs for one pass of a fact script. The suite's
+// pass in the same place gives its chat and whether the out-of-order guard
+// keeps the Now.
 type pass struct {
-	chat    int
 	correct func(v view) output
 	bad     []bad
-	kept    bool
 }
 
 // bad is an adversarial output and the validator's expected answer to it.
@@ -87,7 +72,7 @@ func (v view) n(needle string) int { return num(v.t, v.b, needle) }
 
 // id is the id of the first item in section that holds needle.
 func (v view) id(section, needle string) string {
-	for _, it := range sectionItems(v.p, section) {
+	for _, it := range accuracy.SectionItems(v.p, section) {
 		if strings.Contains(it.Text, needle) {
 			return it.ID
 		}
@@ -97,294 +82,31 @@ func (v view) id(section, needle string) string {
 }
 
 // on is a time on day d of the scripts, in a +01:00 offset.
-func on(d, hour, minute int) time.Time { return time.Date(2026, 1, 13+d, hour, minute, 0, 0, paris) }
+func on(d, hour, minute int) time.Time { return accuracy.On(d, hour, minute) }
 
-// say adds a turn to a chat; the facts, when given, are what it says.
-func (s *script) say(chat int, speaker string, at time.Time, text string, facts ...fact) {
-	for len(s.turns) <= chat {
-		s.turns = append(s.turns, nil)
-	}
-	tr := turn{role: speaker, kind: speaker, text: text, at: at}
-	switch speaker {
-	case "user":
-		tr.kind = "prompt"
-	case "assistant":
-		tr.kind = "reply"
-	case "host", "off", "on":
-		tr.role, tr.kind, tr.text = "event", "event", map[string]string{"host": "host_prompt", "off": "off_record", "on": "on_record"}[speaker]
-	}
-	s.turns[chat] = append(s.turns[chat], tr)
-	for _, f := range facts {
-		f.says, f.session, f.at, f.branch = text, chat, at, "main"
-		if f.speaker == "" {
-			f.speaker = speaker
-		}
-		s.facts = append(s.facts, f)
-	}
+// say adds a turn to a chat of a rule or knowledge history.
+func (s *script) say(chat int, speaker string, at time.Time, text string) {
+	s.suite().Say(chat, speaker, at, text)
 }
 
-// chat renders one chat into inbox entries on its facts' branch, ending with
-// an exchange of filler a minute after its last turn, so the group passes
-// its size.
+// chat renders chat i as Claude Code's hooks store it, on its facts'
+// branch, ending with an exchange of filler a minute after its last turn,
+// so the group passes its size.
 func (s *script) chat(i int) *chat {
-	last := s.turns[i][len(s.turns[i])-1].at
-	c := newChat(fmt.Sprintf("%08x-2222-4000-8000-%012d", len(s.name)*131+i, i), last)
-	for _, f := range s.facts {
-		if f.session == i {
-			c.branch = f.branch
-		}
-	}
-	for _, tr := range s.turns[i] {
-		c.at = tr.at.Add(-time.Minute)
-		c.add(tr.role, tr.kind, tr.text)
-	}
-	c.at = last
-	c.user("Thanks, that is all for now. " + filler)
-	c.assistant("Glad to help. " + filler)
-	return c
+	c := s.suite().Chat(i, HostClaude)
+	at, _ := time.Parse(time.RFC3339Nano, c.Rows[len(c.Rows)-1].TS)
+	return &chat{host: HostClaude, session: c.Session, branch: c.Branch, at: at, rows: c.Rows}
 }
 
-func (s *script) fact(code string) fact {
-	for _, f := range s.facts {
-		if f.code == code && f.replaces != code {
-			return f
-		}
-	}
-	panic("no fact " + code)
-}
-
-func sectionItems(p threadpage.Page, section string) []threadpage.Item {
-	switch section {
-	case "next":
-		return p.Now.Next
-	case "open":
-		return p.Now.Open
-	case "decisions":
-		return p.Now.Decisions
-	}
-	return nil
-}
-
-func nowItems(p threadpage.Page) []threadpage.Item {
-	return slices.Concat(p.Now.Next, p.Now.Open, p.Now.Decisions)
-}
-
-func holdsCode(text, code string) bool {
-	return strings.Contains(strings.ToLower(text), strings.ToLower(code))
-}
-
-// present returns the item in the fact's section that holds its codename.
-func present(p threadpage.Page, f fact) (threadpage.Item, bool) {
-	for _, it := range sectionItems(p, f.where) {
-		if holdsCode(it.Text, f.code) {
-			return it, true
-		}
-	}
-	return threadpage.Item{}, false
-}
-
-// holds reports the fact in force: in its section with its tag.
-func holds(p threadpage.Page, f fact) bool {
-	it, ok := present(p, f)
-	return ok && it.Tag == f.tag
-}
-
-// metrics are the operation-level measures of one history's final page.
-type metrics struct {
-	recall     float64  // facts that should hold, held, in their section
-	updates    float64  // replacements in force with the old value gone
-	stale      float64  // facts that stopped holding, still in force; 0 is best
-	tags       float64  // facts found with the tag a correct page gives them
-	dates      float64  // Timeline facts under their own local date
-	carried    int      // page ids the outputs gave no action
-	duplicates int      // codenames held by more than one Now item
-	content    []string // content obligations the page fails
-}
-
-func (m metrics) perfect() bool {
-	return m.recall == 1 && m.updates == 1 && m.stale == 0 && m.tags == 1 && m.dates == 1 && m.carried == 0 && m.duplicates == 0 && len(m.content) == 0
-}
-
-func share(n, of int) float64 {
-	if of == 0 {
-		return 1
-	}
-	return float64(n) / float64(of)
-}
-
-// measure computes the metrics of page p after the passes over the chats in
-// seen, at asOf, the newest entry they hold: a fact counts once its chat is
-// processed, and has stopped holding once its validity ends by asOf.
-func (s *script) measure(p threadpage.Page, carried int, seen map[int]bool, asOf time.Time) metrics {
-	m := metrics{carried: carried}
-	var expected, found, right, replaced, updated, ended, stale, logged, dated int
-	for _, f := range s.facts {
-		if !seen[f.session] {
-			continue
-		}
-		switch {
-		case f.off || f.pasted:
-			if slices.ContainsFunc(nowItems(p), func(it threadpage.Item) bool { return holdsCode(it.Text, f.code) }) {
-				m.content = append(m.content, f.code+" is asserted")
-			}
-		case f.where == "timeline":
-			for _, g := range p.Timeline {
-				for _, l := range g.Lines {
-					if holdsCode(l, f.code) {
-						logged++
-						if g.Date == f.at.Format(time.DateOnly) {
-							dated++
-						}
-						if found++; strings.Contains(l, "["+f.tag+"]:") {
-							right++
-						}
-					}
-				}
-			}
-		case !f.until.IsZero() && !f.until.After(asOf):
-			// A value that stopped holding must be gone from its section, under
-			// any tag; one a later fact carries on, as an acceptance carries on
-			// a proposal, must lose its old tag.
-			if it, ok := present(p, f); ok && (it.Tag == f.tag || !s.carriedOn(f, seen)) {
-				stale++
-			}
-			ended++
-		case f.where != "":
-			expected++
-			if it, ok := present(p, f); ok {
-				if found++; it.Tag == f.tag {
-					right++
-				}
-				if f.cond && !strings.Contains(strings.ToLower(it.Text), "if ") {
-					m.content = append(m.content, f.code+" lost its condition")
-				}
-			} else {
-				m.content = append(m.content, f.code+" is missing")
-			}
-		}
-		if f.replaces != "" && f.replaces != f.code {
-			if _, old := present(p, s.fact(f.replaces)); holds(p, f) && !old {
-				updated++
-			}
-			replaced++
-		}
-	}
-	// A replace question quotes both its values, so it duplicates neither.
-	for _, f := range s.facts {
-		n := len(slices.DeleteFunc(nowItems(p), func(it threadpage.Item) bool { return it.Code == replaceCode || !holdsCode(it.Text, f.code) }))
-		if n > 1 && seen[f.session] && f.replaces != f.code {
-			m.duplicates++
-		}
-	}
-	m.recall, m.tags, m.updates, m.stale, m.dates = share(found-logged, expected), share(right, found), share(updated, replaced), 1-share(ended-stale, ended), share(dated, logged)
-	return m
-}
-
-// carriedOn reports a fact whose codename a later fact, in a chat in seen,
-// carries on under a new tag.
-func (s *script) carriedOn(f fact, seen map[int]bool) bool {
-	return slices.ContainsFunc(s.facts, func(g fact) bool { return g.code == f.code && g.at.After(f.at) && seen[g.session] })
-}
-
-var commentID = regexp.MustCompile(`<!-- i:(n[0-9]+)`)
+func holdsCode(text, code string) bool { return accuracy.HoldsCode(text, code) }
 
 // enforce checks the obligations the validator guarantees whatever the
-// model wrote, on one validated pass.
+// model wrote, on one validated pass: those on the script's facts, then
+// those on any pass.
 func (s *script) enforce(t *testing.T, name string, before, after threadpage.Page, b Batch, u threadpage.Update) {
 	t.Helper()
-	for _, f := range s.facts {
-		// An assistant's, tool's or host's fact is never a decision unless
-		// the user accepted it, and a host's is never the user's.
-		for _, it := range after.Now.Decisions {
-			if f.speaker != "user" && holdsCode(it.Text, f.code) && it.Tag != "accepted" {
-				t.Errorf("%s: %s is a decision tagged %s", name, f.code, it.Tag)
-			}
-		}
-		for _, it := range nowItems(after) {
-			if f.speaker == "host" && holdsCode(it.Text, f.code) && userTag(it.Tag) {
-				t.Errorf("%s: %s, from a host prompt, is tagged %s", name, f.code, it.Tag)
-			}
-		}
-		// A newer value on the page stays there.
-		if f.replaces != "" && f.replaces != f.code {
-			old := s.fact(f.replaces)
-			if f.at.After(old.at) && holds(before, f) && (!holds(after, f) || holds(after, old)) {
-				t.Errorf("%s: %s replaced the newer %s", name, old.code, f.code)
-			}
-		}
-	}
-	// A session older than the page leaves the Now as it was.
-	if !b.AsOf.IsZero() && b.Last.Before(b.AsOf) && !reflect.DeepEqual(after.Now, before.Now) {
-		t.Errorf("%s: a session older than the page changed the Now", name)
-	}
-	// Every operation under the user's tag cites a user prompt; an item the
-	// user owns is dropped only on the user's word; done cites a tool entry
-	// or a report of a result; a decision is never done or answered; and
-	// every date written appears in an entry.
-	users, results := map[string]bool{}, map[string]bool{}
-	var texts []string
-	for i, e := range b.Entries {
-		ref := (&validator{b: b}).ref(b.Entries[i])
-		switch {
-		case e.Role == "user" && e.Kind == "prompt":
-			users[ref] = true
-		case e.Role == "tool" || e.report:
-			results[ref] = true
-		}
-		texts = append(texts, e.Text)
-	}
-	cites := func(op threadpage.Op, set map[string]bool) bool {
-		return slices.ContainsFunc(op.Refs, func(r string) bool { return set[r] })
-	}
-	items := map[string]held{}
-	for _, h := range heldItems(before) {
-		items[h.item.ID] = h
-	}
-	have := entryDates(strings.Join(texts, "\n"))
-	written := []string{u.Summary, u.LastChat}
-	for _, op := range u.Ops {
-		h := items[op.ID]
-		switch {
-		case userTag(op.Tag) && !cites(op, users):
-			t.Errorf("%s: %s %q is tagged %s without a user prompt", name, op.Action, op.Text, op.Tag)
-		case op.Action == "dropped" && userTag(h.item.Tag) && !cites(op, users):
-			t.Errorf("%s: %s, the user's, is dropped without the user", name, op.ID)
-		case op.Action == "done" && !cites(op, results):
-			t.Errorf("%s: %s is done without a result", name, op.ID)
-		case (op.Action == "done" || op.Action == "answered") && h.kind == "decision":
-			t.Errorf("%s: decision %s is %s", name, op.ID, op.Action)
-		}
-		written = append(written, op.Text, op.Replacement, op.Reason)
-	}
-	for _, e := range u.Events {
-		written = append(written, e.Text)
-	}
-	for _, d := range u.Done {
-		written = append(written, d.Text)
-	}
-	for _, w := range written {
-		for _, d := range dates(w) {
-			if !slices.ContainsFunc(have, d.same) {
-				t.Errorf("%s: the date in %q is in no entry", name, w)
-			}
-		}
-	}
-	// No id is lost: each stays in the Now or on its retired Timeline line.
-	kept := map[string]bool{}
-	for _, it := range nowItems(after) {
-		kept[it.ID] = true
-	}
-	for _, g := range after.Timeline {
-		for _, l := range g.Lines {
-			for _, m := range commentID.FindAllStringSubmatch(l, -1) {
-				kept[m[1]] = true
-			}
-		}
-	}
-	for _, it := range nowItems(before) {
-		if it.ID != "" && !kept[it.ID] {
-			t.Errorf("%s: id %s left the page", name, it.ID)
-		}
+	for _, missed := range append(s.suite().Enforce(before, after), Guarantees(before, after, b, u)...) {
+		t.Errorf("%s: %s", name, missed)
 	}
 }
 
@@ -393,34 +115,39 @@ func (s *script) enforce(t *testing.T, name string, before, after threadpage.Pag
 // word for word on the fact's branch, and only its own headers start a line.
 func (s *script) checkInput(t *testing.T, name string, i int, b Batch) {
 	t.Helper()
-	for _, f := range s.facts {
-		switch {
-		case f.off:
-			if strings.Contains(string(b.Input), f.code) || slices.ContainsFunc(b.Entries, func(e Numbered) bool { return strings.Contains(e.Text, f.code) }) {
-				t.Errorf("%s: off-the-record %s reached the batch", name, f.code)
-			}
-		case f.session == i && (b.Branch != f.branch || !slices.ContainsFunc(b.Entries, func(e Numbered) bool { return e.Text == f.says })):
-			t.Errorf("%s: %s didn't reach the batch as said, on branch %s", name, f.code, f.branch)
-		}
+	var texts []string
+	for _, e := range b.Entries {
+		texts = append(texts, e.Text)
 	}
-	if heads := regexp.MustCompile(`(?m)^\[[0-9]+\] `).FindAllString(string(b.Input), -1); len(heads) != len(b.Entries) {
-		t.Errorf("%s: %d lines start like an entry, want %d", name, len(heads), len(b.Entries))
+	for _, missed := range s.suite().CheckInput(i, b.Input, b.Branch, texts) {
+		t.Errorf("%s: %s", name, missed)
 	}
+}
+
+// contentMiss reports a miss a live run counts as a content obligation
+// missed.
+func contentMiss(m accuracy.Metrics) bool {
+	return slices.ContainsFunc(m.Misses, func(x accuracy.Miss) bool { return x.Kind == accuracy.KindContent })
 }
 
 // run processes a history: for each pass it builds the batch, tries every
 // adversarial output against it, then applies the correct one, whose page
 // must score perfectly at that pass's time.
-func (s *script) run(t *testing.T) metrics {
+func (s *script) run(t *testing.T) accuracy.Metrics {
+	d := s.suite()
+	if len(s.passes) != len(d.Passes) {
+		t.Fatalf("%d canned passes for the script's %d", len(s.passes), len(d.Passes))
+	}
 	var page threadpage.Page
 	var asOf time.Time
 	carried := 0
 	seen := map[int]bool{}
-	var m metrics
+	var m accuracy.Metrics
 	for i, ps := range s.passes {
-		b := build(t, s.chat(ps.chat), page, Options{AsOf: asOf})
-		s.checkInput(t, fmt.Sprintf("pass %d", i+1), ps.chat, b)
-		seen[ps.chat] = true
+		sp := d.Passes[i]
+		b := build(t, s.chat(sp.Chat), page, Options{AsOf: asOf})
+		s.checkInput(t, fmt.Sprintf("pass %d", i+1), sp.Chat, b)
+		seen[sp.Chat] = true
 		now := later(asOf, b.Last)
 		for _, bd := range ps.bad {
 			name := fmt.Sprintf("pass %d, %s", i+1, bd.name)
@@ -437,33 +164,33 @@ func (s *script) run(t *testing.T) metrics {
 			}
 			got, _ := threadpage.Apply(p, u)
 			s.enforce(t, name, p, got, b, u)
-			if m := s.measure(got, 0, seen, now); bd.content && len(m.content) == 0 && m.stale == 0 {
+			if m := d.Measure(got, 0, seen, now); bd.content && len(m.Content) == 0 && m.Stale == 0 {
 				t.Errorf("%s: the metrics missed a content failure: %+v", name, m)
+			} else if bd.content && !contentMiss(m) {
+				t.Errorf("%s: a live run would miss its content failure: %+v", name, m.Misses)
 			}
 		}
 		u, r := validate(t, ps.correct(view{t: t, b: b, p: page}), b, page)
-		if r.KeptNow != ps.kept {
-			t.Errorf("pass %d: the out-of-order guard kept the Now: %v, want %v", i+1, r.KeptNow, ps.kept)
+		if r.KeptNow != sp.Kept {
+			t.Errorf("pass %d: the out-of-order guard kept the Now: %v, want %v", i+1, r.KeptNow, sp.Kept)
 		}
 		next, _ := threadpage.Apply(page, u)
 		s.enforce(t, fmt.Sprintf("pass %d, correct", i+1), page, next, b, u)
 		page, asOf, carried = next, now, carried+r.Carried
-		if m = s.measure(page, carried, seen, asOf); !m.perfect() && i+1 < len(s.passes) {
+		if m = d.Measure(page, carried, seen, asOf); !m.Perfect() && i+1 < len(s.passes) {
 			t.Errorf("pass %d, correct: metrics %+v", i+1, m)
+		}
+		if len(m.Misses) != 0 {
+			t.Errorf("pass %d, correct: a live run would count %+v", i+1, m.Misses)
 		}
 	}
 	return m
 }
 
-// The twelve histories, each a known failure mode.
+// The canned outputs of the twelve histories, each a known failure mode.
 
 func suggestionAgainstDecision() *script {
-	s := &script{name: "an assistant's suggestion against the user's decision"}
-	s.say(0, "user", on(0, 10, 1), "Use flock for the per-session lock, KESTREL-41.", fact{code: "KESTREL-41", tag: "stated", where: "decisions"})
-	s.say(0, "assistant", on(0, 10, 2), "I could switch the lock to a pid file instead, PIDGEON-7.", fact{code: "PIDGEON-7", tag: "suggested", where: "open"})
-	s.say(0, "off", on(0, 10, 3), "")
-	s.say(0, "user", on(0, 10, 4), "Between us, the budget is SHRIKE-99.", fact{code: "SHRIKE-99", off: true})
-	s.say(0, "on", on(0, 10, 5), "")
+	s := fromSuite(accuracy.SuggestionAgainstDecision())
 	s.passes = []pass{{
 		correct: func(v view) output {
 			return output{Summary: "The lock uses flock; a pid file is proposed.", Items: []itemOp{
@@ -485,9 +212,7 @@ func suggestionAgainstDecision() *script {
 }
 
 func weakenedDate() *script {
-	s := &script{name: "a weakened event date"}
-	s.say(0, "user", on(0, 10, 1), "We cut release candidate HERON-3 yesterday. The freeze is on 3 March 2026, FROST-9.",
-		fact{code: "HERON-3", tag: "stated", where: "timeline"}, fact{code: "FROST-9", tag: "stated", where: "decisions"})
+	s := fromSuite(accuracy.WeakenedDate())
 	s.passes = []pass{{
 		correct: func(v view) output {
 			return output{Items: []itemOp{opAdd("decision", "Freeze releases on 2026-03-03, FROST-9", "stated", v.n("FROST-9"))},
@@ -508,14 +233,12 @@ func weakenedDate() *script {
 }
 
 func reversal() *script {
-	s := &script{name: "a reversal"}
-	s.say(0, "user", on(0, 10, 1), "Store pages as YAML, OSPREY-Y.", fact{code: "OSPREY-Y", tag: "stated", where: "decisions", until: on(1, 10, 1)})
-	s.say(1, "user", on(1, 10, 1), "Actually no: store pages as JSONL after all, OSPREY-J.", fact{code: "OSPREY-J", tag: "stated", where: "decisions", replaces: "OSPREY-Y"})
+	s := fromSuite(accuracy.Reversal())
 	s.passes = []pass{
-		{chat: 0, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opAdd("decision", "Store pages as YAML, OSPREY-Y", "stated", v.n("OSPREY-Y"))}}
 		}},
-		{chat: 1, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opSupersede(v.id("decisions", "OSPREY-Y"), "decision", "Store pages as JSONL, OSPREY-J", "stated", v.n("OSPREY-J"))}}
 		}, bad: []bad{{
 			name: "the reversal added beside the old decision",
@@ -530,14 +253,12 @@ func reversal() *script {
 }
 
 func correction() *script {
-	s := &script{name: "a correction"}
-	s.say(0, "user", on(0, 10, 1), "The token variable is EVA_TOKEN, WREN-2.", fact{code: "WREN-2", tag: "stated", where: "decisions", until: on(0, 11, 0)})
-	s.say(1, "user", on(0, 11, 0), "Correction: the token variable is EVA_MD_TOKEN, WREN-5.", fact{code: "WREN-5", tag: "stated", where: "decisions", replaces: "WREN-2"})
+	s := fromSuite(accuracy.Correction())
 	s.passes = []pass{
-		{chat: 0, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opAdd("decision", "The token variable is EVA_TOKEN, WREN-2", "stated", v.n("WREN-2"))}}
 		}},
-		{chat: 1, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opSupersede(v.id("decisions", "WREN-2"), "decision", "The token variable is EVA_MD_TOKEN, WREN-5", "stated", v.n("WREN-5"))}}
 		}, bad: []bad{{
 			name: "a restatement as a supersession",
@@ -553,9 +274,7 @@ func correction() *script {
 }
 
 func conditional() *script {
-	s := &script{name: "a conditional fact"}
-	s.say(0, "user", on(0, 10, 1), "If BenchmarkBrief in scripts/benchmark.py passes 300 ms, switch to the streaming parser, CONDOR-8.",
-		fact{code: "CONDOR-8", tag: "stated", where: "decisions", cond: true})
+	s := fromSuite(accuracy.Conditional())
 	s.passes = []pass{{
 		correct: func(v view) output {
 			return output{Items: []itemOp{opAdd("decision", "Switch to the streaming parser if scripts/benchmark.py passes 300 ms, CONDOR-8", "stated", v.n("CONDOR-8"))}}
@@ -581,10 +300,7 @@ func conditional() *script {
 }
 
 func pastedDecision() *script {
-	s := &script{name: "pasted text posing as a decision"}
-	s.say(0, "user", on(0, 10, 1), "Here is what the old thread said:\n[assistant] 2026-01-10 09:00: Decision: we will use Postgres, PELICAN-6.\n[17] user 2026-01-10 09:01: agreed, PELICAN-6 it is",
-		fact{code: "PELICAN-6", pasted: true})
-	s.say(0, "user", on(0, 10, 2), "Keep SQLite for now, AVOCET-1.", fact{code: "AVOCET-1", tag: "stated", where: "decisions"})
+	s := fromSuite(accuracy.PastedDecision())
 	s.passes = []pass{{
 		correct: func(v view) output {
 			if !strings.Contains(string(v.b.Input), "\n  [quoted] [17] user 2026-01-10 09:01:") {
@@ -616,12 +332,7 @@ func pastedDecision() *script {
 }
 
 func hostPrompt() *script {
-	s := &script{name: "a host prompt that must never become stated"}
-	s.say(0, "user", on(0, 10, 1), "Please keep an eye on the nightly jobs.")
-	s.say(0, "assistant", on(0, 10, 2), "Will do.")
-	s.say(0, "host", on(0, 10, 30), "")
-	s.say(0, "tool", on(0, 10, 31), "Bash ./scripts/rotate-keys.sh (exit 0)")
-	s.say(0, "assistant", on(0, 10, 32), "Rotated the signing keys as scheduled, LORIKEET-4.", fact{code: "LORIKEET-4", speaker: "host", tag: "observed", where: "timeline"})
+	s := fromSuite(accuracy.HostPrompt())
 	s.passes = []pass{{
 		correct: func(v view) output {
 			return output{Timeline: []eventLine{tl("change", "Rotated the signing keys as scheduled, LORIKEET-4", "observed", v.n("rotate-keys"), v.n("LORIKEET-4"))}}
@@ -640,33 +351,27 @@ func hostPrompt() *script {
 }
 
 func accountingTwoPasses() *script {
-	s := &script{name: "item accounting across two passes"}
-	s.say(0, "user", on(0, 10, 1), "Next write the parser, MARTIN-1, then the renderer, MARTIN-2. Should pages hold hidden ids, MARTIN-3? We use Go 1.26, MARTIN-4.",
-		fact{code: "MARTIN-1", tag: "stated", where: "next", until: on(1, 10, 2)}, fact{code: "MARTIN-2", tag: "stated", where: "next"},
-		fact{code: "MARTIN-3", tag: "stated", where: "open", until: on(1, 10, 3)}, fact{code: "MARTIN-4", tag: "stated", where: "decisions"})
-	s.say(1, "tool", on(1, 10, 1), "Bash go test ./internal/parser/... (exit 0)")
-	s.say(1, "assistant", on(1, 10, 2), "The parser is finished and its tests pass.")
-	s.say(1, "user", on(1, 10, 3), "Yes, pages hold hidden ids.")
+	s := fromSuite(accuracy.AccountingTwoPasses())
 	keepAll := func(v view, except string) []itemOp {
 		var ops []itemOp
 		for _, code := range []string{"MARTIN-1", "MARTIN-2", "MARTIN-3", "MARTIN-4"} {
 			if code == except {
 				continue
 			}
-			f := s.fact(code)
-			ops = append(ops, opKeep(v.id(f.where, code), "next", "stated"))
+			f := s.suite().Fact(code)
+			ops = append(ops, opKeep(v.id(f.Where, code), "next", "stated"))
 		}
 		return ops
 	}
 	s.passes = []pass{
-		{chat: 0, correct: func(v view) output {
+		{correct: func(v view) output {
 			n := v.n("MARTIN-1")
 			return output{Items: []itemOp{
 				opAdd("next", "Write the parser, MARTIN-1", "stated", n), opAdd("next", "Write the renderer, MARTIN-2", "stated", n),
 				opAdd("question", "Should pages hold hidden ids, MARTIN-3?", "stated", n), opAdd("decision", "Use Go 1.26, MARTIN-4", "stated", n),
 			}}
 		}},
-		{chat: 1, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{
 				opDone(v.id("next", "MARTIN-1"), "next", "stated", v.n("go test"), v.n("parser is finished")),
 				opKeep(v.id("next", "MARTIN-2"), "next", "stated"),
@@ -716,17 +421,13 @@ func accountingTwoPasses() *script {
 }
 
 func twoSessionAcceptance() *script {
-	s := &script{name: "the two-session acceptance"}
-	s.say(0, "user", on(0, 10, 1), "How should we rotate the logs?")
-	s.say(0, "assistant", on(0, 10, 2), "We could rotate logs daily, DOTTEREL-D, or weekly, DOTTEREL-W.",
-		fact{code: "DOTTEREL-D", tag: "suggested", where: "open", until: on(1, 10, 1)}, fact{code: "DOTTEREL-W", tag: "suggested", where: "open", until: on(1, 10, 1)})
-	s.say(1, "user", on(1, 10, 1), "ok, the second one.", fact{code: "DOTTEREL-W", tag: "accepted", where: "decisions", replaces: "DOTTEREL-W"})
+	s := fromSuite(accuracy.TwoSessionAcceptance())
 	s.passes = []pass{
-		{chat: 0, correct: func(v view) output {
+		{correct: func(v view) output {
 			n := v.n("DOTTEREL")
 			return output{Items: []itemOp{opAdd("question", "Rotate logs daily, DOTTEREL-D?", "suggested", n), opAdd("question", "Rotate logs weekly, DOTTEREL-W?", "suggested", n)}}
 		}},
-		{chat: 1, correct: func(v view) output {
+		{correct: func(v view) output {
 			n := v.n("the second one")
 			return output{Items: []itemOp{
 				opDrop(v.id("open", "DOTTEREL-D"), "question", "suggested", "the user chose weekly rotation", n),
@@ -778,23 +479,19 @@ func twoSessionAcceptance() *script {
 }
 
 func replaceQuestion() *script {
-	s := &script{name: "the replace question and its exit"}
-	s.say(0, "user", on(0, 10, 1), "Ansible playbooks own provisioning, GANNET-2.", fact{code: "GANNET-2", tag: "stated", where: "decisions", until: on(2, 10, 2)})
-	s.say(1, "user", on(1, 10, 1), "Nix flakes handle everything now, TERN-7.", fact{code: "TERN-7", tag: "stated", where: "decisions", until: on(2, 10, 2)})
-	s.say(2, "assistant", on(2, 10, 1), "Do the Nix flakes replace the Ansible playbooks entirely?")
-	s.say(2, "user", on(2, 10, 2), "Yes, drop Ansible.", fact{code: "TERN-7", tag: "accepted", where: "decisions", replaces: "GANNET-2"})
+	s := fromSuite(accuracy.ReplaceQuestion())
 	x := "Nix flakes handle everything, TERN-7"
 	s.passes = []pass{
-		{chat: 0, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opAdd("decision", "Ansible playbooks own provisioning, GANNET-2", "stated", v.n("GANNET-2"))}}
 		}},
-		{chat: 1, correct: func(v view) output {
+		{correct: func(v view) output {
 			// The replacement shares no content token with the item, so the
 			// validator asks whether it replaces it.
 			return output{Items: []itemOp{opSupersede(v.id("decisions", "GANNET-2"), "decision", x, "stated", v.n("TERN-7"))}}
 		}},
-		{chat: 2, correct: func(v view) output {
-			if q := v.id("open", `does "`); q == "" || !holds(v.p, s.facts[0]) {
+		{correct: func(v view) output {
+			if q := v.id("open", `does "`); q == "" || !accuracy.Holds(v.p, s.suite().Facts[0]) {
 				v.t.Error("the replace question or the old decision is missing")
 			}
 			// The user accepts the assistant's question, so both are cited.
@@ -819,20 +516,12 @@ func replaceQuestion() *script {
 }
 
 func overlappingSessions() *script {
-	s := &script{name: "two overlapping same-day sessions processed in the wrong order"}
-	s.say(0, "user", on(0, 10, 10), "Cache entries for 1 minute, KITE-1.", fact{code: "KITE-1", tag: "stated", where: "decisions", until: on(0, 10, 40)})
-	s.say(0, "user", on(0, 10, 55), "Let's also log cache misses, KITE-LOG.", fact{code: "KITE-LOG", tag: "stated", where: "next"})
-	s.say(1, "user", on(0, 10, 40), "Cache entries for 5 minutes, KITE-5.", fact{code: "KITE-5", tag: "stated", where: "decisions", replaces: "KITE-1"})
-	// A chat of the day before, processed last: all of it predates the page,
-	// so it adds its Timeline lines, under its own date, and leaves the Now.
-	s.say(2, "user", on(-1, 9, 0), "Next, warm the cache at startup, KITE-WARM.")
-	s.say(2, "tool", on(-1, 9, 1), "Bash go test ./internal/cache/... (exit 0)")
-	s.say(2, "assistant", on(-1, 9, 2), "A cold cache costs 3 s at startup, KITE-COLD.", fact{code: "KITE-COLD", tag: "observed", where: "timeline"})
+	s := fromSuite(accuracy.OverlappingSessions())
 	s.passes = []pass{
-		{chat: 1, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opAdd("decision", "Cache entries for 5 minutes, KITE-5", "stated", v.n("KITE-5"))}}
 		}},
-		{chat: 0, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opKeep(v.id("decisions", "KITE-5"), "decision", "stated"), opAdd("next", "Log cache misses, KITE-LOG", "stated", v.n("KITE-LOG"))}}
 		}, bad: []bad{{
 			name: "a supersession citing an older prompt",
@@ -843,7 +532,7 @@ func overlappingSessions() *script {
 				return err == nil && r.Stale == 1 && len(u.Ops) == 0
 			},
 		}}},
-		{chat: 2, kept: true, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opKeep(v.id("decisions", "KITE-5"), "decision", "stated"), opKeep(v.id("next", "KITE-LOG"), "next", "stated"),
 				opAdd("next", "Warm the cache at startup, KITE-WARM", "stated", v.n("KITE-WARM"))},
 				Timeline: []eventLine{tl("finding", "A cold cache costs 3 s at startup, KITE-COLD", "observed", v.n("go test"), v.n("KITE-COLD"))}}
@@ -853,16 +542,12 @@ func overlappingSessions() *script {
 }
 
 func survivingSuggestion() *script {
-	s := &script{name: "an assistant's suggestion that survives as a proposal"}
-	s.say(0, "user", on(0, 10, 1), "Use flock for the session lock in internal/session/lock.go, SKUA-0.", fact{code: "SKUA-0", tag: "stated", where: "decisions"})
-	s.say(1, "user", on(1, 10, 1), "What else should we harden?")
-	s.say(1, "assistant", on(1, 10, 2), "Add a watchdog that restarts stuck update jobs, EGRET-5. And use flock for the session lock again.",
-		fact{code: "EGRET-5", tag: "suggested", where: "open"})
+	s := fromSuite(accuracy.SurvivingSuggestion())
 	s.passes = []pass{
-		{chat: 0, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opAdd("decision", "Use flock for the session lock in internal/session/lock.go, SKUA-0", "stated", v.n("SKUA-0"))}}
 		}},
-		{chat: 1, correct: func(v view) output {
+		{correct: func(v view) output {
 			return output{Items: []itemOp{opKeep(v.id("decisions", "SKUA-0"), "decision", "stated"),
 				opAdd("question", "Add a watchdog that restarts stuck update jobs, EGRET-5?", "suggested", v.n("EGRET-5"))}}
 		}, bad: []bad{{
@@ -881,17 +566,34 @@ func survivingSuggestion() *script {
 	return s
 }
 
-func TestAccuracyHistories(t *testing.T) {
-	isolate(t)
-	for _, s := range []*script{
+// factScripts are the suite's twelve fact scripts with their canned
+// outputs, in the suite's order.
+func factScripts() []*script {
+	return []*script{
 		suggestionAgainstDecision(), weakenedDate(), reversal(), correction(), conditional(), pastedDecision(),
 		hostPrompt(), accountingTwoPasses(), twoSessionAcceptance(), replaceQuestion(), overlappingSessions(), survivingSuggestion(),
-	} {
+	}
+}
+
+func TestAccuracyHistories(t *testing.T) {
+	isolate(t)
+	scripts := factScripts()
+	if len(scripts) != len(accuracy.Scripts()) {
+		t.Fatalf("canned outputs for %d scripts of the suite's %d", len(scripts), len(accuracy.Scripts()))
+	}
+	for i, s := range scripts {
+		if want := accuracy.Scripts()[i].Name; s.name != want {
+			t.Fatalf("script %d is %q, the suite's %q", i+1, s.name, want)
+		}
 		t.Run(s.name, func(t *testing.T) {
-			if m := s.run(t); !m.perfect() {
+			if m := s.run(t); !m.Perfect() {
 				t.Errorf("metrics of the correct outputs: %+v", m)
 			}
 		})
+	}
+	// The suite's measures read the code of the update's replace question.
+	if accuracy.ReplaceCode != replaceCode {
+		t.Errorf("the suite reads the replace question's code as %q, not %q", accuracy.ReplaceCode, replaceCode)
 	}
 }
 
@@ -1241,8 +943,8 @@ func TestAccuracyReplaceQuestionPage(t *testing.T) {
 	s := replaceQuestion()
 	var page threadpage.Page
 	var asOf time.Time
-	for _, ps := range s.passes {
-		b := build(t, s.chat(ps.chat), page, Options{AsOf: asOf})
+	for i, ps := range s.passes {
+		b := build(t, s.chat(s.data.Passes[i].Chat), page, Options{AsOf: asOf})
 		u, _ := validate(t, ps.correct(view{t: t, b: b, p: page}), b, page)
 		page, _ = threadpage.Apply(page, u)
 		asOf = b.Last

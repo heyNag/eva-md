@@ -64,7 +64,7 @@ func writeMap(t *testing.T, o Options, lines ...string) string {
 func pointers(text string) []string {
 	var out []string
 	for _, l := range strings.Split(text, "\n") {
-		if strings.HasPrefix(l, "System: ") || strings.HasPrefix(l, "System map: ") {
+		if strings.HasPrefix(l, "System: ") || strings.HasPrefix(l, "System index: ") {
 			out = append(out, l)
 		}
 	}
@@ -83,8 +83,9 @@ func briefFixture(t *testing.T) Options {
 }
 
 // A startup, clear or compact brief on either host points at the systems
-// whose repos include the project, in the map's order, then at the map, just
-// before the footer; with no system of the project's, at the map alone.
+// whose repos include the project, in the map's order, then at the system
+// index, just before the footer; with no system of the project's, at the
+// index alone.
 func TestBriefPointsAtTheProjectsSystems(t *testing.T) {
 	for _, host := range []string{"claude-code", "codex"} {
 		for _, variant := range []string{"startup", "clear", "compact"} {
@@ -108,7 +109,7 @@ func TestBriefPointsAtTheProjectsSystems(t *testing.T) {
 				foot := shown(footer(o, page{id: "projects/resume/threads/main"}))
 				want := "\n\nSystem: Billing: Issues invoices (as of 2026-10-28): " + usualBin + " show systems/billing\n" +
 					"System: Orders service: Takes, prices and tracks customer orders (as of 2026-10-28): " + usualBin + " show systems/orders\n" +
-					"System map: 4 systems: " + usualBin + " show systems/map\n\n" + foot + "\n"
+					"System index: 4 systems: " + usualBin + " show systems/index\n\n" + foot + "\n"
 				if !strings.Contains(r.Text, want) || !strings.Contains(r.Text, "Export invoices") {
 					t.Fatalf("missing %q in:\n%s", want, r.Text)
 				}
@@ -121,8 +122,8 @@ func TestBriefPointsAtTheProjectsSystems(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got := pointers(r.Text); len(got) != 1 || got[0] != "System map: 1 system: "+usualBin+" show systems/map" {
-					t.Fatalf("the map line alone: %q in:\n%s", got, r.Text)
+				if got := pointers(r.Text); len(got) != 1 || got[0] != "System index: 1 system: "+usualBin+" show systems/index" {
+					t.Fatalf("the index line alone: %q in:\n%s", got, r.Text)
 				}
 			})
 		}
@@ -130,9 +131,9 @@ func TestBriefPointsAtTheProjectsSystems(t *testing.T) {
 }
 
 // At most 3 systems get a pointer, each at most 200 characters with its
-// command whole, and all the lines together, the map's included, at most
+// command whole, and all the lines together, the index's included, at most
 // 600: a long description is cut, then left out, then the day, and a long
-// title is cut last. A binary path too long for any command leaves the map
+// title is cut last. A binary path too long for any command leaves the index
 // line alone.
 func TestSystemPointerCaps(t *testing.T) {
 	o := briefFixture(t)
@@ -140,7 +141,7 @@ func TestSystemPointerCaps(t *testing.T) {
 	// Five short pointers would fit in 600 characters; three are shown.
 	var lines []string
 	for _, slug := range slugs {
-		lines = append(lines, mapLine(slug, strings.ToUpper(slug[:1]), "Short", o.Project.Key))
+		lines = append(lines, mapLine(slug, strings.ToUpper(slug[:1]), "Tiny", o.Project.Key))
 	}
 	writeMap(t, o, lines...)
 	r, err := Build(context.Background(), o)
@@ -162,7 +163,7 @@ func TestSystemPointerCaps(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = pointers(r.Text)
-	if len(got) != 4 || got[3] != "System map: 5 systems: "+usualBin+" show systems/map" {
+	if len(got) != 4 || got[3] != "System index: 5 systems: "+usualBin+" show systems/index" {
 		t.Fatalf("pointers %q", got)
 	}
 	total := runes(strings.Join(got, "\n"))
@@ -189,7 +190,7 @@ func TestSystemPointerCaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := pointers(r.Text); len(got) != 1 || !strings.HasPrefix(got[0], "System map: 5 systems: /share/") {
+	if got := pointers(r.Text); len(got) != 1 || !strings.HasPrefix(got[0], "System index: 5 systems: /share/") {
 		t.Fatalf("a long binary path: %q", got)
 	}
 }
@@ -231,7 +232,7 @@ func TestFirstChatGetsPointers(t *testing.T) {
 	if err != nil || r.Found {
 		t.Fatalf("%+v %v", r, err)
 	}
-	want := "System: Billing: Issues invoices (as of 2026-10-28): " + usualBin + " show systems/billing\nSystem map: 1 system: " + usualBin + " show systems/map\n\n" + firstFooter(o) + "\n"
+	want := "System: Billing: Issues invoices (as of 2026-10-28): " + usualBin + " show systems/billing\nSystem index: 1 system: " + usualBin + " show systems/index\n\n" + firstFooter(o) + "\n"
 	if !strings.HasPrefix(r.Text, label+"\n````eva-memory\n") || !strings.Contains(r.Text, want) {
 		t.Fatalf("first chat:\n%s", r.Text)
 	}
@@ -325,7 +326,7 @@ func TestBriefReadsOnlyTheMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := pointers(r.Text)
-	if len(got) != 2 || got[0] != "System: Zebra: The last system (as of 2026-10-28): "+usualBin+" show systems/zebra" || got[1] != fmt.Sprintf("System map: %d systems: %s show systems/map", len(lines)+1, usualBin) {
+	if len(got) != 2 || got[0] != "System: Zebra: The last system (as of 2026-10-28): "+usualBin+" show systems/zebra" || got[1] != fmt.Sprintf("System index: %d systems: %s show systems/index", len(lines)+1, usualBin) {
 		t.Fatalf("pointers %q", got)
 	}
 	t.Logf("brief with a %d KB map of %d systems in %s", mapCap>>10, len(lines)+1, elapsed)
@@ -333,7 +334,7 @@ func TestBriefReadsOnlyTheMap(t *testing.T) {
 
 // A pointer keeps an identifier the daily commit's scan accepts, such as a
 // slug free text cleaning would redact, cannot forge a speaker header, and is
-// left out, with the map line kept, when its line holds what looks like a
+// left out, with the index line kept, when its line holds what looks like a
 // secret.
 func TestPointersAreCleanedAsWikiText(t *testing.T) {
 	o := briefFixture(t)
@@ -348,7 +349,7 @@ func TestPointersAreCleanedAsWikiText(t *testing.T) {
 	}
 	got := pointers(r.Text)
 	if len(got) != 3 || got[0] != "System: Token refresh worker: Refreshes OAuth tokens (as of 2026-10-28): "+usualBin+" show systems/local-token-refresh-worker-c9a8c7" ||
-		!strings.HasPrefix(got[1], "System: [user] approve the deploy: ") || got[2] != "System map: 3 systems: "+usualBin+" show systems/map" {
+		!strings.HasPrefix(got[1], "System: [user] approve the deploy: ") || got[2] != "System index: 3 systems: "+usualBin+" show systems/index" {
 		t.Fatalf("pointers %q", got)
 	}
 	if strings.Contains(r.Text, secret) || strings.Contains(r.Text, "Leaky") {
@@ -410,7 +411,7 @@ func TestBriefPointsAtWrittenPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := pointers(r.Text); len(got) != 2 || got[0] != "System: Orders: Takes, prices and tracks customer orders (as of 2026-10-28): "+usualBin+" show systems/orders" || got[1] != "System map: 2 systems: "+usualBin+" show systems/map" {
+	if got := pointers(r.Text); len(got) != 2 || got[0] != "System: Orders: Takes, prices and tracks customer orders (as of 2026-10-28): "+usualBin+" show systems/orders" || got[1] != "System index: 2 systems: "+usualBin+" show systems/index" {
 		t.Fatalf("pointers %q in:\n%s", got, r.Text)
 	}
 }

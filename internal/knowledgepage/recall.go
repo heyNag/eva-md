@@ -31,8 +31,9 @@ const (
 // of 1, 3, 10, 36 and 500 rows. A match of two terms must name the whole
 // title, which keeps out the near misses that share two words of a longer
 // title; the floor then keeps out matches made of common words. At 2.5 the
-// prompts give 100% precision and 90 to 92% recall at every size. It was
-// tuned on fixtures, not on real use.
+// prompts, each asked in its project, give 100% precision at every size,
+// with the fixture's two projects apart and sharing a system page, and 88 to
+// 93% recall. It was tuned on fixtures, not on real use.
 const Floor = 2.5
 
 // Recall returns the rows that strongly match a prompt, best first: rows
@@ -41,13 +42,17 @@ const Floor = 2.5
 // title or at least 3 of the prompt's, and whose score reaches Floor. The score sums, over the tokens a row holds, the token's
 // inverse document frequency over the rows, ln(1 + (N - df + 0.5) / (df +
 // 0.5)), divided by that of a token only one row holds, ln(1 + (N - 0.5) /
-// 1.5), and twice over for a token in the title. Among equal scores, rows of
-// the project or of every project come first, then the newest. A row skip
-// reports true for (by its id, k<N>) is left out, as is one without a
-// statement. The caller shows at most MaxRecall of them, the best that fit.
-func Recall(rows []Row, prompt, project string, skip func(id string) bool) []Row {
+// 1.5), and twice over for a token in the title. Only rows in the chat's
+// scope count: those of the project, of every project, of the projects that
+// share a system page with it, which siblings returns and is asked only when
+// a strong row of another project needs it, and of the projects the prompt
+// names (see names). Among equal scores, rows of the project or of every
+// project come first, then the newest. A row skip reports true for (by its
+// id, k<N>) is left out, as is one without a statement. The caller shows at
+// most MaxRecall of them, the best that fit.
+func Recall(rows []Row, prompt, project string, siblings func() map[string]bool, skip func(id string) bool) []Row {
 	var out []Row
-	for _, s := range recall(rows, prompt, project, skip, Floor) {
+	for _, s := range recall(rows, prompt, project, siblings, skip, Floor) {
 		out = append(out, s.Row)
 	}
 	return out
@@ -63,7 +68,7 @@ type scored struct {
 
 // recall is Recall with the floor given, so a test can measure others, and
 // the scores kept.
-func recall(rows []Row, prompt, project string, skip func(id string) bool, floor float64) []scored {
+func recall(rows []Row, prompt, project string, siblings func() map[string]bool, skip func(id string) bool, floor float64) []scored {
 	terms := promptTerms(prompt)
 	if len(terms) < 2 || len(rows) == 0 {
 		return nil
@@ -111,6 +116,7 @@ func recall(rows []Row, prompt, project string, skip func(id string) bool, floor
 	// A term only one row holds weighs 1, whatever the number of rows.
 	n := float64(len(rows))
 	rare := math.Log(1 + (n-0.5)/1.5)
+	related := inScope(prompt, project, siblings)
 	var out []scored
 	for _, m := range matches {
 		r := rows[m.row]
@@ -128,8 +134,8 @@ func recall(rows []Row, prompt, project string, skip func(id string) bool, floor
 			}
 			score += idf
 		}
-		if score >= floor {
-			out = append(out, scored{Row: r, score: score, local: r.Scope == ScopeAll || r.Project == project})
+		if local := r.Scope == ScopeAll || r.Project == project; score >= floor && (local || related(r.Project)) {
+			out = append(out, scored{Row: r, score: score, local: local})
 		}
 	}
 	slices.SortStableFunc(out, func(a, b scored) int {

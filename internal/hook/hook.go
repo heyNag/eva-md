@@ -54,6 +54,26 @@ type Env struct {
 	// spawn replaces detach, which starts the installed binary with args as
 	// a detached job, so tests see exactly which events spawn what.
 	spawn func(args ...string)
+	// elapsed replaces time.Since for the time a run took, which its
+	// heartbeat records, so a test reads an exact time rather than the
+	// machine's.
+	elapsed func(started time.Time) time.Duration
+	// stamping, when set, runs just before a run that captures nothing
+	// writes its stamp (see uncaptured), so a test can hold the run there
+	// while another writes.
+	stamping func()
+}
+
+// took is how long the run that started at started has taken so far, or 0
+// when its start is unknown.
+func (e Env) took(started time.Time) time.Duration {
+	switch {
+	case started.IsZero():
+		return 0
+	case e.elapsed != nil:
+		return e.elapsed(started)
+	}
+	return time.Since(started)
 }
 
 type payload struct {
@@ -79,6 +99,12 @@ type payload struct {
 	// whether the hook runs in a chat a program started (see entrypoint).
 	entrypoint string
 	headless   bool
+	// started is when Run began, from which the heartbeat measures the
+	// run's time, and elsewhere whether the transcript lies outside the
+	// folder transcript recovery reads (see transcriptElsewhere), which
+	// capture sets, or the late run's record.
+	started   time.Time
+	elsewhere bool
 }
 
 var stopEvent = regexp.MustCompile(`"hook_event_name"\s*:\s*"Stop"`)
@@ -114,7 +140,7 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 		writeOutput(out, output, deadline, env.withDeadline)
 		launch(env, spawns)
 		if late != nil {
-			lateBeat(ctx, env.Dirs, host, *late, env.Slack)
+			lateBeat(ctx, env, host, *late, env.took(late.started))
 		}
 	}()
 	if host != "claude-code" && host != "codex" {
@@ -169,6 +195,7 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 		return 0
 	}
 	p.entrypoint, p.headless = entrypoint(host, env.Getenv)
+	p.started = started
 	deadline = invocationDeadline(ctx, started.Add(budget(event)+env.Slack))
 	workCtx, cancel := env.withDeadline(ctx, deadline.Add(-10*time.Millisecond))
 	defer cancel()
@@ -271,24 +298,33 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	if !filepath.IsAbs(home) {
 		return ""
 	}
+	given := home
 	if actual, err := filepath.EvalSymlinks(home); err == nil {
 		home = actual
 	}
 	// Check lexical and resolved paths so an alias cannot evade exclusions.
+	// A chat eva-md doesn't capture leaves only the time its hook ran (see
+	// uncaptured).
 	if env.Config.Excluded(p.Cwd, "") || env.Config.Excluded(cwd, "") || inPath(cwd, env.Config.WikiPath) || inPath(cwd, env.Dirs.State) || tempPath(cwd, env.Getenv) {
+		uncaptured(env, host, p.Event, env.Now())
 		return ""
 	}
 	if host == "codex" && (inPath(cwd, filepath.Join(home, ".codex", "memories")) || strings.HasSuffix(filepath.ToSlash(cwd), "/.codex/memories") || strings.HasPrefix(strings.TrimSpace(p.Prompt), "## Memory Writing Agent")) {
+		uncaptured(env, host, p.Event, env.Now())
 		return ""
 	}
+	// Every heartbeat from here on says whether recovery can read the
+	// transcript, judged against the home as the hook got it.
+	p.elsewhere = transcriptElsewhere(host, p.Transcript, given)
 	// Remote exclusion must also precede marker writes, including spare sessions.
 	project, err := identity.Cache{Dir: filepath.Join(env.Dirs.Cache(), "identity")}.Resolve(ctx, cwd)
 	if err != nil || ctx.Err() != nil {
 		// The event is lost: a failed run, which the doctor counts.
-		heartbeat(ctx, env.Dirs, host, p, true, env.Now())
+		heartbeat(ctx, env.Dirs, host, p, true, env.Now(), env.took(p.started))
 		return ""
 	}
 	if env.Config.Excluded(cwd, project.Remote) {
+		uncaptured(env, host, p.Event, env.Now())
 		return ""
 	}
 	markers := session.Markers{Root: env.Dirs.Sessions()}
@@ -300,6 +336,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 		if model != "" {
 			_ = remember(ctx, markers, host, p.Session, session.Model, model)
 		}
+		uncaptured(env, host, p.Event, env.Now())
 		return ""
 	}
 	var touched []catchup.Recovered
@@ -316,7 +353,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 		if recover() != nil {
 			failed = true
 		}
-		heartbeat(ctx, env.Dirs, host, p, failed, env.Now())
+		heartbeat(ctx, env.Dirs, host, p, failed, env.Now(), env.took(p.started))
 	}()
 	// The day's maintain and, at a chat start, a push retry: launch decides
 	// whether each is due.
@@ -668,6 +705,22 @@ func entrypoint(host string, getenv func(string) string) (string, bool) {
 	}
 	value := getenv("CLAUDE_CODE_ENTRYPOINT")
 	return cleanField(value, 32), headless(value)
+}
+
+// transcriptElsewhere reports whether a payload's transcript lies outside the
+// folder transcript recovery reads under home, $HOME as the hook got it:
+// ~/.claude/projects on Claude Code and ~/.codex/sessions on Codex, as it
+// does once CLAUDE_CONFIG_DIR or CODEX_HOME moves the host's folder.
+// Recovery then reads none of the chat's transcript, and the heartbeat
+// records it for the doctor. It judges by recovery's own rule
+// (catchup.InStore), so a ~/.claude or ~/.codex linked elsewhere, as a
+// dotfiles setup links it, a transcript path a host writes through a link
+// to the home, or macOS's /private alias of a path, is the same folder to
+// both. It reads the folders' symlinks, a few stats, so capture calls it
+// within its time, and the late run's record after the output. A payload
+// that names no transcript is not elsewhere.
+func transcriptElsewhere(host, transcript, home string) bool {
+	return transcript != "" && filepath.IsAbs(home) && !catchup.InStore(host, home, transcript)
 }
 
 // headless reports whether Claude Code's entrypoint is a program's: print

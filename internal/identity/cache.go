@@ -26,10 +26,11 @@ import (
 // Cache keeps the results of Resolve so that a hook in a known worktree
 // starts no git process. Each worktree, and each folder outside any repo, has
 // one small entry in Dir. An entry is used only while a fresh look at what git
-// reads to answer Resolve finds it unchanged; see fingerprint for what is
-// looked at. A missing, unreadable or damaged entry, or anything the look does
-// not understand, runs Resolve instead. Its answer replaces the entry only
-// when nothing changed while it ran.
+// reads to answer Resolve finds it unchanged, see fingerprint for what is
+// looked at, and while its project key is the one the current redaction
+// rules give (see keyCurrent). A missing, unreadable or damaged entry, or
+// anything the look does not understand, runs Resolve instead. Its answer
+// replaces the entry only when nothing changed while it ran.
 type Cache struct {
 	Dir string // paths.Dirs.Cache()/identity
 }
@@ -85,7 +86,12 @@ func (c Cache) Resolve(ctx context.Context, cwd string) (Project, error) {
 		learned = true
 	}
 	sig, want, ok := fingerprint(before, system)
-	if found && ok && sig == old.Sig {
+	// The key also depends on the redaction rules (see plainKey), which an
+	// upgrade can change while git's files stay as they were, so it is
+	// derived again from the cached remote or folder: an entry whose key the
+	// current rules give differently resolves live, and the live answer
+	// replaces it.
+	if found && ok && sig == old.Sig && keyCurrent(old.Project) {
 		return old.Project, nil
 	}
 	p, err := Resolve(ctx, cwd)

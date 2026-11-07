@@ -63,7 +63,7 @@ func TestLiveCheck(t *testing.T) {
 			}
 			c := config.Default()
 			c.Effort = map[string]string{tc.host: "high"}
-			res, err := Live(context.Background(), NewRunner(tc.host), tc.host, c)
+			res, err := Live(context.Background(), NewRunner(tc.host), tc.host, c, filepath.Join(os.Getenv("HOME"), ".local", "state", "eva-md"))
 			if err != nil || res.Reason != tc.reason || res.Host != tc.host || res.Asked != "high" {
 				t.Fatalf("result %+v %v", res, err)
 			}
@@ -86,6 +86,38 @@ func TestLiveCheck(t *testing.T) {
 				if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), dir)); !os.IsNotExist(err) {
 					t.Fatalf("the live check wrote %s: %v", dir, err)
 				}
+			}
+		})
+	}
+}
+
+// doctor --live starts the CLI a run starts: the path install recorded in
+// the state folder's cli-paths.json, here in a folder that isn't on PATH,
+// where a PATH lookup finds no CLI at all.
+func TestLiveCheckStartsTheRecordedCLI(t *testing.T) {
+	for _, host := range hosts {
+		t.Run(host, func(t *testing.T) {
+			isolate(t)
+			t.Setenv("PATH", filepath.Join(t.TempDir(), "empty")+":/usr/bin:/bin")
+			dump := fakeHost(t, host)
+			put(t, dump, "stdout", map[string]string{HostClaude: claudeEnvelope(liveAnswer), HostCodex: codexClean}[host])
+			put(t, dump, "output", liveAnswer)
+			name := cliName(host)
+			recorded := filepath.Join(t.TempDir(), name)
+			if err := os.Symlink(filepath.Join(fakeBin, name), recorded); err != nil {
+				t.Fatal(err)
+			}
+			state := filepath.Join(t.TempDir(), "state")
+			if err := os.Mkdir(state, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			put(t, state, "cli-paths.json", `{"`+name+`":"`+recorded+`"}`)
+			c := config.Default()
+			if res, err := Live(context.Background(), NewRunner(host), host, c, filepath.Join(t.TempDir(), "no-state")); err != nil || res.Reason != ReasonCLIMissing || runs(t, dump) != 0 {
+				t.Fatalf("with no recorded path: %+v %v", res, err)
+			}
+			if res, err := Live(context.Background(), NewRunner(host), host, c, state); err != nil || res.Reason != "" || runs(t, dump) != 1 {
+				t.Fatalf("with the recorded path: %+v %v", res, err)
 			}
 		})
 	}

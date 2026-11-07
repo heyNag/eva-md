@@ -468,6 +468,9 @@ func TestToolLines(t *testing.T) {
 		// What can carry a credential is left out: the user part, the
 		// fragment and each query parameter named so.
 		{"web-fetch-signed", "claude-code", "WebFetch", `{"url":"https://me:PRIVATE@files.example.com/report.pdf?sig=PRIVATE&page=2&X-Amz-Signature=PRIVATE&code=PRIVATE#access_token=PRIVATE"}`, `"PRIVATE PAGE"`, "", "WebFetch https://files.example.com/report.pdf?page=2 (exit 0)", "tool"},
+		// A web search is kept by its name alone, so the update can tell a
+		// turn that read the web; its query and results are left out.
+		{"web-search", "claude-code", "WebSearch", `{"query":"PRIVATE QUERY","allowed_domains":["docs.example.com"]}`, `"PRIVATE RESULTS"`, "", "WebSearch (exit 0)", "tool"},
 		// Scalar arguments, shortest first: no object, boolean or value over 1 KiB.
 		{"mcp", "claude-code", "mcp__wiki__getPage", `{"cloudId": "c0ffee00-0000-4000-8000-000000000000", "title":"Release  plan","pageId":4242,"body":"` + strings.Repeat("PRIVATE ", 130) + `","withBody":true,"filter":{"PRIVATE":"x"}}`, `{"content":[{"type":"text","text":"PRIVATE PAGE"}]}`, "", "mcp__wiki__getPage pageId=4242 title=Release plan cloudId=c0ffee00-0000-4000-8000-000000000000 (exit 0)", "tool"},
 		{"mcp-codex", "codex", "mcp__tracker__get_issue", `{"issue_key":"OPS-12"}`, `"Exit code: 0\nPRIVATE ISSUE"`, "", "mcp__tracker__get_issue issue_key=OPS-12 (exit 0)", "tool"},

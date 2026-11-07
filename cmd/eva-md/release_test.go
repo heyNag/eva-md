@@ -180,7 +180,11 @@ func newFakeMac(t *testing.T) *fakeMac {
 			t.Fatal(err)
 		}
 	}
-	gitconfig := "[user]\n\tname = Eva Fixture\n\temail = fixture@example.invalid\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n"
+	// Maintenance is off: git starts it in the background after a commit in
+	// the wiki or a push to its remote, and its lock stays in the objects
+	// folder after the command returns, so a walk of either could see a file
+	// come and go (TestFakeMacStartsNoMaintenance).
+	gitconfig := "[user]\n\tname = Eva Fixture\n\temail = fixture@example.invalid\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[maintenance]\n\tauto = false\n"
 	if err := os.WriteFile(os.Getenv("GIT_CONFIG_GLOBAL"), []byte(gitconfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -245,9 +249,12 @@ if [ -n "$out" ]; then cat "$f" > "$out"; else cat "$f"; fi
 
 // fakeHost is a host CLI that keeps eva-md's registration in files: the
 // marketplace's folder once it is added, and a mark once the plugin is. It
-// answers its plugin list only when asked the way list says.
+// answers its plugin list only when asked the way list says, and its
+// features list with the hooks feature on, or with what <host>.features in
+// the fakes' answers holds.
 func fakeHost(state, host, list, listed, empty, market, noMarket, add, remove, marketRemove string) string {
 	s := "'" + filepath.Join(state, host) + "'"
+	features := "'" + filepath.Join(filepath.Dir(state), host+".features") + "'"
 	// The calls are logged beside the state, so a test that compares the
 	// registrations sees only them.
 	return `echo "$*" >> '` + filepath.Join(filepath.Dir(state), host) + `.calls'
@@ -257,7 +264,7 @@ case "$*" in
 "plugin marketplace list --json")
 	if [ -f ` + s + `.market ]; then printf '` + market + `\n' "$(cat ` + s + `.market)"; else echo '` + noMarket + `'; fi ;;
 "plugin validate --strict --json "*) echo '{"success":true}' ;;
-"features list") echo 'hooks experimental true' ;;
+"features list") if [ -f ` + features + ` ]; then cat ` + features + `; else echo 'hooks experimental true'; fi ;;
 "plugin marketplace add "*" --json") printf '%s' "$4" > ` + s + `.market; echo '{}' ;;
 "` + add + `") : > ` + s + `.plugin; echo '{}' ;;
 "` + remove + `") rm -f ` + s + `.plugin; echo '{}' ;;
@@ -553,6 +560,58 @@ func TestInstallScriptOnANewMac(t *testing.T) {
 	says(t, "stdout", out, "eva-md is set up here")
 	if tree(t, m.wiki, m.remote) != wiki {
 		t.Fatal("the wiki or its remote changed")
+	}
+}
+
+// With Codex's hooks feature off, the install command on a new Mac stops in
+// setup's checks of this Mac, naming both ways out, before any wiki is made
+// or pushed and with nothing registered; with EVA_MD_HOSTS=claude in the
+// answers file, as the fix says, the same command installs for Claude Code
+// only.
+func TestInstallScriptStopsBeforeTheWikiWhenCodexHooksAreOff(t *testing.T) {
+	m := newFakeMac(t)
+	m.publish(t, "2026.11.3", "2026.11.3")
+	m.answer("codex.features", "hooks experimental false")
+	if err := os.MkdirAll(m.dirs.Config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	answers := "EVA_MD_WIKI_DIR=" + m.wiki + "\nEVA_MD_WIKI_REMOTE=" + m.remote + "\n"
+	if err := os.WriteFile(m.dirs.AnswersFile(), []byte(answers), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := m.script(t, "install.sh", nil)
+	if code != 1 {
+		t.Fatalf("code %d\n%s\n%s", code, out, errOut)
+	}
+	says(t, "stdout", out, "  ✗ Codex's hooks feature is off, so eva-md can't capture Codex chats\n    Fix: run codex features enable hooks, or set EVA_MD_HOSTS=claude in "+m.dirs.AnswersFile()+" to install for Claude Code only\n    Then run setup again.\n")
+	if strings.Contains(out, "Creating the wiki") {
+		t.Fatalf("setup went on to the wiki:\n%s", out)
+	}
+	for _, made := range []string{m.wiki, m.dirs.ConfigFile(), m.stable()} {
+		if _, err := os.Lstat(made); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s was made: %v", made, err)
+		}
+	}
+	if refs := gitRun(t, m.remote, "for-each-ref"); refs != "" {
+		t.Fatalf("the remote holds %q", refs)
+	}
+	m.wantRegistered(t, false)
+	m.tmpLeft(t)
+	if err := os.WriteFile(m.dirs.AnswersFile(), []byte(answers+"EVA_MD_HOSTS=claude\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut = m.script(t, "install.sh", nil)
+	if code != 0 {
+		t.Fatalf("for Claude Code only: code %d\n%s\n%s", code, out, errOut)
+	}
+	says(t, "stdout", out, "  ✓ The plugins can be installed for Claude Code\n", "Creating the wiki")
+	for mark, want := range map[string]bool{"claude.plugin": true, "claude.market": true, "codex.plugin": false, "codex.market": false} {
+		if _, err := os.Stat(filepath.Join(m.hosts, mark)); (err == nil) != want {
+			t.Fatalf("%s registered: %v, want %v", mark, err == nil, want)
+		}
+	}
+	if gitRun(t, m.remote, "rev-parse", "main") == "" {
+		t.Fatal("the wiki wasn't pushed")
 	}
 }
 

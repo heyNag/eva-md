@@ -89,7 +89,7 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs, inventory time.D
 		if known && enabled {
 			r.add("codex hooks feature", "PASS", "enabled", "")
 		} else if known {
-			r.add("codex hooks feature", "FAIL", "disabled", "enable hooks using Codex settings")
+			r.add("codex hooks feature", "FAIL", "disabled", "run codex features enable hooks")
 		} else {
 			r.add("codex hooks feature", "UNKNOWN", "not reported by this version", "")
 		}
@@ -117,29 +117,42 @@ func inspectTrust(ctx context.Context, r *Report, codexEnabled bool) {
 	}
 }
 
+// cappedBuffer keeps a host command's output and fails the command past
+// limit bytes. The buffer is a named field, not an embedded bytes.Buffer,
+// whose ReadFrom os/exec would call in place of Write, so the limit would
+// never hold.
 type cappedBuffer struct {
-	bytes.Buffer
-	limit int
+	buffer bytes.Buffer
+	limit  int
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > b.limit {
+	if b.buffer.Len()+len(p) > b.limit {
 		return 0, errors.New("host output limit")
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
+
+// hostOutputLimit is the most a host command, such as codex features list,
+// may print before the doctor takes it as unavailable.
+const hostOutputLimit = 8 << 20
+
+// commandWaitDelay bounds the wait for a host command's output once it has
+// exited or run out of time. Tests raise it before any test runs.
+var commandWaitDelay = time.Second
+
 func hostCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.WaitDelay = time.Second
-	b := &cappedBuffer{limit: 8 << 20}
+	cmd.WaitDelay = commandWaitDelay
+	b := &cappedBuffer{limit: hostOutputLimit}
 	cmd.Stdout = b
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
 		return nil, errors.New("host command unavailable")
 	}
-	return b.Bytes(), nil
+	return b.buffer.Bytes(), nil
 }
 
 // probeTrust sends only read-only methods, never a thread/turn or approval.

@@ -467,6 +467,70 @@ func TestRequestsThatCannotRunAreRefused(t *testing.T) {
 	}
 }
 
+// CheckFlags refuses, before anything runs, what Run would refuse of the
+// flags a command takes, with Run's own error: a host it lacks, an effort
+// off the host's table and a model name a CLI could read as a flag. It also
+// refuses a CLI path Run would pass over for the one on PATH: one that is
+// gone, a folder, a file that isn't executable, a bare name, a relative path
+// or another host's CLI. It takes what Run takes, a link to the CLI too.
+func TestCheckFlags(t *testing.T) {
+	isolate(t)
+	dump := fakeHost(t, HostClaude)
+	dir := t.TempDir()
+	claude, codex := filepath.Join(dir, "claude"), filepath.Join(dir, "codex")
+	plain, folder, link := filepath.Join(dir, "plain", "claude"), filepath.Join(dir, "folder", "claude"), filepath.Join(dir, "link", "claude")
+	for path, mode := range map[string]os.FileMode{claude: 0o700, codex: 0o700, plain: 0o600} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(claude, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ host, effort, model, cli string }{
+		{HostClaude, "", "", ""},
+		{HostClaude, "highest", "claude-test-model", claude},
+		{HostClaude, "low", "", link},
+		{HostCodex, "ultra", "gpt-test-model[1m]", codex},
+	} {
+		if err := CheckFlags(tc.host, tc.effort, tc.model, tc.cli); err != nil {
+			t.Errorf("%+v: %v", tc, err)
+		}
+	}
+	for _, tc := range []struct{ host, effort, model string }{
+		{"gemini", "", ""},
+		{HostClaude, "turbo", ""},
+		{HostClaude, "ultra", ""}, // Codex's
+		{HostCodex, "Highest", ""},
+		{HostClaude, "", "--dangerously-skip-permissions"},
+		{HostCodex, "high", "gpt test"},
+	} {
+		r := request(t, tc.host)
+		r.Effort, r.Model = tc.effort, tc.model
+		_, refused := NewRunner(tc.host).Run(context.Background(), r)
+		if err := CheckFlags(tc.host, tc.effort, tc.model, ""); refused == nil || err == nil || err.Error() != refused.Error() {
+			t.Errorf("%+v: CheckFlags %v, Run %v", tc, err, refused)
+		}
+	}
+	for _, cli := range []string{filepath.Join(dir, "gone", "claude"), folder, plain, "claude", "bin/claude", codex} {
+		if err := CheckFlags(HostClaude, "", "", cli); err == nil || err.Error() != "update: the CLI path "+cli+" is not the absolute path of an executable file named claude" {
+			t.Errorf("CLI %s: %v", cli, err)
+		}
+	}
+	if n := runs(t, dump); n != 0 {
+		t.Fatalf("the CLI started %d times", n)
+	}
+}
+
 func TestEffortTablesAndTimeouts(t *testing.T) {
 	isolate(t)
 	if got, _ := resolveEffort(claudeEfforts, "highest"); got != "max" {

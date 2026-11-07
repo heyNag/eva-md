@@ -13,8 +13,9 @@ import (
 )
 
 // launch starts each eva-md command the hook asked for that is due (see
-// due), once its output is written, and never waits for one. A spawn that
-// fails or panics is ignored: the next trigger tries again.
+// due), a catch-up's sweep only while it is due (see withSweep), once its
+// output is written, and never waits for one. A spawn that fails or panics
+// is ignored: the next trigger tries again.
 func launch(env Env, spawns [][]string) {
 	defer func() { _ = recover() }()
 	now := time.Now
@@ -23,7 +24,7 @@ func launch(env Env, spawns [][]string) {
 	}
 	started := false
 	for _, args := range spawns {
-		if !due(env, args, now(), &started) {
+		if args = withSweep(env, args, now()); args == nil || !due(env, args, now(), &started) {
 			continue
 		}
 		if env.spawn != nil {

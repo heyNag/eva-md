@@ -23,4 +23,5 @@ func raiseTimeLimits() {
 	setupGitTimeout, peekCloneTimeout, signingTimeout = testlimits.Long, testlimits.Long, testlimits.Long
 	repoCLITimeout, repoCLIWaitDelay, probeTimeout = testlimits.Long, testlimits.Long, testlimits.Long
 	versionTimeout = testlimits.Long
+	unsavedTimeout = testlimits.Long
 }

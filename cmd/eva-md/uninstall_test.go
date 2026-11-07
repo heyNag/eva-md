@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,6 +46,37 @@ func (m *fakeMac) kept(t *testing.T) {
 		if _, err := os.Stat(file); err != nil {
 			t.Fatalf("%s removed: %v", file, err)
 		}
+	}
+}
+
+// The fake Mac's git starts no maintenance in the background, which git
+// otherwise starts after a commit, in the wiki, and after a push, in its
+// remote: its lock stays in the objects folder after the command returns,
+// so a walk that shows the wiki and its remote unchanged, as the tests take
+// right after their commits, could list a file that is gone when it reads
+// it, or tell two walks of an unchanged wiki apart. git runs as gitRun runs
+// it, but for the trace, which gitRun's environment leaves out.
+func TestFakeMacStartsNoMaintenance(t *testing.T) {
+	m := newFakeMac(t)
+	m.setUpWiki(t)
+	addTimelineLine(t, m.wiki, "done [stated]: Committed and pushed")
+	trace := filepath.Join(t.TempDir(), "trace")
+	for _, args := range [][]string{{"commit", "--quiet", "--all", "-m", "A commit"}, {"push", "--quiet", "origin", "HEAD"}} {
+		ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks", "-C", m.wiki}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_TRACE="+trace)
+		out, err := cmd.CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", args[0], err, out)
+		}
+	}
+	b, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); !strings.Contains(s, "built-in: git commit") || !strings.Contains(s, "built-in: git receive-pack") || strings.Contains(s, "maintenance run") {
+		t.Fatalf("git's trace of a commit and a push:\n%s", s)
 	}
 }
 
@@ -228,6 +261,339 @@ func TestUninstallKeepsALinkToSomethingElse(t *testing.T) {
 	}
 	if tree(t, m.wiki, m.remote) != wiki {
 		t.Fatal("the wiki or its remote changed")
+	}
+}
+
+// Uninstall reads the wiki with local git before it removes anything. With
+// changed pages no commit holds and a commit no push took, the preview's
+// last lines say so, give the remote without "pushed to" and name eva-md
+// commit, and --all's question says it too; with commits alone they name
+// eva-md commit --push-only; and after --apply they say how to save them
+// with eva-md gone. A wiki git can't read is said so and never stops
+// uninstall. The wiki and its remote never change.
+func TestUninstallSaysWhatTheWikiHasNotSaved(t *testing.T) {
+	m := installedWithData(t)
+	addTimelineLine(t, m.wiki, "done [stated]: Committed but not pushed")
+	gitRun(t, m.wiki, "commit", "--quiet", "--all", "-m", "A commit not pushed")
+	addTimelineLine(t, m.wiki, "done [stated]: Changed but not committed")
+	if err := os.MkdirAll(filepath.Join(m.wiki, "projects", "app", "threads"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.wiki, "projects", "app", "threads", "main.md"), []byte("# Main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wiki := tree(t, m.wiki, m.remote)
+	kept := "Your wiki is kept in " + m.wiki + "; its remote is file://" + m.remote + ".\n"
+	both := "In the wiki, 2 changed files aren't committed and 1 commit isn't pushed, so they are only on this Mac: "
+	code, out, errOut := uninstallAs(false, "")
+	if code != 0 || !strings.HasSuffix(out, kept+both+"run eva-md commit before you uninstall to commit and push them.\neva-md never deletes the wiki or its remote; deleting them is your own step.\n") || strings.Contains(out, "pushed to") {
+		t.Fatalf("the preview: code %d\n%s\n%s", code, out, errOut)
+	}
+	code, out, _ = uninstallAs(true, "no\n", "--apply", "--all")
+	if code != 1 || !strings.Contains(out, "\n"+both+"run eva-md commit before you uninstall to commit and push them.\nType delete to remove all of this: Nothing was removed.\n") {
+		t.Fatalf("--all's question: code %d\n%s", code, out)
+	}
+	gitRun(t, m.wiki, "add", "--all")
+	gitRun(t, m.wiki, "commit", "--quiet", "-m", "Another commit not pushed")
+	wiki = tree(t, m.wiki, m.remote)
+	commits := "In the wiki, 2 commits aren't pushed, so they are only on this Mac: "
+	if _, out, _ = uninstallAs(false, ""); !strings.Contains(out, kept+commits+"run eva-md commit --push-only before you uninstall to push them.\n") {
+		t.Fatalf("commits alone:\n%s", out)
+	}
+	code, out, errOut = uninstallAs(false, "", "--apply")
+	if code != 0 || !strings.Contains(out, kept+commits+"push them with git push in the wiki folder, or install eva-md again and run eva-md commit --push-only.\n") {
+		t.Fatalf("--apply: code %d\n%s\n%s", code, out, errOut)
+	}
+	m.wantRegistered(t, false)
+	if tree(t, m.wiki, m.remote) != wiki {
+		t.Fatal("the wiki or its remote changed")
+	}
+
+	// A wiki git can't read, as one whose HEAD is gone, is said so, and
+	// uninstall goes on.
+	m = installedWithData(t)
+	if err := os.Rename(filepath.Join(m.wiki, ".git", "HEAD"), filepath.Join(m.wiki, ".git", "HEAD.aside")); err != nil {
+		t.Fatal(err)
+	}
+	wiki = tree(t, m.wiki, m.remote)
+	code, out, errOut = uninstallAs(false, "", "--apply")
+	if code != 0 || !strings.Contains(out, "Your wiki is kept in "+m.wiki+"; its remote is file://"+m.remote+".\nGit couldn't read the wiki folder, so whether all of it is committed and pushed is unknown; git status there shows what isn't.\n") {
+		t.Fatalf("an unreadable wiki: code %d\n%s\n%s", code, out, errOut)
+	}
+	m.wantRegistered(t, false)
+	if tree(t, m.wiki, m.remote) != wiki {
+		t.Fatal("the wiki or its remote changed")
+	}
+}
+
+// The lines that say how to save the wiki name only what can run. Without
+// ~/.local/bin on PATH, where install makes no link, they name the stable
+// binary by its full path, as setup's closing lines do. With eva-md gone,
+// after --apply and in a later uninstall, as the uninstall script runs with
+// the latest release's binary, they say to use git in the wiki folder or to
+// install eva-md again, never to commit before uninstalling; for --all,
+// which removes the config, without which setup takes a wiki with changed
+// files only once they are committed, git alone, in its preview and its
+// question too. Commits alone, which setup pushes when it takes the wiki
+// again, keep both ways. The wiki and its remote never change.
+func TestUninstallNamesOnlyWhatCanSaveTheWiki(t *testing.T) {
+	m := newFakeMac(t)
+	var path []string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir != filepath.Dir(m.link()) && dir != filepath.Join(m.home, ".local", "bin") {
+			path = append(path, dir)
+		}
+	}
+	t.Setenv("PATH", strings.Join(path, string(filepath.ListSeparator)))
+	m.installed(t, "2026.11.3")
+	if _, err := os.Lstat(m.link()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("install linked %s off PATH: %v", m.link(), err)
+	}
+	addTimelineLine(t, m.wiki, "done [stated]: Changed but not committed")
+	wiki := tree(t, m.wiki, m.remote)
+	changed := "In the wiki, 1 changed file isn't committed, so it is only on this Mac: "
+	byGit := changed + "commit and push it with git in the wiki folder"
+	again := byGit + ", or install eva-md again and run " + m.stable() + " commit.\n"
+	if code, out, errOut := uninstallAs(false, ""); code != 0 || !strings.Contains(out, changed+"run "+m.stable()+" commit before you uninstall to commit and push it.\n") {
+		t.Fatalf("the preview: code %d\n%s\n%s", code, out, errOut)
+	}
+	if code, out, errOut := uninstallAs(false, "", "--apply"); code != 0 || !strings.Contains(out, again) {
+		t.Fatalf("--apply: code %d\n%s\n%s", code, out, errOut)
+	}
+	if code, out, errOut := uninstallAs(false, ""); code != 0 || !strings.Contains(out, "Nothing to remove: eva-md is not installed.") || !strings.Contains(out, again) {
+		t.Fatalf("the preview without eva-md: code %d\n%s\n%s", code, out, errOut)
+	}
+	if code, out, errOut := uninstallAs(false, "", "--all"); code != 0 || !strings.Contains(out, "\n"+byGit+".\n") {
+		t.Fatalf("--all's preview without eva-md: code %d\n%s\n%s", code, out, errOut)
+	}
+	if code, out, _ := uninstallAs(true, "no\n", "--apply", "--all"); code != 1 || !strings.Contains(out, "\n"+byGit+".\nType delete to remove all of this: Nothing was removed.\n") {
+		t.Fatalf("--all's question without eva-md: code %d\n%s", code, out)
+	}
+	if code, out, errOut := uninstallAs(false, "", "--apply", "--all", "--yes"); code != 0 || !strings.Contains(out, "\n"+byGit+".\n") {
+		t.Fatalf("--all: code %d\n%s\n%s", code, out, errOut)
+	}
+	if tree(t, m.wiki, m.remote) != wiki {
+		t.Fatal("the wiki or its remote changed")
+	}
+
+	// A commit alone, on a Mac with the link on PATH: eva-md commit
+	// --push-only, before and after --all.
+	m = installedWithData(t)
+	addTimelineLine(t, m.wiki, "done [stated]: Committed but not pushed")
+	gitRun(t, m.wiki, "commit", "--quiet", "--all", "-m", "A commit not pushed")
+	wiki = tree(t, m.wiki, m.remote)
+	commit := "In the wiki, 1 commit isn't pushed, so it is only on this Mac: "
+	if code, out, _ := uninstallAs(true, "no\n", "--apply", "--all"); code != 1 || !strings.Contains(out, "\n"+commit+"run eva-md commit --push-only before you uninstall to push it.\nType delete") {
+		t.Fatalf("--all's question: code %d\n%s", code, out)
+	}
+	if code, out, errOut := uninstallAs(false, "", "--apply", "--all", "--yes"); code != 0 || !strings.Contains(out, "\n"+commit+"push it with git push in the wiki folder, or install eva-md again and run eva-md commit --push-only.\n") {
+		t.Fatalf("--all: code %d\n%s\n%s", code, out, errOut)
+	}
+	if tree(t, m.wiki, m.remote) != wiki {
+		t.Fatal("the wiki or its remote changed")
+	}
+}
+
+// When the config doesn't name the wiki, as after it was moved aside, which
+// setup says to do to start over, or when it can't be read, uninstall takes
+// the wiki from the record, and its lines give git alone, in the preview,
+// in --all's question and after --apply, and in a preview once eva-md is
+// gone: eva-md commit needs the config that names the wiki, and a new
+// install's setup refuses a config it can't read, and takes a wiki whose
+// changes no commit holds only with the config that names it. The wiki and
+// its remote never change.
+func TestUninstallNamesGitAloneWithoutTheConfig(t *testing.T) {
+	gitAlone := func(what, out string) {
+		t.Helper()
+		if strings.Contains(out, "eva-md commit") || strings.Contains(out, "install eva-md again") {
+			t.Fatalf("%s names more than git:\n%s", what, out)
+		}
+	}
+	m := installedWithData(t)
+	addTimelineLine(t, m.wiki, "done [stated]: Changed but not committed")
+	if err := os.Rename(m.dirs.ConfigFile(), m.dirs.ConfigFile()+".aside"); err != nil {
+		t.Fatal(err)
+	}
+	wiki := tree(t, m.wiki, m.remote)
+	kept := "Your wiki is kept in " + m.wiki + "; its remote is file://" + m.remote + ".\n"
+	byGit := "In the wiki, 1 changed file isn't committed, so it is only on this Mac: commit and push it with git in the wiki folder.\n"
+	for _, args := range [][]string{nil, {"--all"}} {
+		code, out, errOut := uninstallAs(false, "", args...)
+		if code != 0 || !strings.Contains(out, kept+byGit) {
+			t.Fatalf("the preview %v: code %d\n%s\n%s", args, code, out, errOut)
+		}
+		gitAlone(fmt.Sprintf("the preview %v", args), out)
+	}
+	code, out, errOut := uninstallAs(true, "no\n", "--apply", "--all")
+	if code != 1 || !strings.Contains(out, "\n"+byGit+"Type delete to remove all of this: Nothing was removed.\n") {
+		t.Fatalf("--all's question: code %d\n%s\n%s", code, out, errOut)
+	}
+	gitAlone("--all's question", out)
+	code, out, errOut = uninstallAs(false, "", "--apply")
+	if code != 0 || !strings.Contains(out, "Removed:\n") || !strings.Contains(out, kept+byGit) {
+		t.Fatalf("--apply: code %d\n%s\n%s", code, out, errOut)
+	}
+	gitAlone("--apply", out)
+	m.wantRegistered(t, false)
+	code, out, errOut = uninstallAs(false, "")
+	if code != 0 || !strings.Contains(out, "Nothing to remove: eva-md is not installed.") || !strings.Contains(out, kept+byGit) {
+		t.Fatalf("the preview without eva-md: code %d\n%s\n%s", code, out, errOut)
+	}
+	gitAlone("the preview without eva-md", out)
+	if tree(t, m.wiki, m.remote) != wiki {
+		t.Fatal("the wiki or its remote changed")
+	}
+
+	// A config that can't be read, with a commit alone: git push, before
+	// and after --apply, which keeps that config.
+	m = installedWithData(t)
+	addTimelineLine(t, m.wiki, "done [stated]: Committed but not pushed")
+	gitRun(t, m.wiki, "commit", "--quiet", "--all", "-m", "A commit not pushed")
+	if err := os.WriteFile(m.dirs.ConfigFile(), []byte("wiki_path = [broken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wiki = tree(t, m.wiki, m.remote)
+	kept = "Your wiki is kept in " + m.wiki + "; its remote is file://" + m.remote + ".\n"
+	push := "In the wiki, 1 commit isn't pushed, so it is only on this Mac: push it with git push in the wiki folder.\n"
+	code, out, errOut = uninstallAs(false, "")
+	if code != 0 || !strings.Contains(out, kept+push) {
+		t.Fatalf("the preview with a config that can't be read: code %d\n%s\n%s", code, out, errOut)
+	}
+	gitAlone("the preview with a config that can't be read", out)
+	code, out, errOut = uninstallAs(false, "", "--apply")
+	if code != 0 || !strings.Contains(out, "Removed:\n") || !strings.Contains(out, kept+push) {
+		t.Fatalf("--apply with a config that can't be read: code %d\n%s\n%s", code, out, errOut)
+	}
+	gitAlone("--apply with a config that can't be read", out)
+	m.wantRegistered(t, false)
+	if tree(t, m.wiki, m.remote) != wiki {
+		t.Fatal("the wiki or its remote changed")
+	}
+}
+
+// atThePrompt is a terminal on which do runs while --all's question waits,
+// as the person or a job of eva-md's would act meanwhile, before delete is
+// typed.
+type atThePrompt struct {
+	do   func()
+	done bool
+}
+
+func (p *atThePrompt) Read(b []byte) (int, error) {
+	if !p.done {
+		p.done = true
+		p.do()
+	}
+	return copy(b, "delete\n"), nil
+}
+
+// Uninstall reads the wiki again after the removal for its last lines, on
+// every path, so they say what the wiki holds then: after eva-md commit,
+// run as --all's question said while it waited, that the wiki is pushed;
+// after a page was written while it waited, or while the hosts removed the
+// plugins, as on the paths with no question, that it isn't committed, with
+// how to save it once eva-md is gone.
+func TestUninstallReadsTheWikiAgainForItsLastLines(t *testing.T) {
+	const question = "Type delete to remove all of this: "
+	m := installedWithData(t)
+	addTimelineLine(t, m.wiki, "done [stated]: Changed but not committed")
+	var out bytes.Buffer
+	commit := &atThePrompt{do: func() {
+		if code, stdout, errOut := evaMD(t, "commit"); code != 0 {
+			t.Fatalf("eva-md commit at the prompt: code %d\n%s\n%s", code, stdout, errOut)
+		}
+	}}
+	if code := runUninstall(context.Background(), []string{"--apply", "--all"}, commit, &out, &out, true); code != 0 || !commit.done {
+		t.Fatalf("code %d, asked %t\n%s", code, commit.done, out.String())
+	}
+	asked, closing, _ := strings.Cut(out.String(), question)
+	if !strings.Contains(asked, "\nIn the wiki, 1 changed file isn't committed, so it is only on this Mac: run eva-md commit before you uninstall to commit and push it.\n") {
+		t.Fatalf("the question:\n%s", out.String())
+	}
+	if !strings.Contains(closing, "Your wiki is kept in "+m.wiki+", pushed to file://"+m.remote+".\n") || strings.Contains(closing, "In the wiki") {
+		t.Fatalf("the last lines after eva-md commit at the prompt:\n%s", out.String())
+	}
+
+	notCommitted := func(m *fakeMac) string {
+		return "Your wiki is kept in " + m.wiki + "; its remote is file://" + m.remote + ".\nIn the wiki, 1 changed file isn't committed, so it is only on this Mac: commit and push it with git in the wiki folder"
+	}
+	m = installedWithData(t)
+	out.Reset()
+	write := &atThePrompt{do: func() { addTimelineLine(t, m.wiki, "done [stated]: Written while the question waited") }}
+	if code := runUninstall(context.Background(), []string{"--apply", "--all"}, write, &out, &out, true); code != 0 || !write.done {
+		t.Fatalf("code %d, asked %t\n%s", code, write.done, out.String())
+	}
+	asked, closing, _ = strings.Cut(out.String(), question)
+	if strings.Contains(asked, "In the wiki") || !strings.Contains(closing, notCommitted(m)+".\n") {
+		t.Fatalf("the last lines after a page written at the prompt:\n%s", out.String())
+	}
+
+	// With no question, the fake Claude Code writes a page while it removes
+	// eva-md's plugin.
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--apply"}, ", or install eva-md again and run eva-md commit.\n"},
+		{[]string{"--apply", "--all", "--yes"}, ".\n"},
+	} {
+		m = installedWithData(t)
+		claude := filepath.Join(m.bin, "claude")
+		host := filepath.Join(t.TempDir(), "claude")
+		if err := os.Rename(claude, host); err != nil {
+			t.Fatal(err)
+		}
+		page := filepath.Join(m.wiki, "general", "threads", "default.md")
+		q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+		script := "#!/bin/sh\ncase \"$*\" in\n\"plugin uninstall \"*) printf '### 2026-10-31\\n- done [stated]: Written while uninstall removed\\n' >> " + q(page) + " ;;\nesac\nexec " + q(host) + " \"$@\"\n"
+		if err := os.WriteFile(claude, []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		code, out, errOut := uninstallAs(false, "", tc.args...)
+		if code != 0 || !strings.Contains(out, "Removed:\n") || !strings.Contains(out, notCommitted(m)+tc.want) {
+			t.Fatalf("%v: code %d\n%s\n%s", tc.args, code, out, errOut)
+		}
+		m.wantRegistered(t, false)
+	}
+}
+
+// What the wiki hasn't saved is said in counts, one or many, before and
+// after the removal, naming eva-md as it is given; with --all, changed
+// files are saved with git alone once eva-md is gone. A wiki the config
+// doesn't name is saved with git alone, before and after, with --all or
+// not, for commits alone too. Nothing is said when everything is saved.
+func TestUnsavedLine(t *testing.T) {
+	const full = "/Users/you/.local/share/eva-md/bin/eva-md"
+	for _, tc := range []struct {
+		u                   unsaved
+		command             string
+		removed, all, named bool
+		want                string
+	}{
+		{unsaved{}, "eva-md", false, false, true, ""},
+		{unsaved{}, "eva-md", true, true, true, ""},
+		{unsaved{}, "eva-md", false, false, false, ""},
+		{unsaved{files: 1}, "eva-md", false, false, true, "In the wiki, 1 changed file isn't committed, so it is only on this Mac: run eva-md commit before you uninstall to commit and push it."},
+		{unsaved{files: 1}, full, false, true, true, "In the wiki, 1 changed file isn't committed, so it is only on this Mac: run " + full + " commit before you uninstall to commit and push it."},
+		{unsaved{files: 1}, "eva-md", true, false, true, "In the wiki, 1 changed file isn't committed, so it is only on this Mac: commit and push it with git in the wiki folder, or install eva-md again and run eva-md commit."},
+		{unsaved{files: 1}, "eva-md", true, true, true, "In the wiki, 1 changed file isn't committed, so it is only on this Mac: commit and push it with git in the wiki folder."},
+		{unsaved{commits: 1}, full, false, false, true, "In the wiki, 1 commit isn't pushed, so it is only on this Mac: run " + full + " commit --push-only before you uninstall to push it."},
+		{unsaved{commits: 2}, full, true, true, true, "In the wiki, 2 commits aren't pushed, so they are only on this Mac: push them with git push in the wiki folder, or install eva-md again and run " + full + " commit --push-only."},
+		{unsaved{files: 3, commits: 2}, "eva-md", true, false, true, "In the wiki, 3 changed files aren't committed and 2 commits aren't pushed, so they are only on this Mac: commit and push them with git in the wiki folder, or install eva-md again and run eva-md commit."},
+		{unsaved{files: 3, commits: 2}, "eva-md", true, true, true, "In the wiki, 3 changed files aren't committed and 2 commits aren't pushed, so they are only on this Mac: commit and push them with git in the wiki folder."},
+		{unsaved{unread: true}, "eva-md", false, false, true, "Git couldn't read the wiki folder, so whether all of it is committed and pushed is unknown; git status there shows what isn't."},
+		// The config doesn't name the wiki.
+		{unsaved{files: 1}, "eva-md", false, false, false, "In the wiki, 1 changed file isn't committed, so it is only on this Mac: commit and push it with git in the wiki folder."},
+		{unsaved{files: 1}, full, false, true, false, "In the wiki, 1 changed file isn't committed, so it is only on this Mac: commit and push it with git in the wiki folder."},
+		{unsaved{commits: 1}, "eva-md", false, false, false, "In the wiki, 1 commit isn't pushed, so it is only on this Mac: push it with git push in the wiki folder."},
+		{unsaved{commits: 2}, full, true, false, false, "In the wiki, 2 commits aren't pushed, so they are only on this Mac: push them with git push in the wiki folder."},
+		{unsaved{commits: 2}, "eva-md", true, true, false, "In the wiki, 2 commits aren't pushed, so they are only on this Mac: push them with git push in the wiki folder."},
+		{unsaved{files: 3, commits: 2}, "eva-md", true, false, false, "In the wiki, 3 changed files aren't committed and 2 commits aren't pushed, so they are only on this Mac: commit and push them with git in the wiki folder."},
+		{unsaved{unread: true}, "eva-md", true, false, false, "Git couldn't read the wiki folder, so whether all of it is committed and pushed is unknown; git status there shows what isn't."},
+	} {
+		if got := tc.u.line(tc.command, tc.removed, tc.all, tc.named); got != tc.want {
+			t.Errorf("%+v, %s, removed %t, all %t, named %t:\n got %q\nwant %q", tc.u, tc.command, tc.removed, tc.all, tc.named, got, tc.want)
+		}
 	}
 }
 

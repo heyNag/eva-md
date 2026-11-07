@@ -36,6 +36,7 @@ type setupEnv struct {
 	signing      func(context.Context) string
 	initWiki     func(context.Context, wikiinit.Options) (wikiinit.Result, error)
 	install      func(context.Context, install.Options) (install.Result, error)
+	preflight    func(context.Context, install.Options) (install.Result, error) // install's checks, as a dry run that needs no config
 	inspect      func(context.Context, paths.Dirs) health.Report
 	executable   func() (string, error)
 	peek         func(context.Context, string) (string, error) // what a remote holds, as peekRemote reads it
@@ -120,6 +121,10 @@ func runSetupCommand(ctx context.Context, args []string, in io.Reader, out, errO
 		signing:     func(ctx context.Context) string { return gitSigning(ctx, home) },
 		initWiki:    wikiinit.Run,
 		install:     install.Run,
+		preflight: func(ctx context.Context, o install.Options) (install.Result, error) {
+			o.Preflight = true
+			return install.Run(ctx, o)
+		},
 		inspect: func(ctx context.Context, d paths.Dirs) health.Report {
 			return health.Inspect(ctx, d, true)
 		},
@@ -316,6 +321,16 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 		ck.pass("Commit signing on (" + signing + ")")
 	} else {
 		ck.warn("Commit signing off: the wiki's commits won't be signed")
+	}
+	// Last, install's own checks, as a dry run: what install would refuse
+	// stops setup here, before it makes or pushes a wiki.
+	binary, err := env.executable()
+	if err != nil {
+		fmt.Fprintln(errOut, "eva-md: executable path is unavailable")
+		return 1
+	}
+	if !checkInstall(ctx, ck, env, install.Options{Dirs: env.dirs, Binary: binary, Host: *host}, hosts, given["host"], answersFile) {
+		return 1
 	}
 
 	folder, remoteURL := "", *remote
@@ -536,11 +551,6 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Installing the plugins")
-	binary, err := env.executable()
-	if err != nil {
-		fmt.Fprintln(errOut, "eva-md: executable path is unavailable")
-		return 1
-	}
 	ictx, cancel := context.WithTimeout(ctx, installTimeout)
 	ir, err := env.install(ictx, install.Options{Dirs: env.dirs, Binary: binary, Host: *host})
 	cancel()
@@ -610,6 +620,8 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	fmt.Fprintln(out, "Start a new chat in Claude Code or Codex, in any project: eva.md captures it from the")
 	fmt.Fprintln(out, "first message. In a later chat, ask \"where did we stop?\".")
 	fmt.Fprintln(out, "To pause capture for a chat, start a message with \"off the record\".")
+	// Setup makes no model call: it names the check that makes one.
+	fmt.Fprintf(out, "Run %s doctor --live to test background updates, with one model call for each host; until your first chats, many of the doctor's checks stay unknown.\n", command)
 	return 0
 }
 
@@ -1037,7 +1049,8 @@ func otherRepo(ctx context.Context, folder string) string {
 // setup advises for such changes would take; when that fails, as when the
 // wiki stays busy or its folder can't be written, it returns the error
 // instead. A wiki with no commit yet, whose first commit failed, is not
-// dirty: init checks its scaffold and commits it again.
+// dirty: init checks its scaffold and commits it again. Any number of
+// changes counts, however long git's list of them (see wikigit.Dirty).
 func dirty(ctx context.Context, folder, locks string) (bool, error) {
 	if _, err := wikigit.Run(ctx, setupGitTimeout, folder, "rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
 		return false, nil
@@ -1047,8 +1060,8 @@ func dirty(ctx context.Context, folder, locks string) (bool, error) {
 			return false, err
 		}
 	}
-	status, err := wikigit.Run(ctx, setupGitTimeout, folder, "status", "--porcelain", "--untracked-files=all")
-	return err == nil && status != "", nil
+	changed, err := wikigit.Dirty(ctx, setupGitTimeout, folder)
+	return err == nil && changed, nil
 }
 
 // peekRemote reads what remote holds, from a shallow clone in a temporary
@@ -1285,13 +1298,16 @@ func firstCommit(ctx context.Context, dir string) (author string, signed bool, e
 // gitSigning reports the commit signing format git uses from the home
 // folder, or "" when signing is off. It reads only git's settings, never key
 // material. commit.gpgsign is read as git reads a boolean, so yes, on, 1 and
-// a key with no value are true.
+// a key with no value are true. git runs with the daily commit's
+// environment, so config carried in the environment counts no more here
+// than there.
 func gitSigning(ctx context.Context, home string) string {
 	ctx, cancel := context.WithTimeout(ctx, signingTimeout)
 	defer cancel()
 	get := func(args ...string) string {
 		cmd := exec.CommandContext(ctx, "git", append([]string{"config", "--get"}, args...)...)
 		cmd.Dir = home
+		cmd.Env = wikigit.Environment()
 		b, err := cmd.Output()
 		if err != nil {
 			return ""

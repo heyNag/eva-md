@@ -551,6 +551,78 @@ func TestPendingPushThenPushOnly(t *testing.T) {
 	}
 }
 
+// Unsaved counts what only this clone holds, from local refs and files:
+// nothing after setup's push; files changed under the commit paths, new or
+// edited, but not JSONL or files outside those paths; commits a pending push
+// left, also when no upstream is set; and a wiki with no commit yet has
+// none. It never fetches or changes the clone, and a folder git can't read
+// is an error.
+func TestUnsavedCountsWhatTheRemoteLacks(t *testing.T) {
+	f := newFixture(t)
+	unsaved := func(wiki string) (int, int) {
+		t.Helper()
+		commits, files, err := wikigit.Unsaved(context.Background(), wiki)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return commits, files
+	}
+	if c, n := unsaved(f.wiki); c != 0 || n != 0 {
+		t.Fatalf("after setup: %d commits, %d files", c, n)
+	}
+	f.edit(t, "done [stated]: Counted what isn't saved")
+	f.write(t, "projects/app/threads/main.md", "# Main\n")
+	// Without the wiki's .gitignore, git lists what a commit leaves out by
+	// its name; it isn't counted.
+	if err := os.Remove(filepath.Join(f.wiki, ".gitignore")); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "projects/app/notes.jsonl", "{}\n")
+	f.write(t, "general/.tmp-okf-page.md", "a save cut short\n")
+	f.write(t, "scratch.md", "outside the commit paths\n")
+	if c, n := unsaved(f.wiki); c != 0 || n != 2 {
+		t.Fatalf("changed files: %d commits, %d files", c, n)
+	}
+	// Another clone pushes to the remote: this one never fetches it.
+	other := filepath.Join(f.home, "other")
+	git(t, f.home, "clone", "--quiet", f.remote, other)
+	git(t, other, "commit", "--quiet", "--allow-empty", "-m", "Elsewhere")
+	git(t, other, "push", "--quiet", "origin", "main")
+	tracking, status := git(t, f.wiki, "rev-parse", "refs/remotes/origin/main"), git(t, f.wiki, "status", "--porcelain")
+	if c, n := unsaved(f.wiki); c != 0 || n != 2 || git(t, f.wiki, "rev-parse", "refs/remotes/origin/main") != tracking || git(t, f.wiki, "status", "--porcelain") != status {
+		t.Fatalf("after another clone's push: %d commits, %d files", c, n)
+	}
+	git(t, f.wiki, "add", "--", "general", "projects/app/threads")
+	git(t, f.wiki, "commit", "--quiet", "-m", "Pending")
+	git(t, f.wiki, "commit", "--quiet", "--allow-empty", "-m", "Pending too")
+	if c, n := unsaved(f.wiki); c != 2 || n != 0 {
+		t.Fatalf("commits not pushed: %d commits, %d files", c, n)
+	}
+	git(t, f.wiki, "branch", "--unset-upstream")
+	if c, _ := unsaved(f.wiki); c != 2 {
+		t.Fatalf("with no upstream: %d commits", c)
+	}
+	fresh := filepath.Join(f.home, "fresh")
+	git(t, f.home, "init", "--quiet", fresh)
+	if err := os.MkdirAll(filepath.Join(fresh, "general"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fresh, "general", "now.md"), []byte("# Now\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, n := unsaved(fresh); c != 0 || n != 1 {
+		t.Fatalf("no commit yet: %d commits, %d files", c, n)
+	}
+	git(t, fresh, "add", "--all")
+	git(t, fresh, "commit", "--quiet", "-m", "A first commit never pushed")
+	if c, n := unsaved(fresh); c != 1 || n != 0 {
+		t.Fatalf("a first commit never pushed: %d commits, %d files", c, n)
+	}
+	if _, _, err := wikigit.Unsaved(context.Background(), filepath.Join(f.home, "missing")); err == nil {
+		t.Fatal("a folder git can't read gave no error")
+	}
+}
+
 // A run that finds the commit lock held by another process is busy at once,
 // commits nothing and records it, a push-only run with its reason.
 func TestBusyWhileAnotherProcessHoldsTheLock(t *testing.T) {

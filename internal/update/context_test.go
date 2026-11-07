@@ -6,8 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/heyNag/eva-md/internal/identity"
 )
 
 // With log.showSignature on in the user's git config, commitsOf still gives
@@ -113,4 +116,51 @@ func fakeGit(t *testing.T, script string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// commitsOf's git runs with the environment of every read-only git eva-md
+// runs (identity.GitEnv), which leaves out the same variables as the wiki's
+// runner: a git trace, another repository, config carried in the
+// environment and the locale's language never reach it, and git's own
+// config files and its signing and sign-in settings do.
+func TestCommitsOfRunsWithTheReadEnvironment(t *testing.T) {
+	isolate(t)
+	for k, v := range map[string]string{
+		"GIT_DIR": "/elsewhere/.git", "GIT_TRACE": "1", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath", "GIT_CONFIG_VALUE_0": "/elsewhere/hooks",
+		"GIT_LITERAL_PATHSPECS": "1", "LC_ALL": "de_DE.UTF-8", "GIT_CONFIG_SYSTEM": "/etc/gitconfig-test", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+	} {
+		t.Setenv(k, v)
+	}
+	seen := filepath.Join(t.TempDir(), "env")
+	fakeGit(t, "env > '"+seen+"'")
+	if _, err := gitRead(context.Background(), t.TempDir(), "log", "-1"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars := func(env []string) []string {
+		var out []string
+		for _, kv := range env {
+			if strings.HasPrefix(kv, "GIT_") || strings.HasPrefix(kv, "LC_ALL=") {
+				out = append(out, kv)
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+	got, want := vars(strings.Split(strings.TrimSpace(string(data)), "\n")), vars(identity.GitEnv())
+	if !slices.Equal(got, want) {
+		// Names only: the environment can hold secrets.
+		var names []string
+		for _, kv := range append(slices.Clone(got), want...) {
+			if !slices.Contains(got, kv) || !slices.Contains(want, kv) {
+				name, _, _ := strings.Cut(kv, "=")
+				names = append(names, name)
+			}
+		}
+		slices.Sort(names)
+		t.Fatalf("commitsOf's git environment differs from the read-only calls' in %q", slices.Compact(names))
+	}
 }

@@ -222,6 +222,30 @@ func TestWriteAndMap(t *testing.T) {
 	}
 }
 
+// A write builds the folder's index before the map, which decides whether a
+// brief or a reminder points at the index: when the map is saved, the index
+// already lists the page, so a write stopped between the two leaves no map
+// without its index.
+func TestIndexBeforeTheMap(t *testing.T) {
+	o := fixture(t)
+	mustWrite(t, o, "payments", other("Payments", "Charges cards and pays out", "github.com/acme/payments"), false)
+	seen := 0
+	beforeMap = func() {
+		seen++
+		if index := file(t, o, "systems/index.md"); !strings.Contains(index, "](orders.md)") {
+			t.Errorf("the map is saved before the index lists the page:\n%s", index)
+		}
+		if strings.Contains(file(t, o, "systems/map.md"), "](orders.md)") {
+			t.Error("the map lists the page before the index does")
+		}
+	}
+	t.Cleanup(func() { beforeMap = func() {} })
+	mustWrite(t, o, "orders", valid, false)
+	if seen != 1 || !strings.Contains(file(t, o, "systems/map.md"), "](orders.md)") {
+		t.Fatalf("seen %d times; map\n%s", seen, file(t, o, "systems/map.md"))
+	}
+}
+
 // A page that exists needs --replace, which refuses a page changed since the
 // write read it, one a person verified, one that is locked and one okf can't
 // read, and keeps a key a person added. The refusal lists what the page

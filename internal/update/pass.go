@@ -138,7 +138,7 @@ func (r *run) pass(ctx context.Context, c *chatFile) bool {
 func (r *run) plan(ctx context.Context, c *chatFile) (plan, error) {
 	b := c.b
 	p := plan{label: c.file.dir + "/" + c.file.name}
-	g, err := b.next(Options{OffRecord: b.off, Continued: b.more})
+	g, err := b.next(Options{OffRecord: b.off, Web: b.web, Continued: b.more})
 	if err != nil {
 		return p, err
 	}
@@ -271,10 +271,11 @@ func (r *run) areaOf(ctx context.Context, c *chatFile, entries []Entry) (*area, 
 
 // options is what Build needs for the pass: the branch and its commits, the
 // page's as_of, a new thread's parent Now, whether the chat was off the
-// record at the watermark, whether refs need the full session id, and
-// whether the pass continues a group the last one stopped in.
+// record at the watermark and whether the turn open there used the web,
+// whether refs need the full session id, and whether the pass continues a
+// group the last one stopped in.
 func (r *run) options(ctx context.Context, c *chatFile, a area, t thread, g group, host, sid string) Options {
-	o := Options{Branch: g.branch, AsOf: t.asOf, OffRecord: c.b.off, Continued: c.b.more, FullRef: r.prefixes[prefix8(sid)] > 1}
+	o := Options{Branch: g.branch, AsOf: t.asOf, OffRecord: c.b.off, Web: c.b.web, Continued: c.b.more, FullRef: r.prefixes[prefix8(sid)] > 1}
 	if _, ok := c.commits[g.branch]; !ok {
 		c.commits[g.branch], c.heads[g.branch] = commitsOf(ctx, a.project.Root, g.branch)
 	}

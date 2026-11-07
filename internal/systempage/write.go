@@ -55,11 +55,18 @@ type Options struct {
 
 // Result is what a write did.
 type Result struct {
-	Page    string   // systems/<slug>.md
-	Bytes   int64    // the page's size as saved
-	Systems int      // the system pages the map lists
-	Notes   []string // what the check of the page's code sources against local clones found
+	Page    string // systems/<slug>.md
+	Bytes   int64  // the page's size as saved
+	Systems int    // the system pages the map lists
+	// Notes are what the check of the page's code sources against local
+	// clones found, then noRepos for a page whose map line names no repo.
+	Notes []string
 }
+
+// noRepos is the note of a page that lists no repo and cites no code: its
+// line on the map names no project, so no brief and no eva_status points at
+// it, though search finds it and a prompt that names it gets a pointer.
+const noRepos = "no repos: no project's brief or eva_status points at this page, which lists no repo and cites no code; to have them point at it, list the repos that build or use the system under repos and write it again with --replace"
 
 // Refusal is a write refused before anything was written. Each problem
 // names its lines, never their text.
@@ -89,7 +96,8 @@ func CheckSlug(s string) error {
 // locked. The page goes through the adapter under the wiki lock, and the
 // map, the folder's index and, the first time, the root index are written
 // again under the same lock. It never commits: the daily commit does. A
-// page Write won't save comes back as a *Refusal.
+// page Write won't save comes back as a *Refusal. A page that lists no repo
+// and cites no code is saved with a note saying no brief points at it.
 func Write(ctx context.Context, o Options, slug string, replace bool, in io.Reader) (Result, error) {
 	if err := CheckSlug(slug); err != nil {
 		return Result{}, err
@@ -150,6 +158,9 @@ func Write(ctx context.Context, o Options, slug string, replace bool, in io.Read
 		return Result{}, err
 	}
 	r.Bytes = info.Size()
+	if len(pg.entry().Repos) == 0 {
+		r.Notes = append(r.Notes, noRepos)
+	}
 	return r, nil
 }
 
@@ -281,20 +292,19 @@ func readMap(w *okfadapter.Wiki) (*okfadapter.Page, error) {
 	return pg, nil
 }
 
-// refresh builds the map, the folder's index and the names index again from
-// the pages' frontmatter, lists the folder in the root index once, and
-// returns how many systems the map lists. An index is written only when it
-// changes.
+// beforeMap runs between writing the folder's index and saving the map; a
+// test looks at both there.
+var beforeMap = func() {}
+
+// refresh builds the folder's index, the map, the names index and the repos
+// index again from the pages' frontmatter, lists the folder in the root
+// index once, and returns how many systems the map lists. The folder's
+// index comes first: the map decides whether a brief or a reminder points
+// at it, so a write stopped between the two leaves no map without its
+// index. An index is written only when it changes, and the names or repos
+// index removed when it would be empty.
 func refresh(w *okfadapter.Wiki, m *okfadapter.Page, actor string) (int, error) {
 	entries := systems(w)
-	var b strings.Builder
-	b.WriteString("\n# " + mapTitle + "\n\n")
-	for _, e := range entries {
-		b.WriteString(e.line() + "\n")
-	}
-	if err := saveMap(w, m, b.String(), actor); err != nil {
-		return 0, err
-	}
 	lines := map[string]string{"map.md": okfadapter.IndexLine(mapTitle, "map.md", mapDescription)}
 	for _, e := range entries {
 		lines[e.Slug+".md"] = e.indexLine()
@@ -306,8 +316,19 @@ func refresh(w *okfadapter.Wiki, m *okfadapter.Page, actor string) (int, error) 
 	if err := writeChanged(w, "systems/index.md", "# "+rootTitle+"\n\n"+strings.Join(index, "\n")+"\n"); err != nil {
 		return 0, err
 	}
-	if text, _ := names(entries); !current(w, text) {
-		if err := w.WriteFile(NamesFile, []byte(text)); err != nil {
+	beforeMap()
+	var b strings.Builder
+	b.WriteString("\n# " + mapTitle + "\n\n")
+	for _, e := range entries {
+		b.WriteString(e.line() + "\n")
+	}
+	if err := saveMap(w, m, b.String(), actor); err != nil {
+		return 0, err
+	}
+	text, _ := names(entries)
+	listed, _ := reposIndex(entries)
+	for _, f := range []struct{ name, text string }{{NamesFile, text}, {ReposFile, listed}} {
+		if _, _, err := refreshFile(w, f.name, f.text); err != nil {
 			return 0, err
 		}
 	}

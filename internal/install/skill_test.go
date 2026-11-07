@@ -41,7 +41,7 @@ func TestDigestSkill(t *testing.T) {
 		if len(lines) != 2 || lines[0] != "name: eva-md-digest" || description == "" || len(description) > 200 || strings.ContainsAny(description, ":<>#\"'") {
 			t.Fatalf("%s skill frontmatter %q", host, front)
 		}
-		if len(body) > 2800 {
+		if len(body) > 3000 {
 			t.Fatalf("%s skill body is %d bytes", host, len(body))
 		}
 		author := map[string]string{"claude": "claude-code", "codex": "codex"}[host]
@@ -52,6 +52,7 @@ func TestDigestSkill(t *testing.T) {
 			"`eva.md: systems/<slug>: ...` lines on stderr", bin + " system status <slug>",
 			"cite code as `<repo>@<commit>:<folder>` for each folder or file you read, at the commit you read it", "one commit per repo in a digest", "at most 16 a page",
 			"`stale_after: <YYYY-MM-DD>`, the day to review it by",
+			"list under `repos` the repos that build or use the system, so their chats' briefs point at the page and their prompts recall each other's knowledge, and under `aliases` the other names it goes by",
 			"\nNever copy sensitive documents (HR, legal, health, credentials) into a system page; cite them by link and title only.\n"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s skill lacks %q", host, want)

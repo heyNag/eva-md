@@ -33,6 +33,10 @@ type UninstallResult struct {
 	// Wiki and Remote name the wiki folder and where it is pushed, which
 	// uninstall never touches; they are empty when eva-md knows neither.
 	Wiki, Remote string
+	// WikiFromConfig says the config named Wiki when uninstall read it,
+	// before it removed anything. Otherwise Wiki is the record's, as when the
+	// config is missing, can't be read or names no wiki.
+	WikiFromConfig bool
 }
 
 // Uninstall previews by default. If a native step fails, the generated files
@@ -64,7 +68,7 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 		result.Remote = item.Value
 	}
 	if c, e := config.Load(dirs.ConfigFile()); e == nil && c.WikiPath != "" {
-		result.Wiki, result.Remote = c.WikiPath, c.ExpectedRemote
+		result.Wiki, result.Remote, result.WikiFromConfig = c.WikiPath, c.ExpectedRemote, true
 	}
 	if opts.All && result.Wiki != "" {
 		for _, folder := range []string{dirs.Config, dirs.State, dirs.Share} {

@@ -18,6 +18,7 @@ import (
 // another, returns without ever sleeping there.
 func TestLockedHoldsTheLockAcrossWrites(t *testing.T) {
 	w := testWiki(t)
+	writeFixture(t, w, "inside.tsv", "inside\n")
 	done := make(chan error, 1)
 	err := w.Locked(func(lw *Wiki) error {
 		go func() { done <- w.Create("outside", concept("Outside", "Body"), "codex/test") }()
@@ -25,6 +26,9 @@ func TestLockedHoldsTheLockAcrossWrites(t *testing.T) {
 			return err
 		}
 		if err := lw.WriteFile("index.md", []byte("# Fixture\n")); err != nil {
+			return err
+		}
+		if err := lw.RemoveFile("inside.tsv"); err != nil {
 			return err
 		}
 		// The lock every write from outside takes is held: a try that
@@ -56,6 +60,9 @@ func TestLockedHoldsTheLockAcrossWrites(t *testing.T) {
 		if _, err := w.Read(id); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(w.Root(), "inside.tsv")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the file removed inside Locked is still there: %v", err)
 	}
 }
 
@@ -117,6 +124,7 @@ func TestBusyLockReportsErrLockBusy(t *testing.T) {
 			return err
 		}},
 		{"WriteFile", func() error { return other.WriteFile("blocked/index.md", []byte("# Blocked\n")) }},
+		{"RemoveFile", func() error { return other.RemoveFile("kept.tsv") }},
 		// The lock file a killed save left stays while another write holds
 		// the lock: that write may be the save holding it.
 		{"RemoveLeftoverLock", func() error { return other.RemoveLeftoverLock() }},
@@ -127,6 +135,7 @@ func TestBusyLockReportsErrLockBusy(t *testing.T) {
 			})
 		}},
 	}
+	writeFixture(t, w, "kept.tsv", "kept\n")
 	leaveOkfLock(t, w.Root())
 	err := w.Locked(func(*Wiki) error {
 		started := time.Now()
@@ -152,6 +161,9 @@ func TestBusyLockReportsErrLockBusy(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(w.Root(), "blocked")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("a write that found the lock busy saved its file: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(w.Root(), "kept.tsv")); err != nil {
+		t.Fatalf("a remove that found the lock busy removed its file: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(w.Root(), okfLock)); err != nil {
 		t.Fatalf("RemoveLeftoverLock removed the lock file while the wiki lock was busy: %v", err)

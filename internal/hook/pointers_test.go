@@ -217,7 +217,7 @@ func TestClearStartsTheStateOver(t *testing.T) {
 	env.Config.ReminderEvery = 5
 	systemsWiki(t, &env, fourSystems)
 	again := [][]string{
-		{"eva.md: earlier chats: " + bin + " search <terms>; system map: show systems/map"},
+		{"eva.md: earlier chats: " + bin + " search <terms>; systems: show systems/index"},
 		{"eva.md: Ledger: Keeps the double-entry books: " + bin + " show systems/ledger"},
 	}
 	for _, tc := range []struct {
@@ -282,19 +282,19 @@ func TestPointersNeedTheIndex(t *testing.T) {
 
 // The reminder rides with a chat's first prompt and then every
 // reminder_every prompts, unless the prompt got a pointer or carries a
-// brief. It names the system map when the wiki has system pages, fits in
+// brief. It names the system index when the wiki has system pages, fits in
 // 100 characters, and reminder_every = 0 turns it off.
 func TestReminder(t *testing.T) {
 	const search = "eva.md: earlier chats: " + bin + " search <terms>"
-	const withMap = search + "; system map: show systems/map"
+	const withIndex = search + "; systems: show systems/index"
 	for _, tc := range []struct {
 		name  string
 		every int
 		wiki  bool
 		want  map[int]string // the prompts that get the reminder
 	}{
-		{"every 5", 5, true, map[int]string{1: withMap, 11: withMap}},
-		{"every 1", 1, true, map[int]string{1: withMap, 2: withMap, 3: withMap, 4: withMap, 5: withMap, 7: withMap, 8: withMap, 9: withMap, 10: withMap, 11: withMap, 12: withMap}},
+		{"every 5", 5, true, map[int]string{1: withIndex, 11: withIndex}},
+		{"every 1", 1, true, map[int]string{1: withIndex, 2: withIndex, 3: withIndex, 4: withIndex, 5: withIndex, 7: withIndex, 8: withIndex, 9: withIndex, 10: withIndex, 11: withIndex, 12: withIndex}},
 		{"no wiki", 5, false, map[int]string{1: search, 6: search, 11: search}},
 		{"off", 0, true, map[int]string{}},
 	} {
@@ -384,8 +384,13 @@ func TestReminderForms(t *testing.T) {
 		share string
 		want  string
 	}{
-		{"/e", "eva.md: earlier chats: /e/bin/eva-md search <terms>; system map: /e/bin/eva-md show systems/map"},
-		{"/Users/alex/.local/share/eva-md", "eva.md: earlier chats: /Users/alex/.local/share/eva-md/bin/eva-md search <terms>; show systems/map"},
+		{"/e", "eva.md: earlier chats: /e/bin/eva-md search <terms>; systems: /e/bin/eva-md show systems/index"},
+		{"/Users/alex/.local/share/eva-md", "eva.md: earlier chats: /Users/alex/.local/share/eva-md/bin/eva-md search <terms>; show systems/index"},
+		// User names of 5 to 9 characters still get the system index named.
+		{"/Users/alice/.local/share/eva-md", "eva.md: earlier chats: /Users/alice/.local/share/eva-md/bin/eva-md search <terms>; systems/index"},
+		{"/Users/jsmith/.local/share/eva-md", "eva.md: earlier chats: /Users/jsmith/.local/share/eva-md/bin/eva-md search <terms>; systems/index"},
+		{"/Users/abcdefghi/.local/share/eva-md", "eva.md: earlier chats: /Users/abcdefghi/.local/share/eva-md/bin/eva-md search <terms>; systems/index"},
+		{"/Users/abcdefghij/.local/share/eva-md", "eva.md: earlier chats: /Users/abcdefghij/.local/share/eva-md/bin/eva-md search <terms>"},
 		{"/Users/someone.with.a.long.name/.local/share/eva-md", "eva.md: earlier chats: /Users/someone.with.a.long.name/.local/share/eva-md/bin/eva-md search <terms>"},
 		{"/" + strings.Repeat("x", 80), ""},
 	} {

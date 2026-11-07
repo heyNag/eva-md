@@ -3,7 +3,6 @@ package resume
 import (
 	"context"
 	"errors"
-	"slices"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/systempage"
@@ -66,15 +65,10 @@ func ProjectPage(ctx context.Context, o Options) PageInfo {
 }
 
 // SystemsFor returns the systems the system map lists whose repos include
-// o's project, in the map's order, and how many systems it lists. It reads
-// systems/map.md alone, as the brief's pointers do.
+// o's project, in the order the brief's pointers take them, those that cite
+// the project's code first (see projectSystems), and how many systems it
+// lists. It reads systems/map.md alone, as the brief's pointers do.
 func SystemsFor(ctx context.Context, o Options) ([]systempage.MapEntry, int) {
 	entries := readMap(ctx, o)
-	var out []systempage.MapEntry
-	for _, e := range entries {
-		if slices.Contains(e.Repos, o.Project.Key) {
-			out = append(out, e)
-		}
-	}
-	return out, len(entries)
+	return projectSystems(entries, o.Project.Key), len(entries)
 }
