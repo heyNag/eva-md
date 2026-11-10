@@ -1,0 +1,7 @@
+{
+  "name": "eva-md",
+  "version": "1",
+  "description": "Resume your project from locally captured chats using your private eva.md wiki.",
+  "author": {"name": "eva-md"},
+  "icon": "./assets/icon.png"
+}

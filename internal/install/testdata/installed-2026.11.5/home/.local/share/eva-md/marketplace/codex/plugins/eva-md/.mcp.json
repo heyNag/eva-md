@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "eva-md": {
+      "args": [
+        "mcp",
+        "--host",
+        "codex"
+      ],
+      "command": "@HOME@/.local/share/eva-md/bin/eva-md"
+    }
+  }
+}
