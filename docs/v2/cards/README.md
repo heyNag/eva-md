@@ -14,7 +14,7 @@ Rules every card carries, so they are said once here:
 
 | Card | Package | State |
 | --- | --- | --- |
-| [SEAM-0a](SEAM-0a.md) | The command table, and document checks that no longer read prose | building |
+| [SEAM-0a](SEAM-0a.md) | The command table, and document checks that no longer read prose | merged |
 | [SEAM-0d](SEAM-0d.md) | Guards on the plugin's bytes and on the upgrade from 2026.11.5 | building |
 | [LG-10](LG-10.md) | The event model and the one reader | building |
 | [LG-11](LG-11.md) | The redaction driver with spans, same behaviour | building |
@@ -22,5 +22,11 @@ Rules every card carries, so they are said once here:
 | [EV-12](EV-12.md) | The results store and gates | next |
 | [ST-01](ST-01.md) | The store's written format and its profile checker | next |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | next |
+| [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | after EV-16 |
+| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | after EV-16 |
+| [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | after EV-16 and LG-10 |
+| [CT-4](CT-4.md) | Counters release: a content-free report | after CT-1 to CT-3 |
 
 SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner.
+
+The counters release of the plan (LG-01, LG-02, DV-01, DL-02, HO-02) is built as four parts, CT-1 to CT-4, so that they touch different files. The second report's prompt, and three sentences for v1's documents, are the lead's and are written with CT-4.
