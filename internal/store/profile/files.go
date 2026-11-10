@@ -12,9 +12,15 @@ import (
 // handEdits reads every hand-edit record, so the checks of each file know
 // whether it holds a person's lines.
 func (c *checker) handEdits() {
-	exists := map[string]string{}
+	exists := map[string]bool{}
 	for _, l := range c.locs {
-		exists[l.path] = l.class
+		exists[l.path] = true
+	}
+	// A line may name a path that is gone, as a union cannot drop it; it
+	// must still be a path a hand edit can be recorded for.
+	recordable := func(p string) bool {
+		l := classify(p)
+		return l.bad == "" && (documents[l.class] || l.class == "readme" || l.class == "index")
 	}
 	newest := map[string][2]string{} // path: at, state
 	for _, l := range c.locs {
@@ -41,8 +47,8 @@ func (c *checker) handEdits() {
 			}
 			t, timeOK := parseTime(cols[1])
 			switch {
-			case !documents[exists[cols[0]]]:
-				fault("line " + itoa(i+2) + " names no document of the store")
+			case !recordable(cols[0]):
+				fault("line " + itoa(i+2) + " names no path of a document, README.md or index.md")
 			case !timeOK:
 				fault("line " + itoa(i+2) + " has no datetime")
 			case cols[2] != "unacknowledged" && cols[2] != "acknowledged":
@@ -50,7 +56,10 @@ func (c *checker) handEdits() {
 			default:
 				c.hand[cols[0]] = true
 				if prev, ok := newest[cols[0]]; ok {
-					if pt, _ := parseTime(prev[0]); !t.After(pt) {
+					// The newest line holds; on a tie, unacknowledged
+					// holds, whichever writer's record is read first.
+					pt, _ := parseTime(prev[0])
+					if t.Before(pt) || t.Equal(pt) && prev[1] == "unacknowledged" {
 						continue
 					}
 				}
@@ -59,7 +68,7 @@ func (c *checker) handEdits() {
 		}
 	}
 	for p, v := range newest {
-		if v[1] == "unacknowledged" {
+		if v[1] == "unacknowledged" && exists[p] {
 			c.rep.Unacknowledged = append(c.rep.Unacknowledged, p)
 		}
 	}
@@ -88,7 +97,7 @@ func (c *checker) textFile(l loc) ([]string, bool) {
 
 // file checks one file.
 func (c *checker) file(l loc) {
-	if strings.Contains(strings.ToLower(l.path), "okf") {
+	if namesLibrary(l.path) {
 		c.fault(l.path, "", "name", "the path names the library")
 	}
 	if l.class == "" {
@@ -102,12 +111,21 @@ func (c *checker) file(l loc) {
 	switch l.class {
 	case "notes", "legacy", "hand-edits":
 		return
-	case "index", "gitattributes", "gitignore", "manifest", "schema-marker", "writer-record", "coverage-v1":
+	case "index":
+		if c.hand[l.path] {
+			// A person's index is their text; it need only be readable.
+			if b, err := c.read(l.path); err != nil || unreadableReason(b) != "" {
+				c.fault(l.path, "", "unreadable", "a static file cannot be read")
+			}
+			return
+		}
+		fallthrough
+	case "gitattributes", "gitignore", "manifest", "schema-marker", "writer-record", "coverage-v1":
 		lines, ok := c.textFile(l)
 		if !ok {
 			return
 		}
-		if l.class != "coverage-v1" && strings.Contains(strings.ToLower(strings.Join(lines, "\n")), "okf") {
+		if l.class != "coverage-v1" && namesLibrary(strings.Join(lines, "\n")) {
 			c.fault(l.path, "", "name", "the file names the library")
 		}
 		c.static(l, lines)
@@ -133,7 +151,7 @@ func (c *checker) file(l loc) {
 	if !d.hand && (strings.Contains(string(b), "\r") || !strings.HasSuffix(string(b), "\n")) {
 		c.fault(l.path, "", "encoding", "has a carriage return or no final newline")
 	}
-	if l.class == "readme" && strings.Contains(strings.ToLower(string(b)), "okf") {
+	if l.class == "readme" && !d.hand && namesLibrary(string(b)) {
 		c.fault(l.path, "", "name", "the file names the library")
 	}
 	if p := d.protection(); p != (Protection{}) {
@@ -170,12 +188,16 @@ func (c *checker) file(l loc) {
 func (c *checker) frontmatter(d *doc) {
 	seen := map[string]bool{}
 	for _, e := range d.entries {
-		if strings.Contains(strings.ToLower(e.key), "okf") {
+		if namesLibrary(e.key) {
 			c.fault(d.path, e.key, "name", "a key names the library")
 		}
-		if e.key == "locked" || e.key == "verified" {
+		if e.key == "locked" || e.key == "verified" || e.key == unknownKey || e.key == mergeKey {
 			if !slices.Contains([]string{"item-file", "workstream-file", "system-page"}, d.loc.class) {
-				c.fault(d.path, e.key, e.key, "only items, workstreams and system pages may carry it")
+				rule := e.key
+				if rule != "verified" {
+					rule = "locked"
+				}
+				c.fault(d.path, e.key, rule, "only items, workstreams and system pages may carry it")
 			}
 			if e.key == "verified" && e.written {
 				checkVerified(c, d, e)
@@ -244,12 +266,20 @@ func (c *checker) static(l loc, lines []string) {
 		}
 		vals := map[string]int{}
 		for i, k := range keys {
-			if m := reTOMLInt.FindStringSubmatch(lines[i]); m != nil && m[1] == k {
-				vals[k], _ = strconv.Atoi(m[2])
-			} else if m := reTOMLStr.FindStringSubmatch(lines[i]); m != nil && m[1] == k && k == "store_id" {
-				if !validID(m[2], 's') {
-					fault(k, k, "is not an s id")
+			if k == "store_id" {
+				// The id is a string; a number of any form is no s id.
+				if m := reTOMLStr.FindStringSubmatch(lines[i]); m != nil && m[1] == k {
+					if !validID(m[2], 's') {
+						fault(k, k, "is not an s id")
+					}
+				} else if strings.HasPrefix(lines[i], k+" = ") {
+					fault(k, k, "is not a string holding an s id")
+				} else {
+					fault("", "manifest", "line "+itoa(i+1)+" is not "+k)
+					return
 				}
+			} else if m := reTOMLInt.FindStringSubmatch(lines[i]); m != nil && m[1] == k {
+				vals[k], _ = strconv.Atoi(m[2])
 			} else {
 				fault("", "manifest", "line "+itoa(i+1)+" is not "+k)
 				return
@@ -563,9 +593,42 @@ func (c *checker) workstream(f fc) {
 			}
 			if t == nil || t.loc.class != "item-file" || t.loc.area != l.area || t.get("type") == nil || t.get("type").raw != "decision" || t.get("state") == nil || t.get("state").raw != "active" {
 				f.fault("", "decisions-in-force", "/"+target+" is not an active decision of the project")
+			} else if by := c.supersededBy(t.loc.id); by != "" {
+				f.fault("", "decisions-in-force", "/"+target+" is superseded by "+by)
 			}
 		})
 	}
+}
+
+// supersededBy returns the id of an active item that lists id in its
+// supersedes, or "": superseded is computed from successors.
+func (c *checker) supersededBy(id string) string {
+	paths := make([]string, 0, len(c.files))
+	for p := range c.files {
+		paths = append(paths, p)
+	}
+	slices.Sort(paths)
+	for _, p := range paths {
+		d := c.files[p]
+		state, sup := d.get("state"), d.get("supersedes")
+		if d.loc.class != "item-file" || state == nil || state.raw != "active" || sup == nil {
+			continue
+		}
+		if !sup.written {
+			// A person's line, read for the id in any form.
+			if strings.Contains(sup.rest+"\n"+strings.Join(sup.cont, "\n"), id) {
+				return d.loc.id
+			}
+			continue
+		}
+		list, _ := sup.val.([]any)
+		for _, v := range list {
+			if s, _ := v.(string); s == id {
+				return d.loc.id
+			}
+		}
+	}
+	return ""
 }
 
 func (c *checker) session(f fc) {

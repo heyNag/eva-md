@@ -113,7 +113,7 @@ var breaks = map[string]func(t *testing.T, root string){
 	"schema-marker": func(t *testing.T, r string) { put(t, r, ".eva-md/schema.toml", "schema_version=2\n") },
 	"writer-record": func(t *testing.T, r string) { move(t, r, wrB, ".eva-md/writers/linux.toml") },
 	"hand-edits": func(t *testing.T, r string) {
-		appendTo(t, r, edits, areaA+"/items/2026/11/gone.md\t2026-11-09T18:30:00Z\tunacknowledged\n")
+		appendTo(t, r, edits, areaB+"/notes/ideas.md\t2026-11-09T18:30:00Z\tunacknowledged\n")
 	},
 	"coverage-v1": func(t *testing.T, r string) {
 		appendTo(t, r, cover, "codex:019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b\t70\n")
@@ -255,28 +255,35 @@ func TestBreakEachRule(t *testing.T) {
 			if !ok {
 				t.Fatalf("no case breaks rule %s", rule)
 			}
-			root := copyFixture(t)
-			brk(t, root)
-			rep, err := Check(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(rep.Faults) == 0 {
-				t.Fatalf("broken %s, the checker found nothing", rule)
-			}
-			for _, f := range rep.Faults {
-				if f.Rule != rule {
-					t.Errorf("broken %s, the checker names another rule: %v", rule, f)
-				}
-				if f.Path == "" || !strings.Contains(f.String(), "(rule "+rule+")") {
-					t.Errorf("the message does not name the file and the rule: %v", f)
-				}
-			}
+			checkBreak(t, rule, brk)
 		})
 	}
 	for rule := range breaks {
 		if !slices.Contains(Rules, rule) {
 			t.Errorf("a case breaks %s, which is no rule", rule)
+		}
+	}
+}
+
+// checkBreak breaks a copy of the fixture and requires the checker to name
+// the rule, and no other.
+func checkBreak(t *testing.T, rule string, brk func(t *testing.T, root string)) {
+	t.Helper()
+	root := copyFixture(t)
+	brk(t, root)
+	rep, err := Check(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Faults) == 0 {
+		t.Fatalf("broken %s, the checker found nothing", rule)
+	}
+	for _, f := range rep.Faults {
+		if f.Rule != rule {
+			t.Errorf("broken %s, the checker names another rule: %v", rule, f)
+		}
+		if f.Path == "" || !strings.Contains(f.String(), "(rule "+rule+")") {
+			t.Errorf("the message does not name the file and the rule: %v", f)
 		}
 	}
 }

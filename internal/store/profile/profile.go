@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -124,6 +125,20 @@ func Check(root string) (Report, error) {
 	for _, p := range []string{"index.md", "README.md", ".gitattributes", ".gitignore", ".eva-md/store.toml", ".eva-md/schema.toml"} {
 		if !slices.Contains(paths, p) {
 			c.fault(p, "", classify(p).class, "is missing")
+		}
+	}
+	// Every project folder holds its identity record. With ids unique, a
+	// pid then names one folder: a second folder for it either has no
+	// record or repeats the id.
+	folders := map[string]bool{}
+	for _, l := range c.locs {
+		if strings.HasPrefix(l.area, "projects/") && !(l.class == "project-record" && l.bad != "") {
+			folders[l.area] = folders[l.area] || l.class == "project-record"
+		}
+	}
+	for _, area := range slices.Sorted(maps.Keys(folders)) {
+		if !folders[area] {
+			c.fault(area+"/project.md", "", "project-record", "is missing: every project folder holds its identity record")
 		}
 	}
 	// Writer records and the hand-edit record come first: other checks ask

@@ -32,8 +32,8 @@ func TestProtectionIsReadFailClosed(t *testing.T) {
 		{"locked: False  # not now", Protection{}},
 		{"locked: FALSE", Protection{}},
 		{"verified: [{\"by\": \"human:user\", \"at\": \"2026-11-06T09:00:00Z\"}]", Protection{Verified: true}},
-		{"verified: { by: human:ahormati, at: 2026-06-25T09:00:00Z }", Protection{Verified: true}},
-		{"verified:\n  - by: human:ahormati", Protection{Verified: true}},
+		{"verified: { by: human:user, at: 2026-06-25T09:00:00Z }", Protection{Verified: true}},
+		{"verified:\n  - by: human:user", Protection{Verified: true}},
 		{"verified: yes", Protection{Verified: true}},
 		{"verified: false", Protection{Verified: true}},
 		{"verified: []", Protection{}},
@@ -44,12 +44,194 @@ func TestProtectionIsReadFailClosed(t *testing.T) {
 		{"verified:", Protection{}},
 		{"verified: [] # none yet", Protection{}},
 		{"Locked: true", Protection{}},
+		{"lockedness: true", Protection{}},
+	}
+	// Any form but the bare key protects, whatever its value.
+	for _, f := range lockForms {
+		cases = append(cases, struct {
+			front string
+			want  Protection
+		}{f, Protection{Locked: true}})
+	}
+	for _, f := range verifyForms {
+		cases = append(cases, struct {
+			front string
+			want  Protection
+		}{f, Protection{Verified: true}})
+	}
+	for _, f := range unknownForms {
+		cases = append(cases, struct {
+			front string
+			want  Protection
+		}{f, Protection{Locked: true, Verified: true}})
 	}
 	for _, c := range cases {
 		d := parseDoc("x.md", []byte("---\ntype: fact\n"+c.front+"\n---\nbody\n"))
 		if got := d.protection(); got != c.want {
 			t.Errorf("%q: got %+v, want %+v", c.front, got, c.want)
 		}
+	}
+	// A whole block may be indented; its keys are still top-level keys.
+	for _, front := range []string{"  type: fact\n  locked: false", "  type: fact\n  \"locked\": true", "  # note\n  type: fact\n  locked: true"} {
+		d := parseDoc("x.md", []byte("---\n"+front+"\n---\nbody\n"))
+		if got := d.protection(); !got.Locked {
+			t.Errorf("%q: got %+v, want locked", front, got)
+		}
+	}
+	// A key nested under another is not a top-level key.
+	if got := parseDoc("x.md", []byte("---\ntype: fact\nnote:\n  locked: true\n---\n")).protection(); got.Locked {
+		t.Errorf("a nested key locks: %+v", got)
+	}
+}
+
+// The forms YAML reads as the key locked, or verified, other than the
+// bare key at a line's start.
+var (
+	lockForms = []string{
+		`"locked": true`, `'locked': true`, "locked : true", "locked\t: true", "? locked\n: true", "? locked",
+		`"locked": false`, "locked : false", "? locked\n: false", "!!str locked: true", "&a locked: false",
+		"? !!str locked\n: true", `"lock\x65d": true`, `"\x6cocked": false`, `"locked" : true`, "&a !!str 'locked' : no",
+		"locked :", `"locked":`,
+	}
+	verifyForms = []string{
+		`"verified": [{"by": "human:user", "at": "2026-11-06T09:00:00Z"}]`, "verified : yes", "'verified': []",
+		"? verified\n: []", `"verified": null`,
+	}
+	unknownForms = []string{"*k : true", "<<: {\"locked\": true}", "<<: *defaults", "? [locked]\n: true", "?\n  locked\n: true"}
+)
+
+// A lock or a verified mark in any of these forms protects in Check, in a
+// file the hand-edit record lists and in a system page, with no fault; in
+// an item the record does not list, it protects and the line is in no
+// written form.
+func TestProtectionFormsInCheck(t *testing.T) {
+	type form struct {
+		line string
+		want Protection
+	}
+	var forms []form
+	for _, f := range lockForms {
+		forms = append(forms, form{f, Protection{Locked: true}})
+	}
+	for _, f := range verifyForms {
+		forms = append(forms, form{f, Protection{Verified: true}})
+	}
+	for _, f := range unknownForms {
+		forms = append(forms, form{f, Protection{Locked: true, Verified: true}})
+	}
+	for _, f := range forms {
+		for _, p := range []string{hand, sys} {
+			root := copyFixture(t)
+			b := readFile(t, root, p)
+			put(t, root, p, strings.Replace(b, "\nstatus: stable\n", "\nstatus: stable\n"+f.line+"\n", 1))
+			rep, err := Check(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := rep.Protected[p]; got != f.want {
+				t.Errorf("%q in %s: protected %+v, want %+v", f.line, p, got, f.want)
+			}
+			for _, fault := range rep.Faults {
+				t.Errorf("%q in %s: %v", f.line, p, fault)
+			}
+		}
+		root := copyFixture(t)
+		edit(t, root, fact, "\nstatus: stable\n", "\nstatus: stable\n"+f.line+"\n")
+		rep, _ := Check(root)
+		if got := rep.Protected[fact]; got != f.want {
+			t.Errorf("%q in an item: protected %+v, want %+v", f.line, got, f.want)
+		}
+		if len(rep.Faults) == 0 {
+			t.Errorf("%q in an item the record does not list: no fault", f.line)
+		}
+		for _, fault := range rep.Faults {
+			if fault.Rule != "written-form" && fault.Rule != "frontmatter" {
+				t.Errorf("%q in an item: %v", f.line, fault)
+			}
+		}
+	}
+}
+
+func TestNamesLibrary(t *testing.T) {
+	for s, want := range map[string]bool{
+		"okf": true, "OKF pages": true, "okf-agent-memory": true, ".okf-write.lock": true, "x/okf_x.md": true,
+		"okfVersion": true, "OKFVersion": true, "myOkf": true, "okf2": true, "notes/okf-ideas.md": true,
+		"bookfair": false, "lookfor": false, "cookfest": false, "BOOKFAIR": false, "Bookfair": false, "okfadapter": false, "": false,
+	} {
+		if got := namesLibrary(s); got != want {
+			t.Errorf("namesLibrary(%q) = %v, want %v", s, got, want)
+		}
+	}
+	// A slug made from an ordinary title passes.
+	root := copyFixture(t)
+	move(t, root, fact, strings.Replace(fact, "orders-port", "bookfair-port", 1))
+	appendTo(t, root, "index.md", "* [Lookfor](lookfor/) - the cookfest notes\n")
+	if rep, _ := Check(root); len(rep.Faults) != 0 {
+		t.Errorf("faults: %v", rep.Faults)
+	}
+}
+
+func TestIndexHeadings(t *testing.T) {
+	root := copyFixture(t)
+	appendTo(t, root, "index.md", "\n## Projects\n\n###### Deep\n")
+	if rep, _ := Check(root); len(rep.Faults) != 0 {
+		t.Errorf("faults: %v", rep.Faults)
+	}
+	root = copyFixture(t)
+	appendTo(t, root, "index.md", "####### Too deep\n")
+	if rep, _ := Check(root); len(rep.Faults) != 1 || rep.Faults[0].Rule != "index" {
+		t.Errorf("faults: %v", rep.Faults)
+	}
+}
+
+// On a tie the unacknowledged line holds, whichever writer's record is
+// read first.
+func TestHandEditTie(t *testing.T) {
+	for _, first := range []string{"acknowledged", "unacknowledged"} {
+		second := map[string]string{"acknowledged": "unacknowledged", "unacknowledged": "acknowledged"}[first]
+		root := copyFixture(t)
+		put(t, root, edits, "path\tat\tstate\n"+hand+"\t2026-11-09T18:30:00+01:00\tacknowledged\n"+cons+"\t2026-11-05T10:00:00+01:00\t"+second+"\n")
+		put(t, root, ".eva-md/hand-edits/w-7m2pq4zx.tsv", "path\tat\tstate\n"+cons+"\t2026-11-05T09:00:00Z\t"+first+"\n")
+		rep, _ := Check(root)
+		if len(rep.Faults) != 0 {
+			t.Fatalf("faults: %v", rep.Faults)
+		}
+		if !slices.Equal(rep.Unacknowledged, []string{cons}) {
+			t.Errorf("%s read first: unacknowledged %v", first, rep.Unacknowledged)
+		}
+	}
+}
+
+// A line for a document that is gone stays, as a union cannot drop it, and
+// holds nothing; README.md and index.md may be listed, and are then the
+// person's text.
+func TestHandEditRecordPaths(t *testing.T) {
+	root := copyFixture(t)
+	remove(t, root, hand)
+	appendTo(t, root, edits, areaA+"/items/2026/11/i01qa78gk3m9pz-gone.md\t2026-11-09T19:00:00+01:00\tunacknowledged\n")
+	rep, _ := Check(root)
+	if len(rep.Faults) != 0 {
+		t.Errorf("faults: %v", rep.Faults)
+	}
+	if len(rep.Unacknowledged) != 0 {
+		t.Errorf("a gone path is unacknowledged: %v", rep.Unacknowledged)
+	}
+	root = copyFixture(t)
+	appendTo(t, root, edits, "README.md\t2026-11-09T19:00:00+01:00\tunacknowledged\nindex.md\t2026-11-09T19:00:00+01:00\tacknowledged\n")
+	edit(t, root, "README.md", "title: \"eva.md memory\"\n", "title: My notes on the okf store\nowner: me\n")
+	appendTo(t, root, "index.md", "my own line\r\n")
+	rep, _ = Check(root)
+	if len(rep.Faults) != 0 {
+		t.Errorf("faults: %v", rep.Faults)
+	}
+	if !slices.Equal(rep.Unacknowledged, []string{"README.md", hand}) {
+		t.Errorf("unacknowledged: %v", rep.Unacknowledged)
+	}
+	root = copyFixture(t)
+	appendTo(t, root, edits, "index.md\t2026-11-09T19:00:00+01:00\tacknowledged\n")
+	appendTo(t, root, "index.md", "\x00\n")
+	if rep, _ := Check(root); len(rep.Faults) != 1 || rep.Faults[0].Rule != "unreadable" {
+		t.Errorf("an unreadable listed index: %v", rep.Faults)
 	}
 }
 

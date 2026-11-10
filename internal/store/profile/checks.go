@@ -27,7 +27,7 @@ var (
 	reWorkLine  = regexp.MustCompile(`^- (.+) <!-- id:([a-z0-9]+) -->$`)
 	reInForce   = regexp.MustCompile(`^- \[(.+)\]\(/([^)]+)\)$`)
 	reLogLine   = regexp.MustCompile(`^- (did|found|failed|left): \S`)
-	reIndexLine = regexp.MustCompile(`^(# \S.*|\* \[[^\]]+\]\([^)]+\) - \S.*)$`)
+	reIndexLine = regexp.MustCompile(`^(#{1,6} \S.*|\* \[[^\]]+\]\([^)]+\) - \S.*)$`)
 	reTOMLStr   = regexp.MustCompile(`^([a-z_]+) = "([^"\\]*)"$`)
 	reTOMLInt   = regexp.MustCompile(`^([a-z_]+) = (0|[1-9][0-9]{0,8})$`)
 	reReads     = regexp.MustCompile(`^reads = \[(0|[1-9][0-9]{0,8}), (0|[1-9][0-9]{0,8})\]$`)
@@ -81,6 +81,47 @@ var (
 		"disagreement-file": "disagreement", "readme": "readme", "system-page": "system"}
 	statics = map[string]string{"gitattributes": "* -text -filter -ident\n", "gitignore": ".tmp-*\n"}
 )
+
+// namesLibrary reports text that names the library eva-md v1 was built on:
+// "okf" as a word, bounded by the text's ends, by anything but a letter or
+// by a change of case. So "okf-agent-memory", ".okf", "okf_x" and
+// "okfVersion" name it, and "bookfair" does not.
+func namesLibrary(s string) bool {
+	low := strings.ToLower(s)
+	for i := 0; i < len(low); {
+		j := strings.Index(low[i:], "okf")
+		if j < 0 {
+			return false
+		}
+		j += i
+		if wordStart(s, j) && wordEnd(s, j+3) {
+			return true
+		}
+		i = j + 1
+	}
+	return false
+}
+
+func isLetter(b byte) bool { return 'a' <= b|0x20 && b|0x20 <= 'z' }
+func isUpper(b byte) bool  { return 'A' <= b && b <= 'Z' }
+
+// wordStart reports a word starting at i: "myOkf" starts one at the O.
+func wordStart(s string, i int) bool {
+	return i == 0 || !isLetter(s[i-1]) || !isUpper(s[i-1]) && isUpper(s[i])
+}
+
+// wordEnd reports a word ending before j: "okfVersion" and "OKFVersion"
+// end one before the V.
+func wordEnd(s string, j int) bool {
+	switch {
+	case j == len(s) || !isLetter(s[j]):
+		return true
+	case !isUpper(s[j-1]):
+		return isUpper(s[j])
+	default:
+		return isUpper(s[j]) && j+1 < len(s) && isLetter(s[j+1]) && !isUpper(s[j+1])
+	}
+}
 
 // fc checks the fields of one document.
 type fc struct {

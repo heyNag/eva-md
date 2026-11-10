@@ -1,6 +1,6 @@
 # The store's written format (schema 2)
 
-The format of eva.md's memory store: what is on disk, who may set each part, and how it merges. The codec (ST-03), the migrator (ST-04), the storage properties (ST-02) and every package that reads or writes memory build against it.
+The format of eva.md's memory store: what is on disk, who may set each part, and how it merges. The codec (ST-03), the migrator (ST-04), the storage properties (ST-02) and every reader or writer of memory build against it.
 `internal/store/profile` checks a folder against it; `internal/store/testdata/fixture-store` is a hand-written store that passes.
 
 Sources are in brackets. **P** is [the plan](../v2/plan.md): P6.2d3 is section 6.2, design 3; P6.3R the rulings table ending 6.3; D33 its decision 33. **S** is [the store design](../v2/working-papers/design/store.md) and **V** [the organizing design](../v2/working-papers/design/derive.md), by section.
@@ -10,11 +10,11 @@ Where S and P differ, P wins, and the rule says "overrides S…".
 
 Pages are an eva profile of the Open Knowledge Format v0.2, pinned to `GoogleCloudPlatform/knowledge-catalog` commit `d2aa4a49c018290835b50da2656d10235b8d7e20`, file `okf/SPEC.md`, SHA-256 `26aa5da029278939f914e578107242d9607d4f2dc5fe153272b82f9ed1030101`, read on 2026-11-10 [P6.2d5, S6.3].
 Every `.md` file outside `notes/` and `legacy/`, but `index.md`, has frontmatter with a non-empty `type` (its §11); the root `index.md` follows its §8, with no frontmatter; there is no `log.md`; timestamps carry an offset (§5); `generated.by` and `verified[].by` follow its actor convention (§7).
-No path, frontmatter key or static file names the library eva-md v1 was built on; free text is its author's [P6.2d5]. So the root index has no version key (overrides S5.1).
+No path, frontmatter key or static file names the library eva-md v1 was built on (`okf` as a word: `.okf-x`, `okfVersion`, not `bookfair`); free text is its author's [P6.2d5]. So the root index has no version key (overrides S5.1).
 
 ## 2. Layout
 
-`<area>` is `projects/<pid>-<slug>` or `global`. Every file is in exactly one class; any other path is a fault [P6.2d2, S5.1]. The four root files and the two `.eva-md` files above the writers are required.
+`<area>` is `projects/<pid>-<slug>` or `global`. Every file is in exactly one class; any other path is a fault [P6.2d2, S5.1]. The four root files and the two `.eva-md` files above the writers are required, and every project folder holds its `project.md`; as ids are unique, a pid names one folder.
 
 ```
 index.md  README.md  .gitattributes  .gitignore       static, rewritten only by a schema step
@@ -105,11 +105,13 @@ A file a person locked or verified, or one that cannot be read, refuses the one 
 
 - **Locked**: a `locked` key with any value but a bare `false` (`False`, `FALSE`, a comment after it allowed), so an empty or quoted value locks, and so does a repeated key. Only items, workstreams and system pages may be locked. The engine never writes it (overrides S6.2, where an empty value unlocked).
 - **Verified**: a `verified` key with a value in any shape but `[]`, `{}`, `""`, `null`, `~` or none. `eva-md confirm` writes a JSON list of `{"by", "at"}`; no model's operation does. A model cannot change a verified file's statement, title or detail [S5.7].
+- **Key forms**: a lock is honoured in every form YAML allows [P6.2]. Only a bare `locked:` or `verified:` at a line's start is read by its value; in any other form (quoted, with escapes, spaces before the colon, `? locked`, after a tag or anchor, a block indented whole) the key protects whatever its value. An alias key (`*a`), a merge key (`<<`) or an explicit key that is no scalar does both.
 - **Unreadable**: a byte-order mark, invalid UTF-8, a NUL, a line over 64 KiB, a conflict marker line, or frontmatter not opened on line 1 or never closed. Never written or delivered; listed for repair [S6.2]. Only documents may be unreadable: an unreadable static or record file is a broken store.
 
 ## 7. A hand edit
 
-A file changed in the store folder by anything but the engine is kept, committed (kind `human`) and listed in the hand-edit record of the machine that found it: header `path` TAB `at` TAB `state`, then a line per adoption, `unacknowledged` until the person acknowledges it, then `acknowledged`; the newest line for a path, across writers, holds.
+A file changed in the store folder by anything but the engine is kept, committed (kind `human`) and listed in the hand-edit record of the machine that found it: header `path` TAB `at` TAB `state`, then a line per adoption, `unacknowledged` until the person acknowledges it, then `acknowledged`; the newest line for a path, across writers, holds, and on a tie `unacknowledged` does.
+A line names a document, `README.md` or `index.md` (then the person's text, only to be readable). One for a gone path (forgotten, removed by hand) stays, as a union cannot drop it, and holds nothing.
 **A hand edit carries no authority until it is acknowledged**: its words are not taken as the person's, and a model's operation on it becomes a disagreement, reason `hand_edit`. This overrides S5.7, which gave it a person's authority: an agent with a file tool cannot write memory in the person's name [P6.2d4, P8 ST-01].
 The record is outside the file because the engine writes nothing into a locked file.
 
@@ -145,23 +147,23 @@ The profile checker has one check for each row, named by its first column.
 | --- | --- | --- | --- | --- | --- |
 | `path` | every file | in exactly one class of section 2 | E | — | P6.2d2 |
 | `symlink` | every path | no symlinks | E | — | S4.3 |
-| `name` | paths, keys, static files | never names the library v1 was built on | E | — | P6.2d5 |
+| `name` | paths, keys, static files | never names the library v1 was built on, as a word (section 1) | E | — | P6.2d5 |
 | `encoding` | text files | UTF-8, LF, final newline; unless listed as hand-edited | E | — | S6.2 |
 | `size` | documents | within the caps of section 2 | E | — | S5.3 |
 | `unreadable` | every file | only documents may be unreadable | E | — | S6.2 |
 | `frontmatter` | documents | each key once; only the class's keys; unless listed | E | — | S6.2 |
 | `written-form` | documents | each line in a written form of section 4; unless listed or a system page | E | — | S6.2 |
 | `month` | items, disagreements, sessions | `<yyyy>/<mm>` is the id's UTC month, or `started`'s | E | — | S5.1 |
-| `index` | `index.md` | required; no frontmatter; headings and `* [t](u) - d` lines | E | static | OKF §8 |
+| `index` | `index.md` | required; no frontmatter; headings (`#` to `######`) and `* [t](u) - d` lines | E | static | OKF §8 |
 | `readme` | `README.md` | required; `type: readme`; `title`, `description` optional | E | static | S5.1 |
 | `gitattributes` | `.gitattributes` | exactly `* -text -filter -ident` | E | static | P6.2d5 |
 | `gitignore` | `.gitignore` | exactly `.tmp-*` | E | static | S5.1 |
 | `manifest` | `.eva-md/store.toml` | the four lines of section 5, in order | E | migrate first | S9.1 |
 | `schema-marker` | `.eva-md/schema.toml` | one line, `schema_version = <n>` | E | static | S9.1 |
 | `writer-record` | `.eva-md/writers/<writer>.toml` | writer id grammar; the three lines of section 5 | E | one file per writer | S4.5 |
-| `hand-edits` | `.eva-md/hand-edits/<writer>.tsv` | section 7's header and lines; the path exists; the writer has a record | E | union; newest per path | P6.2d4 |
+| `hand-edits` | `.eva-md/hand-edits/<writer>.tsv` | section 7's header, lines and paths; the writer has a record | E | union; newest per path, a tie unacknowledged | P6.2d4 |
 | `coverage-v1` | `.eva-md/coverage-v1/<writer>.tsv` | section 5's header; a session once; a positive line number | G | union | S9.2 |
-| `project-record` | `projects/<pid>-<slug>/project.md` | pid grammar and slug | E | — | P6.1d6 |
+| `project-record` | `projects/<pid>-<slug>/project.md` | pid grammar and slug; in every project folder | E | — | P6.1d6 |
 | `workstream-file` | `…/workstreams/<wid>-<slug>.md` | in a project; id and slug | E | — | P6.3R |
 | `item-file` | `<area>/items/<yyyy>/<mm>/<iid>-<slug>.md` | id and slug | E | field merge | S5.1 |
 | `disagreement-file` | `<area>/disagreements/<yyyy>/<mm>/<did>-<slug>.md` | id and slug | E | add only | P6.3d6 |
@@ -213,7 +215,7 @@ The profile checker has one check for each row, named by its first column.
 | `stale_after` | system | optional datetime | G | whole file | S6.3 |
 | `schema` | manifest | `2` | E | migrate first | S9.1 |
 | `min_reader` | manifest | from 2 to `schema` | E | the higher | S9.1 |
-| `store_id` | manifest | `s` id | E | equal | S4.2 |
+| `store_id` | manifest | a string holding an `s` id | E | equal | S4.2 |
 | `epoch` | manifest | 1 or more | E | the higher, by purge | S8.7 |
 | `schema_version` | schema marker | `2` | E | static | S9.1 |
 | `label` | writer | 1 to 32 of `a-z0-9-`, no personal data | E | one file per writer | S4.5 |
@@ -222,5 +224,5 @@ The profile checker has one check for each row, named by its first column.
 | `statement` | item, workstream, disagreement | the body's first line is a non-empty statement of at most 500 characters | M | content register | P6.3R |
 | `citations` | item, workstream, disagreement, session | every footnote names a source; every source is cited; an item defines each as `[^e1]: <resource>` | E | with sources | OKF §5.1 |
 | `working-items` | workstream | next-step and open-question lines with `n`, `q` ids, once each | M, E | per line | P6.3R |
-| `decisions-in-force` | workstream | links to active decision items of its project | E | recompute | P6.3R |
+| `decisions-in-force` | workstream | links to active decision items of its project that no active item supersedes | E | recompute | P6.3R |
 | `log` | session | `## Log` lines of section 5, each cited | M | append | P6.3R |
