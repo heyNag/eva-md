@@ -17,6 +17,12 @@ import (
 
 const systemUsage = "usage: eva-md system write <slug> [--replace] < page.md | eva-md system status [<slug>...] [--json]"
 
+func init() {
+	register(command{name: "system", file: "system.go", place: 170,
+		synopsis: []string{"eva-md system write <slug> [--replace] < page.md", "eva-md system status [SLUG...] [--json]"},
+		run:      runSystem})
+}
+
 // runSystem runs eva-md system write <slug> [--replace]: it reads one system
 // page from stdin and writes it to the wiki with the system map, from any
 // folder. It prints "wrote systems/<slug>.md (<n> bytes); the map has <m>

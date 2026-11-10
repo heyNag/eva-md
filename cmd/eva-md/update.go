@@ -50,6 +50,14 @@ func (s *sweepDay) Set(value string) error {
 	return nil
 }
 
+func init() {
+	register(command{name: "update", file: "update.go", place: 140,
+		synopsis: []string{"eva-md update [--session host:id ... | --pending] [--sweep[=YYYY-MM-DD]] [--dry-run] [--foreground]"},
+		run: func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+			return runUpdate(ctx, args, out, errOut)
+		}})
+}
+
 // runUpdate runs eva-md update --session <host>:<id>, given once or more,
 // or --pending, and with --sweep, which a person's first chat start of the
 // day adds to its catch-up, the day's sweep too (see update.Job.CatchUp).

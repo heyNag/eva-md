@@ -12,6 +12,14 @@ import (
 	"github.com/heyNag/eva-md/internal/wikigit"
 )
 
+func init() {
+	register(command{name: "commit", file: "commit.go", place: 150,
+		synopsis: []string{"eva-md commit [--push-only]"},
+		run: func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+			return runCommit(ctx, args, out, errOut)
+		}})
+}
+
 // runCommit runs eva-md commit [--push-only]: the daily commit and push now,
 // with the guards maintain uses, or with --push-only a push of commits made
 // earlier. It prints one line: the outcome, the reason when there is one,

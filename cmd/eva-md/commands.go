@@ -34,6 +34,35 @@ var (
 	checkTimeout   = 30 * time.Second
 )
 
+func init() {
+	register(command{name: "install", file: "commands.go", place: 50,
+		synopsis: []string{"eva-md install [--host claude|codex|all] [--dry-run]"},
+		run: func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+			return runInstall(ctx, args, out, errOut)
+		}})
+	doctor := func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+		return runDoctor(ctx, args, out, errOut)
+	}
+	register(command{name: "doctor", file: "commands.go", place: 70,
+		synopsis: []string{"eva-md doctor [--json] [--live]"},
+		run:      doctor})
+	register(command{name: "status", file: "commands.go", place: 80,
+		synopsis: []string{"eva-md status [--json]"},
+		run:      doctor})
+	resume := func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+		return runResume(ctx, args, out, errOut)
+	}
+	register(command{name: "brief", file: "commands.go", place: 90,
+		synopsis: []string{"eva-md brief [--cwd DIR] [--as startup|clear|compact|resume|fork] [--host claude-code|codex] [--session ID]"},
+		run:      resume})
+	register(command{name: "show", file: "commands.go", place: 100,
+		synopsis: []string{"eva-md show s:<session>#<line>", "eva-md show page[#section]"},
+		run:      resume})
+	register(command{name: "search", file: "commands.go", place: 110,
+		synopsis: []string{"eva-md search TERMS... [--all] [--days N] [--limit N] [--cwd DIR] [--pages | --inbox]"},
+		run:      resume})
+}
+
 func runResume(ctx context.Context, args []string, out, errOut io.Writer) int {
 	d, err := paths.Default()
 	if err != nil {

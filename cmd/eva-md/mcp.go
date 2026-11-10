@@ -12,6 +12,14 @@ import (
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
+func init() {
+	register(command{name: "mcp", file: "mcp.go", place: 200,
+		synopsis: []string{"eva-md mcp --host claude-code|codex"},
+		run: func(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
+			return runMCP(ctx, args[1:], in, out, errOut)
+		}})
+}
+
 // runMCP is eva-md mcp --host claude-code|codex, the read-only MCP server
 // the plugins' .mcp.json starts once a chat. It is not meant to be run by
 // hand. A usage error exits 2 before stdin is read.

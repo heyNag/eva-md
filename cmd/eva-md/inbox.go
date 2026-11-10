@@ -42,6 +42,14 @@ const inboxListed = 20
 // past inboxIndexWait: it removed nothing.
 var errInboxBusy = errors.New("a background update is running, or the search index of these chats' projects is being built, so nothing was removed; try again shortly")
 
+func init() {
+	register(command{name: "inbox", file: "inbox.go", place: 130,
+		synopsis: []string{"eva-md inbox clear [--session ID ...] [--project KEY] [--before YYYY-MM-DD] [--apply]"},
+		run: func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+			return runInbox(ctx, args, out, errOut)
+		}})
+}
+
 // runInbox runs eva-md inbox clear: it removes captured sessions from the
 // inbox, chosen by session, by project or by the day they were last
 // written, after a preview, as decision 4 asks. Without --apply it lists
