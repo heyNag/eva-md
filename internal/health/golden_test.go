@@ -23,19 +23,21 @@ var updateGolden = flag.Bool("update-golden", false, "write the golden files of 
 
 // The fixture homes of the golden rows.
 const (
-	bareHome  = iota // nothing set up, not even a config
-	setUpHome        // set up as far as a test can take it
-	codexHome        // set up, with a stand-in codex on PATH
+	bareHome   = iota // nothing set up, not even a config
+	setUpHome         // set up as far as a test can take it
+	codexHome         // set up, with a stand-in codex on PATH
+	noWikiHome        // a config that names no wiki, as after a setup cut short
 )
 
 // goldenHome makes a fixture home. Set up, it has a wiki with its schema,
 // its remote and a system page, a config with an unknown key, an inbox with
 // sessions that wait for an update and one done, and heartbeats from long
-// ago. PATH holds git alone, so neither host's command is found and no row
-// depends on this machine's apps; in a codexHome it holds a stand-in codex
-// too, which reports its hooks feature on and fails every other command.
-// It returns the home's folders and the home, which golden output names as
-// <home>.
+// ago. A noWikiHome has all of that but the wiki: its config has no
+// wiki_path, as after a setup cut short. PATH holds git alone, so neither
+// host's command is found and no row depends on this machine's apps; in a
+// codexHome it holds a stand-in codex too, which reports its hooks feature
+// on and fails every other command. It returns the home's folders and the
+// home, which golden output names as <home>.
 func goldenHome(t *testing.T, kind int) (paths.Dirs, string) {
 	t.Helper()
 	git, err := exec.LookPath("git")
@@ -62,24 +64,26 @@ func goldenHome(t *testing.T, kind int) (paths.Dirs, string) {
 		return d, home
 	}
 
-	wiki := filepath.Join(home, "wiki")
-	for _, args := range [][]string{{"init", "-q", wiki}, {"-C", wiki, "remote", "add", "origin", "git@github.com:example/wiki.git"}} {
-		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-			t.Fatalf("fixture git: %v %s", err, out)
-		}
-	}
-	if err := os.Chmod(wiki, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	put(t, filepath.Join(wiki, "index.md"), []byte("---\nokf_version: \"0.2\"\n---\n# Wiki\n"))
-	if err := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: "test", Created: "2026-10-29"}); err != nil {
-		t.Fatal(err)
-	}
 	c := config.Default()
-	c.WikiPath, c.Instance, c.ExpectedRemote = wiki, "test", "github.com/example/wiki"
-	systemFile(t, c, "billing", "Billing", "2026-10-30", "invoices")
-	for _, f := range []string{"general/threads/default.md", "projects/a/threads/main.md", "projects/a/threads/feature-x.md"} {
-		put(t, filepath.Join(wiki, f), []byte("x"))
+	if kind != noWikiHome {
+		wiki := filepath.Join(home, "wiki")
+		for _, args := range [][]string{{"init", "-q", wiki}, {"-C", wiki, "remote", "add", "origin", "git@github.com:example/wiki.git"}} {
+			if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+				t.Fatalf("fixture git: %v %s", err, out)
+			}
+		}
+		if err := os.Chmod(wiki, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		put(t, filepath.Join(wiki, "index.md"), []byte("---\nokf_version: \"0.2\"\n---\n# Wiki\n"))
+		if err := config.SaveSchema(filepath.Join(wiki, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: "test", Created: "2026-10-29"}); err != nil {
+			t.Fatal(err)
+		}
+		c.WikiPath, c.Instance, c.ExpectedRemote = wiki, "test", "github.com/example/wiki"
+		systemFile(t, c, "billing", "Billing", "2026-10-30", "invoices")
+		for _, f := range []string{"general/threads/default.md", "projects/a/threads/main.md", "projects/a/threads/feature-x.md"} {
+			put(t, filepath.Join(wiki, f), []byte("x"))
+		}
 	}
 	if err := config.Save(d.ConfigFile(), c); err != nil {
 		t.Fatal(err)
@@ -152,6 +156,8 @@ func TestGoldenRows(t *testing.T) {
 		{"doctor-local", setUpHome, local},
 		{"status-codex", codexHome, Status},
 		{"doctor-codex", codexHome, doctor},
+		{"status-nowiki", noWikiHome, Status},
+		{"doctor-nowiki", noWikiHome, doctor},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, home := goldenHome(t, tc.home)
