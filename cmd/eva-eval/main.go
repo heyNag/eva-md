@@ -11,9 +11,19 @@
 // gates and the baseline default to spec/metrics.json, eval/gates.json and
 // eval/baselines/baseline.json in the repository.
 //
-// gate prints one line for each gate and exits 0 when every gate holds and
-// 1 when one fails; every command exits 2 for a usage error or data it
-// cannot read.
+// gate prints a line that names the rows' commit, whether its tree was
+// dirty, the baseline's commit and the base, then one line for each gate,
+// and exits 0 when every gate holds and 1 when one fails; every command
+// exits 2 for a usage error or data it cannot read.
+//
+// The base is the commit the change being gated starts from. The baseline
+// is stale, and fails its gates, when a path its metric covers changed
+// between the baseline's commit and the base: the main line moved on, and
+// a new baseline must be accepted there. A change on the rows' own branch
+// is what the gates judge, so it never makes the baseline stale. By
+// default the base is the merge base of the rows' commit and main (or
+// origin/main), so the repository must hold the rows' commit; --base
+// names it outright.
 package main
 
 import (
@@ -92,7 +102,7 @@ func inRepo(fs files, value, def string) string {
 
 func gate(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f, fs := newFlags("gate", errOut)
-	base := f.String("base", "HEAD", "the commit the baseline must still describe")
+	base := f.String("base", "", "the commit the change starts from, which the baseline must still describe; the merge base of the rows' commit and main when empty")
 	gatesFile := f.String("gates", "", "the gates; eval/gates.json in the repository when empty")
 	baseFile := f.String("baseline", "", "the accepted baseline; eval/baselines/baseline.json in the repository when empty")
 	if err := f.Parse(args); err != nil {
@@ -120,7 +130,13 @@ func gate(ctx context.Context, args []string, out, errOut io.Writer) int {
 	if err != nil {
 		return fail(errOut, err)
 	}
+	if *base == "" {
+		if *base, err = results.StartOf(ctx, *fs.repo, rows); err != nil {
+			return fail(errOut, fmt.Errorf("cannot find the commit the change starts from: %w; name it with --base", err))
+		}
+	}
 	verdicts := results.Evaluate(ctx, *fs.repo, *base, cat, gates, rows, b)
+	fmt.Fprintln(out, results.Header(rows, b, *base))
 	for _, v := range verdicts {
 		fmt.Fprintln(out, v.Line)
 	}

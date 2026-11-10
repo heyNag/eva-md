@@ -85,7 +85,10 @@ type Verdict struct {
 // commit of the repository at repo the baseline must still describe:
 // the baseline is stale, and fails every gate of a metric, when a path the
 // catalogue lists for the metric differs between the baseline's commit and
-// base. The catalogue and the gates must be checked already.
+// base. Base is the commit the change the rows measure starts from, as
+// StartOf finds it, and not the rows' own commit: a change the rows'
+// branch makes is what the gates judge. The catalogue and the gates must
+// be checked already.
 func Evaluate(ctx context.Context, repo, base string, cat Catalogue, gates []Gate, rows []Row, b Baseline) []Verdict {
 	stale := map[string]string{} // metric: why its baseline cannot be used, "" when it can
 	verdicts := make([]Verdict, 0, len(gates))
@@ -114,6 +117,8 @@ func Evaluate(ctx context.Context, repo, base string, cat Catalogue, gates []Gat
 			fail("the rows hold no figure for it")
 		case cerr != nil:
 			fail(cerr.Error())
+		case len(commitsOf(cand)) > 1:
+			fail(fmt.Sprintf("the rows were measured on %d commits; a gate judges one", len(commitsOf(cand))))
 		case len(base0) == 0:
 			fail("the baseline holds no figure for it")
 		case berr != nil:
@@ -145,13 +150,24 @@ func (g Gate) allowed(a float64) float64 {
 	return g.Margin
 }
 
-// holds compares the rows' figure c with the baseline's a.
+// holds compares the rows' figure c with the baseline's a. A figure at
+// the margin holds: the comparison allows for the rounding of binary
+// figures, so that 0.85 against 0.9 is worse by the 0.05 it reads as and
+// not by 0.05000000000000004.
 func (g Gate) holds(m Metric, a, c float64) bool {
-	worse := m.worse(a, c)
+	worse, allowed, tol := m.worse(a, c), g.allowed(a), tolerance(a, c)
 	if g.Rule == "better" {
-		return -worse >= g.allowed(a)
+		return -worse >= allowed-tol
 	}
-	return worse <= g.allowed(a)
+	return worse <= allowed+tol
+}
+
+// tolerance is how far two figures computed from a and b may differ by
+// rounding alone: a billionth of the larger of them, or of 1. It is far
+// below any margin a gate is meant to state, and far above the rounding
+// of the few operations a gate's comparison makes.
+func tolerance(a, b float64) float64 {
+	return 1e-9 * max(1, math.Abs(a), math.Abs(b))
 }
 
 // describe says the gate's rule in words.

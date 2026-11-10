@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"fmt"
 	"io"
+	"math"
 	"slices"
+	"strconv"
 	"text/tabwriter"
 )
 
@@ -58,15 +60,22 @@ func Diff(w io.Writer, cat Catalogue, first, second []Row) error {
 		change := "-"
 		if len(sets[0][g]) > 0 && len(sets[1][g]) > 0 {
 			switch worse := m.worse(means[0], means[1]); {
-			case worse > 0:
-				change = "worse by " + num(worse)
-			case worse < 0:
-				change = "better by " + num(-worse)
-			default:
+			case math.Abs(worse) <= tolerance(means[0], means[1]):
 				change = "the same"
+			case worse > 0:
+				change = "worse by " + difference(worse)
+			default:
+				change = "better by " + difference(-worse)
 			}
 		}
 		fmt.Fprintln(tw, line+"\t"+change)
 	}
 	return tw.Flush()
+}
+
+// difference prints the difference of two figures in 12 significant
+// digits, so the rounding of binary figures does not show: 0.1, not
+// 0.09999999999999998.
+func difference(d float64) string {
+	return strconv.FormatFloat(d, 'g', 12, 64)
 }

@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Version is the format of the rows, the catalogue, the gates and the
@@ -98,29 +99,85 @@ func (r Row) strings() [][2]string {
 // Store appends rows to the rows file of a results folder.
 type Store struct {
 	Dir string
-	// Forbid holds words no row may contain, in any case: the codenames
-	// and other planted values of the run's scenarios.
+	// Forbid holds words no row may contain: the codenames and other
+	// planted values of the run's scenarios. They are matched as Forbidden
+	// matches them, so in any case and in any spelling of their letters
+	// and digits.
 	Forbid []string
+}
+
+// Forbidden returns an error that names the first row and field holding
+// one of words, never the word, or nil. A word is matched by its letters
+// and digits alone, in any case, against a field's letters and digits
+// alone: since a field is an id, "Blue Heron" is found in "blue-heron",
+// "blue.heron" and "blueheron", and "KESTREL_41" in "kestrel-41". A word
+// with no letter or digit matches nothing.
+func Forbidden(rows []Row, words []string) error {
+	keys := forbidKeys(words)
+	for i, r := range rows {
+		if field := r.forbidden(keys); field != "" {
+			return fmt.Errorf("row %d: %s holds a word the run forbids", i+1, field)
+		}
+	}
+	return nil
+}
+
+// forbidKeys returns the letters and digits of each word that has some.
+func forbidKeys(words []string) []string {
+	var keys []string
+	for _, w := range words {
+		if k := letters(w); k != "" {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+// forbidden returns the name of r's first field whose letters and digits
+// hold one of keys, or "".
+func (r Row) forbidden(keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	for _, f := range r.strings() {
+		field := letters(f[1])
+		for _, k := range keys {
+			if strings.Contains(field, k) {
+				return f[0]
+			}
+		}
+	}
+	return ""
+}
+
+// letters returns s's letters and digits, in lower case, and nothing else.
+func letters(s string) string {
+	return strings.Map(func(r rune) rune {
+		r = unicode.ToLower(r)
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 // Append checks every row, then appends them all to the folder's rows
 // file in one write, making the folder if needed. It sets each row's
 // format and puts its time in UTC. A row that fails a check appends
-// nothing.
+// nothing, and so does a rows file that does not end with a whole line,
+// as after an interrupted write: a row appended to it would join the
+// part of a line and make the whole file unreadable.
 func (s Store) Append(rows ...Row) error {
 	var buf bytes.Buffer
+	keys := forbidKeys(s.Forbid)
 	for i, r := range rows {
 		r.V = Version
 		r.Time = r.Time.UTC()
 		if msg := r.check(); msg != "" {
 			return fmt.Errorf("results: row %d: %s", i+1, msg)
 		}
-		for _, f := range r.strings() {
-			for _, w := range s.Forbid {
-				if w != "" && strings.Contains(strings.ToLower(f[1]), strings.ToLower(w)) {
-					return fmt.Errorf("results: row %d: %s holds a word the run forbids", i+1, f[0])
-				}
-			}
+		if field := r.forbidden(keys); field != "" {
+			return fmt.Errorf("results: row %d: %s holds a word the run forbids", i+1, field)
 		}
 		line, err := json.Marshal(r)
 		if err != nil {
@@ -135,16 +192,40 @@ func (s Store) Append(rows ...Row) error {
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return fmt.Errorf("results: %w", err)
 	}
-	f, err := os.OpenFile(filepath.Join(s.Dir, FileName), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(filepath.Join(s.Dir, FileName), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return fmt.Errorf("results: %w", err)
 	}
-	_, err = f.Write(buf.Bytes())
+	err = endsWithALine(f)
+	if err == nil {
+		_, err = f.Write(buf.Bytes())
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		return fmt.Errorf("results: %w", err)
+	}
+	return nil
+}
+
+// errPartialLine is the error for a rows file that does not end with a
+// whole line.
+var errPartialLine = errors.New("the rows file does not end with a whole line")
+
+// endsWithALine returns errPartialLine when the file f is not empty and
+// its last byte is not a newline.
+func endsWithALine(f *os.File) error {
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return err
+	}
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, info.Size()-1); err != nil {
+		return err
+	}
+	if last[0] != '\n' {
+		return errPartialLine
 	}
 	return nil
 }
@@ -165,7 +246,7 @@ func Load(path string) ([]Row, error) {
 		return nil, nil
 	}
 	if data[len(data)-1] != '\n' {
-		return nil, errors.New("results: the rows file does not end with a whole line")
+		return nil, fmt.Errorf("results: %w", errPartialLine)
 	}
 	var rows []Row
 	for i, line := range bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")) {

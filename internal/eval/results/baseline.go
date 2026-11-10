@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -132,6 +133,71 @@ func Changed(ctx context.Context, repo, from, to string, paths []string) (string
 		}
 	}
 	return "", nil
+}
+
+// MainLines are the refs the main line is read from, the first that the
+// repository has: the local main branch, then the remote's.
+var MainLines = []string{"refs/heads/main", "refs/remotes/origin/main"}
+
+// StartOf returns the commit the change the rows measure starts from: the
+// merge base of the rows' commit and the main line, in full. That is the
+// commit a baseline must still describe. A change of a covered path on
+// the rows' own branch is what a gate judges, so it never makes the
+// baseline stale; one on the main line since the baseline was accepted
+// does. The rows must share one commit, and the repository at repo must
+// hold it.
+func StartOf(ctx context.Context, repo string, rows []Row) (string, error) {
+	commits := commitsOf(rows)
+	switch {
+	case len(commits) == 0:
+		return "", errors.New("there are no rows")
+	case len(commits) > 1:
+		return "", fmt.Errorf("the rows were measured on %d commits", len(commits))
+	}
+	if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", commits[0]+"^{commit}"); err != nil {
+		return "", fmt.Errorf("the rows' commit %s is not in the repository", short(commits[0]))
+	}
+	for _, ref := range MainLines {
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err != nil {
+			continue
+		}
+		out, err := git(ctx, repo, "merge-base", commits[0], ref)
+		if err != nil {
+			return "", fmt.Errorf("the rows' commit %s shares no history with %s", short(commits[0]), ref)
+		}
+		return strings.TrimSpace(out), nil
+	}
+	return "", errors.New("the repository has no main branch")
+}
+
+// commitsOf returns the commits the rows were measured on, in the order
+// they first appear.
+func commitsOf(rows []Row) []string {
+	var out []string
+	for _, r := range rows {
+		if !slices.Contains(out, r.Commit) {
+			out = append(out, r.Commit)
+		}
+	}
+	return out
+}
+
+// Header says what a gate judges, in one line: the rows' commit and
+// whether its tree was dirty, the baseline's commit, and base, the commit
+// the baseline must still describe.
+func Header(rows []Row, b Baseline, base string) string {
+	measured := "no rows"
+	switch commits := commitsOf(rows); {
+	case len(commits) == 1:
+		tree := "a clean tree"
+		if slices.ContainsFunc(rows, func(r Row) bool { return r.Dirty }) {
+			tree = "a dirty tree"
+		}
+		measured = fmt.Sprintf("rows of commit %s on %s", short(commits[0]), tree)
+	case len(commits) > 1:
+		measured = fmt.Sprintf("rows of %d commits", len(commits))
+	}
+	return fmt.Sprintf("%s, against the baseline of commit %s, which must still describe %s", measured, short(b.Commit), short(base))
 }
 
 // short shortens a full commit id for a message, and leaves any other

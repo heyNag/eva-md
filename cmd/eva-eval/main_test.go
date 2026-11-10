@@ -125,6 +125,7 @@ func TestAcceptGateAndADoctoredRow(t *testing.T) {
 	runDir := rowsOf(t, commit, true, []float64{30, 32, 34, 36, 44}, 0.875)
 	code, out, errOut = cmd("gate", "--repo", repo, runDir)
 	want := []string{
+		"rows of commit " + commit[:12] + " on a dirty tree, against the baseline of commit " + commit[:12] + ", which must still describe " + commit[:12],
 		"hold hook.capture_p95_ms p95: 44 ms against the baseline's 40; may be worse (lower is better) by at most 10% of the baseline's figure",
 		"hold fidelity.fact_recall mean: 0.875 ratio against the baseline's 0.9; may be worse (higher is better) by at most 0.05 ratio",
 	}
@@ -146,9 +147,9 @@ func TestAcceptGateAndADoctoredRow(t *testing.T) {
 	}
 	doctor(`"value":44,`, `"value":45,`)
 	code, out, _ = cmd("gate", "--repo", repo, runDir)
-	if lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n"); code != 1 || len(lines) != 2 ||
-		lines[0] != "FAIL hook.capture_p95_ms p95: 45 ms against the baseline's 40; may be worse (lower is better) by at most 10% of the baseline's figure" ||
-		!strings.HasPrefix(lines[1], "hold ") {
+	if lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n"); code != 1 || len(lines) != 3 || lines[0] != want[0] ||
+		lines[1] != "FAIL hook.capture_p95_ms p95: 45 ms against the baseline's 40; may be worse (lower is better) by at most 10% of the baseline's figure" ||
+		!strings.HasPrefix(lines[2], "hold ") {
 		t.Fatalf("one row raised: %d\n%s", code, out)
 	}
 	doctor(`"value":45,`, `"value":44,`)
@@ -161,19 +162,49 @@ func TestAcceptGateAndADoctoredRow(t *testing.T) {
 		t.Fatalf("recall raised back inside the margin: %d\n%s", code, out)
 	}
 
-	// A change to a covered path makes the baseline stale: the gate fails
-	// on every gate of that metric and says so; --base before the change
-	// passes again.
+	// A branch that changes a covered path is judged against the baseline,
+	// which its own change never makes stale: by default the base is where
+	// the branch leaves main.
+	gitIn(t, repo, "switch", "--quiet", "-c", "faster-hook")
 	write(t, filepath.Join(repo, "internal", "hook", "capture.go"), "package hook\n\nvar x = 1\n")
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "--quiet", "-m", "change the hook")
-	code, out, _ = cmd("gate", "--repo", repo, runDir)
-	if code != 1 || !strings.Contains(out, "FAIL hook.capture_p95_ms p95: the baseline is stale: internal/hook changed between its commit "+commit[:12]+" and HEAD; accept a new baseline") ||
+	branch := gitIn(t, repo, "rev-parse", "HEAD")
+	faster := rowsOf(t, branch, false, []float64{30, 32, 34, 36, 42}, 0.9)
+	code, out, _ = cmd("gate", "--repo", repo, faster)
+	if lines := strings.Split(out, "\n"); code != 0 || lines[0] != "rows of commit "+branch[:12]+" on a clean tree, against the baseline of commit "+commit[:12]+", which must still describe "+commit[:12] {
+		t.Fatalf("the branch: %d\n%s", code, out)
+	}
+	slower := rowsOf(t, branch, false, []float64{30, 32, 34, 36, 45}, 0.9)
+	if code, out, _ = cmd("gate", "--repo", repo, slower); code != 1 || !strings.Contains(out, "FAIL hook.capture_p95_ms p95: 45 ms") {
+		t.Fatalf("the branch, slower: %d\n%s", code, out)
+	}
+
+	// Once main changes a covered path after the baseline, the baseline is
+	// stale for anything that starts there: every gate of that metric
+	// fails and says so, until a new baseline is accepted.
+	gitIn(t, repo, "switch", "--quiet", "main")
+	gitIn(t, repo, "merge", "--quiet", "--ff-only", "faster-hook")
+	code, out, _ = cmd("gate", "--repo", repo, faster)
+	if code != 1 || !strings.Contains(out, "FAIL hook.capture_p95_ms p95: the baseline is stale: internal/hook changed between its commit "+commit[:12]+" and "+branch[:12]+"; accept a new baseline") ||
 		!strings.Contains(out, "hold fidelity.fact_recall") {
 		t.Fatalf("stale: %d\n%s", code, out)
 	}
-	if code, out, _ = cmd("gate", "--repo", repo, "--base", commit, runDir); code != 0 {
-		t.Fatalf("at the baseline's commit: %d\n%s", code, out)
+	if code, out, _ = cmd("gate", "--repo", repo, "--base", commit, faster); code != 0 {
+		t.Fatalf("with --base at the baseline's commit: %d\n%s", code, out)
+	}
+	if code, out, errOut = cmd("baseline", "accept", "--repo", repo, faster); code != 0 {
+		t.Fatalf("accept on main: %d %s %s", code, out, errOut)
+	}
+	if code, out, _ = cmd("gate", "--repo", repo, faster); code != 0 {
+		t.Fatalf("against the new baseline: %d\n%s", code, out)
+	}
+
+	// Rows whose commit the repository lacks have no start to find: the
+	// gate cannot run without --base.
+	missing := rowsOf(t, "0123456789abcdef0123456789abcdef01234567", false, []float64{30}, 0.9)
+	if code, out, errOut = cmd("gate", "--repo", repo, missing); code != 2 || out != "" || !strings.Contains(errOut, "cannot find the commit the change starts from") || !strings.Contains(errOut, "--base") {
+		t.Fatalf("a missing commit: %d %q %q", code, out, errOut)
 	}
 }
 

@@ -3,6 +3,7 @@ package results
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -114,6 +115,15 @@ func TestTheGeneratorIsSplitMix64(t *testing.T) {
 			t.Fatalf("draw %d: %#x, want %#x", i+1, got, w)
 		}
 	}
+	// A draw below n rejects the values that would favour the low numbers:
+	// for n just above 2^63, nearly half of them, so the draws are not
+	// SplitMix64's own modulo n.
+	g = splitmix{42}
+	for i, w := range []uint64{0x3dd732262feb6e94, 0x5e4431fa3c80db05, 0x4cf635ee9e9e2fa3, 0x1e54d738297f77ad} {
+		if got := g.below(1<<63 + 1); got != w {
+			t.Fatalf("draw %d below 2^63+1: %#x, want %#x", i+1, got, w)
+		}
+	}
 	g = splitmix{42}
 	for _, n := range []uint64{1, 2, 3, 7, 1 << 63, 1<<63 + 1, math.MaxUint64} {
 		for range 100 {
@@ -152,8 +162,42 @@ func TestFixtureRowsGiveExactStatistics(t *testing.T) {
 	if again := summarize(rows, Seed, 9); again != few {
 		t.Fatalf("the same seed gives %+v, then %+v", few, again)
 	}
+	if few.CILow != 9.7 || few.CIHigh != 11.9 {
+		t.Fatalf("9 draws with the seed give %v to %v, want 9.7 to 11.9", few.CILow, few.CIHigh)
+	}
 	if other := summarize(rows, Seed+1, 9); other.CILow == few.CILow && other.CIHigh == few.CIHigh {
 		t.Fatalf("another seed gives the same interval %v to %v", other.CILow, other.CIHigh)
+	}
+}
+
+// irregular is 24 made-up rows of 12 scenarios of one to three trials,
+// whose values share no lattice, so nearly every resample has a mean of its
+// own and the interval's ends move with the seed, the draws and the
+// quantiles taken.
+func irregular() []Row {
+	var rows []Row
+	for i := range 12 {
+		for j := range 1 + i%3 {
+			rows = append(rows, row(fmt.Sprintf("s%02d", i), float64(i*i)*0.37+float64(j)*1.13+0.011*float64(i)))
+		}
+	}
+	return rows
+}
+
+// At the full 10,000 draws, rows off a lattice give an interval only the
+// fixed seed, SplitMix64's draws and the 2.5% and 97.5% quantiles give.
+func TestTheSeedFixesTheInterval(t *testing.T) {
+	rows := irregular()
+	want := Summary{N: 24, Mean: 17.775833333333335, Median: 12.4755, P95: 46.021, Min: 0, Max: 47.150999999999996,
+		CILow: 8.624519999999997, CIHigh: 27.498538461538455, Scenarios: 12}
+	if got := Summarize(rows); got != want {
+		t.Fatalf("got %+v\nwant %+v", got, want)
+	}
+	if Seed != 0x65766120657661 || Draws != 10000 {
+		t.Fatalf("the seed is %#x and the draws %d", Seed, Draws)
+	}
+	if other := summarize(rows, 0x12345, Draws); other.CILow == want.CILow || other.CIHigh == want.CIHigh {
+		t.Fatalf("another seed gives %v to %v", other.CILow, other.CIHigh)
 	}
 }
 
@@ -307,6 +351,8 @@ func TestLoadRefusesADoctoredFile(t *testing.T) {
 		"a blank line":    "\n",
 		"a part of a row": lines[1][:20],
 		"not json":        "WAXWING-5\n",
+		// A whole row that lost only its newline is still a part of a line.
+		"no final newline": strings.TrimSuffix(lines[1], "\n"),
 	}
 	for name, last := range cases {
 		if err := os.WriteFile(file, []byte(lines[0]+last), 0o644); err != nil {
@@ -323,6 +369,38 @@ func TestLoadRefusesADoctoredFile(t *testing.T) {
 	}
 	if _, err := Load(filepath.Join(dir, "missing")); err == nil {
 		t.Error("a missing file loaded")
+	}
+}
+
+// A rows file left with a part of a line, as by an interrupted write, takes
+// no more rows: they would join the part and make the whole file
+// unreadable. The file stays as it was.
+func TestAppendRefusesAPartOfALine(t *testing.T) {
+	dir := t.TempDir()
+	if err := (Store{Dir: dir}).Append(row("a", 1), row("b", 2)); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, FileName)
+	good, _ := os.ReadFile(file)
+	for name, cut := range map[string]int{"a part of a row": len(good) - 20, "a row without its newline": len(good) - 1} {
+		if err := os.WriteFile(file, good[:cut], 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err := Store{Dir: dir}.Append(row("c", 3))
+		if err == nil || !strings.Contains(err.Error(), "does not end with a whole line") {
+			t.Errorf("%s: %v", name, err)
+		}
+		if data, _ := os.ReadFile(file); !bytes.Equal(data, good[:cut]) {
+			t.Errorf("%s: the file changed:\n%s", name, data)
+		}
+	}
+	// Once whole again, it takes rows.
+	os.WriteFile(file, good, 0o644)
+	if err := (Store{Dir: dir}).Append(row("c", 3)); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := Load(dir); err != nil || len(rows) != 3 {
+		t.Fatalf("%d rows, %v", len(rows), err)
 	}
 }
 
@@ -374,6 +452,29 @@ func TestAPlantedCodenameIsInNoRowOrReport(t *testing.T) {
 			t.Errorf("a codename in %s: %v", field, err)
 		}
 	}
+	// A codename is found whatever spells its letters and digits: a row's
+	// id can hold no space or underscore, so the codename's slug is what
+	// would be stored.
+	slugs := Store{Dir: runDir, Forbid: []string{"Blue Heron", "KESTREL_41", "--", ""}}
+	for _, scenarioID := range []string{"blue-heron", "blue.heron", "e.blueheron.1", "kestrel-41", "kestrel.41", "x-kestrel41"} {
+		r := instrument(sc, 1)
+		r.Commit, r.Scenario = commit, scenarioID
+		if err := slugs.Append(r); err == nil || !strings.Contains(err.Error(), "scenario holds a word the run forbids") || strings.Contains(err.Error(), "heron") {
+			t.Errorf("the slug %s: %v", scenarioID, err)
+		}
+		if err := Forbidden([]Row{instrument(sc, 1), r}, slugs.Forbid); err == nil || err.Error() != "row 2: scenario holds a word the run forbids" {
+			t.Errorf("Forbidden on the slug %s: %v", scenarioID, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(runDir, FileName)); !os.IsNotExist(err) {
+		t.Fatalf("a refused row was written: %v", err)
+	}
+	// Words that are only punctuation match nothing, and an id that holds
+	// none of the words passes.
+	if err := Forbidden([]Row{instrument(sc, 1)}, []string{"--", "", "Blue Heron"}); err != nil {
+		t.Errorf("a clean row: %v", err)
+	}
+
 	// The input itself is text, refused by the checks alone.
 	r := instrument(sc, 1)
 	r.Commit, r.Scenario = commit, sc.input
@@ -576,6 +677,75 @@ func TestGateRules(t *testing.T) {
 			t.Errorf("recall %v: %s", c.rows[0].Value, v.Line)
 		}
 	}
+	// At the margin exactly, in figures whose binary difference is not the
+	// margin's binary value: 0.9 - 0.85 is 0.05000000000000004, 0.9 - 0.8
+	// is 0.09999999999999998 and 0.29 of 100 is 28.999999999999996.
+	betterBy := Gate{Metric: "fidelity.fact_recall", Stat: "mean", Rule: "better", Margin: 0.1}
+	latency := Gate{Metric: "hook.capture_p95_ms", Stat: "p95", Rule: "not_worse", Margin: 0.29, Relative: true}
+	ms := func(vs ...float64) []Row {
+		var out []Row
+		for i, v := range vs {
+			r := row("s"+string(rune('a'+i)), v)
+			r.Commit = commit
+			out = append(out, r)
+		}
+		return out
+	}
+	for _, c := range []struct {
+		g              Gate
+		baseline, rows []Row
+		holds          bool
+		line           string
+	}{
+		{g, recall(0.9), recall(0.85), true, "hold fidelity.fact_recall mean: 0.85 ratio against the baseline's 0.9; may be worse (higher is better) by at most 0.05 ratio"},
+		{g, recall(0.9), recall(0.8499), false, "FAIL fidelity.fact_recall mean: 0.8499 ratio"},
+		{betterBy, recall(0.8), recall(0.9), true, "hold fidelity.fact_recall mean: 0.9 ratio against the baseline's 0.8; must be better (higher is better) by at least 0.1 ratio"},
+		{betterBy, recall(0.8), recall(0.8999), false, "FAIL fidelity.fact_recall mean: 0.8999 ratio"},
+		{latency, ms(100), ms(129), true, "hold hook.capture_p95_ms p95: 129 ms against the baseline's 100; may be worse (lower is better) by at most 29% of the baseline's figure"},
+		{latency, ms(100), ms(129.01), false, "FAIL hook.capture_p95_ms p95: 129.01 ms"},
+	} {
+		b := Baseline{V: Version, Commit: commit, Rows: c.baseline}
+		if v := Evaluate(context.Background(), repo, "HEAD", catalogue(t), []Gate{c.g}, c.rows, b)[0]; v.Holds != c.holds || !strings.HasPrefix(v.Line, c.line) {
+			t.Errorf("%v against %v: %s", c.rows[0].Value, c.baseline[0].Value, v.Line)
+		}
+	}
+}
+
+// Every rule holds at its margin exactly, as a person writes the figures,
+// and fails a hundredth of a unit beyond it: margins of 0.01 to 0.50 on
+// ratios of 0.50 to 0.95 either way, and shares of 1% to 100% of whole
+// milliseconds.
+func TestGatesHoldAtTheirMarginExactly(t *testing.T) {
+	cat := catalogue(t)
+	ratio, _ := cat.Metric("fidelity.fact_recall")
+	ms, _ := cat.Metric("hook.capture_p95_ms")
+	dec := func(hundredths int) float64 { return float64(hundredths) / 100 }
+	for base := 50; base <= 95; base += 5 {
+		for m := 1; m <= 50; m++ {
+			notWorse := Gate{Rule: "not_worse", Margin: dec(m)}
+			better := Gate{Rule: "better", Margin: dec(m)}
+			a := dec(base)
+			if !notWorse.holds(ratio, a, dec(base-m)) || notWorse.holds(ratio, a, dec(base-m)-0.0001) {
+				t.Errorf("%v worse by at most %v: %v", a, dec(m), dec(base-m))
+			}
+			if !better.holds(ratio, a, dec(base+m)) || better.holds(ratio, a, dec(base+m)-0.0001) {
+				t.Errorf("%v better by at least %v: %v", a, dec(m), dec(base+m))
+			}
+		}
+	}
+	for _, base := range []int{100, 200, 300, 1000} {
+		for p := 1; p <= 100; p++ {
+			g := Gate{Rule: "not_worse", Margin: dec(p), Relative: true}
+			a, c := float64(base), float64(base+base*p/100)
+			if !g.holds(ms, a, c) || g.holds(ms, a, c+0.01) {
+				t.Errorf("%v worse by at most %d%%: %v", a, p, c)
+			}
+			g.Rule = "better"
+			if c := float64(base - base*p/100); !g.holds(ms, a, c) || g.holds(ms, a, c+0.01) {
+				t.Errorf("%v better by at least %d%%: %v", a, p, c)
+			}
+		}
+	}
 }
 
 // One doctored row is enough to flip a gate, either way: a passing set
@@ -716,6 +886,98 @@ func TestABaselineGoesStaleWhenACoveredPathChanges(t *testing.T) {
 	}
 }
 
+// A gate judges a branch's change against the baseline of the commit the
+// branch starts from: a covered path the branch changes is what the gate
+// judges and leaves the baseline fresh, while one the main line changes
+// after the baseline makes it stale.
+func TestStartOfAChange(t *testing.T) {
+	isolate(t)
+	repo, commit := newRepo(t)
+	cat := catalogue(t)
+	ctx := context.Background()
+	g := Gate{Metric: "hook.capture_p95_ms", Stat: "mean", Rule: "not_worse", Margin: 1}
+	at := func(c string) []Row {
+		r := row("a", 10)
+		r.Commit = c
+		return []Row{r}
+	}
+	b := Baseline{V: Version, Commit: commit, Rows: at(commit)}
+
+	gitIn(t, repo, "switch", "--quiet", "-c", "change")
+	branch := commitFile(t, repo, "internal/hook/capture.go", "package hook\n\nvar x = 1\n")
+	if base, err := StartOf(ctx, repo, at(branch)); err != nil || base != commit {
+		t.Fatalf("the branch starts from %q, %v; want %s", base, err, commit)
+	}
+	if v := Evaluate(ctx, repo, commit, cat, []Gate{g}, at(branch), b)[0]; !v.Holds {
+		t.Fatalf("the branch's own change made the baseline stale: %s", v.Line)
+	}
+
+	gitIn(t, repo, "switch", "--quiet", "main")
+	moved := commitFile(t, repo, "internal/hook/other.go", "package hook\n\nvar y = 2\n")
+	if base, err := StartOf(ctx, repo, at(branch)); err != nil || base != commit {
+		t.Fatalf("after main moved, the branch starts from %q, %v", base, err)
+	}
+	base, err := StartOf(ctx, repo, at(moved))
+	if err != nil || base != moved {
+		t.Fatalf("a commit of main starts from %q, %v", base, err)
+	}
+	if v := Evaluate(ctx, repo, base, cat, []Gate{g}, at(moved), b)[0]; v.Holds || !strings.Contains(v.Line, "the baseline is stale: internal/hook changed between its commit "+commit[:12]+" and "+moved[:12]) {
+		t.Fatalf("main moved past the baseline: %s", v.Line)
+	}
+
+	// A gate judges rows of one commit: StartOf refuses more, and so does
+	// each gate whose metric's rows mix them.
+	mixed := append(at(commit), at(branch)...)
+	if _, err := StartOf(ctx, repo, mixed); err == nil || !strings.Contains(err.Error(), "measured on 2 commits") {
+		t.Fatalf("two commits: %v", err)
+	}
+	if v := Evaluate(ctx, repo, commit, cat, []Gate{g}, mixed, b)[0]; v.Holds || !strings.Contains(v.Line, "the rows were measured on 2 commits") {
+		t.Fatalf("a gate on two commits: %s", v.Line)
+	}
+	for name, rows := range map[string][]Row{"no rows": nil, "a missing commit": at(commitA)} {
+		if base, err := StartOf(ctx, repo, rows); err == nil || base != "" {
+			t.Errorf("%s: %q", name, base)
+		}
+	}
+
+	// Without a local main, the remote's is the main line; without either,
+	// there is no start to find.
+	gitIn(t, repo, "branch", "--quiet", "-m", "main", "trunk")
+	if _, err := StartOf(ctx, repo, at(branch)); err == nil || !strings.Contains(err.Error(), "no main branch") {
+		t.Fatalf("no main: %v", err)
+	}
+	gitIn(t, repo, "update-ref", "refs/remotes/origin/main", moved)
+	if base, err := StartOf(ctx, repo, at(branch)); err != nil || base != commit {
+		t.Fatalf("origin/main: %q, %v", base, err)
+	}
+}
+
+// The gate's first line names what it judges: the rows' commit and tree,
+// the baseline's commit and the base.
+func TestHeader(t *testing.T) {
+	const commitB = "89abcdef0123456789abcdef0123456789abcdef"
+	at := func(c string, dirty bool) Row {
+		r := row("a", 1)
+		r.Commit, r.Dirty = c, dirty
+		return r
+	}
+	b := Baseline{V: Version, Commit: commitA}
+	for _, c := range []struct {
+		rows []Row
+		base string
+		want string
+	}{
+		{[]Row{at(commitB, false)}, commitA, "rows of commit 89abcdef0123 on a clean tree, against the baseline of commit 0123456789ab, which must still describe 0123456789ab"},
+		{[]Row{at(commitB, false), at(commitB, true)}, "HEAD", "rows of commit 89abcdef0123 on a dirty tree, against the baseline of commit 0123456789ab, which must still describe HEAD"},
+		{[]Row{at(commitB, false), at(commitA, false)}, commitB, "rows of 2 commits, against the baseline of commit 0123456789ab, which must still describe 89abcdef0123"},
+		{nil, commitA, "no rows, against the baseline of commit 0123456789ab, which must still describe 0123456789ab"},
+	} {
+		if got := Header(c.rows, b, c.base); got != c.want {
+			t.Errorf("got  %q\nwant %q", got, c.want)
+		}
+	}
+}
+
 // Accept refuses rows it cannot stand behind and writes the baseline
 // otherwise, and LoadBaseline reads back only what Accept could write.
 func TestAcceptAndLoadBaseline(t *testing.T) {
@@ -735,10 +997,16 @@ func TestAcceptAndLoadBaseline(t *testing.T) {
 		"two commits":       {at(commit, false), at(commitA, false)},
 		"a missing commit":  {at(commitA, false)},
 		"an unknown metric": {func() Row { r := at(commit, false); r.Metric = "no.such"; return r }()},
+		"two hosts":         {at(commit, false), func() Row { r := at(commit, false); r.Host, r.HostVersion = "codex", "1.0"; return r }()},
+		"two models": {func() Row { r := at(commit, false); r.Model = "m1"; return r }(),
+			func() Row { r := at(commit, false); r.Model = "m2"; return r }()},
 	}
 	for name, rows := range refusals {
-		if _, err := Accept(ctx, repo, cat, rows, file); err == nil {
+		_, err := Accept(ctx, repo, cat, rows, file)
+		if err == nil {
 			t.Errorf("%s: accepted", name)
+		} else if strings.HasPrefix(name, "two ") && name != "two commits" && !strings.Contains(err.Error(), "hook.capture_p95_ms: the rows mix") {
+			t.Errorf("%s: %v", name, err)
 		}
 		if _, err := os.Stat(file); !os.IsNotExist(err) {
 			t.Fatalf("%s: the file was written", name)
@@ -766,6 +1034,8 @@ func TestAcceptAndLoadBaseline(t *testing.T) {
 		"another format": strings.Replace(string(data), `"v": 1,`, `"v": 3,`, 1),
 		"a short commit": `{"v":1,"commit":"abc","rows":[]}`,
 		"not a baseline": `[]`,
+		// One metric measured on two hosts: every other check passes.
+		"a second host": strings.Replace(string(data), `"scenario": "a",`, `"scenario": "a", "host": "codex", "host_version": "1.0",`, 1),
 	}
 	for name, text := range doctored {
 		if text == string(data) {
@@ -775,6 +1045,8 @@ func TestAcceptAndLoadBaseline(t *testing.T) {
 		os.WriteFile(bad, []byte(text), 0o644)
 		if _, err := LoadBaseline(bad, cat); err == nil {
 			t.Errorf("%s: loaded", name)
+		} else if name == "a second host" && !strings.Contains(err.Error(), "hook.capture_p95_ms: the rows mix") {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }
@@ -837,5 +1109,24 @@ func TestDiff(t *testing.T) {
 	unknown.Unit = "s"
 	if err := Diff(&out, cat, first, []Row{unknown}); err == nil {
 		t.Error("a row in another unit was compared")
+	}
+	// A difference reads as the figures do, without the rounding of
+	// binary figures: 0.8 to 0.9 is better by 0.1, and 0.1 and 0.2 make
+	// the same mean as 0.15 and 0.15.
+	for _, c := range []struct {
+		first, second []Row
+		says          string
+	}{
+		{[]Row{recall(0.8)}, []Row{recall(0.9)}, "better by 0.1"},
+		{[]Row{recall(0.9)}, []Row{recall(0.85)}, "worse by 0.05"},
+		{[]Row{recall(0.1), recall(0.2)}, []Row{recall(0.15), recall(0.15)}, "the same"},
+	} {
+		out.Reset()
+		if err := Diff(&out, cat, c.first, c.second); err != nil {
+			t.Fatal(err)
+		}
+		if line := strings.Split(out.String(), "\n")[1]; !strings.HasSuffix(strings.TrimRight(line, " "), "  "+c.says) {
+			t.Errorf("%v to %v: %q", c.first[0].Value, c.second[0].Value, line)
+		}
 	}
 }
