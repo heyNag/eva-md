@@ -290,7 +290,7 @@ Detail: [working-papers/design/ledger.md](working-papers/design/ledger.md).
 
 1. *eva-md owns the repository.* It lives in eva-md's data folder and is created at the first run with no question and no remote. Only the engine writes it, so it can clear its own locks, abort its own interrupted work and re-clone. A remote is attached, changed or removed later with one command that keeps setup's privacy checks (public refused, internal only on an explicit yes).
 2. *Items and sessions are files.* One small Markdown file per fact, decision, constraint or procedure, as v1's knowledge pages already are; standing rules and thread decisions join that family. One file per workstream. One file per organized session, holding its log and the range of the record it covers. Ids are 14 characters, sortable by time, and cannot collide between machines. A file's path never changes. Nothing volatile is committed: no timestamp is restamped on save, and indexes, maps and rendered views live in local state, rebuilt at will. These choices cost little now and are what makes sync possible later.
-3. *One write path, one commit per pass.* `store.Apply` takes a pass's operations, writes the files and makes one commit whose trailers name the pass, the session and the model. The range of the record that the pass covered is stored in the tree in the same commit, so progress is what the store holds: a restored store says exactly what to replay (STO: replay). `eva-md log`, `why` and `undo` read that history; the smallest thing that can be undone goes from a day to a pass.
+3. *One write path, one commit per pass.* `store.Apply` takes a pass's operations, writes the files and makes one commit whose trailers name the pass, the session and the model. The range of the record that the pass covered is stored in the tree in the same commit, so progress is what the store holds: a restored store says exactly what to replay (STO-12). `eva-md log`, `why` and `undo` read that history; the smallest thing that can be undone goes from a day to a pass.
 4. *Protection lives in the store and fails closed.* A file a person locked or verified, or one that cannot be read, refuses the one operation aimed at it. The pass and every other file go on. Today such a page stops a whole branch's memory, and `locked: true  # note` is read as not locked.
 5. *eva-md's own codec.* One line-preserving reader and writer for every file, which keeps every line a person wrote. The page format stays conformant with OKF v0.2, as a written profile and a test. The okf module is dropped (decision 1): the case is control, since a merge by field and fail-closed protection need a reader that keeps lines, which the library's parse-to-struct model cannot give. The binary then carries one third-party module.
 6. *Commits are eva-md's, not yours.* Authored as "eva.md on <machine>", and never asking for your signature. Whether they are signed with a key eva-md makes for the machine is settled in Stage 0, once the git server says what it accepts (decision 3).
@@ -364,7 +364,7 @@ Detail: [working-papers/design/deliver.md](working-papers/design/deliver.md).
 **Design.**
 
 1. *Hosts behind one interface.* What is known about a host (its capabilities by version, its quirks, where its CLI is) sits in one adapter with a table. Host names leave the rest of the code, where they appear in 29 files today. A third host becomes a table and an adapter, not edits across packages.
-2. *Codex: the hooks in a part that never changes.* Codex binds a plugin's approval to a hash of every file in it. So the hooks go in a two-file plugin that is frozen, with all routing in the binary behind a fixed path, and the skills and the MCP entry go in a second plugin that changes freely. The v1 plugin is already approved and the v2 binary can run behind it, so the move to v2 costs no review. Nothing is ever written inside a plugin's folder. Claude Code binds no approval to plugin bytes, so one plugin stays there.
+2. *Codex: the hooks in a part that never changes.* Codex binds a plugin's approval to a hash of every file in it. So the hooks go in a two-file plugin that is frozen, with all routing in the binary behind a fixed path, and the skills and the MCP entry go in a second plugin that changes freely. Releases before the cut-over change no plugin byte, so they cost no review. The frozen plugin is installed once, when you run the upgrade to v2.0, and that review is the last. Nothing is ever written inside a plugin's folder. Claude Code binds no approval to plugin bytes, so one plugin stays there.
 3. *An install manifest.* Each install records the files it rendered, with hashes, so any release can replace or remove another release's files and still refuse files it never wrote (OPS-07).
 4. *A first run that asks nothing.* One command registers the plugins and creates the store locally. It prints, once, what is captured, what a model is sent, and how to exclude a project or stop. Preferences a person edits are kept apart from state the program owns, and a broken preferences file falls back to the last one that validated instead of switching memory off.
 5. *A clock.* With your agreement (decision 4), one short-lived run every 15 minutes, started by the operating system, wakes the worker when no chat is open: it pushes, checks health and looks for a release. Nothing stays running. Without it, hook wakes carry the same steps while a chat is open, as v1 does today.
@@ -400,4 +400,190 @@ Further suites (task switching, rule compliance, drifted code, poisoning, aging 
 
 Detail: [working-papers/design/evaluate.md](working-papers/design/evaluate.md).
 
-<!-- PART-7-ON -->
+## 7. Decisions for the owner
+
+Each row changes a recorded decision or a rule in `AGENTS.md`, or is a product choice only you can make. Every one has a recommendation and a designed fallback, so "agree with all recommendations except these" is a complete answer. Decisions that only matter for work deferred past v2.0 are in section 12 beside the item they belong to.
+
+| # | Decision | Recommendation | If you say no | What it reopens |
+| --- | --- | --- | --- | --- |
+| 1 | Drop the okf module and own the page codec, keeping the format conformant with OKF v0.2 | Yes | Each file is saved through okf behind today's adapter. Comments and hand-written frontmatter are not preserved, its lock file sits in the store, and every okf release stays a risk | Decision 15; the rule that okf stays pinned; two dependencies become one |
+| 2 | eva-md owns the memory repository in its own data folder, created with no question and no remote; a remote is attached later | Yes | The store stays the folder you chose and setup keeps its questions. The guard refusals stay, and a stray lock still stops memory until a person acts | Decisions 1 and 16 |
+| 3 | Commits are made as "eva.md on <machine>", one per pass, and never ask for your signature. Sign them with a key eva-md makes for the machine if the git server accepts that; otherwise leave them unsigned | Yes, settled by Stage 0's check of the server | Per-pass commits stay local and are squashed into one commit with your identity and signing at each push, as v1's daily commit is. The daily prompt stays and single-pass undo ends at the push | Decision 7 |
+| 4 | One short-lived run every 15 minutes, started by the operating system (a launchd user agent; a systemd user timer on Linux) | Yes | Hook wakes carry the same steps while a chat is open. Nothing runs with every chat closed, so Friday's memory is pushed on Monday and a silent stop is noticed only at the next chat | "No sleeping jobs" |
+| 5 | Organize with a small model at low effort, chosen from a cost and fidelity frontier measured on real hosts, with one step up when the checker refuses | Yes | The chat's own model at a low default effort, with the token budget kept. Several times the tokens per chat | Decisions 5 and 17 |
+| 6 | Keep more of a chat locally: answers given in the host's dialogs and plan decisions (always), a subagent's task and report, and a bounded, strictly redacted digest of a command that failed | Yes, behind one setting | Dialog answers and plan decisions only. Lessons from failures and what subagents found reach memory only when a final reply restates them | Decision 16 (tool activity without output) |
+| 7 | The frozen redaction baseline becomes a test oracle (no true secret it removes may ever be kept, as a hard gate) instead of a second engine unioned in at run time. The baseline package itself is never touched | Yes, once the corpus shows zero oracle violations | The union stays. Non-secret facts about authentication stay masked for good, both engines run on every hook, and a quoted key header still deletes the rest of an entry | The `AGENTS.md` rule on `redact.Redact` |
+| 8 | A session file may be rewritten by one maintenance step that keeps every event id, so one line can be forgotten and a secret missed by an old rule can be repaired at rest | Yes | Forgetting stays whole-session, and a missed secret stays on disk until its whole chat is removed | "The inbox is never rewritten" |
+| 9 | Upgrades: a signed manifest, a daily check, one line when a release has waited a week, and `eva-md upgrade` that asks nothing. Installing in the background is deferred | Check now; decide on background install when there are users whose fixes are waiting | Upgrades stay as v1: a person finds out, runs a command and answers a question | "No auto-update", only if background install is later chosen |
+| 10 | A proposal you accepted (a short yes right after it, a dialog choice, a plan approval) becomes a durable decision, with both spans kept as evidence | Yes for decisions and procedures, never for standing rules | Typed words only. Such decisions stay as open questions on a workstream, as in v1 | Decision 5's promotion bar |
+| 11 | Hold back an item whose cited code is gone, label one whose code moved, and record a contradicting observation beside an item. Nothing but your words changes an item under your authority | Yes | Label only. Facts about deleted code keep arriving with only a date to warn the agent | "Never changed without the user" (narrowed to: never changed, may be held back) |
+| 12 | System pages: stop prompting for new ones, keep existing ones reachable on request, remove them from the default brief and prompts, and measure before investing further | Freeze and measure | Rebuild a system page as a view over cited items for its paths: a large package, for a feature the evidence does not favour | The system pages stage of the roadmap |
+| 13 | Reading across projects is closed by default: this project, items for all projects, and projects you share explicitly. v1's inferred sharing becomes a one-time review | Closed, with the review | As v1: an agent may search every project, with the project named on each hit | A deliberate v1 choice |
+| 14 | Subagents, and chats a program runs, get standing rules and constraints at their start, and nothing else | Yes | Nothing for either. Delegated work starts without the project's constraints | |
+| 15 | Per-component specs and dated decision records replace `docs/design.md` and `docs/verification.md` as the source of truth, and the tests that police those two files' prose are replaced | Yes | The two files are split so agents can read them, but stay the truth and stay policed. Every behaviour change still edits shared files | Two lines of `AGENTS.md` |
+| 16 | Live evaluation runs with standing leave inside a ceiling you set, instead of being asked for each time | Yes; set the ceiling after the Stage 0 pilot prices one session | Asked each time. Packages wait, integrated and unproven, until someone answers | The `AGENTS.md` rule on live runs |
+| 17 | Install one v1 point release that adds only content-free counters and changes no plugin byte, use it for a week, and bring back a second report | Yes | The first report only. Capture loss and freshness are then decided on inference | |
+| 18 | A candidate build may be replayed over your own local record, on your machine, printing counts only | Yes | Synthetic scenarios and the field report only. A rule that misbehaves on real phrasing is found after release | |
+| 19 | Tighten the pause switch: only a prompt you typed can pause capture, resuming must be the whole prompt, both hosts show a confirmation, there is an explicit command, and a fork inherits the state | Yes | As v1: a pasted line can resume capture, and recovery can pause a chat without telling you | Decision 16's off switch |
+| 20 | Each project gets an identity record with aliases, and each folder outside git is its own project | Yes | Aliases only. Renames and first pushes are fixed; folders outside git still share one area | Decision 10 |
+| 21 | Is a second machine needed in v2.0? | No. v2.0 is one writer with a pushed backup, built so sync can be added | If yes: sync moves into v2.0 and adds a large package, a multi-machine test suite and the signing rule of decision 3 as a security boundary | Decision 1 (one wiki per machine), later |
+| 22 | Rendered pages (a workstream's state, a project overview): local views, or committed so they read well on a git host | Local views; the repository holds items and sessions. Tell us if you read the wiki on the git host | A small set is committed and regenerated after every change, with commits caused only by rendering | Decision 2's "inspectable as plain Markdown" (kept either way through `eva-md show`) |
+| 23 | Which systems v2.0 runs on | macOS and Linux | macOS only | "macOS only" |
+| 24 | Beside the hosts' own memories: never write or configure them, divide the work, count the overlap, and test against them | Yes | If integration is wanted: read the host's memory as an input, later. Cost: dependence on an undocumented format | Decision 8 |
+| 25 | The host asks permission the first time an agent uses eva-md's read tool | Write nothing in the host's files. `status` prints the one rule you may add yourself | If you want it written: one command shows the rule, writes it with a backup, and removes it on uninstall | "Never write host settings" |
+| 26 | The cut line itself: v2.0 is section 6, held to the size budget, and section 12 waits for its triggers | Yes | Name what moves in. Each item in section 12 has its cost beside it | |
+
+Choices the lead will make unless you object, because they are technical and reversible: v2 is built on the main branch in new packages behind flags that default to v1's behaviour; no model judges any gated number; ids are 14 characters; an evaluation-only build tag lets a scripted session count as a person's chat, with tests that no release contains it.
+
+## 8. The roadmap
+
+Five stages. Each ends at a gate, and the plan is revised at each gate against what was measured. Sizes are rough agent effort: S is up to two days, M about a week, L more. They are for ordering, not promises.
+
+Package ids match the area designs in [working-papers/design/](working-papers/design/), so the detail for each is one search away. "(shrunk)" marks a package cut down from its design by the critique; the plan's wording governs.
+
+### Stage 0: ground truth
+
+No rebuild. The aim is to replace inference with measurement on the one real install and on real hosts, and then fix the cut line. It does not block Stage 1's instruments and specs; it decides the size and order of Stage 2.
+
+| Id | Package | What it gives | Needs from you |
+| --- | --- | --- | --- |
+| EV-00 | Field report folded in | Each Stage 0 measurement has a value or a stated unknown | Run [the prompt](field-report-prompt.md) once |
+| HF-00 | Host facts in one sitting, with recorded fixtures (LG-03, HO-01, ST-00, DL-01 merged) | Real hook payloads and transcripts from scripted sessions with made-up content, for both hosts; every host fact the designs lean on marked confirmed or refuted, each with its fallback | About an hour on the Mac with both hosts signed in; leave to make one scratch repository on the git server |
+| LG-01, LG-02, DV-01, DL-02, HO-02 | One v1 point release with counters only | How often v1 holds an event back; turn and tool coverage against the host's own record; what the checker and the triggers cost; how often a brief is stale; how health and approvals behaved. No plugin byte changes, so Codex's approval holds | One upgrade, a week of ordinary use, the report again (decision 17) |
+| DV-02, EV-01 | Live gates on v1 | v1's update meets real models on both hosts, at the highest and at a low effort; the output is recorded as fixtures; the resume test is run with the update on | Leave to spend model quota: 21 calls per host and effort |
+| DV-03 | Contract spike and the cost and fidelity frontier | The new contract's open bets settled by measurement: default model and effort, exact quotes against segment ids, whether a repair round pays | Quota, inside the same leave |
+| EV-03 | Pilot (shrunk) | Ten tasks under memory off, v1 and an ideal record: variance, tokens and minutes per session, and whether the tasks can show a difference at all | Quota; sets the ceiling of decision 16 |
+| EV-04 | The cut line fixed | This plan revised against the table below | Your agreement to the revised plan |
+
+What each result changes. The thresholds are written down now so the reading cannot be bent to fit the plan.
+
+| Measurement | If | Then |
+| --- | --- | --- |
+| Share of v1 passes whose whole answer is refused | 30% or more | The new contract is first in Stage 2 at full size |
+| | under 10%, with at least 0.9 of planted facts stored correctly on the new scorer | The contract shrinks to exact spans for items under your authority; recall work moves ahead of it |
+| Rule and knowledge adds the checker refused | half or more | Word-overlap attribution is confirmed as the loss |
+| | 15% or less | Spans are still built; the repair round is dropped |
+| Chat starts whose state was stale or pending | 30% or more | The worker and the fast pass go before any recall work |
+| | under 10% | The clock is argued on reliability alone |
+| Seconds and tokens per pass at the highest effort | median over 120 s, or any timeout | The small-model default is no longer optional |
+| Events v1 holds back; turn and tool coverage | under 0.5% held and coverage at least 99% | Recovery still moves out of the hook, for ids, order and missed decisions; no spool is built |
+| | 2% or more held, or tool coverage under 95% | The held spool and the new layout move from section 12 into Stage 3 |
+| One hook start on Codex, 95th percentile | over 100 ms | No hook on Codex's shell tool beyond what v1 declares |
+| Knowledge pages in the real wiki | none or a handful | Recall has no real index to be judged on yet; the migration is small |
+| | hundreds | The migration's property test is first in Stage 2 |
+| Daily commit outcomes; signing prompts | prompts daily, or pushes failing | Decision 3 as recommended; if the server refuses an unknown committer, its fallback |
+| Codex reviews needed after upgrades | any | The frozen hooks plugin is the first hosts package in Stage 2 |
+| The MCP server and skills | not connected, or never used unprompted | Nothing is built that depends on the agent choosing to call a tool |
+| The live resume test with the update on | the model ignores or misreads the brief | The typed brief moves first in Stage 2 |
+| Pilot: an ideal record against memory off | under 30% fewer steps | The tasks are rebuilt before any result is trusted |
+
+### Stage 1: instruments, and changes that ship on v1
+
+Nothing here changes a user's data. Each change replaces what it improves, and each instrument gives v1 a row that Stage 2 must beat.
+
+| Id | Package | Outcome and gate | Size | Depends on |
+| --- | --- | --- | --- | --- |
+| EV-10 | Specs and decision records (shrunk) | `docs/design.md` and `docs/verification.md` frozen and split into a spec per component of at most 24 KB and dated decision records; each spec lists the must-keep items it touches and the tests that hold them | M | decision 15 |
+| EV-11 | Ownership and size checks (shrunk) | CI fails a change that touches paths outside its package's list, and fails when shipped Go outside tests exceeds v1's 54,807 lines | S | EV-10 |
+| EV-12 | Results store and gates (shrunk) | Every result is a row with commit, host version and model; "better or worse than the accepted baseline" is one command | M | |
+| EV-14 | Fidelity scorer, with v1's score (EV-13 shrunk into it) | A black-box, value-exact scorer with a precision side, on v1's 12 scripts and about six new families, half held out. Gate: it catches a wrong value, a dropped date and an invented item that v1's scorer passes | L | LG-10 |
+| DL-04 | Labelled retrieval set and scorer | Precision, recall, false additions and silence, with near misses and a held-out half; v1's recall is the recorded baseline | M | |
+| EV-16 | Latency that fails a build | Hook time at realistic sizes and the per-turn figure, gated on the macOS job | M | EV-12 |
+| EV-17 | Continuation harness (shrunk) | 20 tasks, three conditions, hidden tests; v1's row recorded | L | EV-03, EV-12 |
+| LG-10 | Event model and the one reader | Typed events with stable ids over v1's files; a v1 inbox read through it yields the same text at the same reference | M | |
+| LG-13 | Hook payloads through adapters; author by allowlist | Every fixture payload decodes to its labelled events; nothing is filed as typed without positive evidence | M | HF-00, LG-10 |
+| LG-11 | Redaction driver with spans, same behaviour | `Apply(Scan(x))` equals v1's output on every test case and 150,000 generated inputs; time at 16 KiB at least halves; a cancelled scan returns a redacted prefix | M | |
+| LG-12 | Redaction corpus, rates and the oracle | CI prints recall by class, the rate of facts lost and of hex keys kept; oracle violations are 0 | M | LG-11 |
+| DV-12 | One worker, no lost wake | v1's jobs run under one worker with a journal; a wake that finds it busy loses nothing (hard gate) | M | |
+| DV-11 | Runner with a probe and typed outcomes | Host failures classified from structured fields; a run cannot pass with a tool call or another model unseen; the host's version is recorded | M | DV-02 |
+| DV-13 | Cost ledger, token budget, small default | What organizing spends is one number and a budget the worker obeys; the default model and effort follow DV-03 | S | DV-12, decision 5 |
+| HO-10 | Host adapter and capability table | One place knows a host; host names leave the rest of the code as packages are touched | M | |
+| HO-11 | Install manifest | Any release can replace or remove another release's rendered files, proven by an upgrade test from each earlier layout | M | HO-10 |
+| HO-12 | Health that sees missing work (shrunk) | Lag against a budget per stage; the most severe relevant condition, one line, prepared outside the hook; no notice in a replayed healthy month | M | HO-10 |
+| HO-13 | Signed release manifest, daily check, an upgrade that asks nothing (HO-25 shrunk into it) | A binary and the install script verify a release offline; `eva-md upgrade` runs with no question; the previous binary is kept | M | decision 9 |
+| HO-14 | Fake hosts that fail the way real ones do | Tests can exercise hash-bound trust, host versions and policy blocks offline | S | |
+| ST-01 | Store format specification and the OKF profile | Every file format, id rule and protection rule written down; a hand-made fixture store passes the profile checker | M | decisions 1, 2, 3, 22 |
+| ST-03 | One line-preserving, fail-closed codec | `Write(Read(b)) == b` over a corpus of hand edits; every unreadable protection value protects; parse equality with okf on v1 pages | M | ST-01 |
+| ST-04 | Migrator and minimum reader version (shrunk) | One idempotent, resumable step with a dry run; a crash at any point reruns to the same tree; an older binary reads nothing and says so once | M | ST-01 |
+| ST-02 | Storage properties as tests (shrunk) | Crash safety, exactly once, protection, restore and replay stated as properties and run against a reference model, each killed by a broken variant | M | ST-01 |
+
+### Stage 2: one core rebuild and one cut-over
+
+The new store, the new contract and the new brief are built behind flags and run in shadow against a scratch store. They are switched on together in one release, which also deletes v1's pipeline. The old wiki clone and the inbox are left untouched as the way back.
+
+| Id | Package | Outcome and gate | Size | Depends on |
+| --- | --- | --- | --- | --- |
+| LG-23 | Decisions and delegated work in the record (shrunk) | Dialog answers, plan decisions, subagent tasks and reports, failure digests and delivery records are typed events, all through hooks. Gate: every fixture decision captured with the right author; a successful command stores no output | M | LG-13, decision 6 |
+| LG-21 | Recovery out of the hook (shrunk) | The transcript is read by the worker; the reader exposes a session only up to the checked point. Gate: no leak after a pause under generated patterns of dropped and delayed hooks; no duplicates; the hook-sliced machinery is deleted | L | LG-10, DV-12 |
+| LG-22 | Project identity and aliases | One id through a scripted first push, rename, move and worktree; a fork under a new remote is never joined automatically | M | LG-10, decision 20 |
+| LG-24 | A pause switch that can be seen | Strict phrases, an explicit command, confirmation on both hosts, inheritance on fork | M | LG-21, decision 19 |
+| LG-26 | Redaction that keeps facts and finds more secrets (shrunk to two policies) | Under the corpus: at most a fifth of v1's lost facts, under 1% of hex keys kept, the gate before a push flags everything capture replaces | M | LG-12, decision 7 |
+| ST-05 | Store core | An owned repository, `Apply`, one commit per pass, coverage in the tree, protection in the store. Gate: the single-machine properties pass on the real store; a locked item is byte-identical after 1,000 passes aimed at it; a pass is durable in under 2 s | L | ST-03, ST-04 |
+| ST-06 | Attach, change and remove a remote; push each pass | A local store can be backed up and re-pointed with one command; the age of the oldest change not yet off the machine is reported | S | ST-05 |
+| ST-07 | Migrate a v1 wiki | Every unit of v1 text accounted for exactly once on generated wikis and on a dry run over a copy of the real one; the old clone byte-identical afterwards | L | ST-05, LG-22 |
+| ST-08 | Audit, undo, restore and replay | `log`, `why` and `undo` per pass; a deleted store restores from its remote and queues exactly the uncovered ranges | M | ST-05 |
+| DV-20 | Episodes and a cursor | The model's input is whole turns with stated context, read through the one reader; no file is rescanned | L | LG-10 |
+| DV-21 | Extraction contract and its checker | Delta operations, exact quotes, authority from the record, acceptance per operation, one repair round. Gate: nothing misattributed; fidelity above v1's row; at most 5% of faithful statements refused | L | DV-03, DV-20, LG-13 |
+| DV-22 | Failure semantics (shrunk) | Two priorities, one daily cap, one hold with backoff, a pause after three host-shaped failures; nothing skipped without a record | M | DV-11, DV-12 |
+| DV-23 | Items and workstreams (shrunk) | v1's four kinds; authority rules; branch binding and folding on merge; an observation never replaces what the user stated | M | ST-05, DV-21 |
+| DV-24 | The fast pass, end to end | A chat's memory on file within minutes of its end, at a fraction of v1's cost, measured live | M | DV-20 to DV-23 |
+| DV-25 | Migration of v1 progress and meaning | Nothing organized twice and no statement lost; v1's observed items that rested on the assistant's report are relabelled, not removed | M | ST-07 |
+| DL-05 | One tokenizer and one strict reader | Every match in the product uses the same tokens; every injected file is opened by the same checked reader | S | DL-04 |
+| DL-07 | One access layer | Hooks, command line and MCP return the same item set for the same scope, by test | M | LG-22, ST-05, decision 13 |
+| DL-08 | The pack | Hooks read a small compiled file set; chat-start cost no longer grows with the inbox | M | ST-05 |
+| DL-09 | What a chat holds (shrunk) | A set of ids per context window, reset on compaction, and an owed-brief flag | S | LG-23 |
+| DL-10 | The typed brief | New, cleared, compacted, resumed and forked chats each get the brief defined for them. Gate: the handoff suite not worse than v1's row; under 150 ms | L | DL-08, DL-09 |
+| DL-11 | Delivery wired into the hook | Start, first prompt and exact keys, beside capture with its own budget and failure count; a failed delivery is owed and retried | M | DL-10, LG-13 |
+| DL-12 | The two read tools | An agent reaches a memory in one or two calls, inside its scope, with paging | M | DL-07, DL-08 |
+| DL-13 | Chat search on the same tokenizer (shrunk) | Matches across a turn, needs no 90-day window; the search index's own scorer is kept | M | DL-05, LG-10 |
+| HO-20 | Codex hooks in a frozen plugin (shrunk) | Frozen once, after HF-00's measurements, with a test on the bundle's hash; skills and the MCP entry in a second plugin | M | HF-00, HO-11, LG-23 |
+| HO-21 | The first run | Install asks nothing, says once what it does; a project can be excluded or memory stopped with one command | M | HO-11, ST-05 |
+| HO-22 | The clock | The worker is woken on a schedule; hook wakes are the fallback | M | DV-12, decision 4 |
+| HO-23 | Health on v2's evidence (shrunk) | Each silent stop in the fault table is noticed by a part that still runs; three channels: a chat-start line, one line in a read tool's result, `status` | M | HO-12, HO-22 |
+| HO-24, HO-26 | The cost line and the command surface | `status` is a verdict of at most six lines with a cost line; about a dozen verbs | S | DV-13 |
+| HO-40 | Linux release assets (shrunk) | eva-md installs and runs on Linux | S | HO-22, decision 23 |
+| EV-20 | Gates as areas land | Each rebuild judged against v1's row on the same instrument | M | the packages above |
+| EV-21 | Migration rehearsal | The move from v1 proven on generated installs before any user runs it | M | ST-07, DV-25 |
+| HO-27, ST-13, DV-26 | The cut-over | One release: the store, the contract and the brief switched on; v1's update, page packages, okf and triggers deleted. Gates: fidelity above v1's row, handoff not worse, latency inside its ceilings, shipped lines at or under v1's, no unaccounted text in the migration | M | everything above |
+
+### Stage 3: small fixes that are owed, and whatever a number asks for
+
+Owed, because each closes a confirmed finding at small cost:
+
+| Id | Package | Outcome | Size |
+| --- | --- | --- | --- |
+| DL-16 | A compacted chat keeps its footing | The constraints and a complement of the host's summary are delivered after compaction; a lost one is retried | S |
+| DL-15 | Subagents and program-run chats read the constraints | Delegated work starts with the standing constraints and nothing else | S |
+| DL-18 | Stale claims held back or labelled | Drift of an item's code anchors decides whether and how it is delivered | M |
+| DL-20 | Receipts | A person can see what a chat was given and what was held back | S |
+| LG-30 | Forget one line (shrunk) | Forget by session, turn or event; items that rest only on it are retracted | M |
+| DV-30 | Housekeeping (shrunk) | Exact duplicates merged; a merged branch's decisions folded into the project | S |
+| DV-32 | Corpus counters | Numbers that say whether a richer lifecycle or a reviewing pass is needed | S |
+| DV-35 | System pages frozen | They cost nothing unasked and can be measured | S |
+| EV-23 | One content-free report | After v2 the field report is one command's output | S |
+
+Asked for by a number: each item in section 12 whose trigger has fired by then.
+
+### Stage 4: proof and release
+
+| Id | Package | Outcome |
+| --- | --- | --- |
+| LG-50, DV-50, HO-51 | A week on the real install | The starred bars of section 5.4 are met, or the release notes say which were not and why |
+| EV-51 | Releases read the gates | A release cannot be cut over a red or stale gate |
+
+### What runs in parallel
+
+Six tracks own disjoint paths, so their packages can be built at once. The lead owns the files every track touches: `go.mod`, `AGENTS.md`, the hook declarations in `internal/install/templates`, the command dispatch in `cmd/eva-md/main.go`, and the docs index.
+
+| Track | Owns | v1 code it freezes, then deletes |
+| --- | --- | --- |
+| Record | `internal/ledger` (new), the capture body of `internal/hook`, `internal/redact` | `internal/catchup`'s hook slicing, `internal/inbox`'s readers |
+| Store | `internal/store` (new), `internal/gitrun` (new) | `internal/okfadapter`, `internal/wikigit`'s commit path, `internal/wikiinit` |
+| Organizing | `internal/work` (new), `internal/derive` (new) | `internal/update`, `internal/hook/trigger.go`, `internal/lint` |
+| Recall | `internal/pack`, `internal/brief`, `internal/retrieve` (new), `internal/mcp` | `internal/resume`, `internal/hook/pointers.go` and `recall.go`, `internal/knowledgepage`'s recall and scope |
+| Hosts | `internal/hostadapter` (new), `internal/install`, `internal/health`, the setup files of `cmd/eva-md` | the guided setup, `config.env`, the doctor's rows |
+| Proof | `cmd/eva-eval`, `internal/eval` (new; never in a release) | `cmd/live-accuracy`, `internal/update/accuracy` |
+
+The critical path is short: the one reader (LG-10), then episodes and the contract (DV-20, DV-21) on one side and the codec and store core (ST-03, ST-05) on the other, meeting at the fast pass (DV-24), the migration (ST-07) and the brief (DL-10).
+
+<!-- PART-9-ON -->
