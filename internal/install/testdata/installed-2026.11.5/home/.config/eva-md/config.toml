@@ -1,0 +1,4 @@
+wiki_path = "@HOME@/eva-wiki"
+expected_remote = "github.com/example/eva-wiki"
+instance = "fixture-12345678"
+machine_label = "fixture"

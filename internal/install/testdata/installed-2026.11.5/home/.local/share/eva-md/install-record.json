@@ -1,0 +1,68 @@
+{
+  "format": 1,
+  "items": [
+    {
+      "kind": "binary",
+      "path": "@HOME@/.local/share/eva-md/bin/eva-md"
+    },
+    {
+      "kind": "marketplace",
+      "host": "claude",
+      "path": "@HOME@/.local/share/eva-md/marketplace/claude"
+    },
+    {
+      "kind": "plugin",
+      "host": "claude",
+      "value": "eva-md@eva-md"
+    },
+    {
+      "kind": "marketplace",
+      "host": "codex",
+      "path": "@HOME@/.local/share/eva-md/marketplace/codex"
+    },
+    {
+      "kind": "plugin",
+      "host": "codex",
+      "value": "eva-md@eva-md"
+    },
+    {
+      "kind": "config",
+      "path": "@HOME@/.config/eva-md/config.toml"
+    },
+    {
+      "kind": "folder",
+      "path": "@HOME@/.config/eva-md"
+    },
+    {
+      "kind": "folder",
+      "path": "@HOME@/.local/share/eva-md"
+    },
+    {
+      "kind": "folder",
+      "path": "@HOME@/.local/state/eva-md"
+    },
+    {
+      "kind": "folder",
+      "path": "@HOME@/.local/state/eva-md/logs"
+    },
+    {
+      "kind": "folder",
+      "path": "@HOME@/.local/state/eva-md/cache"
+    },
+    {
+      "kind": "wiki",
+      "path": "@HOME@/eva-wiki",
+      "kept": true
+    },
+    {
+      "kind": "wiki_remote",
+      "value": "github.com/example/eva-wiki",
+      "kept": true
+    },
+    {
+      "kind": "path_link",
+      "path": "@HOME@/.local/bin/eva-md",
+      "value": "@HOME@/.local/share/eva-md/bin/eva-md"
+    }
+  ]
+}

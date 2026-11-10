@@ -1,0 +1,6 @@
+{
+  "name": "eva-md",
+  "description": "Automatic private markdown memory for Claude Code and Codex.",
+  "owner": {"name": "eva-md"},
+  "plugins": [{"name": "eva-md", "source": "./plugins/eva-md"}]
+}

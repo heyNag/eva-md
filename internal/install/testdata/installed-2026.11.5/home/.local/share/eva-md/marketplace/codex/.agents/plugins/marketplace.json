@@ -1,0 +1,5 @@
+{
+  "name": "eva-md",
+  "interface": {"displayName": "eva.md"},
+  "plugins": [{"name": "eva-md", "source": {"source": "local", "path": "./plugins/eva-md"}, "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"}, "category": "Productivity"}]
+}
