@@ -32,7 +32,7 @@ func Status(ctx context.Context, d paths.Dirs) Report {
 }
 
 // eva-md status's own rows come after the doctor's, from the config read
-// once more (see statusConfig), and only with a wiki.
+// once more (see statusWiki), and only with a wiki.
 func init() {
 	registerRows(1100, "wiki contents", func(r *Report, in *inspection) {
 		if c, ok := in.statusWiki(); ok {
