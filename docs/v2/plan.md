@@ -6,7 +6,33 @@
 
 **Companion files:** [findings.md](findings.md) lists every audit finding by id. [working-papers/](working-papers/) holds the audits, research notes, area designs and critiques this plan was distilled from. Where they differ from this file, this file governs.
 
-<!-- PART-1 -->
+## 1. The short version
+
+**Where v1 stands.** eva-md is careful work, and much of it should be kept as it is: hooks that cannot hurt the host, redaction before anything reaches disk, a resume brief built by code, a sealed model run, a crash-safe page store, a transactional install. But the half that makes it a memory (summarizing chats, promoting lasting facts, recalling them, committing them) has only ever run against canned model output, and nothing measures whether memory helps a chat. The audit kept 252 findings. They trace to ten structural choices, set out in section 3.2, and none of them is fixed by patching.
+
+**What the evidence says to build.** On real coding tasks most memory systems do not beat having no memory, and they fail by storing and injecting too much. What works is narrower than what v1 attempts and narrower than what a first redesign reached for: a compact brief that hands work over, short statements whose author is known and which are checked against the code before use, the raw record kept beside them, and silence when unsure.
+
+**The proposal.** Rebuild five things, properly, and measure each against v1:
+
+1. **One contract for organizing.** A small model proposes operations with the exact words they rest on. Code checks every quote and decides whose words they are from the record, not from how alike two texts look.
+2. **A store eva-md owns.** One small file per fact, one commit per pass, every change explainable and undoable, created with no question and backed up when you attach a remote. eva-md's own codec replaces the library it was built on; the file format stays.
+3. **A worker that loses nothing.** It computes what is pending instead of trusting triggers, reads the host's transcript off the hook's path, and runs on a clock.
+4. **A brief built for the work in hand.** Typed sections from a prepared pack, fresh at every boundary, the constraints restated after a compaction, and near-silence on later prompts.
+5. **An install that asks nothing**, health that notices missing work, and upgrades that are one command an agent can run.
+
+Before any of that, **four instruments** give v1 a baseline: fidelity of what is written, precision of what is retrieved, latency, and whether a second session really continues the first.
+
+**The cut line.** A critique of the full design found it would build a second system beside the first. So v2.0 is one writer on one machine with a pushed backup, held to a size budget: the shipped code may not grow past v1's. Sync between machines, background self-install, recall at tool time, a richer lifecycle for facts, embeddings and reach beyond macOS and Linux are designed, and each waits for the measurement that would justify it (section 12).
+
+**What it will feel like.** No questions at install. No daily signing prompt. One Codex review, ever. A chat's memory on file within minutes of its end, at a fifth of today's cost or less. A brief that fits the task. Nothing to type in an ordinary month. Section 5.4 has the numbers.
+
+**What is needed from you.**
+
+1. Run the [field report prompt](field-report-prompt.md) on the real install and bring the report back. The plan is revised against it before anything is sized.
+2. Answer the 26 decisions in section 7. Each has a recommendation and a fallback, so "agree, except these" is enough.
+3. For Stage 0: about an hour with both hosts for a host-facts sitting, one small v1 upgrade and a week of ordinary use, and leave to spend some model quota on live runs.
+
+**What happens next.** Stage 0 measures. Stage 1 builds the instruments and ships improvements on v1 that change no data. Stage 2 is one rebuild and one cut-over, with the old wiki left untouched as the way back. Stage 3 closes small owed fixes and opens whatever a number asks for. Stage 4 is a week of proof on the real install and the release. The plan is revised at every gate.
 
 ## 2. How this plan was made
 
@@ -16,7 +42,7 @@ The plan rests on four passes, each checked by a second reader who was told to t
 | --- | --- | --- |
 | Audit | 17 parts of eva-md read in full, code first and documents second, each against seven questions: memory quality, recall quality, invisibility, reliability and safety, reach, architecture, evaluation | 252 findings kept: 7 critical, 85 high, 126 medium, 34 low. Of 204 first-pass findings the second reader confirmed 131 and corrected the scope or severity of 73; it refuted none outright and added 48 of its own |
 | Research | Six topics from primary sources as they stood on 2026-11-10: Claude Code and the Claude apps as a platform; Codex as a platform; retrieval that fits one static binary; memory tools for coding agents; general agent-memory systems; how memory is evaluated | 153 load-bearing facts re-checked against their sources: 121 confirmed, 31 corrected, 1 refuted |
-| Design | Six area designs built on the audit and the research: the record, the wiki, organizing, recall, hosts and operations, proof | <!-- DESIGN-COUNT --> |
+| Design | Six area designs built on the audit and the research: the record, the wiki, organizing, recall, hosts and operations, proof | Six designs, each with its bars, contracts, migration and work packages. Taken whole: 128 work packages and 51 decisions for the owner |
 | Critique | Three critics over all six designs: will it work, is it the smallest design that meets the bar, can a team of agents build it in this order | <!-- CRITIQUE-COUNT --> |
 
 Limits of this evidence, stated once so nobody leans on it too hard:
@@ -586,4 +612,105 @@ Six tracks own disjoint paths, so their packages can be built at once. The lead 
 
 The critical path is short: the one reader (LG-10), then episodes and the contract (DV-20, DV-21) on one side and the codec and store core (ST-03, ST-05) on the other, meeting at the fast pass (DV-24), the migration (ST-07) and the brief (DL-10).
 
-<!-- PART-9-ON -->
+## 9. How the build is run
+
+The build is done by a team of coding agents working in parallel, with one lead that orchestrates. You decide, approve each stage gate, and run whatever needs your accounts or your machine.
+
+**Roles.**
+
+| Role | Does |
+| --- | --- |
+| Owner | Answers the decisions of section 7. Approves each stage gate. Runs the field report, the host-facts sitting and upgrades on the real install. Gives leave for live runs and sets their ceiling |
+| Lead | Writes each package's card. Reviews specs, contracts between tracks, decision records and any change to a shared file. Integrates. Runs the live evidence. Revises this plan at each gate and reports what was measured |
+| Builder | One agent per package, in its own worktree and branch. Writes the spec where the package defines a contract, then code and tests. Never spends model quota |
+| Reviewer | A fresh agent given only the card, the spec and the diff, told to break it. Privacy-bearing packages (the record, redaction, the pause switch, store protection, anything that puts text in a chat) get two |
+
+**Documents a team can work from.** `docs/design.md` and `docs/verification.md` are frozen and split. Each component gets a spec of at most 24 KB beside its package: its interface, its invariants, the must-keep items it touches and the tests that hold them. Each decision that changes a rule gets a dated record in `docs/decisions/`. A builder loads one spec, not 390 KB. This plan stays the map; the specs become the truth as each is written.
+
+**A package's life.**
+
+1. *Card.* The lead writes it from this plan: the finding ids it closes, the paths it owns and may touch, what it depends on, the exact commands that accept it, and the v1 files it deletes.
+2. *Spec and review*, only for a package that defines a contract another track builds on. A second agent checks it against the invariants, the project rules and the smallest design that meets the bar.
+3. *Build* on a branch from `main`, with characterization tests around any v1 behaviour being replaced.
+4. *Checks.* The project's own checks (`scripts/linux-check.sh`; the macOS job is the record), then the instruments its acceptance names.
+5. *Adversarial review.* Every finding fixed, or recorded and accepted by the lead.
+6. *Integrate.* The lead merges in dependency order. A package whose diff stays inside its paths, whose gates are green and whose review is closed needs no further reading.
+7. *Prove*, where the package needs a live measurement: batched by the lead inside the ceiling of decision 16. Until it passes, the feature stays in shadow.
+
+**How a package is accepted.** One of three ways, so nobody invents a metric where none belongs. *Moves*: a named measure beats its baseline. *Holds*: every gate stays green while something is replaced or deleted. *Guards*: a new gate exists and fails on a fault seeded to trip it.
+
+**Rules that keep parallel work safe.**
+
+- v2 is built on `main`, in new packages beside the old, behind flags that default to v1's behaviour. `main` stays releasable, and the real install can run shadow modes from ordinary releases.
+- A diff stays inside the paths on its card. CI checks it.
+- v1 packages scheduled for deletion are frozen. Nobody improves code that is going away.
+- Shared files have one writer, the lead.
+- Each track's interface lands in Stage 1 as types and signatures. After that a contract changes only through a decision record.
+- The hook declaration changes once, in HO-20.
+- Every flag has an owner and the package that removes it.
+- Every rule in `AGENTS.md` holds unless a decision in section 7 changed it. In particular: `internal/redact/baseline` is never edited, tests never touch the real machine or depend on its speed, hooks never call a model or the network, and only eva's name is shown.
+- The shipped code is no larger than v1 at the end of a stage.
+
+**Gates on a release.** Every merge: both CI jobs and every hard gate. A release that changes the contract or the model policy: fidelity on held-out scenarios on both hosts. A release that changes the brief: the continuation tasks. The cut-over: the migration rehearsal green and your dry run reporting nothing unaccounted. A hard gate is never waived; another gate only by you, in a dated decision record.
+
+## 10. Migration and the way back
+
+Nothing a user has is lost, and at every step there is a way back.
+
+1. **Stage 1 changes no data.** Its releases run on v1's inbox and wiki. They change no plugin byte, so Codex asks for nothing.
+2. **Shadow before cut-over.** From ordinary releases, the new contract and brief run against a scratch store and log counts only. A week of shadow on the real install comes before any switch.
+3. **The cut-over is one upgrade you run.** In order: a dry run of the migration prints counts and stops if any v1 text is unaccounted for; the store is created in eva-md's data folder as a clone of the v1 wiki, with its whole history, and the migration is one commit on top; v1's progress markers become coverage, so nothing is organized twice; the pack is compiled; the new plugins are installed, which asks for one Codex hook review, the last.
+4. **What stays untouched.** The old wiki clone, byte for byte. The inbox, which the new reader reads in place; every reference already written still resolves. Pages a person locked or verified become protected files. Pages the migrator cannot read are carried under `legacy/` as they are.
+5. **The way back.** For 14 days `eva-md migrate --abandon` points eva-md back at the old clone and the kept previous binary. After that the old clone is still there, and nothing ever deletes it.
+6. **A remote.** If the v1 wiki had one, it becomes the store's remote, and the new commits are pushed as a fast-forward of the old history. Nothing is forced.
+
+## 11. Risks
+
+| Risk | What limits it |
+| --- | --- |
+| The hosts move weekly: hook payloads, transcript formats, trust rules, and how headless runs are billed | One adapter per host with recorded fixtures per version. The brief needs no model, so memory degrades to "less organized", never to "nothing". Organizing pauses itself on an unrecognized host and resumes on a version change |
+| A cut-over of the store, the contract and the brief at once | Shadow on a scratch store first, a rehearsal on generated installs, a dry run on a copy of the real wiki, the old clone untouched, 14 days to abandon |
+| The plan grows back into a second system | The cut line, the size budget checked in CI, a trigger written down for every deferred item |
+| A small model alters quotes, so little is stored | Measured in Stage 0 before anything is built on it; a fallback to segment ids; one step up to a larger model |
+| A faithful quote sits under an unfaithful statement | Value-exact scoring in the fidelity instrument; items under your authority are shown with the quote they rest on when asked |
+| Privacy regresses in the rebuild (the pause switch, redaction) | Hard gates with seeded leaks; a differential test against v1's redaction on 150,000 inputs; the baseline as an oracle |
+| Evaluation costs more than it returns, or variance hides the effect | Four instruments only; a pilot prices a session before any ceiling is set; gates are on steps, tokens and corrections, which can be measured, not on small solve-rate differences |
+| One real install, so the migration cannot be rehearsed widely | Property tests over generated wikis; the first real run is watched; the old clone is the way back |
+| Stage 0 asks a lot of you: a report, an hour of host facts, a point release and a week, leave for live runs, 26 decisions | Stated here so it can be planned; nothing in Stage 1 waits on it |
+| Memory is an injection path | Items carry whose words they are and what the turn was exposed to; nothing exposed to outside text is promoted without your word; held, disputed and unverified items are never pushed |
+| The hosts' own memories improve | Tested against in every experiment. What stays eva.md's: one memory across both agents, work state per workstream, checks against the code, receipts, and files you own |
+| Agents building in parallel collide or drift from the design | Paths per package checked in CI, contracts first, v1 frozen, one writer for shared files |
+
+## 12. Later, each with its trigger
+
+None of these is in v2.0. Each has a design in the working papers and opens when its trigger fires.
+
+| Item | Opens when | Rough cost | Needs from you |
+| --- | --- | --- | --- |
+| Sync between your machines (fetch, merge by field, enrolled writers) | You have a second machine, and single-machine v2.0 has run for a month | L, plus a multi-machine test suite | Decision 21. Signing then becomes a security boundary: commits from a machine not enrolled are merged but held from delivery |
+| A held spool and a session-keyed layout for the record | The counted week shows 2% or more of events held back, or under 95% of tool calls captured | L | |
+| Text between tool calls kept in the record | An evaluation arm shows organizing does better with it | S, plus an expiry rule | A change to "kept with no time limit" for that text |
+| A richer lifecycle: candidates that must recur, expiry, archive by disuse | The corpus counters show noise, duplicates or stale items above their thresholds | M to L | |
+| Lessons from failures, and preferences, as kinds | The hidden-decision tasks show a gain once failure digests exist | M | |
+| A reviewing model pass over the store | Near-duplicates and disputes exist that code cannot settle | L | A share of the daily budget |
+| Recall when the agent edits a path or runs a command | The continuation tasks show a gap the brief does not close, and one hook start is cheap enough on that host | M | One more Codex hook review |
+| Lexical matching on prompts | The held-out retrieval set shows precision of 0.95 with at most 1% false additions | M | |
+| Embeddings | Recall on paraphrases stays under 0.7 after the tokenizer, cues and keys, and a static model run offline lifts it 10 points without hurting exact matches | M | "No local models"; a model file to ship; never in a hook |
+| Installing releases in the background, with probation and rollback | There are users whose fixes are waiting for someone to run a command | L | "No auto-update"; where the signing key lives |
+| Tools that let an agent write to memory | Real use shows people asking the agent to remember or forget mid-chat and the typed path missing it | M | "The MCP server only reads" |
+| Asking the host to confirm a tool call that breaks a rule you armed | A rule-compliance measurement shows rules are seen and not obeyed | M | "A hook never returns a decision" |
+| Generated rules files or reviewed skills in the host's own folders | An experiment shows they beat delivery through hooks | S to M | "Never write host settings" |
+| A floor for hosts with MCP and no hooks, which reaches the Claude desktop app's Chat tab | You want memory there | S to M | Decision 3 of the v1 decisions (hosts in scope) |
+| Cloud sessions | Sync exists, and six host facts hold | M | |
+| A kit for managed machines | The field report shows managed settings restricting hooks or plugins | S | |
+| Replay of old chats under the new contract; reading chats from before the install | You ask, after seeing a token estimate | M | "No history backfill" |
+| Short excerpts committed beside items | Sync, since evidence must then travel | S | "No captured text is ever committed" |
+| Removing something from pushed history | A secret is found in pushed memory | M | The one exception to "never force" |
+| An API key as a second way to run the host's CLI | A host stops allowing headless runs on a plan login | S | |
+| Claude Code mods | The host declares the API stable | | |
+| Team memory | Not designed. Nothing here is built for it | | |
+| The claim run, and the word "best" | Every v2.0 gate is green on both hosts | M, plus quota | What it must beat (the recommendation: memory off and the host's own memory) |
+
+## 13. What the field report is for
+
+The [field report prompt](field-report-prompt.md) asks the agent on the real install for counts, durations, statuses and general judgements, and nothing private. Its answers fill the Stage 0 table in section 8: how often a pass is refused, how stale a brief is at a chat start, how often capture is held back, what a pass costs, whether daily commits and pushes succeed, whether Codex has asked for re-approval, whether the read tools are used at all, and what you have had to do by hand. When it comes back, the lead folds it in (EV-00) and revises this plan before anything in Stage 2 is sized.
