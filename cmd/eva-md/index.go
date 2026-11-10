@@ -15,6 +15,14 @@ import (
 	"github.com/heyNag/eva-md/internal/searchindex"
 )
 
+func init() {
+	register(command{name: "index", file: "index.go", place: 120,
+		synopsis: []string{"eva-md index [--rebuild] [--json]"},
+		run: func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+			return runIndex(ctx, args, out, errOut)
+		}})
+}
+
 // runIndex runs eva-md index [--rebuild] [--json]: it brings the search
 // index up to date with the inbox now, as the daily maintain does, or with
 // --rebuild builds it again from nothing. Search works without it, scanning

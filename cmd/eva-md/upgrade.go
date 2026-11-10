@@ -35,6 +35,14 @@ var upgradeArch = func() string {
 	return runtime.GOARCH
 }
 
+func init() {
+	register(command{name: "upgrade", file: "upgrade.go", place: 30,
+		synopsis: []string{"eva-md upgrade [--check] [--force] [--version TAG]"},
+		run: func(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
+			return runUpgrade(ctx, args[1:], in, out, errOut)
+		}})
+}
+
 // runUpgrade is eva-md upgrade: it finds the latest release, or takes
 // --version, and when that is newer than this binary, or --force says so,
 // downloads the release's binary for this Mac with SHA256SUMS into a new

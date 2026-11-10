@@ -27,6 +27,14 @@ import (
 // maintain keeps, as the update keeps its logs.
 const attemptsKept = 14
 
+func init() {
+	register(command{name: "maintain", file: "maintain.go", place: 160,
+		synopsis: []string{"eva-md maintain [--push-only]"},
+		run: func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+			return runMaintain(ctx, args, out, errOut)
+		}})
+}
+
 // runMaintain runs eva-md maintain [--push-only], the daily job the first
 // hook event of a day spawns detached: the files built from the knowledge
 // pages, when they are out of date (see knowledgeStep), the day's commit and

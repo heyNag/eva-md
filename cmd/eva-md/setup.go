@@ -98,6 +98,16 @@ var (
 // its own test, which gives setup another operating system directly.
 var hostOS = runtime.GOOS
 
+func init() {
+	register(command{name: "setup", file: "setup.go", place: 10,
+		synopsis: []string{"eva-md setup [--dir FOLDER] [--remote URL] [--git-host URL] [--host claude|codex|all] [--no-push] [--yes]"},
+		run: func(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
+			code := runSetupCommand(ctx, args[1:], in, out, errOut)
+			recordSetupWrites(ctx)
+			return code
+		}})
+}
+
 func runSetupCommand(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
 	d, err := paths.Default()
 	if err != nil {

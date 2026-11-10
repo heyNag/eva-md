@@ -38,55 +38,49 @@ func main() {
 	os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
+// run dispatches through the command table (see table.go). The hook is
+// looked for first, so a hook never walks the table.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errOut, "usage: eva-md setup | version | upgrade | init | install | uninstall | doctor | status | brief | show | search | index | inbox | update | commit | maintain | system | validate | hook | mcp")
+		fmt.Fprintln(errOut, usageLine())
 		return 2
 	}
 	if args[0] == "hook" {
 		return runHook(ctx, args[1:], in, out)
 	}
-	switch args[0] {
-	case "version":
-		if len(args) != 1 {
-			return usage(errOut, "version takes no arguments")
-		}
-		fmt.Fprintf(out, "eva-md %s\nschema_version 1\n", version)
-		return 0
-	case "setup":
-		code := runSetupCommand(ctx, args[1:], in, out, errOut)
-		recordSetupWrites(ctx)
-		return code
-	case "init", "validate":
-		return runWiki(ctx, args, in, out, errOut)
-	case "brief", "show", "search":
-		return runResume(ctx, args, out, errOut)
-	case "install":
-		return runInstall(ctx, args, out, errOut)
-	case "uninstall":
-		return runUninstall(ctx, args[1:], in, out, errOut, isTerminal(in))
-	case "upgrade":
-		return runUpgrade(ctx, args[1:], in, out, errOut)
-	case "doctor", "status":
-		return runDoctor(ctx, args, out, errOut)
-	case "commit":
-		return runCommit(ctx, args, out, errOut)
-	case "update":
-		return runUpdate(ctx, args, out, errOut)
-	case "maintain":
-		return runMaintain(ctx, args, out, errOut)
-	case "index":
-		return runIndex(ctx, args, out, errOut)
-	case "inbox":
-		return runInbox(ctx, args, out, errOut)
-	case "system":
-		return runSystem(ctx, args, in, out, errOut)
-	case "mcp":
-		return runMCP(ctx, args[1:], in, out, errOut)
-	default:
+	c, ok := lookup(args[0])
+	if !ok {
 		fmt.Fprintf(errOut, "eva-md: unknown command %q; run eva-md with no arguments for the list\n", args[0])
 		return 2
 	}
+	return c.run(ctx, args, in, out, errOut)
+}
+
+func init() {
+	register(command{name: "version", file: "main.go", place: 20,
+		synopsis: []string{"eva-md version"},
+		run:      runVersion})
+	register(command{name: "init", file: "main.go", place: 40,
+		synopsis: []string{"eva-md init --remote URL --dir FOLDER [--no-push]"},
+		run:      runWiki})
+	register(command{name: "validate", file: "main.go", place: 180,
+		synopsis: []string{"eva-md validate [--dir FOLDER]"},
+		run:      runWiki})
+	// run takes the hook before it looks at the table; this entry gives the
+	// hook its place in the usage line and its synopsis.
+	register(command{name: "hook", file: "main.go", place: 190,
+		synopsis: []string{"eva-md hook --host claude-code|codex"},
+		run: func(ctx context.Context, args []string, in io.Reader, out, _ io.Writer) int {
+			return runHook(ctx, args[1:], in, out)
+		}})
+}
+
+func runVersion(_ context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
+	if len(args) != 1 {
+		return usage(errOut, "version takes no arguments")
+	}
+	fmt.Fprintf(out, "eva-md %s\nschema_version 1\n", version)
+	return 0
 }
 
 // recordSetupWrites adds config.toml and config.env to the install record,

@@ -92,6 +92,14 @@ func (u unsaved) line(command string, removed, all, named bool) string {
 	return line + byGit + ", or install eva-md again and run " + run + "."
 }
 
+func init() {
+	register(command{name: "uninstall", file: "uninstall.go", place: 60,
+		synopsis: []string{"eva-md uninstall [--apply] [--all] [--yes]"},
+		run: func(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
+			return runUninstall(ctx, args[1:], in, out, errOut, isTerminal(in))
+		}})
+}
+
 // runUninstall previews or removes eva-md: with --apply the program (the
 // host plugins and marketplaces, the stable binary and the link on PATH),
 // and with --all as well the config and the local data, once the person has
