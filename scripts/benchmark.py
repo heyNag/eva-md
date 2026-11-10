@@ -414,8 +414,8 @@ def padded_inbox(run, evabench):
 def run_once(core, binary, cwd, failures=None):
     """Runs every scenario, in the order of their places, on binary; returns
     the run with its report and the gate's samples. A scenario that fails
-    stops the run, unless failures is given: then the failure is recorded
-    there by the scenario's name, the samples it gave are dropped, and the
+    stops the run, unless failures is given: then its error is added there
+    under the scenario's name, the samples it gave are dropped, and the
     next scenario runs."""
     run = core.Run(binary, cwd)
     for s in core.ordered():
@@ -426,7 +426,7 @@ def run_once(core, binary, cwd, failures=None):
         try:
             s.fn(run)
         except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as e:
-            failures.setdefault(s.name, str(e))
+            failures.setdefault(s.name, []).append(str(e))
             for name in set(run.metrics) - before:
                 del run.metrics[name]
     return run
@@ -451,14 +451,16 @@ def compare(core, a):
             subprocess.run([str(binary), "version"], capture_output=True, env=h.env, timeout=30)
     roles = [("old", old), ("new", new), ("control", new)]
     samples = {role: {} for role, _ in roles}
-    # The old binary may not do what a scenario added with the change
-    # checks: its failures leave that scenario's figures not compared.
-    targets, runs, old_failures = {}, [], {}
+    # A scenario that fails in a run leaves that run's figures of it out:
+    # load can make one fail now and then, and the old binary may not do
+    # what a scenario added with the change checks. Only a scenario the new
+    # binary fails in every run, which the old one passed, fails the gate.
+    targets, runs, failures = {}, [], {role: {} for role, _ in roles}
     for r in range(a.rounds):
         for k in range(len(roles)):
             role, binary = roles[(r+k) % len(roles)]
             print("benchmark: round %d of %d, %s" % (r+1, a.rounds, role), file=sys.stderr, flush=True)
-            run = run_once(core, binary, cwd, old_failures if role == "old" else None)
+            run = run_once(core, binary, cwd, failures[role])
             for name, values in run.metrics.items():
                 samples[role].setdefault(name, []).extend(values)
             targets.update(run.targets)
@@ -467,9 +469,14 @@ def compare(core, a):
     ceilings = {name: (target*a.ceiling_factor if target is not None and a.ceiling_factor else None)
                 for name, target in targets.items()}
     verdict = core.decide(samples["old"], samples["new"], samples["control"], ceilings)
+    broken = core.broken(failures, a.rounds)
+    if broken:
+        verdict["failures"] += ["the new binary failed the scenario %s in every run: %s" % (name, failures["new"][name][0])
+                                for name in broken]
+        verdict["verdict"], verdict["exit"] = "fail", 1
     gate = {"verdict": verdict["verdict"], "exit": verdict["exit"], "old": str(old), "new": str(new),
             "rounds": a.rounds, "ceiling_factor": a.ceiling_factor, "launch_paths": core.LAUNCH_PATHS,
-            "load_average_at_start": round(load, 2), "decision": verdict, "old_failures": old_failures, "runs": runs,
+            "load_average_at_start": round(load, 2), "decision": verdict, "scenario_failures": failures, "runs": runs,
             # Every sample, so the verdict can be worked out again.
             "samples": {role: {name: [round(v, 3) for v in values] for name, values in sorted(by.items())}
                         for role, by in samples.items()},
@@ -484,8 +491,10 @@ def compare(core, a):
             "; ".join(m["reasons"] + ["control: "+c for c in m["control_reasons"]]) or "ok"))
     for name in verdict["not_compared"]:
         print("%-28s not compared: a binary gave it no samples" % name)
-    for name, error in sorted(old_failures.items()):
-        print("the old binary failed the scenario %s: %s" % (name, error))
+    for role, by in failures.items():
+        for name, errors in sorted(by.items()):
+            print("the %s binary failed the scenario %s in %d of %d runs: %s" % (
+                {"old": "old", "new": "new", "control": "new (control)"}[role], name, len(errors), a.rounds, errors[0]))
     print("latency gate: %s" % verdict["verdict"] + {
         "not judged": " (a control failed: two runs of the new binary differed as a regression would, so the machine was too noisy to judge)",
         "fail": "", "pass": ""}[verdict["verdict"]])

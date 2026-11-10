@@ -244,6 +244,19 @@ def judge(base, cand, ceiling, threshold=THRESHOLD, seed=SEED, draws=DRAWS):
             "ratio_low": round(low, 3) if math.isfinite(low) else None, "reasons": reasons}
 
 
+def broken(failures, rounds):
+    """The scenarios the new binary failed in every one of its runs, as new
+    and as control, while the old binary passed them at least once: a change
+    that breaks a scenario, which no load explains. failures maps each role
+    (old, new, control) to the scenarios that failed in its runs, each with
+    the errors, one a run. A scenario failing now and then is load, as when
+    a git call the brief makes runs past its time limit, and decides
+    nothing; its failed runs' samples are left out."""
+    new, control, old = failures.get("new", {}), failures.get("control", {}), failures.get("old", {})
+    return sorted(name for name in new
+                  if len(new[name]) >= rounds and len(control.get(name, [])) >= rounds and len(old.get(name, [])) < rounds)
+
+
 def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DRAWS):
     """The gate's verdict on samples. old, new and control map each metric
     to its samples from the old binary's runs, the new one's, and the new

@@ -154,6 +154,19 @@ class Decide(unittest.TestCase):
         self.assertEqual(self.run_gate(old, new, control), self.run_gate(old, new, control))
 
 
+class Broken(unittest.TestCase):
+    def test_a_scenario_the_new_binary_always_fails(self):
+        e = ["a brief did not say it"]
+        self.assertEqual(core.broken({"old": {}, "new": {"recall": e*3}, "control": {"recall": e*3}}, 3), ["recall"])
+        # Load: a failure now and then, on either binary.
+        self.assertEqual(core.broken({"old": {"recall": e}, "new": {"recall": e*2}, "control": {"recall": e*3}}, 3), [])
+        self.assertEqual(core.broken({"old": {}, "new": {"recall": e*3}, "control": {"recall": e*2}}, 3), [])
+        # The old binary failed it every time too: nothing the change did.
+        self.assertEqual(core.broken({"old": {"recall": e*3}, "new": {"recall": e*3}, "control": {"recall": e*3}}, 3), [])
+        self.assertEqual(core.broken({"old": {"recall": e*3}, "new": {}, "control": {}}, 3), [])
+        self.assertEqual(core.broken({}, 3), [])
+
+
 class Scenarios(unittest.TestCase):
     def setUp(self):
         self.saved = core.SCENARIOS[:]
