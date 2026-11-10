@@ -1,0 +1,3 @@
+label = "linux-7m2p"
+signing_key = ""
+reads = [2, 2]

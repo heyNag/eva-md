@@ -20,8 +20,8 @@ Rules every card carries, so they are said once here:
 | [LG-11](LG-11.md) | The redaction driver with spans, same behaviour | merged |
 | [SEAM-0c](SEAM-0c.md) | Registries for status rows and switches | merged |
 | [EV-12](EV-12.md) | The results store and gates | merged |
-| [ST-01](ST-01.md) | The store's written format and its profile checker | next |
-| [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | next |
+| [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
+| [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | building |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | after EV-16 |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | after EV-16 |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | after EV-16 and LG-10 |
