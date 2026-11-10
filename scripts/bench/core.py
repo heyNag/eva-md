@@ -199,14 +199,46 @@ def context(output):
     return value.get("hookSpecificOutput", {}).get("additionalContext", value.get("additionalContext", ""))
 
 
-# The gate. A metric fails when the lower bound of the bootstrap interval of
-# the ratio of the candidate's p95 to the base's is above THRESHOLD, or when
-# the candidate passes the metric's ceiling, which the base did not.
+# The gate. Each binary runs twice a round, as two roles: old and old_again,
+# new and new_again. The gate's comparison is of the old binary's runs, both
+# roles pooled, with the new one's: a metric fails when the lower bound of
+# the bootstrap interval of the ratio of the new p95 to the old one is above
+# THRESHOLD, or when the new p95 passes the metric's ceiling, which the old
+# one did not.
+#
+# The controls are the two other ways to split the four roles into two
+# pairs: old and new against old_again and new_again, and old and new_again
+# against old_again and new. Each side of a control holds one role of each
+# binary, so a change cancels out of it and only what the machine did
+# between runs is left. With the binaries alike, the three splits are alike
+# too: load that falls on the new binary's runs and not on the old one's
+# falls unevenly on new and new_again, or on old and old_again, and a
+# control sees it. A control is judged by the ratio rule only, both ways: a
+# fixed ceiling says where a binary sits, not how noisy the machine is.
+ROLES = ("old", "new", "old_again", "new_again")
+BINARY = {"old": "old", "old_again": "old", "new": "new", "new_again": "new"}
+GATE_SPLIT = (("old", "old_again"), ("new", "new_again"))
+CONTROL_SPLITS = ((("old", "new"), ("old_again", "new_again")),
+                  (("old", "new_again"), ("old_again", "new")))
 THRESHOLD = 1.15
 DRAWS = 2000
 SEED = 0x65766120  # fixed; changing it changes every interval
 LEVEL = 0.95  # the interval's coverage; its lower bound is the 2.5% quantile
 WHOLE = 100  # the samples a side from which a metric's control speaks for the machine
+# A scenario fails the gate when the new binary failed it in at least this
+# many more runs than the old one did.
+BROKEN_MARGIN = 2
+
+
+def schedule(rounds):
+    """The order of the gate's runs, as (round, role): each round runs the
+    four roles once, old and new alternating, and every other round runs
+    them in reverse, so that over two rounds each role's mean place is the
+    same and none always runs first."""
+    order = []
+    for r in range(rounds):
+        order += [(r+1, role) for role in (ROLES if r % 2 == 0 else ROLES[::-1])]
+    return order
 
 
 def nearest_rank(values, q=0.95):
@@ -232,7 +264,8 @@ def ratio_low(base, cand, seed=SEED, draws=DRAWS):
 
 def judge(base, cand, ceiling, threshold=THRESHOLD, seed=SEED, draws=DRAWS):
     """Compares one metric's candidate samples with its base samples. Returns
-    the figures and the reasons it fails, none when it passes."""
+    the figures and the reasons it fails, none when it passes. A ceiling of
+    None checks the ratio alone."""
     low = ratio_low(base, cand, seed, draws)
     p95_base, p95_cand = nearest_rank(base), nearest_rank(cand)
     reasons = []
@@ -245,60 +278,106 @@ def judge(base, cand, ceiling, threshold=THRESHOLD, seed=SEED, draws=DRAWS):
             "ratio_low": round(low, 3) if math.isfinite(low) else None, "reasons": reasons}
 
 
-def broken(failures, rounds):
-    """The scenarios the new binary failed in every one of its runs, as new
-    and as control, while the old binary passed them at least once: a change
-    that breaks a scenario, which no load explains. failures maps each role
-    (old, new, control) to the scenarios that failed in its runs, each with
-    the errors, one a run. A scenario failing now and then is load, as when
-    a git call the brief makes runs past its time limit, and decides
-    nothing; its failed runs' samples are left out."""
-    new, control, old = failures.get("new", {}), failures.get("control", {}), failures.get("old", {})
-    return sorted(name for name in new
-                  if len(new[name]) >= rounds and len(control.get(name, [])) >= rounds and len(old.get(name, [])) < rounds)
+def pooled(samples, roles, name):
+    """One metric's samples from the runs of the given roles, together."""
+    return [v for role in roles for v in (samples.get(role, {}).get(name) or [])]
 
 
-def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DRAWS, whole=WHOLE):
-    """The gate's verdict on samples. old, new and control map each metric
-    to its samples from the old binary's runs, the new one's, and the new
-    one's again, run as a control; ceilings maps each gated metric to its
-    ceiling in milliseconds, or None.
+def scenarios(failures, rounds):
+    """What the scenarios that failed say. failures maps each role to the
+    scenarios that failed in its runs, each with the errors, one a run; each
+    role ran rounds times, so each binary 2*rounds times, and a binary's
+    failed runs are counted over both its roles.
 
-    Each metric's control is judged by the same rule, both ways: new against
-    the control and the control against new. If either fails, two runs of
-    one binary differed on that metric as much as a regression would. On a
-    metric with at least whole samples on every side, that means the
-    machine was too noisy to judge any metric: load in some runs and not
-    others moves every figure, and a regression's seeming is then the
-    machine's. The verdict is "not judged" and the exit 0, whatever the old
-    binary did. On a metric with fewer, whose p95 is one of its few largest
-    samples, it says more about the samples than about the machine: that
-    metric alone is not judged.
+    broken: the scenarios the new binary failed in at least BROKEN_MARGIN
+    more runs than the old one, as a hook that hangs or fails would: the
+    worst regression there is, and one that leaves no samples. A scenario
+    failing now and then, on either binary, is load, as when a git call the
+    brief makes runs past its time limit, and decides nothing; its failed
+    runs' samples are left out. A scenario the old binary fails and the new
+    one passes, as one added with the change, decides nothing either.
 
-    Otherwise a judged metric of new that fails against old fails the gate,
-    exit 1; with none, the verdict is "pass", or "not judged" when a
-    metric's control failed, exit 0 either way. A metric without samples on
-    every side is listed as not compared and decides nothing."""
-    metrics, control_reasons, failed, skipped = {}, [], [], []
+    unrunnable: the scenarios every run failed, on both binaries: the
+    benchmark, or the machine it runs on, is broken, and the gate could not
+    run."""
+    counts = {}
+    for role, by in failures.items():
+        for name, errors in by.items():
+            counts.setdefault(name, {"old": 0, "new": 0})[BINARY[role]] += len(errors)
+    runs = 2*rounds
+    broken = sorted(n for n, c in counts.items() if c["new"] >= c["old"]+BROKEN_MARGIN and c["old"] < runs)
+    unrunnable = sorted(n for n, c in counts.items() if c["old"] >= runs and c["new"] >= runs)
+    return {"runs_per_binary": runs, "failed_runs": {n: dict(c) for n, c in sorted(counts.items())},
+            "broken": broken, "unrunnable": unrunnable}
+
+
+def decide(samples, ceilings, failures=None, rounds=1, threshold=THRESHOLD, seed=SEED, draws=DRAWS, whole=WHOLE):
+    """The gate's verdict. samples maps each role (ROLES) to each metric's
+    samples from that role's runs; ceilings maps each gated metric to its
+    ceiling in milliseconds, or None; failures holds the scenarios that
+    failed, as scenarios() takes them, over rounds rounds.
+
+    A metric the old binary gave samples and the new one gave none fails;
+    one the old binary gave none, as one added with the change, is listed as
+    not compared and decides nothing.
+
+    Each other metric is compared, old against new, and judged only if both
+    its controls (CONTROL_SPLITS) pass. A control that fails means two sets
+    of runs that a change cancels out of differed on that metric as much as
+    a regression would. On a metric with at least whole samples on every
+    side, the machine was then too noisy to judge any metric: load in some
+    runs and not others moves every figure, and a regression's seeming is
+    then the machine's. On a metric with fewer, whose p95 is one of its few
+    largest samples, it says more about the samples than about the machine:
+    that metric alone is not judged.
+
+    The verdict is the first of these that applies: "could not run", exit
+    2, when a scenario failed in every run of both binaries; "fail", exit 1,
+    when the new binary broke a scenario or gave a metric no samples; "not
+    judged", exit 0, when the machine was too noisy; "fail", exit 1, when a
+    judged metric failed; "not judged", exit 0, when a metric's control
+    failed; otherwise "pass", exit 0."""
+    found = scenarios(failures or {}, rounds)
+    metrics, control_reasons, failed, missing, skipped = {}, [], [], [], []
     noisy = False
     for name in sorted(ceilings):
-        o, n, c = old.get(name) or [], new.get(name) or [], control.get(name) or []
-        if not (o and n and c):
+        o, n = pooled(samples, GATE_SPLIT[0], name), pooled(samples, GATE_SPLIT[1], name)
+        if not o:
             skipped.append(name)
             continue
-        ceiling = ceilings[name]
-        verdict = judge(o, n, ceiling, threshold, seed, draws)
-        both = [judge(n, c, ceiling, threshold, seed, draws), judge(c, n, ceiling, threshold, seed, draws)]
-        verdict.update(n_old=len(o), n_new=len(n), n_control=len(c), ceiling_ms=ceiling,
-                       control_ratio_low=max((j["ratio_low"] for j in both if j["ratio_low"] is not None), default=None),
-                       control_reasons=[r for j in both for r in j["reasons"]])
-        verdict["judged"] = not verdict["control_reasons"]
+        if not n:
+            missing.append("%s: the new binary gave no samples, the old one %d" % (name, len(o)))
+            continue
+        verdict = judge(o, n, ceilings[name], threshold, seed, draws)
+        controls, lows, sizes = [], [], [len(o), len(n)]
+        for a_roles, b_roles in CONTROL_SPLITS:
+            a, b = pooled(samples, a_roles, name), pooled(samples, b_roles, name)
+            label = "%s against %s" % ("+".join(a_roles), "+".join(b_roles))
+            if not (a and b):
+                controls.append("%s: a side has no samples" % label)
+                continue
+            sizes += [len(a), len(b)]
+            for base, cand in ((a, b), (b, a)):
+                j = judge(base, cand, None, threshold, seed, draws)
+                lows.append(j["ratio_low"])
+                controls += ["%s: %s" % (label, r) for r in j["reasons"]]
+        verdict.update(n_old=len(o), n_new=len(n), ceiling_ms=ceilings[name],
+                       n_roles={role: len(samples.get(role, {}).get(name) or []) for role in ROLES},
+                       control_ratio_low=max((x for x in lows if x is not None), default=None),
+                       control_reasons=controls, judged=not controls)
         metrics[name] = verdict
-        control_reasons += ["%s: %s" % (name, r) for r in verdict["control_reasons"]]
-        noisy = noisy or (not verdict["judged"] and min(len(o), len(n), len(c)) >= whole)
+        control_reasons += ["%s: %s" % (name, r) for r in controls]
+        noisy = noisy or (bool(controls) and min(sizes) >= whole)
         if verdict["judged"]:
             failed += ["%s: %s" % (name, r) for r in verdict["reasons"]]
-    if noisy:
+    hard = ["the new binary failed the scenario %s in %d of %d runs, the old one in %d" % (
+        s, found["failed_runs"][s]["new"], found["runs_per_binary"], found["failed_runs"][s]["old"])
+        for s in found["broken"]] + missing
+    if found["unrunnable"]:
+        verdict, code = "could not run", 2
+    elif hard:
+        verdict, code = "fail", 1
+    elif noisy:
         verdict, code = "not judged", 0
     elif failed:
         verdict, code = "fail", 1
@@ -307,5 +386,5 @@ def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DR
     else:
         verdict, code = "pass", 0
     return {"verdict": verdict, "exit": code, "threshold": threshold, "seed": seed, "draws": draws, "whole": whole,
-            "machine_too_noisy": noisy, "control_failures": control_reasons, "failures": failed,
-            "not_compared": skipped, "metrics": metrics}
+            "machine_too_noisy": noisy, "control_failures": control_reasons, "failures": hard+failed,
+            "scenarios": found, "not_compared": skipped, "metrics": metrics}

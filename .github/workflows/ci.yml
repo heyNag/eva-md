@@ -31,11 +31,12 @@ jobs:
       - run: go test -race ./...
       - run: go build -mod=readonly -o bin/eva-md ./cmd/eva-md
       # The latency gate: the binary of the commit before the change (the
-      # pull request's base, or the push's parent) and the change's own, in
-      # alternating runs on this machine, with the change's binary again as
-      # a control (scripts/benchmark.py --compare). Advisory: it reports and
-      # never fails the job, until an unchanged binary has passed it twenty
-      # times in twenty (docs/v2/baselines/README.md).
+      # pull request's base, or the push's parent) and the change's own, each
+      # run twice a round, alternating, on this machine, so that two other
+      # splits of the same runs serve as controls (scripts/benchmark.py
+      # --compare). Advisory: it reports and never fails the job, until an
+      # unchanged binary has passed it twenty times in twenty
+      # (docs/v2/baselines/README.md).
       - name: Latency gate (advisory)
         continue-on-error: true
         timeout-minutes: 30
