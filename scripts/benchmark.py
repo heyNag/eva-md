@@ -434,10 +434,11 @@ def compare(core, a):
     if a.rounds < 1 or a.ceiling_factor < 0:
         raise SystemExit("benchmark: --rounds must be 1 or more and --ceiling-factor 0 or more")
     load = os.getloadavg()[0]
-    for binary in (old, new):
-        # Each binary's first start is outside the timings, since macOS
-        # checks a new executable then.
-        subprocess.run([str(binary), "version"], capture_output=True, timeout=30)
+    with core.Home(new, cwd) as h:
+        for binary in (old, new):
+            # Each binary's first start is outside the timings, since macOS
+            # checks a new executable then.
+            subprocess.run([str(binary), "version"], capture_output=True, env=h.env, timeout=30)
     roles = [("old", old), ("new", new), ("control", new)]
     samples = {role: {} for role, _ in roles}
     targets, runs = {}, []
@@ -477,18 +478,20 @@ def compare(core, a):
 def baseline(core, a, samples, targets, runs, load):
     """The baseline file: the new binary's figures over its runs, as
     docs/v2/baselines/README.md describes."""
-    counts = {}
+    counts, per_run = {}, {}
     for run in runs:
         if run["binary"] == "new":
             for key, value in run["report"].items():
                 if key.endswith("_processes") or key.endswith("_hooks"):
                     counts.setdefault(key, value)
+                elif key.endswith("_ms_summed") or (key.startswith("real_install_brief_command_") and key.endswith("_ms")):
+                    per_run.setdefault(key, []).append(value)
     return {"v": 1, "measured_on": platform.system().lower(), "machine": "%s, %d CPUs" % (platform.machine(), os.cpu_count() or 0),
             "load_average_at_start": round(load, 2), "commit": a.commit or "", "runs": a.rounds,
             "p95": "nearest rank, process start included", "taken_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "metrics": {name: {"n": len(v), "p95_ms": round(core.nearest_rank(v), 3), "median_ms": round(core.nearest_rank(v, 0.5), 3),
                                "target_ms": targets.get(name)} for name, v in sorted(samples.items()) if v},
-            "counts": counts}
+            "counts": counts, "per_run": per_run}
 
 
 def main():
