@@ -40,7 +40,9 @@ var ErrAmbiguous = errors.New("ledger: the reference matches more than one sessi
 // Resolve returns the session and the event a short reference names, e:
 // or v1's s:. For a range it returns the first event. A reference that
 // names a withheld event resolves to that event, which holds nothing but
-// its place.
+// its place. A v1 reference names a line, and resolves here as the event
+// whose seq is that line, which is what the v1 backend yields; a backend
+// whose seq is not v1's line maps the reference first.
 func Resolve(ctx context.Context, r Reader, ref string) (event.Session, event.Event, error) {
 	parsed, err := event.ParseRef(ref)
 	if err != nil {

@@ -31,7 +31,7 @@ An event is one thing that happened in one session. Its id is the session's host
 | `copy` | the `seq` of the event this one is a second copy of |
 | `ctx` | the context: project, branch, folder relative to home, head commit, model |
 
-In a stored session only `ctx` events carry `ctx`, and the reader hands every event out with it filled; the v1 backend fills it from each line. A session file starts with a header, `{"v":2,"k":"header","host":…,"session":…}`, and a reader trusts the file only when the header's host and session are its folder's.
+In a stored session only `ctx` events carry `ctx`, and the reader hands every event out with it filled; the v1 backend fills it from each line it returns (a withheld or repaired line has none). A session file starts with a header, `{"v":2,"k":"header","host":…,"session":…}`, and a reader trusts the file only when the header's host and session are its folder's.
 
 The codec is strict: `Decode` refuses a field it does not know, trailing data, and any event that breaks an invariant of section 10, and `Encode` refuses to write one. A line `Encode` wrote decodes and encodes back byte for byte. Kind-specific fields of the ledger design's table 3.4 that are not above (`paste`, `end`, `tool`, `cls`, `target`, `decision`, `items` and the rest) are added by the packages that first write them.
 
