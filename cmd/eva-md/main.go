@@ -66,6 +66,8 @@ func init() {
 	register(command{name: "validate", file: "main.go", place: 180,
 		synopsis: []string{"eva-md validate [--dir FOLDER]"},
 		run:      runWiki})
+	// run takes the hook before it looks at the table; this entry gives the
+	// hook its place in the usage line and its synopsis.
 	register(command{name: "hook", file: "main.go", place: 190,
 		synopsis: []string{"eva-md hook --host claude-code|codex"},
 		run: func(ctx context.Context, args []string, in io.Reader, out, _ io.Writer) int {
