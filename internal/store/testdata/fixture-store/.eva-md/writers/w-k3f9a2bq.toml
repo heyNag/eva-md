@@ -1,0 +1,3 @@
+label = "mac-k3f9"
+signing_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMadeUpKeyForTheFixtureStoreOnlyNotARealKey0"
+reads = [2, 2]
