@@ -15,7 +15,7 @@ Rules every card carries, so they are said once here:
 | Card | Package | State |
 | --- | --- | --- |
 | [SEAM-0a](SEAM-0a.md) | The command table, and document checks that no longer read prose | merged |
-| [SEAM-0d](SEAM-0d.md) | Guards on the plugin's bytes and on the upgrade from 2026.11.5 | building |
+| [SEAM-0d](SEAM-0d.md) | Guards on the plugin's bytes and on the upgrade from 2026.11.5 | merged |
 | [LG-10](LG-10.md) | The event model and the one reader | building |
 | [LG-11](LG-11.md) | The redaction driver with spans, same behaviour | building |
 | [SEAM-0c](SEAM-0c.md) | Registries for status rows and switches | next |
