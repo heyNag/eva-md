@@ -132,7 +132,7 @@ func TestWrittenForms(t *testing.T) {
 // not depend on the form it was written in.
 func TestLenientScalars(t *testing.T) {
 	cases := map[string]string{
-		" Use the sandbox  # note": "Use the sandbox",
+		" Use the sandbox  # note":  "Use the sandbox",
 		` "quoted # not a comment"`: "quoted # not a comment",
 		" 'it''s'":                  "it's",
 		" plain":                    "plain",
