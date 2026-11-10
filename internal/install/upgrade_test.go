@@ -15,8 +15,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/update"
 )
 
 // fixture2026115 is what release 2026.11.5 left in a home when its install
@@ -153,15 +155,65 @@ func changed(before, after map[string]node) []string {
 	return paths
 }
 
-// notOwned lists the paths owned doesn't have.
-func notOwned(paths []string, owned map[string]bool) []string {
+// installOwned says whether a path, relative to home, is one the installs
+// own, listed here by hand rather than read from what the build under test
+// writes, so an install that starts to write anything else is caught: the
+// install marker, the stable binary and the install record, both
+// marketplaces, the link on PATH, the records of the hosts' CLIs and of the
+// hooks Codex must review again, the lock files, and eva-md's own folders
+// that hold them. Setup's config, the inbox and its baseline, and the
+// shared folders around eva-md's (~/.local and those in it) are not
+// theirs: the installs only read them, or make them when they are missing.
+func installOwned(path string) bool {
+	switch path {
+	case ".local/bin/eva-md",
+		".local/share/eva-md",
+		".local/share/eva-md/.eva-md-install",
+		".local/share/eva-md/bin",
+		".local/share/eva-md/bin/eva-md",
+		".local/share/eva-md/" + RecordFile,
+		".local/share/eva-md/marketplace",
+		".local/state/eva-md",
+		".local/state/eva-md/cli-paths.json",
+		".local/state/eva-md/needs-trust.json",
+		".local/state/eva-md/locks":
+		return true
+	}
+	if lock, _ := pathpkg.Match(".local/state/eva-md/locks/*.lock", path); lock {
+		return true
+	}
+	return strings.HasPrefix(path, ".local/share/eva-md/marketplace/")
+}
+
+// sharedParents are the folders around eva-md's own that a first install
+// makes when they are missing, and must leave as they are when they exist.
+var sharedParents = []string{".local", ".local/bin", ".local/share", ".local/state"}
+
+// notOwned lists the paths that installOwned doesn't name.
+func notOwned(paths []string) []string {
 	var outside []string
 	for _, path := range paths {
-		if !owned[path] {
+		if !installOwned(path) {
 			outside = append(outside, path)
 		}
 	}
 	return outside
+}
+
+// upgradeTime is the fixed time the upgrade's baseline step runs at.
+var upgradeTime = time.Date(2026, 11, 10, 17, 0, 0, 0, time.UTC)
+
+// upgrade does what `eva-md install` does: the install, then, when it
+// succeeds, setting aside the chats captured before updates.
+func upgrade(t *testing.T, opts Options, run runner) (Result, error) {
+	t.Helper()
+	result, err := runInstall(context.Background(), opts, run)
+	if err == nil {
+		if err := update.Baseline(opts.Dirs, upgradeTime); err != nil {
+			t.Errorf("setting aside the chats captured before updates: %v", err)
+		}
+	}
+	return result, err
 }
 
 // leftBehind lists the plugin files 2026.11.5 wrote that are still there
@@ -247,7 +299,7 @@ func newBinary(t *testing.T) string {
 
 // currentInstallWrites is every path a first install of the current build
 // makes in a home that holds only setup's config and ~/.local/bin, relative
-// to that home.
+// to that home. It is checked against installOwned, never used as it.
 func currentInstallWrites(t *testing.T) map[string]bool {
 	t.Helper()
 	home, dirs := newHome(t)
@@ -272,36 +324,45 @@ func currentInstallWrites(t *testing.T) map[string]bool {
 
 // The one real install runs release 2026.11.5. The current install over
 // the files it left, in a home that also holds files neither install owns,
-// succeeds; every plugin file 2026.11.5 wrote is now the current one or
-// gone, and the folders hold exactly what the current build renders; the
-// install record names the current install's items and keeps the old ones;
-// nothing either install doesn't own is created, changed or removed; and a
-// second run changes nothing. A plugin file left behind, or a change outside
-// what the installs own, is caught.
+// followed by the step `eva-md install` runs after it, which sets aside the
+// chats captured before updates, succeeds; every plugin file 2026.11.5
+// wrote is now the current one or gone, and the folders hold exactly what
+// the current build renders; the install record names the current
+// install's items and keeps the old ones; nothing installOwned doesn't
+// name, such as setup's config or the inbox, is created, changed or
+// removed; and a second run changes nothing. A plugin file left behind, or
+// a change outside what the installs own, is caught.
 func TestUpgradeFrom2026_11_5(t *testing.T) {
-	ownedByCurrent := currentInstallWrites(t)
+	// A first install writes nothing installOwned doesn't name, apart from
+	// the shared folders it makes when they are missing. A new path here
+	// is added to installOwned on purpose, once it is the install's.
+	for _, path := range slices.Sorted(maps.Keys(currentInstallWrites(t))) {
+		if !installOwned(path) && !slices.Contains(sharedParents, path) {
+			t.Errorf("a first install of the current build writes %s, which installOwned doesn't name", path)
+		}
+	}
 	home, dirs := newHome(t)
 	old := readFixture(t, home)
 	layDown(t, home, old)
 	// Made-up files that no install owns: the host's own settings, the
 	// wiki, a captured chat and another tool on PATH.
+	chat := ".local/state/eva-md/inbox/made-up-project/claude-code-00000000-0000-4000-8000-000000000001.jsonl"
 	others := map[string]node{
 		".claude":               {mode: fs.ModeDir | 0o700},
 		".claude/settings.json": {mode: 0o600, data: []byte("{\"theme\": \"made-up\"}\n")},
 		"eva-wiki":              {mode: fs.ModeDir | 0o700},
 		"eva-wiki/index.md":     {mode: 0o600, data: []byte("# Made-up wiki\n")},
-		".local/state/eva-md/inbox/made-up-project":            {mode: fs.ModeDir | 0o700},
-		".local/state/eva-md/inbox/made-up-project/chat.jsonl": {mode: 0o600, data: []byte("{\"text\":\"made-up\"}\n")},
-		".local/bin/other-tool":                                {mode: 0o700, data: []byte("#!/bin/sh\n")},
+		".local/state/eva-md/inbox/made-up-project": {mode: fs.ModeDir | 0o700},
+		chat:                    {mode: 0o600, data: []byte("{\"text\":\"made-up\"}\n")},
+		".local/bin/other-tool": {mode: 0o700, data: []byte("#!/bin/sh\n")},
 	}
 	layDown(t, home, others)
-	// What the two installs own: what a first install of the current build
-	// writes, and the plugin folders 2026.11.5 wrote. The rest of what
-	// 2026.11.5 left, such as the inbox's baseline, stays as it was.
-	owned := maps.Clone(ownedByCurrent)
+	// Every path 2026.11.5 left, but setup's config, the inbox's baseline
+	// and the shared folders, is one installOwned names.
 	for path := range old {
-		if strings.Contains(path, "/marketplace/") {
-			owned[path] = true
+		if !installOwned(path) && !slices.Contains(sharedParents, path) &&
+			!strings.HasPrefix(path, ".config") && !strings.HasPrefix(path, ".local/state/eva-md/inbox") {
+			t.Errorf("2026.11.5 left %s, which installOwned doesn't name", path)
 		}
 	}
 	rendered := renderedFiles(t, home, dirs)
@@ -319,7 +380,7 @@ func TestUpgradeFrom2026_11_5(t *testing.T) {
 	before := snapshot(t, home)
 	f := &fakeHost{dirs: dirs, installed: map[string]bool{"claude": true, "codex": true}, markets: map[string]bool{"claude": true, "codex": true}}
 	opts := Options{Dirs: dirs, Binary: newBinary(t), Host: "all"}
-	result, err := runInstall(context.Background(), opts, f.run)
+	result, err := upgrade(t, opts, f.run)
 	if err != nil {
 		t.Fatalf("the install over 2026.11.5 failed: %v", err)
 	}
@@ -344,8 +405,11 @@ func TestUpgradeFrom2026_11_5(t *testing.T) {
 			t.Errorf("the %s marketplace is not what the current build renders", host)
 		}
 	}
-	if outside := notOwned(changed(before, after), owned); len(outside) != 0 {
+	if outside := notOwned(changed(before, after)); len(outside) != 0 {
 		t.Errorf("the install changed what neither install owns: %v", outside)
+	}
+	if !after[chat].equal(others[chat]) || !after[".local/state/eva-md/inbox/.baseline"].equal(old[".local/state/eva-md/inbox/.baseline"]) {
+		t.Error("the upgrade changed the inbox")
 	}
 
 	record, ok := ReadRecord(dirs)
@@ -385,7 +449,7 @@ func TestUpgradeFrom2026_11_5(t *testing.T) {
 	}
 
 	f.calls = nil
-	again, err := runInstall(context.Background(), opts, f.run)
+	again, err := upgrade(t, opts, f.run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,12 +476,46 @@ func TestUpgradeFrom2026_11_5(t *testing.T) {
 	if left := leftBehind(oldWithGone, stale, rendered); !slices.Equal(left, slices.Sorted(slices.Values([]string{differs, gone}))) {
 		t.Errorf("seeded leftovers %s and %s were reported as %v", differs, gone, left)
 	}
-	stray := maps.Clone(after)
-	stray[".claude/settings.json"] = node{mode: 0o600, data: []byte("{}\n")}
-	delete(stray, ".local/state/eva-md/inbox/.baseline")
-	want := []string{".claude/settings.json", ".local/state/eva-md/inbox/.baseline"}
-	if outside := notOwned(changed(after, stray), owned); !slices.Equal(outside, want) {
-		t.Errorf("seeded changes outside the installs, %v, were reported as %v", want, outside)
+	// Setup's config rewritten, the inbox's baseline rewritten or removed,
+	// a captured chat changed, the host's settings changed and a shared
+	// folder's mode changed are each outside the installs, even alongside a
+	// change to every path the installs do own.
+	config := ".config/eva-md/config.toml"
+	baseline := ".local/state/eva-md/inbox/.baseline"
+	seeds := []map[string]node{
+		{config: {mode: after[config].mode, data: append(slices.Clone(after[config].data), "mutated = true\n"...)}},
+		{baseline: {mode: after[baseline].mode, data: append(slices.Clone(after[baseline].data), "seeded\n"...)}},
+		{baseline: {}},
+		{chat: {mode: after[chat].mode, data: []byte("{}\n")}},
+		{".claude/settings.json": {mode: 0o600, data: []byte("{}\n")}},
+		{".local/share": {mode: fs.ModeDir | 0o755}},
+	}
+	for _, seed := range seeds {
+		stray := maps.Clone(after)
+		for path := range after {
+			if installOwned(path) && after[path].mode.IsRegular() {
+				stray[path] = node{mode: after[path].mode, data: []byte("rewritten by the install\n")}
+			}
+		}
+		var want []string
+		for path, n := range seed {
+			if n.mode == 0 {
+				delete(stray, path)
+			} else {
+				stray[path] = n
+			}
+			want = append(want, path)
+		}
+		if outside := notOwned(changed(after, stray)); !slices.Equal(outside, want) {
+			t.Errorf("a seeded change outside the installs, %v, was reported as %v", want, outside)
+		}
+	}
+	// A first install that starts to write setup's config, or a file in the
+	// inbox, is caught by the check against installOwned at the top.
+	for _, path := range []string{config, baseline, chat, ".local/bin/other-tool"} {
+		if installOwned(path) || slices.Contains(sharedParents, path) {
+			t.Errorf("installOwned names %s", path)
+		}
 	}
 }
 
