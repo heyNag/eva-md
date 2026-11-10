@@ -1,0 +1,28 @@
+{"seq":1,"t":"2026-11-02T09:00:00.000Z","turn":0,"k":"ctx","pv":"eva","src":{"key":"k:ctx:1"},"ctx":{"project":"p_k3v9","branch":"main","cwd":"src/app","head":"0a1b2c3","model":"model-a"}}
+{"seq":2,"t":"2026-11-02T09:00:00.000Z","turn":0,"k":"life","pv":"host","text":"session_start: startup","src":{"h":true,"key":"k:life:2"},"mark":["name"]}
+{"seq":3,"t":"2026-11-02T09:01:00.000Z","turn":1,"tid":"turn-a","k":"prompt","pv":"typed","text":"ship it with [REDACTED:token] and [REDACTED:key]","red":[[13,29,"token","T1"],[34,48,"key","T2","h_7f3a"]],"rv":5,"src":{"h":true,"r":"row-3","key":"k:prompt:3"}}
+{"seq":4,"t":"2026-11-02T09:02:00.000Z","turn":2,"tid":"turn-b","k":"prompt","pv":"pasted","text":"a pasted block of notes","src":{"h":true,"key":"k:prompt:4"}}
+{"seq":5,"t":"2026-11-02T09:02:00.000Z","turn":2,"tid":"turn-b","k":"dialog","pv":"chosen","text":"Q: which colour\nA: blue","src":{"h":true,"key":"k:dialog:5"}}
+{"seq":6,"t":"2026-11-02T09:03:00.000Z","turn":2,"tid":"turn-b","k":"segment","pv":"agent","text":"Looking at the file first.","cut":[{"at":26,"lost":300,"why":"deadline"}],"src":{"r":"row-6","key":"k:segment:6"}}
+{"seq":7,"t":"2026-11-02T09:03:00.000Z","turn":2,"tid":"turn-b","k":"tool","pv":"tool","src":{"h":true,"r":"row-7","key":"k:tool:call-7"}}
+{"seq":8,"t":"2026-11-02T09:04:00.000Z","turn":2,"tid":"turn-b","k":"reply","pv":"agent","text":"The page says the limit is ten. [… 40 bytes cut by eva.md …] Done.","cut":[{"at":32,"lost":40,"why":"size"}],"taint":[{"k":"web","at":7},{"k":"memory","at":1}],"src":{"h":true,"key":"k:reply:8"}}
+{"seq":9,"t":"2026-11-02T09:05:00.000Z","turn":2,"tid":"turn-b","k":"sub_task","pv":"agent","text":"Find the config loader.","agent":"agent-1","src":{"h":true,"key":"k:sub_task:9"}}
+{"seq":10,"t":"2026-11-02T09:05:00.000Z","turn":2,"tid":"turn-b","k":"sub_report","pv":"subagent","text":"It is in config.go.","agent":"agent-1","taint":[{"k":"subagent","at":9}],"src":{"h":true,"key":"k:sub_report:10"}}
+{"seq":11,"t":"2026-11-02T09:06:00.000Z","turn":2,"k":"plan_decision","pv":"agent","text":"1. Read\n2. Change\n3. Test","src":{"h":true,"key":"k:plan:11"}}
+{"seq":12,"t":"2026-11-02T09:06:00.000Z","turn":2,"k":"tasks","pv":"agent","src":{"h":true,"key":"k:tasks:12"}}
+{"seq":13,"t":"2026-11-02T09:07:00.000Z","turn":2,"k":"summary","pv":"host","text":"Summary of the work so far.","cut":[{"at":0,"lost":9000,"why":"policy"}],"src":{"h":true,"key":"k:summary:13"}}
+{"seq":14,"t":"2026-11-02T09:07:00.000Z","turn":2,"k":"delivery","pv":"eva","src":{"key":"k:delivery:14"}}
+{"seq":15,"t":"2026-11-02T09:08:00.000Z","turn":3,"k":"control","pv":"eva","src":{"h":true,"key":"k:control:15"},"op":"off"}
+{"seq":16,"turn":3,"k":"gap","pv":"eva","src":{"key":"k:gap:16"},"why":"off_record","mark":["withheld"]}
+{"seq":17,"t":"2026-11-02T09:09:00.000Z","turn":4,"k":"control","pv":"eva","src":{"h":true,"key":"k:control:17"},"op":"on"}
+{"seq":18,"t":"2026-11-02T09:10:00.000Z","turn":5,"k":"prompt","pv":"spoken","text":"move the meeting to friday","src":{"r":"row-18","key":"k:prompt:18"}}
+{"seq":19,"t":"2026-11-02T09:10:00.000Z","turn":5,"k":"prompt","pv":"front_model","text":"The user asks to move the meeting.","taint":[{"k":"net","at":7},{"k":"mcp","at":12}],"src":{"r":"row-19","key":"k:prompt:19"}}
+{"seq":20,"t":"2026-11-02T09:11:00.000Z","turn":6,"k":"prompt","pv":"program","text":"run the nightly check","src":{"h":true,"key":"k:prompt:20"}}
+{"seq":21,"t":"2026-11-02T09:12:00.000Z","turn":7,"tid":"turn-c","k":"prompt","pv":"v1_user","text":"\u003crealtime_delegation\u003e made-up hand-over \u003c/realtime_delegation\u003e","cut":[{"at":-1,"lost":1200,"why":"legacy"}],"src":{"key":"v1:turn:0011"},"mark":["wrapper","recovered"],"ctx":{"project":"general","branch":"main"}}
+{"seq":22,"t":"2026-11-02T09:13:00.000Z","turn":2,"tid":"turn-b","k":"reply","pv":"agent","text":"The page says the limit is ten. [… 40 bytes cut by eva.md …] Done.","cut":[{"at":32,"lost":40,"why":"size"}],"src":{"key":"k:reply:8"},"copy":8}
+{"seq":23,"turn":7,"k":"gone","pv":"eva","src":{"key":"k:gone:23"}}
+{"seq":24,"t":"2026-11-02T09:14:00.000Z","turn":8,"k":"prompt","pv":"unknown","text":"a prompt from a surface no adapter knows","src":{"h":true,"key":"k:prompt:24"}}
+{"seq":25,"turn":8,"k":"gap","pv":"eva","text":"gap: malformed inbox record","src":{"key":"v1:line:25"},"mark":["repaired","name"]}
+{"seq":26,"t":"2026-11-02T09:15:00.000Z","turn":8,"k":"control","pv":"eva","src":{"key":"k:control:26"},"op":"forget"}
+{"seq":27,"t":"2026-11-02T09:16:00.000Z","turn":8,"k":"reply","pv":"agent","text":"key [REDACTED:key] again","red":[[4,18,"key","T2","h_7f3a"]],"rv":6,"src":{"h":true,"key":"k:reply:27"}}
+{"seq":28,"t":"2026-11-02T09:16:00.000Z","turn":8,"k":"tool","pv":"subagent","text":"Bash go test ./... (subagent)","agent":"agent-2","src":{"h":true,"key":"v1:line:28"}}
