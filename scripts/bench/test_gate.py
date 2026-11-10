@@ -104,20 +104,33 @@ class Decide(unittest.TestCase):
         self.assertFalse(d["metrics"]["capture"]["judged"])
         self.assertTrue(d["metrics"]["capture"]["reasons"])
 
-    def test_each_metric_has_its_own_control(self):
-        # A noisy control on one metric leaves that metric unjudged, and a
-        # regression on another, whose control agreed, still fails.
-        old = {"capture": samples(1, 300, 20), "startup": samples(4, 300, 100)}
-        new = {"capture": [x+20 for x in samples(2, 300, 20)], "startup": samples(5, 300, 100)}
-        control = {"capture": [x+20 for x in samples(3, 300, 20)], "startup": samples(6, 300, 200)}
+    def test_a_noisy_control_on_a_well_sampled_metric_stops_the_verdict(self):
+        # Load moved the startup figure between two runs of one binary: the
+        # capture figure's regression may be the machine's too.
+        old = {"capture": samples(1, 300, 20), "startup": samples(4, 100, 100)}
+        new = {"capture": [x+20 for x in samples(2, 300, 20)], "startup": samples(5, 100, 100)}
+        control = {"capture": [x+20 for x in samples(3, 300, 20)], "startup": samples(6, 100, 200)}
         d = core.decide(old, new, control, {"capture": 100, "startup": 600})
-        self.assertEqual((d["verdict"], d["exit"]), ("fail", 1))
+        self.assertEqual((d["verdict"], d["exit"], d["machine_too_noisy"]), ("not judged", 0, True))
         self.assertEqual([f.split(":")[0] for f in d["failures"]], ["capture"])
-        self.assertTrue(d["control_failures"])
         self.assertTrue(all(f.startswith("startup: ") for f in d["control_failures"]))
+
+    def test_a_noisy_control_on_a_few_samples_leaves_that_metric_alone(self):
+        # With 99 samples a side, a noisy control leaves startup unjudged,
+        # and capture's regression, whose control agreed, still fails.
+        old = {"capture": samples(1, 300, 20), "startup": samples(4, 99, 100)}
+        new = {"capture": [x+20 for x in samples(2, 300, 20)], "startup": samples(5, 99, 100)}
+        control = {"capture": [x+20 for x in samples(3, 300, 20)], "startup": samples(6, 99, 200)}
+        d = core.decide(old, new, control, {"capture": 100, "startup": 600})
+        self.assertEqual((d["verdict"], d["exit"], d["machine_too_noisy"]), ("fail", 1, False))
+        self.assertEqual([f.split(":")[0] for f in d["failures"]], ["capture"])
         self.assertEqual((d["metrics"]["capture"]["judged"], d["metrics"]["startup"]["judged"]), (True, False))
         # Without the regression, the noisy control alone is not judged.
         new["capture"], control["capture"] = samples(2, 300, 20), samples(3, 300, 20)
+        d = core.decide(old, new, control, {"capture": 100, "startup": 600})
+        self.assertEqual((d["verdict"], d["exit"], d["failures"]), ("not judged", 0, []))
+        # And a regression on startup itself, with its control noisy, fails nothing.
+        new["startup"], control["startup"] = [x*2 for x in samples(5, 99, 100)], samples(6, 99, 100)
         d = core.decide(old, new, control, {"capture": 100, "startup": 600})
         self.assertEqual((d["verdict"], d["exit"], d["failures"]), ("not judged", 0, []))
 

@@ -206,6 +206,7 @@ THRESHOLD = 1.15
 DRAWS = 2000
 SEED = 0x65766120  # fixed; changing it changes every interval
 LEVEL = 0.95  # the interval's coverage; its lower bound is the 2.5% quantile
+WHOLE = 100  # the samples a side from which a metric's control speaks for the machine
 
 
 def nearest_rank(values, q=0.95):
@@ -257,7 +258,7 @@ def broken(failures, rounds):
                   if len(new[name]) >= rounds and len(control.get(name, [])) >= rounds and len(old.get(name, [])) < rounds)
 
 
-def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DRAWS):
+def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DRAWS, whole=WHOLE):
     """The gate's verdict on samples. old, new and control map each metric
     to its samples from the old binary's runs, the new one's, and the new
     one's again, run as a control; ceilings maps each gated metric to its
@@ -265,14 +266,21 @@ def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DR
 
     Each metric's control is judged by the same rule, both ways: new against
     the control and the control against new. If either fails, two runs of
-    one binary differed on that metric as much as a regression would, so the
-    machine was too noisy to judge it, whatever the old binary did: the
-    metric is not judged. A judged metric of new that fails against old
-    fails the gate, exit 1. Otherwise the verdict is "not judged" when a
-    control failed and "pass" when none did, exit 0 either way, so noise
-    never fails a build. A metric without samples on every side is listed
-    as not compared and decides nothing."""
+    one binary differed on that metric as much as a regression would. On a
+    metric with at least whole samples on every side, that means the
+    machine was too noisy to judge any metric: load in some runs and not
+    others moves every figure, and a regression's seeming is then the
+    machine's. The verdict is "not judged" and the exit 0, whatever the old
+    binary did. On a metric with fewer, whose p95 is one of its few largest
+    samples, it says more about the samples than about the machine: that
+    metric alone is not judged.
+
+    Otherwise a judged metric of new that fails against old fails the gate,
+    exit 1; with none, the verdict is "pass", or "not judged" when a
+    metric's control failed, exit 0 either way. A metric without samples on
+    every side is listed as not compared and decides nothing."""
     metrics, control_reasons, failed, skipped = {}, [], [], []
+    noisy = False
     for name in sorted(ceilings):
         o, n, c = old.get(name) or [], new.get(name) or [], control.get(name) or []
         if not (o and n and c):
@@ -287,13 +295,17 @@ def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DR
         verdict["judged"] = not verdict["control_reasons"]
         metrics[name] = verdict
         control_reasons += ["%s: %s" % (name, r) for r in verdict["control_reasons"]]
+        noisy = noisy or (not verdict["judged"] and min(len(o), len(n), len(c)) >= whole)
         if verdict["judged"]:
             failed += ["%s: %s" % (name, r) for r in verdict["reasons"]]
-    if failed:
+    if noisy:
+        verdict, code = "not judged", 0
+    elif failed:
         verdict, code = "fail", 1
     elif control_reasons:
         verdict, code = "not judged", 0
     else:
         verdict, code = "pass", 0
-    return {"verdict": verdict, "exit": code, "threshold": threshold, "seed": seed, "draws": draws,
-            "control_failures": control_reasons, "failures": failed, "not_compared": skipped, "metrics": metrics}
+    return {"verdict": verdict, "exit": code, "threshold": threshold, "seed": seed, "draws": draws, "whole": whole,
+            "machine_too_noisy": noisy, "control_failures": control_reasons, "failures": failed,
+            "not_compared": skipped, "metrics": metrics}
