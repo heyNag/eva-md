@@ -18,5 +18,9 @@ Rules every card carries, so they are said once here:
 | [SEAM-0d](SEAM-0d.md) | Guards on the plugin's bytes and on the upgrade from 2026.11.5 | building |
 | [LG-10](LG-10.md) | The event model and the one reader | building |
 | [LG-11](LG-11.md) | The redaction driver with spans, same behaviour | building |
+| [SEAM-0c](SEAM-0c.md) | Registries for status rows and switches | next |
+| [EV-12](EV-12.md) | The results store and gates | next |
+| [ST-01](ST-01.md) | The store's written format and its profile checker | next |
+| [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | next |
 
-SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Parts b and c are built with EV-16, just before the counters release that needs them.
+SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner.
