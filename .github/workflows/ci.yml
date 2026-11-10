@@ -11,11 +11,14 @@ permissions:
 jobs:
   test:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 50
     steps:
+      # The whole history, so the latency gate can build the commit before
+      # the change.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -27,6 +30,38 @@ jobs:
       - run: go test ./...
       - run: go test -race ./...
       - run: go build -mod=readonly -o bin/eva-md ./cmd/eva-md
+      # The latency gate: the binary of the commit before the change (the
+      # pull request's base, or the push's parent) and the change's own, in
+      # alternating runs on this machine, with the change's binary again as
+      # a control (scripts/benchmark.py --compare). Advisory: it reports and
+      # never fails the job, until an unchanged binary has passed it twenty
+      # times in twenty (docs/v2/baselines/README.md).
+      - name: Latency gate (advisory)
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          python3 -I scripts/bench/test_gate.py
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            BASE=$(git rev-parse HEAD^)
+          fi
+          echo "Comparing $BASE with $SHA"
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
+          cd "$RUNNER_TEMP/base"
+          go build -mod=readonly -o "$RUNNER_TEMP/eva-md-base" ./cmd/eva-md
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p "$RUNNER_TEMP/latency"
+          python3 -I scripts/benchmark.py --compare "$RUNNER_TEMP/eva-md-base" bin/eva-md --cwd "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/latency/gate.json" --baseline "$RUNNER_TEMP/latency/latency-macos.json" --commit "$SHA"
+      - name: Save the latency report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: latency
+          path: ${{ runner.temp }}/latency/
+          if-no-files-found: ignore
 
   # eva-md runs only on macOS, so the job above is the test run of record.
   # This one keeps eva-md building and its tests passing on Linux, where
