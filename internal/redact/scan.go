@@ -54,9 +54,8 @@ type Result struct {
 	// hold one range from the first byte the rules changed to the last, and
 	// Apply returns the rules' own output.
 	Findings []Finding
-	// Through is how far the scan read. It is len(Clean) unless the context
-	// ended first; then only Clean[:Through], which ends a line, was
-	// redacted, and the rest must be dropped.
+	// Through is how far the scan read: len(Clean), or 0 when the context
+	// ended first, and nothing was redacted, so all of Clean must be dropped.
 	Through int
 
 	count    int    // replacements, as Redact counts them
@@ -64,37 +63,36 @@ type Result struct {
 	out      string // the rules' output, when untraced
 }
 
-// firstPrefix is the size of the first prefix a scan that can be stopped
-// redacts on its own, before a longer one.
-const firstPrefix = 32 << 10
-
 // Scan runs the rules on text as Redact does and returns the ranges they
 // replace, each with the kind of its marker, the rule set that found it and
 // a tier.
 //
 // It checks ctx before each round of the rules and before each pass of the
-// current rules, and stops when ctx has ended; the baseline rules' passes,
-// which make one call, run to their end. The rules read the whole text at
-// once, so what one pass found is no redaction of any part of the text
-// until the round ends. So when ctx can end, Scan first redacts prefixes of
-// the text on their own, from 32 KiB, each ending a line and twice as long
-// as the one before, up to half the text, and then the whole text; a scan
-// stopped by ctx returns the longest prefix it finished, or nothing, with
-// Through saying where it ends. Where the rules read across lines, they
-// read forward, as a private key block, the words after a trigger word and
-// a command continued on the next line do, so a prefix redacted on its own
-// keeps nothing the whole text's redaction removes from it. The prefixes
-// cost at most as much again as the whole text; a ctx that can't end, as
-// Redact's, is spared them.
+// current rules, and stops when ctx has ended. A scan that stops keeps
+// nothing: Through is 0, and the caller must drop the whole text. The rules
+// read the whole text at once and are not local to a line: how far the
+// current rules search again inside a match depends on the length of the
+// whole text, and a line the alignment can't follow sends the whole text,
+// earlier lines too, through the other way of joining the two rule sets. So
+// no prefix redacted on its own is known to keep nothing the whole text's
+// redaction removes from it, and none is kept. Only rules that are local
+// to a line would let a stopped scan keep the lines before it.
+//
+// A scan does not stop the moment ctx ends: the baseline rules' passes,
+// which make one call, run to their end, and so does a pass of the current
+// rules that has begun. After ctx ends, it returns within one call of the
+// baseline rules, one pass of the current rules and one alignment of their
+// outputs, each over the whole text: for a long text, a good part of what
+// Redact takes on it. A scan that runs to the end costs what Redact does.
 func Scan(ctx context.Context, text string) Result {
-	return driver{ctx: ctx}.scan(text, firstPrefix)
+	return driver{ctx: ctx}.scan(text)
 }
 
 // driver runs the rules on a text and stops when its context ends.
 type driver struct {
 	ctx context.Context
 	// step, when set, is called at each point the driver checks ctx, with
-	// how far the text it is redacting reaches. Only tests set it.
+	// the length of the text it is redacting. Only tests set it.
 	step func(through int)
 	// rules, when set, stands in for bothRules. Only tests set it.
 	rules func(text string, stop func() bool) (floor string, nf int, current string, ok bool)
@@ -108,29 +106,13 @@ func bothRules(text string, stop func() bool) (floor string, nf int, current str
 	return floor, nf, current, ok
 }
 
-// scan is Scan, with first the size of the first prefix.
-func (d driver) scan(text string, first int) Result {
+// scan is Scan.
+func (d driver) scan(text string) Result {
 	c := clean(text)
-	best := Result{Clean: c}
-	if d.ctx.Done() != nil {
-		for b := first; b <= len(c)/2; b *= 2 {
-			end := strings.LastIndexByte(c[:b], '\n') + 1
-			if end <= best.Through {
-				continue
-			}
-			r, ok := d.run(c[:end])
-			if !ok {
-				return best
-			}
-			r.Clean = c
-			best = r
-		}
-	}
 	r, ok := d.run(c)
 	if !ok {
-		return best
+		return Result{Clean: c}
 	}
-	r.Clean = c
 	return r
 }
 
@@ -173,7 +155,7 @@ func (d driver) run(c string) (r Result, ok bool) {
 	if strings.Contains(c, "PRIVATE KEY") {
 		var rs []removal
 		for _, m := range privateKeyBlock.FindAllStringIndex(c, -1) {
-			rs = append(rs, removal{start: m[0], end: m[1], kind: "private_key", current: true})
+			rs = append(rs, removal{start: m[0], end: m[1], kind: "private_key", current: true, tier: Certain})
 		}
 		t.replace(rs)
 		t.count += len(rs)
@@ -301,10 +283,11 @@ func (t *trace) replace(rs []removal) {
 
 // remap returns ps, the pieces of a text, with each range of the text in rs
 // replaced by a marker piece over the cleaned text it stands for. A marker
-// piece a range covers is taken in; its tier stays if it is surer, and so
-// does the current rule set. bad is true when a range starts or ends inside
-// a marker piece: a marker cut in two stands for no range of the cleaned
-// text.
+// piece a range covers is taken in, and so is its rule set, if current. A
+// piece the current rules found takes the surest tier of the range and the
+// pieces it takes in; one the baseline rules alone found is FloorOnly. bad
+// is true when a range starts or ends inside a marker piece: a marker cut in
+// two stands for no range of the cleaned text.
 func remap(ps []piece, rs []removal) (out []piece, bad bool) {
 	i, off := 0, 0 // ps[i] starts at off in the text
 	for _, r := range rs {
@@ -316,9 +299,12 @@ func remap(ps []piece, rs []removal) (out []piece, bad bool) {
 			off += ps[i].size()
 			i++
 		}
-		f := piece{marker: true, kind: r.kind, rule: RuleBaseline, tier: FloorOnly}
+		f := piece{marker: true, kind: r.kind, rule: RuleBaseline, tier: kindTier(r.kind)}
+		if r.tier != 0 {
+			f.tier = min(f.tier, r.tier)
+		}
 		if r.current {
-			f.rule, f.tier = RuleCurrent, kindTier(r.kind)
+			f.rule = RuleCurrent
 		}
 		if p := ps[i]; r.start > off {
 			if p.marker {
@@ -348,6 +334,9 @@ func remap(ps []piece, rs []removal) (out []piece, bad bool) {
 			f.end = p.start + r.end - off
 			ps[i] = piece{start: f.end, end: p.end}
 			off = r.end
+		}
+		if f.rule != RuleCurrent {
+			f.tier = FloorOnly
 		}
 		out = append(out, f)
 	}
@@ -391,7 +380,8 @@ func (t *trace) result() Result {
 	}
 	r.Findings = nil
 	if head < len(t.clean)-tail {
-		r.Findings = []Finding{{Start: head, End: len(t.clean) - tail, Kind: "secret_value", Rule: RuleCurrent, Tier: Likely}}
+		// What the range holds is not known, so it is held to be certain.
+		r.Findings = []Finding{{Start: head, End: len(t.clean) - tail, Kind: "secret_value", Rule: RuleCurrent, Tier: Certain}}
 	}
 	r.untraced, r.out = true, t.text
 	return r

@@ -13,7 +13,8 @@ import (
 
 // Tests for the driver: Scan and Apply give what Redact gave before them
 // (redactV1), on every text the other tests of this package redact and on
-// generated texts; a scan stopped by its context keeps a safe prefix.
+// generated texts, with findings that say rightly which rule set found them;
+// a scan stopped by its context keeps nothing.
 // Fixtures that look like secrets are joined from fragments at run time.
 
 // TestMain checks every text the package's tests redact against redactV1, as
@@ -101,14 +102,17 @@ func differs(text, out string, n int, memo ruleMemo) string {
 		return fmt.Sprintf("  Redact(%q) = %q, %d; redactV1 %q, %d", text, out, n, want, wantN)
 	}
 	d := driver{ctx: context.Background(), rules: memo.rules}
-	r := d.scan(text, firstPrefix)
+	r := d.scan(text)
 	if Apply(r) != out || r.count != n {
 		return fmt.Sprintf("  Scan(%q) gives %q, %d; Redact %q, %d", text, Apply(r), r.count, out, n)
 	}
 	if bad := badFindings(r); bad != "" {
 		return fmt.Sprintf("  Scan(%q): %s", text, bad)
 	}
-	again := d.scan(out, firstPrefix)
+	if bad := badLabels(r, memo); bad != "" {
+		return fmt.Sprintf("  Scan(%q) redacted %q: %s", text, out, bad)
+	}
+	again := d.scan(out)
 	if twice := Apply(again); twice != out || again.count != 0 || len(again.Findings) != 0 {
 		return fmt.Sprintf("  not idempotent on %q: %q then %q, %d", text, out, twice, again.count)
 	}
@@ -142,6 +146,83 @@ func badFindings(r Result) string {
 		out := Apply(r)
 		if len(r.Findings) != 1 || !strings.HasPrefix(out, r.Clean[:r.Findings[0].Start]) || !strings.HasSuffix(out, r.Clean[r.Findings[0].End:r.Through]) {
 			return fmt.Sprintf("untraced, and the findings %+v don't hold all that changed in %q", r.Findings, out)
+		}
+	}
+	return ""
+}
+
+// badLabels says what is wrong with the rule sets and tiers of r's findings,
+// or returns "", judged against what each rule set removed from Clean in
+// the first round, which memo holds. A finding the baseline rules alone
+// found holds no byte the current rules removed, and is FloorOnly. One the
+// current rules found is at most Likely, and no less sure than any marker
+// either rule set wrote over a range it holds: a token one rule set marks
+// inside a value the other marks keeps its tier. Where the first round is
+// the only one that removes anything, a finding the current rules found
+// holds a byte they removed. Texts whose rules' output can't be followed,
+// or that hold a private key, which is replaced before the first round,
+// aren't judged.
+func badLabels(r Result, memo ruleMemo) string {
+	if r.untraced || strings.Contains(r.Clean, "PRIVATE KEY") {
+		return ""
+	}
+	run, ok := memo[r.Clean]
+	if !ok {
+		return ""
+	}
+	cur, ok := removals(r.Clean, run.current)
+	if !ok {
+		return ""
+	}
+	floor, ok := removals(r.Clean, run.floor)
+	if !ok {
+		return ""
+	}
+	// Markers already in the text stand for nothing the rules found.
+	existing := markerRe.FindAllStringIndex(r.Clean, -1)
+	inExisting := func(x removal) bool {
+		for _, m := range existing {
+			if m[0] <= x.start && x.end <= m[1] {
+				return true
+			}
+		}
+		return false
+	}
+	// The first round is the only one when the rules remove nothing from
+	// its output.
+	oneRound := false
+	if out1, _, ok := unionV1(r.Clean, run.floor, run.current); ok {
+		next, seen := memo[out1]
+		oneRound = out1 == Apply(r) && (out1 == r.Clean || seen && next.floor == out1 && next.current == out1)
+	}
+	for _, f := range r.Findings {
+		overlaps := func(x removal) bool { return x.start < f.End && f.Start < x.end && !inExisting(x) }
+		byCurrent := false
+		for _, x := range cur {
+			if overlaps(x) {
+				byCurrent = true
+			}
+		}
+		switch f.Rule {
+		case RuleBaseline:
+			if byCurrent {
+				return fmt.Sprintf("finding %+v is the baseline rules' alone, but the current rules removed text in it: %q", f, run.current)
+			}
+			if f.Tier != FloorOnly {
+				return fmt.Sprintf("finding %+v is the baseline rules' alone, but not FloorOnly", f)
+			}
+		case RuleCurrent:
+			if f.Tier > Likely {
+				return fmt.Sprintf("finding %+v is the current rules', but FloorOnly", f)
+			}
+			if oneRound && !byCurrent {
+				return fmt.Sprintf("finding %+v is the current rules', but they removed nothing in it: %q", f, run.current)
+			}
+			for _, x := range append(append([]removal(nil), cur...), floor...) {
+				if overlaps(x) && x.tier < f.Tier {
+					return fmt.Sprintf("finding %+v is less sure than the marker of kind %s over [%d, %d)", f, x.kind, x.start, x.end)
+				}
+			}
 		}
 	}
 	return ""
@@ -260,11 +341,12 @@ func (g *textSource) text(n int) string {
 
 // Apply(Scan(x)) is redactV1(x), with the same count, on 150,000 generated
 // texts, every 250th a long one, and redacting the result again changes
-// nothing (see differs). Both run on the rules' output kept for the text,
-// so the rules run once for each text; for each long one, Redact runs
-// the rules itself, and a scan whose context can end, which redacts
-// prefixes first, ends with the same findings. Under the race detector,
-// which slows the rules many times over, it checks 5,000.
+// nothing, and the findings are well formed and well labelled (see
+// differs). Both run on the rules' output kept for the text, so the rules
+// run once for each text; for each long one, Redact runs the rules itself,
+// and a scan whose context can end, but doesn't, ends with the same
+// findings. Under the race detector, which slows the rules many times over,
+// it checks 5,000.
 func TestScanMatchesRedactV1(t *testing.T) {
 	isolate(t)
 	total := 150000
@@ -301,11 +383,11 @@ func TestScanMatchesRedactV1(t *testing.T) {
 				memo := ruleMemo{}
 				out, n := redactV1With(in, memo.rules)
 				problem := differs(in, out, n, memo)
-				r := driver{ctx: context.Background(), rules: memo.rules}.scan(in, firstPrefix)
+				r := driver{ctx: context.Background(), rules: memo.rules}.scan(in)
 				if problem == "" && x.long {
 					if got, k := Redact(in); got != out || k != n {
 						problem = fmt.Sprintf("Redact(%q) = %q, %d; want %q, %d", in, got, k, out, n)
-					} else if p := (driver{ctx: ctx}).scan(in, 64); fmt.Sprint(p) != fmt.Sprint(r) {
+					} else if p := (driver{ctx: ctx, rules: memo.rules}).scan(in); fmt.Sprint(p) != fmt.Sprint(r) {
 						problem = fmt.Sprintf("a scan that could stop differs on %q: %+v; want %+v", in, p, r)
 					}
 				}
@@ -329,13 +411,12 @@ func TestScanMatchesRedactV1(t *testing.T) {
 	t.Logf("%d texts checked, %d with part of a marker in the rules' output", done, untraced)
 }
 
-// A scan stopped at any point it checks its context returns at that point,
-// and keeps a prefix that ends a line, reaches no further than the text it
-// was reading, is the rules' redaction of that prefix, and keeps nothing a
-// scan of the whole text removes from it. The scan blocks at the chosen
-// point until the test has cancelled its context and released it. Under the
-// race detector it stops scans of 20 texts, not 200.
-func TestCancelledScanKeepsSafePrefix(t *testing.T) {
+// A scan stopped at any point it checks its context returns at that point
+// and keeps nothing: Through is 0, it has no findings and Apply gives "".
+// The scan blocks at the chosen point until the test has cancelled its
+// context and released it. Under the race detector it stops scans of 20
+// texts, not 200.
+func TestCancelledScanKeepsNothing(t *testing.T) {
 	isolate(t)
 	g := &textSource{seed: 7}
 	texts := 200
@@ -345,34 +426,22 @@ func TestCancelledScanKeepsSafePrefix(t *testing.T) {
 	stops := 0
 	for i := 0; i < texts; i++ {
 		in := g.text(30)
-		full := Scan(context.Background(), in)
-		// The points a scan that runs to the end checks its context at.
+		// The points a scan that runs to the end checks its context at, with
+		// the rules themselves, which check it before each of their passes.
 		var points []int
 		ctx, cancel := context.WithCancel(context.Background())
-		driver{ctx: ctx, step: func(through int) { points = append(points, through) }}.scan(in, 64)
+		full := driver{ctx: ctx, step: func(through int) { points = append(points, through) }}.scan(in)
 		cancel()
 		for _, k := range []int{0, len(points) / 3, len(points) / 2, len(points) - 1, (i * 7) % len(points)} {
-			r, point, calls := stopAt(t, in, k)
+			r, point, calls := stopAt(t, in, k, nil)
 			stops++
 			if calls != k+1 {
 				t.Fatalf("scan of %q went on past the point it was stopped at: %d checks, want %d", in, calls, k+1)
 			}
-			if point != points[k] {
-				t.Fatalf("stopped at %d, want %d", point, points[k])
+			if point != points[k] || point != len(full.Clean) {
+				t.Fatalf("stopped at %d, want %d, the length of the text", point, points[k])
 			}
-			if r.Through > point || r.Through > 0 && r.Clean[r.Through-1] != '\n' || r.Clean != full.Clean {
-				t.Fatalf("stopped at %d of %q, kept through %d", point, in, r.Through)
-			}
-			if bad := badFindings(r); bad != "" {
-				t.Fatalf("stopped scan of %q: %s", in, bad)
-			}
-			kept := Apply(r)
-			if want, _ := redactV1(r.Clean[:r.Through]); kept != want {
-				t.Fatalf("kept %q; want the prefix redacted, %q", kept, want)
-			}
-			if leak := uncovered(full, r); leak != "" {
-				t.Fatalf("stopped at %d of %q, the prefix keeps %q, which the whole scan removes:\nprefix %q\nwhole  %q", point, in, leak, kept, Apply(full))
-			}
+			checkKeepsNothing(t, in, full, r)
 		}
 	}
 	if stops != 5*texts {
@@ -380,11 +449,77 @@ func TestCancelledScanKeepsSafePrefix(t *testing.T) {
 	}
 }
 
-// stopAt runs a scan of in, with small prefixes, that blocks at its kth
-// check of its context until the test has cancelled the context. It returns
-// the result, how far the text being read reached at that check, and how
-// many checks the scan made in all.
-func stopAt(t *testing.T, in string, k int) (Result, int, int) {
+// checkKeepsNothing fails the test unless r, a stopped scan of in, keeps
+// nothing, and so nothing the whole scan full removes.
+func checkKeepsNothing(t *testing.T, in string, full, r Result) {
+	t.Helper()
+	if r.Through != 0 || len(r.Findings) != 0 || r.Clean != full.Clean {
+		t.Fatalf("a stopped scan of %q kept through %d, with %d findings", in, r.Through, len(r.Findings))
+	}
+	if bad := badFindings(r); bad != "" {
+		t.Fatalf("stopped scan of %q: %s", in, bad)
+	}
+	if kept := Apply(r); kept != "" {
+		t.Fatalf("a stopped scan of %q kept %q", in, kept)
+	}
+	if leak := uncovered(full, r); leak != "" {
+		t.Fatalf("a stopped scan of %q keeps %q, which the whole scan removes", in, leak)
+	}
+}
+
+// Two texts where the lines before a point, redacted on their own, keep a
+// secret that the whole text's redaction removes from them, so a stopped
+// scan that kept them would leak it. In the first, the current rules search
+// a long URL query again within an allowance that grows with the text, so
+// they find more of its values in the whole text than in its first 32 KiB.
+// In the second, a later line the alignment can't follow sends the whole
+// text through the other way of joining the rule sets, which reads the
+// first line differently. A scan stopped at any of its checks keeps nothing.
+func TestStoppedScanKeepsNoPrefix(t *testing.T) {
+	isolate(t)
+	filler := strings.Repeat("the quick brown fox jumps over the lazy dog again\n", 1800)
+	var query strings.Builder
+	query.WriteString("curl https://h.example/x?a=1")
+	for i := 0; i < 110; i++ {
+		fmt.Fprintf(&query, "&db_pass=Qz7m%05dWv", i)
+	}
+	first := "secret='[REDACTED:secret_value] \t&refresh_token='secret(curl -u admin:\\ rotated cfg.Token = nil // reset "
+	breaker := "gh://" + oai + "]" + random[:20] + "@x"
+	for _, c := range []struct {
+		in    string
+		value string // in the first line: kept by the first 32 KiB alone, removed by the whole
+	}{
+		{query.String() + "\n" + filler, "Qz7m00109Wv"},
+		{first + "\n" + filler[:34000] + breaker + "\n" + filler[:1000], "rotated"},
+	} {
+		memo := ruleMemo{}
+		var points []int
+		ctx, cancel := context.WithCancel(context.Background())
+		full := driver{ctx: ctx, rules: memo.rules, step: func(through int) { points = append(points, through) }}.scan(c.in)
+		cancel()
+		whole := Apply(full)
+		prefix := c.in[:strings.LastIndexByte(c.in[:32<<10], '\n')+1]
+		alone, _ := redactV1(prefix)
+		line := func(s string) string { return s[:strings.IndexByte(s, '\n')] }
+		if !strings.Contains(line(alone), c.value) || strings.Contains(line(whole), c.value) {
+			t.Fatalf("want %q kept by the first 32 KiB redacted alone and removed by the whole text's redaction:\nalone %q\nwhole %q", c.value, line(alone), line(whole))
+		}
+		for _, k := range []int{0, len(points) / 2, len(points) - 1} {
+			r, _, calls := stopAt(t, c.in, k, memo.rules)
+			if calls != k+1 {
+				t.Fatalf("the scan went on past the point it was stopped at: %d checks, want %d", calls, k+1)
+			}
+			checkKeepsNothing(t, line(c.in), full, r)
+		}
+	}
+}
+
+// stopAt runs a scan of in, on rules, or the rules themselves when nil,
+// that blocks at its kth check of its context until the test has cancelled
+// the context. It returns the result,
+// the length of the text being read at that check, and how many checks the
+// scan made in all.
+func stopAt(t *testing.T, in string, k int, rules func(string, func() bool) (string, int, string, bool)) (Result, int, int) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -399,7 +534,7 @@ func stopAt(t *testing.T, in string, k int) (Result, int, int) {
 		}
 	}
 	done := make(chan Result)
-	go func() { done <- driver{ctx: ctx, step: step}.scan(in, 64) }()
+	go func() { done <- driver{ctx: ctx, step: step, rules: rules}.scan(in) }()
 	var point int
 	select {
 	case point = <-reached:
@@ -450,8 +585,13 @@ func TestUncoveredFindsLeaks(t *testing.T) {
 }
 
 // The findings say which rule set found a secret and how sure it is: a
-// provider token is certain, a key's value likely, and a value only the
-// baseline rules remove is the floor's alone.
+// provider token, an Authorization value or a private key is certain; a
+// key's value, a command's password or a random token after a trigger word
+// likely; and a value only the baseline rules remove is the floor's alone.
+// A range both rule sets replace is the current rules', even where the
+// baseline rules' range starts first, and as sure as the surest marker
+// either wrote over it: a provider token the baseline rules mark inside a
+// value the current rules mark keeps its tier.
 func TestFindingLabels(t *testing.T) {
 	isolate(t)
 	pw := j("S3cr3t", "Pw9")
@@ -469,6 +609,17 @@ func TestFindingLabels(t *testing.T) {
 			{10, 10 + len(ghTok), "github_token", RuleCurrent, Certain},
 			{10 + len(ghTok) + 13, 10 + len(ghTok) + 13 + len(pw), "secret_value", RuleCurrent, Likely},
 		}},
+		{"mysql -uroot -p" + pw + " db", []Finding{{15, 15 + len(pw), "password", RuleCurrent, Likely}}},
+		{"curl -u admin:" + j("hunter2", "Pass9") + " https://x", []Finding{{14, 26, "password", RuleCurrent, Likely}}},
+		{"the deploy token is " + random, []Finding{{20, 20 + len(random), "high_entropy", RuleCurrent, Likely}}},
+		{"Authorization: Bearer " + random, []Finding{{22, 22 + len(random), "auth_header", RuleCurrent, Certain}}},
+		// The baseline rules' range, "=correct", starts a byte before the
+		// current rules' "correct horse battery".
+		{"password==" + j("correct", " horse battery"), []Finding{{9, 31, "secret_value", RuleCurrent, Likely}}},
+		// The baseline rules mark the provider token alone; the current
+		// rules mark the whole value.
+		{"secret: foo-" + ghTok, []Finding{{8, 12 + len(ghTok), "secret_value", RuleCurrent, Certain}}},
+		{"export SECRET=abc:" + stripe, []Finding{{14, 18 + len(stripe), "secret_value", RuleCurrent, Certain}}},
 	} {
 		r := Scan(context.Background(), c.in)
 		if fmt.Sprint(r.Findings) != fmt.Sprint(c.want) {
@@ -478,7 +629,10 @@ func TestFindingLabels(t *testing.T) {
 }
 
 // A marker that stands for a finding a later round takes in is part of
-// the later finding, and its tier, if surer, stays.
+// the later finding, and its tier, if surer, stays, and so does its rule
+// set, if current. A range only the baseline rules replaced is FloorOnly,
+// whatever its markers' tier; one the current rules replaced takes the
+// surest tier of its markers.
 func TestRemapTakesInMarkers(t *testing.T) {
 	ps := []piece{{start: 0, end: 4}, {start: 4, end: 10, marker: true, kind: "aws_key", rule: RuleCurrent, tier: Certain}, {start: 10, end: 20}}
 	// In the text: "abcd" [0,4), the marker [4,22), the rest [22,32).
@@ -486,6 +640,29 @@ func TestRemapTakesInMarkers(t *testing.T) {
 	want := []piece{{start: 0, end: 2}, {start: 2, end: 12, marker: true, kind: "secret_value", rule: RuleCurrent, tier: Certain}, {start: 12, end: 20}}
 	if bad || fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("remap = %+v, %v; want %+v", got, bad, want)
+	}
+	for _, c := range []struct {
+		r    removal
+		want piece
+	}{
+		// A baseline range over plain text, though its marker is a token's.
+		{removal{start: 12, end: 20, kind: "github_token", tier: Certain}, piece{start: 2, end: 10, marker: true, kind: "github_token", rule: RuleBaseline, tier: FloorOnly}},
+		// A current range a token's marker was written over too.
+		{removal{start: 12, end: 20, kind: "secret_value", current: true, tier: Certain}, piece{start: 2, end: 10, marker: true, kind: "secret_value", rule: RuleCurrent, tier: Certain}},
+		{removal{start: 12, end: 20, kind: "secret_value", current: true, tier: Likely}, piece{start: 2, end: 10, marker: true, kind: "secret_value", rule: RuleCurrent, tier: Likely}},
+	} {
+		plain := []piece{{start: 0, end: 20}, {start: 20, end: 30, marker: true, kind: "password", rule: RuleBaseline, tier: FloorOnly}}
+		// In the text: [0,20) plain, then the marker.
+		got, bad := remap(plain, []removal{{start: 2, end: 10, kind: c.r.kind, current: c.r.current, tier: c.r.tier}})
+		if bad || len(got) != 4 || fmt.Sprint(got[1]) != fmt.Sprint(c.want) {
+			t.Errorf("remap of %+v = %+v, %v; want %+v second", c.r, got, bad, c.want)
+		}
+	}
+	// A baseline range that takes in a baseline marker stays FloorOnly. In
+	// the text: [0,20) plain, then the marker, [20,39).
+	got, bad = remap([]piece{{start: 0, end: 20}, {start: 20, end: 30, marker: true, kind: "password", rule: RuleBaseline, tier: FloorOnly}}, []removal{{start: 10, end: 39, kind: "secret_value", tier: Likely}})
+	if want := (piece{start: 10, end: 30, marker: true, kind: "secret_value", rule: RuleBaseline, tier: FloorOnly}); bad || len(got) != 2 || fmt.Sprint(got[1]) != fmt.Sprint(want) {
+		t.Errorf("remap of a baseline range over a baseline marker = %+v, %v; want %+v second", got, bad, want)
 	}
 	// A range that starts or ends inside the marker can't be followed.
 	for _, r := range []removal{{start: 5, end: 24, kind: "x"}, {start: 0, end: 7, kind: "x"}} {
@@ -510,14 +687,61 @@ func TestUntracedKeepsRulesText(t *testing.T) {
 	if !r.untraced || !strings.HasPrefix(out, "gh://[REDACTED:[REDACTED:") {
 		t.Fatalf("Scan(%q) = %+v; want the rules' text, with part of a marker", in, r)
 	}
-	if want := []Finding{{5, len(in) - 2, "secret_value", RuleCurrent, Likely}}; fmt.Sprint(r.Findings) != fmt.Sprint(want) {
+	// What the finding holds is not known, so it is held to be certain.
+	if want := []Finding{{5, len(in) - 2, "secret_value", RuleCurrent, Certain}}; fmt.Sprint(r.Findings) != fmt.Sprint(want) {
 		t.Fatalf("findings %+v; want %+v", r.Findings, want)
 	}
 	// A trace whose pieces don't give its text is untraced too.
 	tr := newTrace("abc")
 	tr.text = "abd"
-	if r := tr.result(); !r.untraced || Apply(r) != "abd" || fmt.Sprint(r.Findings) != fmt.Sprint([]Finding{{2, 3, "secret_value", RuleCurrent, Likely}}) {
+	if r := tr.result(); !r.untraced || Apply(r) != "abd" || fmt.Sprint(r.Findings) != fmt.Sprint([]Finding{{2, 3, "secret_value", RuleCurrent, Certain}}) {
 		t.Fatalf("pieces that don't give the text: %+v", r)
+	}
+}
+
+// A run of markers that touch is one range, with the kind of its first
+// marker and the tier of its surest.
+func TestRemovalsTier(t *testing.T) {
+	base := "key: " + j("s3cret", "Value!") + ghTok + " and " + j("hunter2", "Pass9") + " ok"
+	out := "key: [REDACTED:secret_value][REDACTED:github_token] and [REDACTED:password] ok"
+	rs, ok := removals(base, out)
+	want := []removal{
+		{start: 5, end: 17 + len(ghTok), kind: "secret_value", tier: Certain},
+		{start: 22 + len(ghTok), end: 34 + len(ghTok), kind: "password", tier: Likely},
+	}
+	if !ok || fmt.Sprint(rs) != fmt.Sprint(want) {
+		t.Fatalf("removals = %+v, %v; want %+v", rs, ok, want)
+	}
+}
+
+// Where the baseline rules' output can't be lined up with the text, the
+// current rules redact it again, and where what they return can be lined
+// up, every range in it is the current rules', with the tier of its
+// marker. The rules here stand in for both rule sets: the baseline rules'
+// output has a byte the text lacks.
+func TestUnionFallbackLabels(t *testing.T) {
+	isolate(t)
+	pw := j("hunter2", "Pass9")
+	in := "token " + ghTok + " password: " + pw + " ok"
+	broken := "token " + ghTok + " password: " + pw + "X ok"
+	calls := 0
+	rules := func(text string, stop func() bool) (string, int, string, bool) {
+		calls++
+		if text == in {
+			return broken, 0, text, true
+		}
+		return text, 0, text, true
+	}
+	r := driver{ctx: context.Background(), rules: rules}.scan(in)
+	want := "token [REDACTED:github_token] password: [REDACTED:secret_value] ok"
+	if r.untraced || Apply(r) != want || r.count != 2 || calls != 2 {
+		t.Fatalf("Apply = %q, count %d, untraced %v, %d rounds; want %q, 2", Apply(r), r.count, r.untraced, calls, want)
+	}
+	if want := []Finding{
+		{6, 6 + len(ghTok), "github_token", RuleCurrent, Certain},
+		{6 + len(ghTok) + 11, 6 + len(ghTok) + 11 + len(pw), "secret_value", RuleCurrent, Likely},
+	}; fmt.Sprint(r.Findings) != fmt.Sprint(want) {
+		t.Fatalf("findings %+v; want %+v", r.Findings, want)
 	}
 }
 

@@ -45,15 +45,21 @@ type removal struct {
 	// keep says the range is one marker that was there already, which stays
 	// as it is.
 	keep bool
+	// tier is the surest tier of the kinds of the markers that replaced the
+	// range, in either rule set's output (see kindTier), or 0 when unknown.
+	// A range only the baseline rules replaced is still FloorOnly; tier is
+	// what it is worth when the current rules replaced text in it too.
+	tier Tier
 }
 
 // unionRanges returns the ranges of base that a or b replaced, where a and b
 // are outputs of rule sets that only replace ranges of base with markers, a
 // the baseline rules' and b the current rules'. Ranges that overlap are
-// merged, and a merged range takes the kind of its first; where ranges start
-// together, the current rules' comes first. A merged range that is one
-// marker already in base is marked keep. ok is false when an output can't
-// be lined up with base.
+// merged, and a merged range takes the kind of its first, the surest tier of
+// them all, and is current if any of them is; where ranges start together,
+// the current rules' comes first. A merged range that is one marker already
+// in base is marked keep. ok is false when an output can't be lined up with
+// base.
 func unionRanges(base, a, b string) (merged []removal, ok bool) {
 	if a == base && b == base {
 		return nil, true
@@ -75,6 +81,7 @@ func unionRanges(base, a, b string) (merged []removal, ok bool) {
 		if n := len(merged); n > 0 && r.start < merged[n-1].end {
 			merged[n-1].end = max(merged[n-1].end, r.end)
 			merged[n-1].current = merged[n-1].current || r.current
+			merged[n-1].tier = min(merged[n-1].tier, r.tier)
 			continue
 		}
 		merged = append(merged, r)
@@ -93,7 +100,9 @@ func isMarker(s string) bool { return markerRe.FindString(s) == s }
 // run of markers, then kept text again. Where kept text could line up in
 // more than one place, the range runs from the earliest place the kept text
 // before it can end to the latest place the kept text after it can start, so
-// an ambiguous line-up counts more text as removed, never less.
+// an ambiguous line-up counts more text as removed, never less. Each range
+// takes the kind of its run's first marker and the surest tier of the
+// run's markers.
 func removals(base, out string) ([]removal, bool) {
 	marks := markerRe.FindAllStringIndex(out, -1)
 	if len(marks) == 0 {
@@ -102,6 +111,7 @@ func removals(base, out string) ([]removal, bool) {
 	// kept[i] is the text before the i-th run of markers; kinds[i] is the kind
 	// of that run's first marker. The last kept text follows the last run.
 	var kept, kinds []string
+	var tiers []Tier
 	at := 0
 	for i, m := range marks {
 		if i > 0 && m[0] == marks[i-1][1] {
@@ -109,10 +119,13 @@ func removals(base, out string) ([]removal, bool) {
 		}
 		kept = append(kept, out[at:m[0]])
 		kinds = append(kinds, out[m[0]+len(marker):m[1]-1])
+		tier := kindTier(kinds[len(kinds)-1])
 		end := m[1]
 		for j := i + 1; j < len(marks) && marks[j][0] == end; j++ {
+			tier = min(tier, kindTier(out[marks[j][0]+len(marker):marks[j][1]-1]))
 			end = marks[j][1]
 		}
+		tiers = append(tiers, tier)
 		at = end
 	}
 	kept = append(kept, out[at:])
@@ -152,7 +165,7 @@ func removals(base, out string) ([]removal, bool) {
 	}
 	rs := make([]removal, runs)
 	for i := 0; i < runs; i++ {
-		rs[i] = removal{start: earliest[i] + len(kept[i]), end: latest[i+1], kind: kinds[i]}
+		rs[i] = removal{start: earliest[i] + len(kept[i]), end: latest[i+1], kind: kinds[i], tier: tiers[i]}
 	}
 	return rs, true
 }
