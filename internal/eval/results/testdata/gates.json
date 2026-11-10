@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "gates": [
+    {"metric": "hook.capture_p95_ms", "stat": "p95", "rule": "not_worse", "margin": 0.1, "relative": true},
+    {"metric": "fidelity.fact_recall", "stat": "mean", "rule": "not_worse", "margin": 0.05},
+    {"metric": "retrieval.false_additions", "stat": "mean", "rule": "better", "margin": 1}
+  ]
+}

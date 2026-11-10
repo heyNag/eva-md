@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "metrics": [
+    {"name": "hook.capture_p95_ms", "unit": "ms", "direction": "lower", "paths": ["internal/hook", "scripts/benchmark.py"]},
+    {"name": "fidelity.fact_recall", "unit": "ratio", "direction": "higher", "paths": ["internal/update"]},
+    {"name": "retrieval.false_additions", "unit": "count", "direction": "lower", "paths": ["internal/searchindex"]}
+  ]
+}
