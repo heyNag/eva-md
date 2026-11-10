@@ -1,5 +1,7 @@
 # Field report prompt
 
+**Status:** run once on the real install, on 2026-11-10. What it found is in [section 13 of the plan](plan.md#13-the-first-field-report-what-it-showed-and-what-it-changed). Do not run it again as it stands: the second report uses a new prompt, written with the counters release, which also fixes two things this one got wrong. It asks for `eva-md brief --as resume`, `compact` and `fork` without the `--session` those kinds need, so all three exit 2. And it does not say that `push-retry` is a timer and that `needs-trust.json` stays for good, so a reader takes both for faults.
+
 This is the prompt for the one machine where eva-md runs for real. It asks the agent there for a general report on how eva-md behaves in use, with nothing private in it. The report comes back to the design team and is folded into [the plan](plan.md) before the plan is agreed. Section 8 of the plan lists what each answer would change.
 
 How to use it:
