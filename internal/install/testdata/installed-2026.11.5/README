@@ -1,0 +1,100 @@
+What release 2026.11.5 installed
+
+This folder is what `eva-md install` of release 2026.11.5 (tag 2026.11.5,
+commit 4f5fa2c) left in a home of its own, with both host CLIs faked.
+TestUpgradeFrom2026_11_5 lays it down in a test's home and runs the current
+install over it.
+
+- MANIFEST lists every folder (d), file (f) and link (l) the home held, with
+  its mode, sorted by path. Git keeps neither modes, empty folders nor links
+  here, so the test makes them from this list.
+- home/ holds the files. The home's path is written as @HOME@ in every file
+  and link target.
+- The binary, home/.local/share/eva-md/bin/eva-md, is a one-line placeholder.
+- fake-bin, the fake host CLIs, is left out; cli-paths.json still names them,
+  as @HOME@/fake-bin/claude and @HOME@/fake-bin/codex, where the test makes
+  its own.
+- .config/eva-md/config.toml is setup's, written by hand before the install
+  with made-up values; the install only reads it. inbox/.baseline is the time
+  the install ran, so it differs on each run.
+
+How it was made, on Linux with Go 1.26, git, perl and network access to the
+Go module proxy (2026.11.5 builds against an older okf, which the module
+cache may lack). Run it in the top folder of an eva-md checkout that has the
+tag or the commit; nothing here touches the real home.
+
+    set -euo pipefail
+    F=$PWD/internal/install/testdata/installed-2026.11.5
+    S=$(mktemp -d)
+    mkdir "$S/src"
+    git archive 4f5fa2c | tar -x -C "$S/src"
+    (cd "$S/src" && GOFLAGS=-mod=readonly go build -buildvcs=false \
+        -ldflags "-X main.version=2026.11.5" -o "$S/eva-md" ./cmd/eva-md)
+    mkdir "$S/home" "$S/hosts"
+    export H=$(cd "$S/home" && pwd -P)
+    hosts=$(cd "$S/hosts" && pwd -P)
+    mkdir -p "$H/fake-bin" "$H/.local/bin" "$H/.config/eva-md"
+    chmod 700 "$H/.config" "$H/.config/eva-md" "$H/.local" "$H/.local/bin"
+    printf '%s\n' "wiki_path = \"$H/eva-wiki\"" \
+        'expected_remote = "github.com/example/eva-wiki"' \
+        'instance = "fixture-12345678"' 'machine_label = "fixture"' \
+        > "$H/.config/eva-md/config.toml"
+    chmod 600 "$H/.config/eva-md/config.toml"
+    # fake <host> <list> <listed> <empty> <market> <no market> <add>: a host
+    # CLI that keeps eva-md's registration in $hosts, as the fake hosts of
+    # cmd/eva-md/release_test.go do.
+    fake() {
+        local s="$hosts/$1"
+        cat > "$H/fake-bin/$1" <<EOF
+    #!/bin/sh
+    case "\$*" in
+    "$2")
+        if [ -f '$s.plugin' ]; then printf '$3\n' "\$(cat '$s.market')"; else echo '$4'; fi ;;
+    "plugin marketplace list --json")
+        if [ -f '$s.market' ]; then printf '$5\n' "\$(cat '$s.market')"; else echo '$6'; fi ;;
+    "plugin validate --strict --json "*) echo '{"success":true}' ;;
+    "features list") echo 'hooks experimental true' ;;
+    "plugin marketplace add "*" --json") printf '%s' "\$4" > '$s.market'; echo '{}' ;;
+    "$7") : > '$s.plugin'; echo '{}' ;;
+    *) exit 2 ;;
+    esac
+    EOF
+        chmod 700 "$H/fake-bin/$1"
+    }
+    fake claude "plugin list --json" \
+        '[{"pluginId":"eva-md@eva-md","name":"eva-md","enabled":true,"readFromFolder":"%s/plugins/eva-md","folderVersion":"1","errors":[]}]' '[]' \
+        '[{"name":"eva-md","root":"%s"}]' '[]' "plugin install eva-md@eva-md --scope user --json"
+    fake codex "plugin list --json --marketplace=eva-md" \
+        '{"installed":[{"pluginId":"eva-md@eva-md","name":"eva-md","enabled":true,"source":{"path":"%s/plugins/eva-md"}}]}' '{"installed":[]}' \
+        '{"marketplaces":[{"name":"eva-md","path":"%s"}]}' '{"marketplaces":[]}' "plugin add eva-md@eva-md --json"
+    env -i HOME="$H" PATH="$H/fake-bin:$H/.local/bin:/usr/bin:/bin" TMPDIR="$S" \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 "$S/eva-md" install
+    # Record the home: the manifest, then each file with the home's path
+    # replaced by the token, and the binary by its placeholder.
+    rm -rf "$F/home" "$F/MANIFEST"
+    mkdir "$F/home"
+    (cd "$H" && find . -mindepth 1 -path ./fake-bin -prune -o -print | sed 's|^\./||' | LC_ALL=C sort |
+    while IFS= read -r p; do
+        if [ -L "$p" ]; then
+            echo "l $p $(readlink "$p" | perl -pe 's/\Q$ENV{H}\E/\@HOME\@/g')"
+        elif [ -d "$p" ]; then
+            echo "d $(stat -c %a "$p") $p"
+            mkdir "$F/home/$p"
+        else
+            echo "f $(stat -c %a "$p") $p"
+            if [ "$p" = .local/share/eva-md/bin/eva-md ]; then
+                printf 'placeholder for the eva-md 2026.11.5 binary\n' > "$F/home/$p"
+            else
+                perl -pe 's/\Q$ENV{H}\E/\@HOME\@/g' "$p" > "$F/home/$p"
+            fi
+        fi
+    done) > "$F/MANIFEST"
+    rm -rf "$S"
+
+The heredoc's lines are indented here only as this file's code block: remove
+the four spaces before each line when you paste it, or the heredoc's EOF is
+not found. On macOS, stat -c %a is stat -f %Lp.
+
+Then check that no path or name of the machine that made it is left:
+TestFixture2026_11_5HoldsNoRealPath does, and so does a search of the folder
+for your home's path and your user name.
