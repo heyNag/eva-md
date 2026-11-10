@@ -223,12 +223,13 @@ func classify(e inbox.Entry) (event.Kind, event.Author, []event.Mark, bool) {
 		}
 		return a
 	}
+	var wrapper []event.Mark
+	if e.Kind == "prompt" && strings.HasPrefix(strings.TrimLeft(e.Text, " \t\r\n"), Wrapper) {
+		wrapper = []event.Mark{event.MarkWrapper}
+	}
 	switch e.Role + "/" + e.Kind {
 	case "user/prompt":
-		if strings.HasPrefix(strings.TrimLeft(e.Text, " \t\r\n"), Wrapper) {
-			return event.KindPrompt, sub(event.AuthorV1User), []event.Mark{event.MarkWrapper}, true
-		}
-		return event.KindPrompt, sub(event.AuthorV1User), nil, true
+		return event.KindPrompt, sub(event.AuthorV1User), wrapper, true
 	case "assistant/reply":
 		return event.KindReply, sub(event.AuthorAgent), nil, true
 	case "tool/tool":
@@ -239,7 +240,10 @@ func classify(e inbox.Entry) (event.Kind, event.Author, []event.Mark, bool) {
 		return event.KindSummary, event.AuthorHost, nil, true
 	case "event/event":
 	default:
-		return "", "", nil, false
+		// v1's walker yields these kinds whatever the role, so their text
+		// is returned, by no author the reader can name.
+		kind, ok := map[string]event.Kind{"prompt": event.KindPrompt, "reply": event.KindReply, "tool": event.KindTool, "plan": event.KindTasks}[e.Kind]
+		return kind, event.AuthorUnknown, wrapper, ok
 	}
 	name := []event.Mark{event.MarkName}
 	switch {
@@ -252,7 +256,7 @@ func classify(e inbox.Entry) (event.Kind, event.Author, []event.Mark, bool) {
 	case lifeEvent(e.Text):
 		return event.KindLife, event.AuthorHost, name, true
 	}
-	return event.KindLife, event.AuthorUnknown, name, true
+	return event.KindLife, event.AuthorUnknown, nil, true
 }
 
 // lifeEvent reports the fixed names v1's hook writes for the host's

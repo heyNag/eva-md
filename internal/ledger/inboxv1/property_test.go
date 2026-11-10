@@ -62,6 +62,9 @@ func generate(t *testing.T, root string, r *rand.Rand, seed uint64) generated {
 			if r.IntN(10) == 0 {
 				e.Trunc = 1 + r.IntN(5000)
 			}
+			if r.IntN(15) == 0 {
+				e.Role = "odd" // a role v1 never writes with this kind
+			}
 		case roll < 12:
 			e.Role, e.Kind, e.Text = "event", "event", v1Events[r.IntN(len(v1Events))]
 		case roll < 14:
