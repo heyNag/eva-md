@@ -25,6 +25,15 @@ import (
 // mcpTools are the tools the MCP server lists, in its order.
 const mcpTools = "eva_search, eva_show, eva_status"
 
+func init() {
+	registerRows(700, "mcp manifests", func(r *Report, in *inspection) { inspectMCPManifests(r, in.d) })
+	registerRows(900, "mcp server", func(r *Report, in *inspection) {
+		if in.hosts {
+			inspectMCPServer(in.ctx, r, in.d)
+		}
+	})
+}
+
 // inspectMCPManifests adds a row for each plugin host: whether the plugin
 // folder's .mcp.json declares the eva-md server at the installed binary. It
 // compares a file and starts nothing, so eva-md status has the rows too.

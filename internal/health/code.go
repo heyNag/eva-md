@@ -14,6 +14,14 @@ import (
 	"github.com/heyNag/eva-md/internal/systempage"
 )
 
+func init() {
+	registerRows(1040, "system code", func(r *Report, in *inspection) {
+		if c, _ := in.config(); c.WikiPath != "" {
+			inspectCode(r, in.d, c, in.now())
+		}
+	})
+}
+
 // inspectCode adds the row of the code the system pages cite, from the code
 // status the day's maintenance and eva-md system status take,
 // <state>/code-status.json, read with a 1 MiB bound. It is never FAIL: code
