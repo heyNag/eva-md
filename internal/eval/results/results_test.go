@@ -676,6 +676,9 @@ func TestABaselineGoesStaleWhenACoveredPathChanges(t *testing.T) {
 	if v.Holds || !strings.Contains(v.Line, "the baseline is stale: internal/hook changed between its commit "+commit[:12]) {
 		t.Fatalf("after a change to internal/hook: %s", v.Line)
 	}
+	if v := verdict("refs/heads/main"); v.Holds || !strings.Contains(v.Line, commit[:12]+" and refs/heads/main; accept a new baseline") {
+		t.Fatalf("at a named branch: %s", v.Line)
+	}
 	if v := verdict(before); !v.Holds {
 		t.Fatalf("at the commit before the change: %s", v.Line)
 	}

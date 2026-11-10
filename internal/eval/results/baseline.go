@@ -134,9 +134,10 @@ func Changed(ctx context.Context, repo, from, to string, paths []string) (string
 	return "", nil
 }
 
-// short shortens a commit id for a message.
+// short shortens a full commit id for a message, and leaves any other
+// revision as it is.
 func short(commit string) string {
-	if len(commit) > 12 {
+	if commitPattern.MatchString(commit) {
 		return commit[:12]
 	}
 	return commit
