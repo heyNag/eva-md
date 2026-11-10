@@ -100,17 +100,26 @@ class Decide(unittest.TestCase):
         # gate can't tell the change from the machine, and does not fail.
         old, new = samples(1, 300, 20), samples(2, 300, 40)
         d = self.run_gate(old, new, samples(3, 300, 20))
-        self.assertEqual((d["verdict"], d["exit"]), ("not judged", 0))
-        self.assertTrue(d["failures"])
+        self.assertEqual((d["verdict"], d["exit"], d["failures"]), ("not judged", 0, []))
+        self.assertFalse(d["metrics"]["capture"]["judged"])
+        self.assertTrue(d["metrics"]["capture"]["reasons"])
 
-    def test_one_noisy_metric_of_many_stops_the_verdict(self):
+    def test_each_metric_has_its_own_control(self):
+        # A noisy control on one metric leaves that metric unjudged, and a
+        # regression on another, whose control agreed, still fails.
         old = {"capture": samples(1, 300, 20), "startup": samples(4, 300, 100)}
         new = {"capture": [x+20 for x in samples(2, 300, 20)], "startup": samples(5, 300, 100)}
         control = {"capture": [x+20 for x in samples(3, 300, 20)], "startup": samples(6, 300, 200)}
         d = core.decide(old, new, control, {"capture": 100, "startup": 600})
-        self.assertEqual((d["verdict"], d["exit"]), ("not judged", 0))
+        self.assertEqual((d["verdict"], d["exit"]), ("fail", 1))
         self.assertEqual([f.split(":")[0] for f in d["failures"]], ["capture"])
+        self.assertTrue(d["control_failures"])
         self.assertTrue(all(f.startswith("startup: ") for f in d["control_failures"]))
+        self.assertEqual((d["metrics"]["capture"]["judged"], d["metrics"]["startup"]["judged"]), (True, False))
+        # Without the regression, the noisy control alone is not judged.
+        new["capture"], control["capture"] = samples(2, 300, 20), samples(3, 300, 20)
+        d = core.decide(old, new, control, {"capture": 100, "startup": 600})
+        self.assertEqual((d["verdict"], d["exit"], d["failures"]), ("not judged", 0, []))
 
     def test_the_threshold_is_strict(self):
         old = [10.0]*100

@@ -250,12 +250,14 @@ def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DR
     one's again, run as a control; ceilings maps each gated metric to its
     ceiling in milliseconds, or None.
 
-    The control is judged first, by the same rule, both ways: new against
+    Each metric's control is judged by the same rule, both ways: new against
     the control and the control against new. If either fails, two runs of
-    one binary differed as much as a regression would, so the machine was
-    too noisy to judge: the verdict is "not judged" and the exit 0, whatever
-    the old binary did. Otherwise a metric of new that fails against old
-    fails the gate, exit 1. A metric without samples on every side is listed
+    one binary differed on that metric as much as a regression would, so the
+    machine was too noisy to judge it, whatever the old binary did: the
+    metric is not judged. A judged metric of new that fails against old
+    fails the gate, exit 1. Otherwise the verdict is "not judged" when a
+    control failed and "pass" when none did, exit 0 either way, so noise
+    never fails a build. A metric without samples on every side is listed
     as not compared and decides nothing."""
     metrics, control_reasons, failed, skipped = {}, [], [], []
     for name in sorted(ceilings):
@@ -269,13 +271,15 @@ def decide(old, new, control, ceilings, threshold=THRESHOLD, seed=SEED, draws=DR
         verdict.update(n_old=len(o), n_new=len(n), n_control=len(c), ceiling_ms=ceiling,
                        control_ratio_low=max((j["ratio_low"] for j in both if j["ratio_low"] is not None), default=None),
                        control_reasons=[r for j in both for r in j["reasons"]])
+        verdict["judged"] = not verdict["control_reasons"]
         metrics[name] = verdict
         control_reasons += ["%s: %s" % (name, r) for r in verdict["control_reasons"]]
-        failed += ["%s: %s" % (name, r) for r in verdict["reasons"]]
-    if control_reasons:
-        verdict, code = "not judged", 0
-    elif failed:
+        if verdict["judged"]:
+            failed += ["%s: %s" % (name, r) for r in verdict["reasons"]]
+    if failed:
         verdict, code = "fail", 1
+    elif control_reasons:
+        verdict, code = "not judged", 0
     else:
         verdict, code = "pass", 0
     return {"verdict": verdict, "exit": code, "threshold": threshold, "seed": seed, "draws": draws,

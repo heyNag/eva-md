@@ -17,9 +17,9 @@ figure holds the start of its processes, on the host's launch path.
 
 With --compare OLD NEW, the gate: OLD, NEW and NEW again as a control run
 every scenario in alternating runs, and the gate exits 1 when NEW is slower
-than OLD on a hook figure (see decide in scripts/bench/core.py), 0 when it
-is not or when the control shows the machine too noisy to judge, and 2 when
-it could not run.
+than OLD on a hook figure whose control shows the machine quiet enough to
+judge it (see decide in scripts/bench/core.py), 0 otherwise, and 2 when it
+could not run.
 """
 import argparse
 import importlib.util
@@ -470,6 +470,9 @@ def compare(core, a):
     gate = {"verdict": verdict["verdict"], "exit": verdict["exit"], "old": str(old), "new": str(new),
             "rounds": a.rounds, "ceiling_factor": a.ceiling_factor, "launch_paths": core.LAUNCH_PATHS,
             "load_average_at_start": round(load, 2), "decision": verdict, "old_failures": old_failures, "runs": runs,
+            # Every sample, so the verdict can be worked out again.
+            "samples": {role: {name: [round(v, 3) for v in values] for name, values in sorted(by.items())}
+                        for role, by in samples.items()},
             "checked_at": datetime.now(timezone.utc).isoformat()}
     if a.output:
         write(a.output, json.dumps(gate, indent=2)+"\n")
@@ -484,7 +487,7 @@ def compare(core, a):
     for name, error in sorted(old_failures.items()):
         print("the old binary failed the scenario %s: %s" % (name, error))
     print("latency gate: %s" % verdict["verdict"] + {
-        "not judged": " (the control failed: two runs of the new binary differed as a regression would, so the machine was too noisy to judge)",
+        "not judged": " (a control failed: two runs of the new binary differed as a regression would, so the machine was too noisy to judge)",
         "fail": "", "pass": ""}[verdict["verdict"]])
     return verdict["exit"]
 
