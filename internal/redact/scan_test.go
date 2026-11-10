@@ -44,13 +44,14 @@ type v1Oracle struct {
 // check is set as redacted: it compares one call of Redact with redactV1,
 // and checks the findings and that redacting the result again changes
 // nothing (see differs). Under the race detector, which slows the rules
-// many times over, it checks every tenth call.
+// many times over, it checks every twenty-fifth call: that run looks for
+// data races, and the plain run checks every call.
 func (o *v1Oracle) check(text, out string, n int) {
 	o.mu.Lock()
 	o.calls++
 	call := o.calls
 	o.mu.Unlock()
-	if raceOn && call%10 != 1 {
+	if raceOn && call%25 != 1 {
 		return
 	}
 	problem := differs(text, out, n, ruleMemo{})
@@ -346,12 +347,13 @@ func (g *textSource) text(n int) string {
 // run once for each text; for each long one, Redact runs the rules itself,
 // and a scan whose context can end, but doesn't, ends with the same
 // findings. Under the race detector, which slows the rules many times over,
-// it checks 5,000.
+// it checks 1,500: that run looks for data races, and on CI's macOS machine
+// 5,000 made this package the slowest of the race run.
 func TestScanMatchesRedactV1(t *testing.T) {
 	isolate(t)
 	total := 150000
 	if raceOn {
-		total = 5000
+		total = 1500
 	}
 	type text struct {
 		in   string
