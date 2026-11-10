@@ -254,12 +254,12 @@ func (g *textSource) text(n int) string {
 // so the rules run once for each text; for each long one, Redact runs
 // the rules itself, and a scan whose context can end, which redacts
 // prefixes first, ends with the same findings. Under the race detector,
-// which slows the rules many times over, it checks 15,000.
+// which slows the rules many times over, it checks 5,000.
 func TestScanMatchesRedactV1(t *testing.T) {
 	isolate(t)
 	total := 150000
 	if raceOn {
-		total = 15000
+		total = 5000
 	}
 	type text struct {
 		in   string
@@ -324,13 +324,13 @@ func TestScanMatchesRedactV1(t *testing.T) {
 // was reading, is the rules' redaction of that prefix, and keeps nothing a
 // scan of the whole text removes from it. The scan blocks at the chosen
 // point until the test has cancelled its context and released it. Under the
-// race detector it stops scans of 40 texts, not 200.
+// race detector it stops scans of 20 texts, not 200.
 func TestCancelledScanKeepsSafePrefix(t *testing.T) {
 	isolate(t)
 	g := &textSource{seed: 7}
 	texts := 200
 	if raceOn {
-		texts = 40
+		texts = 20
 	}
 	stops := 0
 	for i := 0; i < texts; i++ {

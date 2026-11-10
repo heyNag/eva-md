@@ -12,13 +12,15 @@ import (
 type Tier int
 
 const (
-	// Certain is a format the current rules know, such as a provider token,
-	// a private key, a JWT, a URL's password or an Authorization value.
+	// Certain (T1) is a format the current rules know, such as a provider
+	// token, a private key, a JWT, a URL's password or an Authorization
+	// value.
 	Certain Tier = 1
-	// Likely is judged from context by the current rules: the value of a
-	// secret-looking key, a password, or a random token near a trigger word.
+	// Likely (T2) is judged from context by the current rules: the value of
+	// a secret-looking key, a password, or a random token near a trigger
+	// word.
 	Likely Tier = 2
-	// FloorOnly is removed by the baseline rules alone.
+	// FloorOnly (T3) is removed by the baseline rules alone.
 	FloorOnly Tier = 3
 )
 
@@ -66,20 +68,21 @@ type Result struct {
 // redacts on its own, before a longer one.
 const firstPrefix = 32 << 10
 
-// Scan finds what Redact replaces in text, in one call of the rules over the
-// whole text, and returns its ranges, each with the kind of its marker, the
-// rule set that found it and a tier.
+// Scan runs the rules on text as Redact does and returns the ranges they
+// replace, each with the kind of its marker, the rule set that found it and
+// a tier.
 //
 // It checks ctx before each round of the rules and before each pass of the
-// current rules, and stops when ctx has ended. The rules read the whole text
-// at once, so what one pass found is no redaction of any part of the text
+// current rules, and stops when ctx has ended; the baseline rules' passes,
+// which make one call, run to their end. The rules read the whole text at
+// once, so what one pass found is no redaction of any part of the text
 // until the round ends. So when ctx can end, Scan first redacts prefixes of
-// the text on their own, each ending a line and twice as long as the one
-// before, up to half the text, and then the whole text; a scan stopped by
-// ctx returns the longest prefix it finished, or nothing, with Through
-// saying where it ends. Where the rules read across lines, they read
-// forward, as a private key block, the words after a trigger word and a
-// command continued on the next line do, so a prefix redacted on its own
+// the text on their own, from 32 KiB, each ending a line and twice as long
+// as the one before, up to half the text, and then the whole text; a scan
+// stopped by ctx returns the longest prefix it finished, or nothing, with
+// Through saying where it ends. Where the rules read across lines, they
+// read forward, as a private key block, the words after a trigger word and
+// a command continued on the next line do, so a prefix redacted on its own
 // keeps nothing the whole text's redaction removes from it. The prefixes
 // cost at most as much again as the whole text; a ctx that can't end, as
 // Redact's, is spared them.
