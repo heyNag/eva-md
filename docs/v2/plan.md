@@ -8,7 +8,7 @@
 
 ## 1. The short version
 
-**Where v1 stands.** eva-md is careful work, and much of it should be kept as it is: hooks that cannot hurt the host, redaction before anything reaches disk, a resume brief built by code, a sealed model run, a crash-safe page store, a transactional install. But the half that makes it a memory (summarizing chats, promoting lasting facts, recalling them, committing them) has only ever run against canned model output, and nothing measures whether memory helps a chat. The audit kept 252 findings. They trace to ten structural choices, set out in section 3.2, and none of them is fixed by patching.
+**Where v1 stands.** eva-md is careful work, and much of it should be kept as it is: hooks that cannot hurt the host, redaction before anything reaches disk, a resume brief built by code, a sealed model run, a crash-safe page store, a transactional install. But the half that makes it a memory (summarizing chats, promoting lasting facts, recalling them, committing them) has only ever run against canned model output, and nothing measures whether memory helps a chat. The audit kept 252 findings. They trace to ten structural choices, set out in section 3.2, which patching would not fix.
 
 **What the evidence says to build.** On real coding tasks most memory systems do not beat having no memory, and they fail by storing and injecting too much. What works is narrower than what v1 attempts and narrower than what a first redesign reached for: a compact brief that hands work over, short statements whose author is known and which are checked against the code before use, the raw record kept beside them, and silence when unsure.
 
@@ -29,8 +29,8 @@ Before any of that, **four instruments** give v1 a baseline: fidelity of what is
 **What is needed from you.**
 
 1. Run the [field report prompt](field-report-prompt.md) on the real install and bring the report back. The plan is revised against it before anything is sized.
-2. Answer the 26 decisions in section 7. Each has a recommendation and a fallback, so "agree, except these" is enough.
-3. For Stage 0: about an hour with both hosts for a host-facts sitting, one small v1 upgrade and a week of ordinary use, and leave to spend some model quota on live runs.
+2. Answer the 27 decisions in section 7. Each has a recommendation and a fallback, so "agree, except these" is enough. Ten are needed before any code; the rest at the end of Stage 0.
+3. For Stage 0: one sitting per host in a separate evaluation home to record how the hosts really behave, one small v1 upgrade and a week of ordinary use, and leave to spend some model quota on live runs.
 
 **What happens next.** Stage 0 measures. Stage 1 builds the instruments and ships improvements on v1 that change no data. Stage 2 is one rebuild and one cut-over, with the old wiki left untouched as the way back. Stage 3 closes small owed fixes and opens whatever a number asks for. Stage 4 is a week of proof on the real install and the release. The plan is revised at every gate.
 
@@ -53,7 +53,7 @@ Limits of this evidence, stated once so nobody leans on it too hard:
 
 ## 3. Where v1 stands
 
-eva-md is about 60,000 lines of Go with as many again in tests, written in 11 days. It is careful work. The audit found no pile of bugs. It found a small number of structural choices that each rule out something the goal needs, and one large absence: nothing measures whether the memory helps.
+eva-md is about 55,000 lines of Go with 65,000 more in tests, written in 11 days. It is careful work. The audit found no pile of bugs. It found a small number of structural choices that each rule out something the goal needs, and one large absence: nothing measures whether the memory helps.
 
 ### 3.1 What is strong and stays
 
@@ -469,12 +469,11 @@ Each row changes a recorded decision or a rule in `AGENTS.md`, or is a product c
 | 24 | Beside the hosts' own memories: never write or configure them, divide the work, count the overlap, and test against them | Yes | If integration is wanted: read the host's memory as an input, later. Cost: dependence on an undocumented format | Decision 8 |
 | 25 | The host asks permission the first time an agent uses eva-md's read tool | Write nothing in the host's files. `status` prints the one rule you may add yourself | If you want it written: one command shows the rule, writes it with a backup, and removes it on uninstall | "Never write host settings" |
 | 26 | The cut line itself: v2.0 is section 6, held to the size budget, and section 12 waits for its triggers | Yes | Name what moves in. Each item in section 12 has its cost beside it | |
-
 | 27 | Standing leave for the build team: agents may commit, push package branches and open pull requests; the lead merges packages whose checks and review are green; you alone merge changes to the release workflows and scripts, the gates and their accepted baselines, the frozen redaction baseline, the frozen plugin's files and `AGENTS.md`; and you cut every release | Yes | Every commit, push and merge is asked for. The build then moves at the speed of those answers | The `AGENTS.md` rule "don't commit or push unless asked", for the build only |
 
 **When each is needed.** Before any code: 1, 2, 6, 15, 16, 17, 20, 22, 26 and 27, because they fix the formats and the method. At the Stage 0 readout, when Stage 2 is sized: 3, 4, 5, 7 to 14, 18, 19, 21, 23, 24 and 25. Until a decision is made, the build assumes its "if you say no" column, so no builder waits on an answer.
 
-Choices the lead will make unless you object, because they are technical and reversible: v2 is built on the main branch in new packages behind flags that default to v1's behaviour; no model judges any gated number; ids are 14 characters; an evaluation-only build tag lets a scripted session count as a person's chat, with tests that no release contains it.
+Choices the lead will make unless you object, because they are technical and reversible: v2 is built on the main branch in new packages behind one mode key that defaults to v1's behaviour; no model judges any gated number; ids are 14 characters; an evaluation-only build tag lets a scripted session count as a person's chat, with tests that no release contains it.
 
 ## 8. The roadmap
 
@@ -524,7 +523,7 @@ What each result changes. The thresholds are written down now so the reading can
 
 ### Stage 1: instruments, and changes that ship on v1
 
-Nothing here changes a user's data. Each change replaces what it improves, and each instrument gives v1 a row that Stage 2 must beat.
+Nothing here changes a user's data. Each instrument gives v1 a row that Stage 2 must beat. The product changes evolve packages that v2 keeps (redaction, install, health, and a worker around v1's own jobs). Each sits behind a switch that defaults to today's behaviour, and is turned on in a release only after the second report has been read and its own gate is green.
 
 | Id | Package | Outcome and gate | Size | Depends on |
 | --- | --- | --- | --- | --- |
@@ -671,7 +670,7 @@ The build is done by a team of coding agents working in parallel, with one lead 
 **Rules that keep parallel work safe.**
 
 - v2 is built on `main`, in new packages beside the old, behind one mode key that defaults to v1's behaviour. `main` stays releasable, and the real install can run shadow modes from ordinary releases.
-- Before the way back has closed, no package deletes or changes a live v1 path. With the key at `v1`, v1's own tests and benchmark are unchanged on every merge.
+- Before the way back has closed, no package deletes or changes a v1 path that is scheduled for deletion. Packages that v2 keeps evolve in place, each change behind a switch that defaults to today's behaviour. With the key at `v1` and every switch off, v1's own tests and benchmark are unchanged on every merge.
 - A diff stays inside the paths on its card. CI checks it.
 - v1 packages scheduled for deletion are frozen. Nobody improves code that is going away.
 - Shared files have one writer, the lead. The seams of SEAM-0 keep that list short: a new command, hook handler, status row, config key or benchmark scenario is a new file.
@@ -706,7 +705,7 @@ Nothing a user has is lost, and at every step there is a way back.
 | Privacy regresses in the rebuild (the pause switch, redaction) | Hard gates with seeded leaks; a differential test against v1's redaction on 150,000 inputs; the baseline as an oracle |
 | Evaluation costs more than it returns, or variance hides the effect | Four instruments only; a pilot prices a session before any ceiling is set; gates are on steps, tokens and corrections, which can be measured, not on small solve-rate differences |
 | One real install, so the migration cannot be rehearsed widely | Property tests over generated wikis; the first real run is watched; the old clone is the way back |
-| Stage 0 asks a lot of you: a report, an hour of host facts, a point release and a week, leave for live runs, 26 decisions | Stated here so it can be planned; nothing in Stage 1 waits on it |
+| Stage 0 asks a lot of you: two reports, a sitting per host, a point release and a week, leave for live runs, 27 decisions, and cutting each release | Stated here so it can be planned; nothing in Stage 1 waits on it |
 | Memory is an injection path | Items carry whose words they are and what the turn was exposed to; nothing exposed to outside text is promoted without your word; held, disputed and unverified items are never pushed |
 | The hosts' own memories improve | Tested against in every experiment. What stays eva.md's: one memory across both agents, work state per workstream, checks against the code, receipts, and files you own |
 | Agents building in parallel collide or drift from the design | Paths per package checked in CI, contracts first, v1 frozen, one writer for shared files |
