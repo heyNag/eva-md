@@ -140,4 +140,33 @@ Read from documentation and source on 2026-11-10. Sources are in [working-papers
 
 **What a third-party layer must add.** Both hosts now remember on their own, per repository, on one machine. What neither does is what users ask for in the open: one memory across both agents and across machines, a view of what was loaded and why, facts checked against the code, per-branch work state, team sharing with review, and measured results. That is the ground eva.md should hold. It must not repeat what the host already injects.
 
-<!-- PART-5-ON -->
+## 5. What v2 is
+
+### 5.1 The promise
+
+When you open a new chat, clear one, come back after a compaction, switch branch or sit down at another machine, the agent carries on as if it were the same chat. It knows what was decided and why, what was tried and failed, and what must hold. It checks what it remembers against the code before it leans on it. You never set it up beyond one command, never curate it, never approve anything for it day to day, and never see it unless you ask what it remembers and why.
+
+### 5.2 Principles
+
+Seven principles decide the design. Each comes from a finding or from outside evidence, and each is used below to settle a choice.
+
+- **A. The raw record is the truth.** What was said and done is kept, redacted, on the machine. Everything else (pages, indexes, briefs) is derived from it, points back to it and can be built again.
+- **B. Code owns structure; a model proposes.** Ids, dates, speakers, provenance and page layout are set by code. A model returns small operations on items, each with the exact words it rests on, and code checks and applies them. No model rewrites a page.
+- **C. Nothing ships unless a measurement moves.** Every change names the number it must move and is judged with memory off as a baseline. A change that cannot show its effect waits.
+- **D. Check before telling, and stay silent when unsure.** A fact about code is checked against the code before it is shown. A weak match adds nothing. Wrong context costs more than missing context.
+- **E. Use what the host offers, as a ladder.** Each host capability is a rung: where a rung is missing, blocked by an administrator or broken by a release, the product gets plainer and keeps working.
+- **F. It runs itself.** It schedules, repairs and upgrades itself, and speaks only when a person alone can act, in one plain sentence.
+- **G. Trust is a feature.** Local first. No telemetry, no account, no process left running. What was loaded, and why, can always be seen.
+
+### 5.3 What it will not be
+
+- No graph database, no vector store, no resident server, no local model.
+- No model call or network call inside a hook.
+- No telemetry, and nothing about your work sent anywhere but to the model provider the chat already uses.
+- No generated overviews of a repository, and no memory of what the code already says.
+- No rule, fact or skill promoted from text that entered through a tool, a web page or a file, without your word.
+- No copy of what the host's own memory already loads.
+
+<!-- PART-5-BUDGET -->
+
+<!-- PART-6-ON -->
