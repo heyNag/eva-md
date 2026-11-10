@@ -72,6 +72,13 @@ func goldenHome(t *testing.T, kind int) (paths.Dirs, string) {
 				t.Fatalf("fixture git: %v %s", err, out)
 			}
 		}
+		// macOS reaches its temporary folders through an alias (/var for
+		// /private/var), and the wiki checks compare the configured path
+		// with the one git resolves, so the fixture names the resolved one,
+		// as this package's other wiki fixtures do.
+		if wiki, err = filepath.EvalSymlinks(wiki); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.Chmod(wiki, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -131,7 +138,13 @@ func render(t *testing.T, r Report, home string) []byte {
 	if err := json.NewEncoder(&out).Encode(r); err != nil {
 		t.Fatal(err)
 	}
-	return bytes.ReplaceAll(out.Bytes(), []byte(home), []byte("<home>"))
+	// The resolved form of the home goes first: on macOS it holds the
+	// unresolved one (/private/var/... holds /var/...).
+	text := out.Bytes()
+	if resolved, err := filepath.EvalSymlinks(home); err == nil && resolved != home {
+		text = bytes.ReplaceAll(text, []byte(resolved), []byte("<home>"))
+	}
+	return bytes.ReplaceAll(text, []byte(home), []byte("<home>"))
 }
 
 // doctor is eva-md doctor's checks, and local the doctor's checks without
