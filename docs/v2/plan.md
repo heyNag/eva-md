@@ -1,6 +1,8 @@
 # eva.md v2: the plan
 
-**Status:** the final plan, 2026-11-10. It rests on an audit, outside research, six area designs, three critiques, a field report from the one real install (section 13) and the owner's own note about that install, checked point by point against the code (section 14). Nothing here is built. From here the plan changes only at a stage gate, and the first is the Stage 0 readout. Section 15 is where the team starts.
+**Status:** the final plan, 2026-11-10. It rests on an audit, outside research, six area designs, three critiques, a field report from the one real install (section 13) and the owner's own note about that install, checked point by point against the code (section 14). From here the plan changes only at a stage gate, and the first is the Stage 0 readout. Section 15 is where the team starts.
+
+**The go was given on 2026-11-10.** The owner gave standing leave: the build works on `main` directly, with no pull request and no further approval, and every recommendation in section 7 is taken as agreed until the owner says otherwise. Cutting a release stays the owner's to ask for, and no push to `main` cuts one. Building started that day; the cards in [cards/](cards/README.md) show what is in hand.
 
 **What this is:** an evaluation of eva-md as it stands, and the design and order of work to make it the best memory there is for AI coding agents: one that feels built into the host, where the only thing a person notices is that the agent remembers.
 
@@ -512,6 +514,8 @@ In the last column, "Decision N" means decision N of v1, in `docs/decisions.md`.
 | 33 | A standing rule or a constraint is stored, committed and pushed in your own words (redacted, at most 240 characters), with the model's sentence beside it | Yes | Only the model's sentence is committed, checked to hold the values of the span it cites. Your words are shown from the local record, so they do not survive a restore from the remote | "No captured text is ever committed"; section 12 keeps the wider case, excerpts beside every item |
 
 **When each is needed.** Before any code: 1, 2, 5, 6, 7, 15, 16, 17, 20, 22, 26, 27, 28 and 33, because they fix the formats, the method, where live runs happen and what the redaction driver can promise. Decision 5 joined this list after the first field report: a pass at the highest effort took a median of 124 s and two were stopped at the time limit, which crosses the threshold written in section 8, so a lower default is no longer a choice to weigh at the readout. Only which model, and at which effort, still waits for DV-03. At the Stage 0 readout, when Stage 2 is sized: 3, 4, 8 to 14, 18, 19, 21, 23, 24, 25 and 29 to 32. Until a decision is made, the build assumes whichever column builds less: the "if you say no" column for every decision but 12, 21, 22, 24, 25, 26, 30, 31 and 32, where it assumes the recommendation, because there the other column is the larger build. For decision 12 the overview is built either way, since decision 22 already promises it. For decision 31 the build assumes (b), because DL-10 builds the handoff once. No builder waits on an answer.
+
+**Where the decisions stand.** On 2026-11-10 the owner answered decision 27 more widely than its recommendation: the team works on `main` directly, with no pull request and no approval for any file, the files that row lists included. Releases are the exception and stay with the owner. The owner also said no further approval is needed, so every other row is taken at its recommendation and can be changed by a word from the owner before the release that carries it. Two rows cannot move on leave alone, because they need something only the owner has: decision 28's keys, without which no live evaluation runs in containers, and anything decision 16 covers that must run on the owner's machines or accounts.
 
 Choices the lead will make unless you object, because they are technical and reversible: v2 is built on the main branch in new packages behind one mode key that defaults to v1's behaviour; no model judges any gated number; ids are 14 characters; an evaluation-only build tag lets a scripted session count as a person's chat, with tests that no release contains it.
 
@@ -1035,6 +1039,8 @@ Three things from the owner, in one message:
 
 Until then the lead writes cards and run-books, which are documents, and nothing else moves.
 
+The go came on 2026-11-10, wider than asked: work on `main`, no pull requests, no approvals, every recommendation taken as agreed. The eleven answers are still welcome and block nothing.
+
 ### 15.2 The first wave
 
 Everything in this table starts on the day the owner sends the message of section 15.1, which the table calls the go, except the counters release, which starts when SEAM-0 and EV-16 have merged. Nothing in it waits for a measurement.
@@ -1056,8 +1062,8 @@ Four Stage 1 packages wait on Stage 0: LG-13 on the host sitting, DV-11 on the l
 
 In order. Only the week of ordinary use takes long.
 
-1. **Day 0.** The message of section 15.1. Merge the lead's change to `AGENTS.md`. If you take decision 28's recommendation, make the two keys.
-2. **While the first wave builds.** Merge what decision 27 keeps for you as each arrives: SEAM-0's change to `AGENTS.md` and its hash test over the plugin folder, and EV-16's gate with its baseline. The counters release waits on them.
+1. **Day 0.** The message of section 15.1. Done on 2026-11-10; the lead has since made the change to `AGENTS.md`. If you take decision 28's recommendation, make the two keys.
+2. **While the first wave builds.** Nothing: under the owner's leave the lead merges what decision 27 would have kept for the owner.
 3. **When the counters release is ready.** Cut it. Upgrade the real install with one command. Give Codex its one hook review. The counted week starts.
 4. **During that week, four sittings**, each from a run-book that states its length before it starts: make the evaluation home, sign both hosts in and approve the scratch plugin's hooks in Codex; one sitting for each host for the host facts, with two voice calls on Codex; the live gates on v1 (84 calls). Create one scratch repository on the git server and push to it once from the evaluation home, which is the check decision 3 waits for. Give leave, with a ceiling, for the contract spike and the pilot.
 5. **At the end of the week.** Run the second report's prompt on the real install and bring the report back.
