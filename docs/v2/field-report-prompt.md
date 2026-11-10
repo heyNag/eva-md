@@ -61,6 +61,7 @@ Use these numbered headings in the report, in this order.
 - Sessions in the inbox per host, total size, the largest session, and the range of dates. Disk used by the inbox, the wiki and the logs.
 - Entries by `role`, by `kind` and by `origin` (a count for each value). How many carry a redaction count, how many were cut short, how many are gap entries and for what reasons. How many carry an agent id.
 - For each host, which hook events have a heartbeat file, the newest time in each, and any failure flags or durations they record: the median and the 95th percentile per event if the data allows.
+- How many turns show a tool that reaches outside (a web fetch or search, a network command, an MCP call to another server, a subagent), as a share of all turns.
 - Which hook events never appear at all. Counts of session starts by kind (startup, resume, clear, compact, fork), if recorded.
 - How chats end: the share of sessions with an end event, with a compaction, and left open. The share on the default branch, on other branches, and outside any repository.
 - How many chats had capture paused at some point, and how many of those were paused by transcript recovery and not by a typed request.
@@ -91,7 +92,7 @@ If there are records, give:
 
 **6. Finding things.** Make up six searches from what you now know of this project: two for things the memory should hold, two that ask for the same things in other words, and two for things it should not hold. Run each with `eva-md search`, and with `eva_search` if you have it. For each give hit or miss, the rank of the right result, how much noise came with it, and the time taken. Do not record the queries. Say how many calls it takes to get from a question to a usable answer.
 
-**7. The daily commit and push.** From the records in `~/.local/state/eva-md/commit/` and read-only git in the wiki: on how many of the last 30 days was there a commit, how many commits wait to be pushed and how old the oldest unpushed change is, how many files are uncommitted, what classes of reason failures give, whether commits are signed and by which method (none, GPG or SSH), whether the remote is reached over SSH or HTTPS, and whether any commit in the wiki was made by hand. If a push has failed, say for how long and with what class of reason.
+**7. The daily commit and push.** From the records in `~/.local/state/eva-md/commit/` and read-only git in the wiki: on how many of the last 30 days was there a commit, how many commits wait to be pushed and how old the oldest unpushed change is, how many files are uncommitted, what classes of reason failures give, whether commits are signed and by which method (none, GPG or SSH), whether the git configuration names a signing program (yes or no), whether the remote is reached over SSH or HTTPS, and whether any commit in the wiki was made by hand. If a push has failed, say for how long and with what class of reason.
 
 **8. Codex.** Does the doctor report eva-md's hooks as trusted? Is `needs-trust.json` present, and how old is it? Has capture on Codex stopped at any point after an upgrade of eva-md or of Codex? Does eva-md's plugin folder under Codex's plugin cache hold any file eva-md did not put there (a count is enough)? Are Codex's own memories switched on, and how many memory files are there? Is this chat's folder a worktree that Codex manages? How many hook-output spill files are in Codex's temporary folder?
 
@@ -106,6 +107,7 @@ If there are records, give:
 - Has the agent ever plainly remembered something useful? Plainly failed to? Acted on something stale? Re-decided something already decided? Been given something irrelevant?
 - Has anything been remembered that should not have been?
 - Has a second machine ever been pointed at this wiki? Do you read the wiki in a browser on the git host or edit its pages by hand?
+- Are branches in your projects usually merged by squash or rebase, or by a merge commit?
 - Has `eva-md doctor --live` or the live accuracy run ever been run, and what did it say?
 - How was each upgrade so far done, and what did it ask or break?
 
