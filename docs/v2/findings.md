@@ -1,6 +1,6 @@
 # eva.md v2: findings register
 
-Every finding from the audit of 17 parts of eva-md, after a second agent tried to refute it. The plan that these feed is [v2-plan.md](v2-plan.md).
+Every finding from the audit of 17 parts of eva-md, after a second agent tried to refute it. The plan that these feed is [plan.md](plan.md).
 
 - Findings kept: 252 (7 critical, 85 high, 126 medium, 34 low).
 - Second pass: 131 confirmed, 73 corrected in scope or severity, 0 refuted and dropped, 48 added by the second reader.
