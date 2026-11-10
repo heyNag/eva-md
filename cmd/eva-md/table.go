@@ -52,12 +52,16 @@ func usageLine() string {
 	return "usage: eva-md " + strings.Join(names, " | ")
 }
 
-// supportFiles are the files of cmd/eva-md that hold no command but support
-// those that do, each with what it holds. Every other file is named by a
-// command of the table; a test fails on a file in neither.
+// supportFiles are the files of cmd/eva-md that no entry of the table names
+// but that support the commands, each with what it holds. Every other file
+// is named by a command of the table; a test fails on a file in neither. A
+// support file may hold part of a command whose entry is in another file,
+// which dispatches to it, as code.go holds eva-md system status for
+// system.go; its phrase then names that file, so the pointer leads to the
+// entry.
 var supportFiles = []struct{ file, holds string }{
 	{"table.go", "the command table and the list of these files"},
-	{"code.go", "the code status of system pages, eva-md system status"},
+	{"code.go", "eva-md system status, which the system command in system.go dispatches to, and the code status of system pages"},
 	{"knowledge.go", "maintain's knowledge step"},
 	{"rosetta_darwin.go", "upgrade's Rosetta check"},
 	{"rosetta_other.go", "the Rosetta check's stand-in off macOS, so eva-md builds on Linux"},

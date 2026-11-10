@@ -186,11 +186,17 @@ func tableSynopses(table []command) map[string][]string {
 	return synopses(strings.Join(lines, "\n"), readmeSynopsis)
 }
 
-// flagsNotInTable says, sorted, which commands README shows that the table
-// lacks, and which flags README shows for a command that the table's
-// synopses of it don't.
-func flagsNotInTable(readme, table map[string][]string) []string {
+// synopsisGaps says, sorted, which commands README shows that the table
+// lacks, which flags README shows for a command that the table's synopses
+// of it don't, and which commands the table holds that README's Commands
+// list doesn't show, so no command goes undocumented.
+func synopsisGaps(readme, table map[string][]string) []string {
 	var gaps []string
+	for command := range table {
+		if _, ok := readme[command]; !ok {
+			gaps = append(gaps, "the command table holds eva-md "+command+", which README's Commands list doesn't show")
+		}
+	}
 	for command, flags := range readme {
 		shown, ok := table[command]
 		if !ok {
@@ -207,16 +213,16 @@ func flagsNotInTable(readme, table map[string][]string) []string {
 	return gaps
 }
 
-// Every command README's Commands list shows is in the command table, and
-// every flag README shows for it is in the table's synopsis of it, as
-// --sweep for update.
+// Every command README's Commands list shows is in the command table, every
+// flag README shows for it is in the table's synopsis of it, as --sweep for
+// update, and every command the table holds is in README's Commands list.
 func TestTheDesignShowsEveryFlagTheReadmeShows(t *testing.T) {
 	readme := synopses(repoDoc(t, "README.md"), readmeSynopsis)
 	table := tableSynopses(commands)
 	if !slices.Contains(readme["update"], "--pending") || !slices.Contains(table["update"], "--pending") {
 		t.Fatalf("no synopsis of update read: README %q, the table %q", readme["update"], table["update"])
 	}
-	for _, gap := range flagsNotInTable(readme, table) {
+	for _, gap := range synopsisGaps(readme, table) {
 		t.Error(gap)
 	}
 }
@@ -240,11 +246,29 @@ func unnamedFiles(files []string, table []command, support []struct{ file, holds
 	return gaps
 }
 
+// supportPointerGaps says which support files hold part of a command of
+// table, naming it as eva-md and its name, as code.go names eva-md system
+// status, without naming the file of that command's entry, which dispatches
+// to it, so an agent would not find the entry from the phrase.
+func supportPointerGaps(table []command, support []struct{ file, holds string }) []string {
+	var gaps []string
+	for _, s := range support {
+		for _, c := range table {
+			names := regexp.MustCompile(`\beva-md ` + regexp.QuoteMeta(c.name) + `\b`)
+			if names.MatchString(s.holds) && !strings.Contains(s.holds, c.file) {
+				gaps = append(gaps, s.file+" holds part of eva-md "+c.name+" and doesn't name "+c.file)
+			}
+		}
+	}
+	return gaps
+}
+
 // The command table names every source file of the CLI, by the command it
 // holds or in its list of the files that support them, each with what it
 // holds, so an agent finds where a command lives, as inbox.go holds eva-md
 // inbox clear. Every file either names is one of the CLI, a support file
-// holds no command and is listed once, and AGENTS.md's Layout points at the
+// holds no command's entry and is listed once, one that holds part of a
+// command names the file of its entry, and AGENTS.md's Layout points at the
 // table.
 func TestAgentsNamesEveryFileOfTheCLI(t *testing.T) {
 	files, err := filepath.Glob("*.go")
@@ -271,6 +295,14 @@ func TestAgentsNamesEveryFileOfTheCLI(t *testing.T) {
 		}
 		listed[s.file] = true
 	}
+	for _, gap := range supportPointerGaps(commands, supportFiles) {
+		t.Error(gap)
+	}
+	if !slices.ContainsFunc(supportFiles, func(s struct{ file, holds string }) bool {
+		return s.file == "code.go" && strings.Contains(s.holds, "eva-md system status")
+	}) {
+		t.Error("the support files don't say that code.go holds eva-md system status")
+	}
 	var layout string
 	for _, l := range strings.Split(repoDoc(t, "AGENTS.md"), "\n") {
 		if strings.HasPrefix(l, "- `cmd/eva-md`: ") {
@@ -282,9 +314,11 @@ func TestAgentsNamesEveryFileOfTheCLI(t *testing.T) {
 	}
 }
 
-// The two document checks fail on a gap, here in made-up lists: a file no
-// entry names, a command README shows that the table lacks, and a flag
-// README shows that the table's synopsis doesn't. Lists without a gap pass.
+// The document checks fail on a gap, here in made-up lists: a file no entry
+// names, a command README shows that the table lacks, a flag README shows
+// that the table's synopsis doesn't, a command the table holds that README
+// doesn't show, and a support file that holds part of a command without
+// naming the file of its entry. Lists without a gap pass.
 func TestTheDocumentChecksCatchAGap(t *testing.T) {
 	support := []struct{ file, holds string }{{"helper.go", "a made-up helper"}}
 	table := []command{{name: "tidy", file: "tidy.go", synopsis: []string{"eva-md tidy [--deep]", "eva-md tidy now [--quick]"}}}
@@ -301,10 +335,10 @@ func TestTheDocumentChecksCatchAGap(t *testing.T) {
 	if !slices.Equal(shown["tidy"], []string{"--deep"}) || !slices.Equal(shown["tidy now"], []string{"--quick"}) {
 		t.Fatalf("the table's synopses read as %q", shown)
 	}
-	if gaps := flagsNotInTable(map[string][]string{"tidy": {"--deep"}, "tidy now": nil}, shown); gaps != nil {
+	if gaps := synopsisGaps(map[string][]string{"tidy": {"--deep"}, "tidy now": nil}, shown); gaps != nil {
 		t.Errorf("README matching the table fails: %q", gaps)
 	}
-	gaps := flagsNotInTable(map[string][]string{"tidy": {"--deep", "--dry-run"}, "sweep": nil, "tidy now": {"--deep"}}, shown)
+	gaps := synopsisGaps(map[string][]string{"tidy": {"--deep", "--dry-run"}, "sweep": nil, "tidy now": {"--deep"}}, shown)
 	want := []string{
 		"README shows eva-md sweep, which the command table lacks",
 		"README shows eva-md tidy --dry-run, and the command table's synopsis doesn't",
@@ -312,6 +346,29 @@ func TestTheDocumentChecksCatchAGap(t *testing.T) {
 	}
 	if !slices.Equal(gaps, want) {
 		t.Errorf("README with gaps gives %q, want %q", gaps, want)
+	}
+	undocumented := append(slices.Clone(table), command{name: "prune", file: "prune.go", synopsis: []string{"eva-md prune [--apply]"}})
+	gaps = synopsisGaps(map[string][]string{"tidy": {"--deep"}}, tableSynopses(undocumented))
+	want = []string{
+		"the command table holds eva-md prune, which README's Commands list doesn't show",
+		"the command table holds eva-md tidy now, which README's Commands list doesn't show",
+	}
+	if !slices.Equal(gaps, want) {
+		t.Errorf("a table with commands README doesn't show gives %q, want %q", gaps, want)
+	}
+
+	parts := []command{{name: "tidy", file: "tidy.go"}, {name: "tidyup", file: "tidyup.go"}}
+	pointing := []struct{ file, holds string }{
+		{"deep.go", "eva-md tidy --deep, which tidy.go dispatches to"},
+		{"helper.go", "a made-up helper"},
+	}
+	if gaps := supportPointerGaps(parts, pointing); gaps != nil {
+		t.Errorf("support files that point at their entries fail: %q", gaps)
+	}
+	lost := []struct{ file, holds string }{{"deep.go", "eva-md tidy --deep"}, {"up.go", "the made-up eva-md tidyup"}}
+	want = []string{"deep.go holds part of eva-md tidy and doesn't name tidy.go", "up.go holds part of eva-md tidyup and doesn't name tidyup.go"}
+	if gaps := supportPointerGaps(parts, lost); !slices.Equal(gaps, want) {
+		t.Errorf("support files that hide their entries give %q, want %q", gaps, want)
 	}
 }
 
