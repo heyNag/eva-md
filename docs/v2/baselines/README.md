@@ -11,7 +11,7 @@ The macOS job of `.github/workflows/ci.yml` runs the gate on every push to `main
 
 To refresh the baseline, open the run of the commit to take it from (a push to `main`), download its `latency` artifact, check that `gate.json` says `"verdict": "pass"` and that its `load_average_at_start` is not high, and copy its `latency-macos.json` over this folder's, unchanged. Commit it with the run's link in the message. The file names its commit, so the run can be found again.
 
-The file in this folder now was measured on Linux, in a builder's cloud session, and says so (`"measured_on": "linux"`). It shows the format and v1's figures on that machine; it is replaced from the macOS job's artifact.
+The file in this folder now was measured on Linux, in a builder's cloud session, and says so (`"measured_on": "linux"`): the binary of commit eeb63ed, v1 as SEAM-0c left it, in the first of the twenty gates its builder ran of that binary against itself, as root, so its turn's process counts hold three git runs a hook. It shows the format and v1's figures on that machine; it is replaced from the macOS job's artifact.
 
 ## Format
 
