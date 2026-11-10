@@ -481,9 +481,20 @@ var (
 func RedactKnown(text string) (string, int) { return redact(text, mode{}) }
 
 func redact(text string, m mode) (string, int) {
+	text, n, _ := redactUntil(text, m, nil)
+	return text, n
+}
+
+// redactUntil is redact, asking stop, when it is set, before each pass
+// whether to stop. ok is false when it stopped, and the text is then of no
+// use.
+func redactUntil(text string, m mode, stop func() bool) (string, int, bool) {
 	text = clean(text)
 	total := 0
 	for i := 0; i < maxPasses; i++ {
+		if stop != nil && stop() {
+			return "", 0, false
+		}
 		var n int
 		text, n = pass(text, m)
 		total += n
@@ -491,7 +502,7 @@ func redact(text string, m mode) (string, int) {
 			break
 		}
 	}
-	return text, total
+	return text, total, true
 }
 
 // Identifier cleans one of eva-md's own identifiers, such as a branch name or

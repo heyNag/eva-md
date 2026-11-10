@@ -1,11 +1,10 @@
 package redact
 
 import (
+	"context"
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/heyNag/eva-md/internal/redact/baseline"
 )
 
 // Redact replaces secrets with [REDACTED:<kind>] and returns the new text and
@@ -19,106 +18,91 @@ import (
 // judged on the same cleaned text. So no rule change can keep a secret that
 // the baseline rules remove, and the current rules still remove what the
 // baseline rules miss. Redacting the result again changes nothing.
+//
+// Redact is Scan to the end of the text, then Apply.
 func Redact(text string) (string, int) {
-	// Private key blocks span lines, so both rule sets replace them the same
-	// way but leave kept text that is hard to line up between two of them.
-	// Replace them first, with the pattern and marker both rule sets use.
-	text, total := privateKeys(clean(text))
-	// A union can put a marker next to text that one rule set then reads
-	// differently, so repeat, at most four rounds, until nothing changes;
-	// every round only removes more.
-	for round := 0; round < 4; round++ {
-		out, n := unionRound(text)
-		if n == 0 {
-			break
-		}
-		text, total = out, total+n
+	r := Scan(context.Background(), text)
+	out := Apply(r)
+	if redacted != nil {
+		redacted(text, out, r.count)
 	}
-	return text, total
+	return out, r.count
 }
 
-func unionRound(text string) (string, int) {
-	floor, nf := baseline.Redact(text)
-	current, _ := redact(text, mode{entropy: true})
-	if out, n, ok := union(text, floor, current); ok {
-		return out, n
-	}
-	// The outputs could not be lined up with the text, which neither rule set
-	// should cause. Redact the baseline output again with the current rules
-	// instead: that keeps every removal the baseline rules made.
-	out, n := redact(floor, mode{entropy: true})
-	return out, nf + n
-}
+// redacted, when set, is told of every text Redact redacts, what it
+// returned and its count. Only tests set it.
+var redacted func(text, out string, n int)
 
 var privateKeyBlock = regexp.MustCompile(`-----BEGIN[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----(?s:.*?)(?:-----END[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|\z)`)
-
-// privateKeys replaces private key blocks with the marker both rule sets
-// write for them.
-func privateKeys(text string) (string, int) {
-	if !strings.Contains(text, "PRIVATE KEY") {
-		return text, 0
-	}
-	n := 0
-	text = privateKeyBlock.ReplaceAllStringFunc(text, func(string) string {
-		n++
-		return marker + "private_key]"
-	})
-	return text, n
-}
 
 // removal is a range of the cleaned text that a rule set replaced.
 type removal struct {
 	start, end int
 	kind       string
+	// current says the current rules replaced text in the range, more than
+	// a marker that was there already.
+	current bool
+	// keep says the range is one marker that was there already, which stays
+	// as it is.
+	keep bool
+	// tier is the surest tier of the kinds of the markers that replaced the
+	// range, in either rule set's output (see kindTier), or 0 when unknown.
+	// A range only the baseline rules replaced is still FloorOnly; tier is
+	// what it is worth when the current rules replaced text in it too.
+	tier Tier
 }
 
-// union renders base with every range that a or b replaced, where a and b are
-// outputs of rule sets that only replace ranges of base with markers.
-func union(base, a, b string) (string, int, bool) {
+// unionRanges returns the ranges of base that a or b replaced, where a and b
+// are outputs of rule sets that only replace ranges of base with markers, a
+// the baseline rules' and b the current rules'. Ranges that overlap are
+// merged, and a merged range takes the kind of its first, the surest tier of
+// them all, and is current if any of them is; where ranges start together,
+// the current rules' comes first. A merged range that is one marker already
+// in base is marked keep. ok is false when an output can't be lined up with
+// base.
+func unionRanges(base, a, b string) (merged []removal, ok bool) {
 	if a == base && b == base {
-		return base, 0, true
+		return nil, true
 	}
 	ra, ok := removals(base, a)
 	if !ok {
-		return "", 0, false
+		return nil, false
 	}
 	rb, ok := removals(base, b)
 	if !ok {
-		return "", 0, false
+		return nil, false
 	}
-	// The current rules' kinds come first where ranges start together.
+	for i, r := range rb {
+		rb[i].current = !isMarker(base[r.start:r.end])
+	}
 	all := append(rb, ra...)
 	sort.SliceStable(all, func(i, j int) bool { return all[i].start < all[j].start })
-	var merged []removal
 	for _, r := range all {
 		if n := len(merged); n > 0 && r.start < merged[n-1].end {
 			merged[n-1].end = max(merged[n-1].end, r.end)
+			merged[n-1].current = merged[n-1].current || r.current
+			merged[n-1].tier = min(merged[n-1].tier, r.tier)
 			continue
 		}
 		merged = append(merged, r)
 	}
-	var out strings.Builder
-	count, at := 0, 0
-	for _, r := range merged {
-		out.WriteString(base[at:r.start])
-		if old := base[r.start:r.end]; markerRe.FindString(old) == old {
-			out.WriteString(old) // a marker already in the text
-		} else {
-			out.WriteString(marker + r.kind + "]")
-			count++
-		}
-		at = r.end
+	for i, r := range merged {
+		merged[i].keep = isMarker(base[r.start:r.end])
 	}
-	out.WriteString(base[at:])
-	return out.String(), count, true
+	return merged, true
 }
+
+// isMarker reports whether s is one whole marker.
+func isMarker(s string) bool { return markerRe.FindString(s) == s }
 
 // removals lines up out with base and returns the ranges of base it
 // replaced. out is base with ranges replaced by markers: kept text, then a
 // run of markers, then kept text again. Where kept text could line up in
 // more than one place, the range runs from the earliest place the kept text
 // before it can end to the latest place the kept text after it can start, so
-// an ambiguous line-up counts more text as removed, never less.
+// an ambiguous line-up counts more text as removed, never less. Each range
+// takes the kind of its run's first marker and the surest tier of the
+// run's markers.
 func removals(base, out string) ([]removal, bool) {
 	marks := markerRe.FindAllStringIndex(out, -1)
 	if len(marks) == 0 {
@@ -127,6 +111,7 @@ func removals(base, out string) ([]removal, bool) {
 	// kept[i] is the text before the i-th run of markers; kinds[i] is the kind
 	// of that run's first marker. The last kept text follows the last run.
 	var kept, kinds []string
+	var tiers []Tier
 	at := 0
 	for i, m := range marks {
 		if i > 0 && m[0] == marks[i-1][1] {
@@ -134,10 +119,13 @@ func removals(base, out string) ([]removal, bool) {
 		}
 		kept = append(kept, out[at:m[0]])
 		kinds = append(kinds, out[m[0]+len(marker):m[1]-1])
+		tier := kindTier(kinds[len(kinds)-1])
 		end := m[1]
 		for j := i + 1; j < len(marks) && marks[j][0] == end; j++ {
+			tier = min(tier, kindTier(out[marks[j][0]+len(marker):marks[j][1]-1]))
 			end = marks[j][1]
 		}
+		tiers = append(tiers, tier)
 		at = end
 	}
 	kept = append(kept, out[at:])
@@ -177,7 +165,7 @@ func removals(base, out string) ([]removal, bool) {
 	}
 	rs := make([]removal, runs)
 	for i := 0; i < runs; i++ {
-		rs[i] = removal{start: earliest[i] + len(kept[i]), end: latest[i+1], kind: kinds[i]}
+		rs[i] = removal{start: earliest[i] + len(kept[i]), end: latest[i+1], kind: kinds[i], tier: tiers[i]}
 	}
 	return rs, true
 }
