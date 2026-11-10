@@ -29,3 +29,25 @@ func TestUnknownSwitchIsReportedAsAnUnknownKey(t *testing.T) {
 		t.Fatalf("notice %q", got)
 	}
 }
+
+// A switches that is no table, as switches = true, is reported as an
+// unknown key, as it was before there were switches, in the file's order.
+func TestSwitchesThatIsNoTableIsAnUnknownKey(t *testing.T) {
+	d := isolated(t)
+	for body, want := range map[string]string{
+		"switches = true\n":                     "switches",
+		"switches = [1]\n":                      "switches",
+		"[[switches]]\nx = 1\n":                 "switches, switches.x",
+		"switches.nope = true\ncolour = 1\n":    "switches.nope, colour",
+		"colour = 1\nswitches = 5\nshade = 2\n": "colour, switches, shade",
+	} {
+		put(t, d.ConfigFile(), []byte(body))
+		r := Inspect(context.Background(), d, false)
+		if row := findRow(t, r, "config"); row.Status != "PASS" {
+			t.Errorf("%q: config row %+v", body, row)
+		}
+		if row := findRow(t, r, "config keys"); row.Status != "FAIL" || row.Detail != "unknown keys are ignored: "+want {
+			t.Errorf("%q: config keys row %+v, want %q", body, row, want)
+		}
+	}
+}

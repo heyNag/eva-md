@@ -125,6 +125,41 @@ func TestUnregisteredSwitchIsAnUnknownKey(t *testing.T) {
 	if saved, _ := os.ReadFile(file); strings.Contains(string(saved), "nope") || strings.Contains(string(saved), "deep") || !strings.Contains(string(saved), "b = true") {
 		t.Fatalf("saved:\n%s", saved)
 	}
+	// Unknown keys keep the file's order, wherever [switches] stands.
+	for body, want := range map[string][]string{
+		"switches.nope = true\ncolour = 1\n":                       {"switches.nope", "colour"},
+		"[switches]\nnope = 1\nb = true\n[zzz]\na = 1\n":           {"switches.nope", "zzz", "zzz.a"},
+		"[zzz]\na = 1\n[switches]\nnope = 1\n[yyy]\nc = 1\n":       {"zzz", "zzz.a", "switches.nope", "yyy", "yyy.c"},
+		"colour = 1\nswitches = {nope = 1, b = true}\nshade = 2\n": {"colour", "switches.nope", "shade"},
+	} {
+		c, err := load(t, body)
+		if err != nil || !reflect.DeepEqual(c.Unknown, want) {
+			t.Errorf("%q: unknown %q, %v; want %q", body, c.Unknown, err, want)
+		}
+	}
+	// A switches that is no table is unknown, every key under it with it,
+	// as it was before there were switches: the config still loads, and
+	// keeps none of it, so a registered switch reads its default.
+	for body, want := range map[string][]string{
+		"switches = true\n":                 {"switches"},
+		"switches = 5\n":                    {"switches"},
+		"switches = \"on\"\n":               {"switches"},
+		"switches = [1, 2]\n":               {"switches"},
+		"switches = [{b = true}]\n":         {"switches", "switches.b"},
+		"[[switches]]\nb = true\n":          {"switches", "switches.b"},
+		"colour = 1\nswitches = 1\nz = 2\n": {"colour", "switches", "z"},
+	} {
+		c, err := load(t, body)
+		if err != nil || !reflect.DeepEqual(c.Unknown, want) || c.Switches != nil || b.On(c) {
+			t.Errorf("%q: unknown %q, switches %v, b %v, %v; want unknown %q", body, c.Unknown, c.Switches, b.On(c), err, want)
+		}
+	}
+	// An empty table is no unknown key.
+	for _, body := range []string{"[switches]\n", "switches = {}\n"} {
+		if c, err := load(t, body); err != nil || c.Unknown != nil {
+			t.Errorf("%q: unknown %q, %v", body, c.Unknown, err)
+		}
+	}
 	// With no switch registered at all, every name is unknown.
 	delete(switches, "b")
 	delete(switches, "w")

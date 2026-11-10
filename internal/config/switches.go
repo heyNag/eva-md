@@ -87,18 +87,48 @@ func (s WordSwitch) Value(c Config) string {
 	return s.def
 }
 
-// unknownSwitches lists the keys under [switches] whose name no package
-// registered, in the file's order and named as an unknown key at the top
-// is, a table's own keys included, and drops their values from c.
-func unknownSwitches(md toml.MetaData, c *Config) []string {
+// unknownKeys lists the keys in the file that eva-md does not know, in the
+// file's order: those the decode left undecoded, and under [switches] each
+// name no package registered, a table's own keys included, whose values it
+// drops from c. A switches that is no table, such as switches = true, an
+// array or an array of tables, is unknown with every key under it, as it
+// was before there were switches, and c keeps none of it.
+func unknownKeys(md toml.MetaData, c *Config) []string {
+	undecoded := md.Undecoded()
+	kind := md.Type(switchesTable)
+	// A [switches] made only of dotted keys, as switches.b = true, is
+	// defined but has no type of its own.
+	if kind == "" && !md.IsDefined(switchesTable) {
+		// No switches in the file: what the decode left, as before.
+		var unknown []string
+		for _, key := range undecoded {
+			unknown = append(unknown, key.String())
+		}
+		return unknown
+	}
+	table := kind == "Hash" || kind == ""
+	if !table {
+		c.Switches = nil
+	}
+	left := make(map[string]bool, len(undecoded))
+	for _, key := range undecoded {
+		left[key.String()] = true
+	}
 	var unknown []string
 	for _, key := range md.Keys() {
-		if len(key) < 2 || key[0] != switchesTable {
-			continue
-		}
-		if _, ok := switches[key[1]]; !ok {
-			unknown = append(unknown, key.String())
-			delete(c.Switches, key[1])
+		name := key.String()
+		switch {
+		case key[0] != switchesTable:
+			if left[name] {
+				unknown = append(unknown, name)
+			}
+		case !table:
+			unknown = append(unknown, name)
+		case len(key) >= 2:
+			if _, ok := switches[key[1]]; !ok {
+				unknown = append(unknown, name)
+				delete(c.Switches, key[1])
+			}
 		}
 	}
 	return unknown

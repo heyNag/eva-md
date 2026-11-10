@@ -109,16 +109,7 @@ func LoadContext(ctx context.Context, file string) (Config, error) {
 	if err != nil {
 		return Default(), errors.New("config: invalid TOML")
 	}
-	for _, key := range md.Undecoded() {
-		// The keys under [switches] are checked against the registered
-		// switches below.
-		if c.Switches == nil || key[0] != switchesTable {
-			c.Unknown = append(c.Unknown, key.String())
-		}
-	}
-	if c.Switches != nil {
-		c.Unknown = append(c.Unknown, unknownSwitches(md, &c)...)
-	}
+	c.Unknown = unknownKeys(md, &c)
 	if c.Notice == "" {
 		c.Notice = NoticeStart
 	}
