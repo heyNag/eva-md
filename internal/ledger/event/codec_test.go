@@ -120,6 +120,10 @@ func TestGoldenHeadersRoundTrip(t *testing.T) {
 		`{"v":2,"k":"header","host":"","session":"s"}`,
 		`{"v":2,"k":"header","host":"codex","session":""}`,
 		`{"v":2,"k":"header","host":"codex","session":"s","seq":1}`,
+		`{"v":2,"k":"header","HOST":"codex","session":"s"}`,
+		`{"v":2,"k":"header","host":"codex","session":"s","session":"t"}`,
+		`{"v":2,"k":"header","host":"codex","session":"s","machine":""}`,
+		`{"v":2, "k":"header","host":"codex","session":"s"}`,
 	} {
 		if _, err := DecodeHeader([]byte(bad)); err == nil {
 			t.Errorf("DecodeHeader accepted %s", bad)
@@ -131,11 +135,12 @@ func TestGoldenHeadersRoundTrip(t *testing.T) {
 }
 
 // Every line of invalid.jsonl is refused. Each is well-formed JSON unless
-// its comment says otherwise, so it is refused for what the comment says
-// and not for a typo.
+// its comment says otherwise, and each whose comment does not begin
+// "form:" is in the form the codec writes, so it is refused for what the
+// comment says and not for a typo or its form.
 func TestInvalidEventsRefused(t *testing.T) {
 	why := ""
-	n := 0
+	n, forms := 0, 0
 	for _, line := range golden(t, "invalid.jsonl") {
 		if text, ok := bytes.CutPrefix(line, []byte("# ")); ok {
 			why = string(text)
@@ -145,12 +150,51 @@ func TestInvalidEventsRefused(t *testing.T) {
 		if !strings.Contains(why, "trailing data") && !json.Valid(line) {
 			t.Errorf("%s: the line is not JSON: %s", why, line)
 		}
+		if strings.HasPrefix(why, "form: ") {
+			forms++
+		} else {
+			// Read leniently, the line writes back as it is: only the rule
+			// its comment names refuses it.
+			var e Event
+			if json.Unmarshal(line, &e) == nil {
+				if out, err := json.Marshal(e); err != nil || !bytes.Equal(out, line) {
+					t.Errorf("%s: the line is not in the codec's form, so it is not refused for that alone:\n got %s\nform %s", why, line, out)
+				}
+			}
+		}
 		if e, err := Decode(line); err == nil {
 			t.Errorf("%s: Decode accepted %s as %+v", why, line, e)
 		}
 	}
-	if n < 40 {
-		t.Fatalf("only %d invalid lines were read", n)
+	if n < 70 || forms < 10 {
+		t.Fatalf("only %d invalid lines were read, %d of them for their form", n, forms)
+	}
+}
+
+// Decode accepts only the form Encode writes: the same event with a key in
+// another letter case, a key given twice, white space, a null or an empty
+// list is refused, though encoding/json alone reads each of them.
+func TestDecodeRefusesAnotherForm(t *testing.T) {
+	good := `{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","src":{"key":"a"}}`
+	if _, err := Decode([]byte(good)); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{
+		`{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","TEXT":"hi","src":{"key":"a"}}`,
+		`{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","src":{"KEY":"a"}}`,
+		`{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","text":"hi","src":{"key":"a"}}`,
+		`{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","src":{"key":"a"} }`,
+		`{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","src":{"key":"a"},"ctx":null}`,
+		`{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","src":{"key":"a"},"red":[]}`,
+		good + "\n",
+	} {
+		var e Event
+		if err := json.Unmarshal([]byte(bad), &e); err != nil {
+			t.Fatalf("encoding/json refuses %s: %v", bad, err)
+		}
+		if _, err := Decode([]byte(bad)); err == nil {
+			t.Errorf("Decode accepted %s", bad)
+		}
 	}
 }
 

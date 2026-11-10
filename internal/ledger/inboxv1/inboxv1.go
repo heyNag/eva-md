@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -61,29 +62,34 @@ func (b Backend) Sessions(ctx context.Context) ([]ledger.Key, error) {
 
 // Read reads one session file. Its events are its complete lines, in
 // order; an unfinished last line is left unread, as v1's readers leave it,
-// and counted in the session's Tail.
+// and counted in the session's Tail. It refuses a key whose host and
+// session are not those of its file, as Sessions names them, so no file is
+// read under another session's ids.
 func (b Backend) Read(ctx context.Context, k ledger.Key) (event.Session, []event.Event, error) {
 	if !local(k.Folder) || !local(k.File) || !strings.HasSuffix(k.File, ".jsonl") {
 		return event.Session{}, nil, errors.New("inboxv1: invalid session location")
+	}
+	if !b.names(k) {
+		return event.Session{}, nil, errors.New("inboxv1: the key's host and session are not its file's")
 	}
 	store := inbox.Store{Root: b.Root}
 	entries, end, err := store.ReadFrom(filepath.Join(b.Root, k.Folder, k.File), 0)
 	if err != nil {
 		return event.Session{}, nil, err
 	}
-	walked, size, err := b.walk(ctx, k, entries, end)
+	w, size, err := b.walk(ctx, k, entries, end)
 	if err != nil {
 		return event.Session{}, nil, err
 	}
-	r := reading{key: k, keys: map[string]int64{}}
-	r.session = event.Session{Host: k.Host, ID: k.Session, Folder: k.Folder, Tail: max(0, size-end)}
+	r := newReading(k, w.offAfter)
+	r.session.Tail = max(0, size-end)
 	for i, e := range entries {
 		if i%1024 == 0 {
 			if err := ctx.Err(); err != nil {
 				return event.Session{}, nil, err
 			}
 		}
-		ev := r.line(int64(i+1), e, walked[i])
+		ev := r.line(int64(i+1), e, w.walked[i])
 		if err := ev.Validate(); err != nil {
 			return event.Session{}, nil, fmt.Errorf("inboxv1: line %d: %w", i+1, err)
 		}
@@ -94,38 +100,79 @@ func (b Backend) Read(ctx context.Context, k ledger.Key) (event.Session, []event
 	return r.session, r.events, nil
 }
 
+// names reports whether k's host and session are those its file holds, as
+// Sessions names them: the file is <host>-<id>.jsonl of a host eva-md
+// captures, and the session is the id v1 reads for it (Store.SessionID).
+func (b Backend) names(k ledger.Key) bool {
+	if k.Host != "claude-code" && k.Host != "codex" {
+		return false
+	}
+	id, ok := strings.CutPrefix(strings.TrimSuffix(k.File, ".jsonl"), k.Host+"-")
+	c := inbox.Capture{Project: k.Folder, Host: k.Host, ID: id, File: true}
+	return ok && id != "" && c.Name() == k.File && (inbox.Store{Root: b.Root}).SessionID(c) == k.Session
+}
+
+// walked is what v1's walker made of a session's lines: for each, whether
+// it yielded the line with the entry v1's reader decoded for it, and, when
+// the reader repaired a line, whether the walker was off the record after
+// each line (nil otherwise).
+type walked struct {
+	walked   []bool
+	offAfter []bool
+}
+
 // walk runs v1's walker over the lines entries holds, the first end bytes
-// of the file, and reports for each line whether the walker yielded it
-// with the entry v1's reader decoded for it. It also returns the file's
-// size.
-func (b Backend) walk(ctx context.Context, k ledger.Key, entries []inbox.Entry, end int64) ([]bool, int64, error) {
+// of the file, and returns what it made of each, and the file's size.
+//
+// The walker and the reader decode the same lines but one: a line exactly
+// as long as v1's limit, which the walker decodes and the reader repairs.
+// When such a line is a pause, only the walker sees it, and it says so
+// only in its position. So when the reader repaired any line, the walker
+// is run one line at a time and its state after each line is kept, and
+// the reading pauses where the walker paused at a repaired line (see
+// reading.line). Otherwise one walk does: the walker's state then follows
+// the markers the reader decoded.
+func (b Backend) walk(ctx context.Context, k ledger.Key, entries []inbox.Entry, end int64) (walked, int64, error) {
 	root, err := paths.OpenRoot(filepath.Join(b.Root, k.Folder), false)
 	if err != nil {
-		return nil, 0, err
+		return walked{}, 0, err
 	}
 	defer root.Close()
 	f, info, err := inbox.OpenSession(root, k.File)
 	if err != nil {
-		return nil, 0, err
+		return walked{}, 0, err
 	}
 	defer f.Close()
-	walked := make([]bool, len(entries))
+	w := walked{walked: make([]bool, len(entries))}
 	if end == 0 {
-		return walked, info.Size(), nil
+		return w, info.Size(), nil
 	}
-	pos, err := inbox.Walk(ctx, f, k.Folder, k.File, inbox.Position{}, end, func(l inbox.Line) bool {
+	visit := func(l inbox.Line) bool {
 		if l.Line >= 1 && l.Line <= len(entries) {
-			walked[l.Line-1] = entries[l.Line-1] == l.Entry
+			w.walked[l.Line-1] = entries[l.Line-1] == l.Entry
 		}
 		return true
-	})
-	if err != nil {
-		return nil, 0, err
+	}
+	var pos inbox.Position
+	if slices.Contains(entries, repaired) {
+		w.offAfter = make([]bool, len(entries))
+		for i := range entries {
+			next, err := inbox.Walk(ctx, f, k.Folder, k.File, pos, 1, visit)
+			if err != nil {
+				return walked{}, 0, err
+			}
+			if next.Line != i+1 {
+				return walked{}, 0, errors.New("inboxv1: the session file changed while it was read")
+			}
+			w.offAfter[i], pos = next.Off, next
+		}
+	} else if pos, err = inbox.Walk(ctx, f, k.Folder, k.File, inbox.Position{}, end, visit); err != nil {
+		return walked{}, 0, err
 	}
 	if pos.Offset != end || pos.Line != len(entries) {
-		return nil, 0, errors.New("inboxv1: the session file changed while it was read")
+		return walked{}, 0, errors.New("inboxv1: the session file changed while it was read")
 	}
-	return walked, info.Size(), nil
+	return w, info.Size(), nil
 }
 
 // reading is the state of one session's read.
@@ -133,17 +180,44 @@ type reading struct {
 	key     ledger.Key
 	session event.Session
 	events  []event.Event
-	keys    map[string]int64 // sameness key to the first event that has it
-	turn    int
+	keys    map[string]first // sameness key to the first event that has it
+	hooks   map[string]int   // how many hook lines had each turn key (see sameness)
+	// offKeys holds the turn keys of lines withheld as off the record, so
+	// that the same line stored again on the record is withheld too. It is
+	// never returned.
+	offKeys map[string]bool
+	// turn is the current turn's ordinal, last the highest ordinal given,
+	// and tidTurn the ordinal each turn id seen on a returned line was
+	// given (see turnOf).
+	turn, last int
+	tidTurn    map[string]int
 	// walkOff and anyOff are the off-the-record state as v1's walker
 	// tracks it, from markers that belong to the file, and as v1's update
 	// tracks it, from any marker line. A line is off the record when
-	// either is set.
+	// either is set. walkerOff is the walker's own state after each line,
+	// when walk kept it.
 	walkOff, anyOff bool
-	// evidence for the session's class, from the entries returned
-	visible, withAgent, userPrompts int
-	turns, start, end               bool
-	firstPromptSeen, programStart   bool
+	walkerOff       []bool
+	// userPrompts counts the prompts v1 filed as the user's that belong to
+	// the file, withheld or not: it only ever denies a class. The rest of
+	// the evidence for the session's class comes from the lines returned.
+	userPrompts                   int
+	visible, withAgent            int
+	turns, start, end             bool
+	firstPromptSeen, programStart bool
+}
+
+// first is the first event with a sameness key: its seq and its turn.
+type first struct {
+	seq  int64
+	turn int
+}
+
+// newReading starts the read of the session k names. walkerOff is the
+// walker's state after each line, or nil (see walk).
+func newReading(k ledger.Key, walkerOff []bool) *reading {
+	return &reading{key: k, keys: map[string]first{}, hooks: map[string]int{}, offKeys: map[string]bool{}, tidTurn: map[string]int{},
+		walkerOff: walkerOff, session: event.Session{Host: k.Host, ID: k.Session, Folder: k.Folder}}
 }
 
 // line makes the event of physical line seq, whose entry as v1's reader
@@ -151,6 +225,11 @@ type reading struct {
 func (r *reading) line(seq int64, e inbox.Entry, walked bool) event.Event {
 	trusted := inbox.Trusted(e, r.key.Folder, r.key.File, "")
 	if !trusted && e == repaired {
+		// The walker may have decoded the line the reader repaired, and
+		// paused at it: the reading pauses too, and never resumes there.
+		if r.walkerOff != nil && r.walkerOff[seq-1] {
+			r.walkOff = true
+		}
 		return event.Event{Seq: seq, Turn: r.turn, Kind: event.KindGap, Author: event.AuthorEva, Text: e.Text,
 			Src: event.Source{Key: positionKey(seq)}, Marks: []event.Mark{event.MarkRepaired, event.MarkName}}
 	}
@@ -161,14 +240,28 @@ func (r *reading) line(seq int64, e inbox.Entry, walked bool) event.Event {
 	if !trusted {
 		return r.withhold(seq, event.WhyUntrusted)
 	}
+	if e.Role == "user" && e.Kind == "prompt" && e.Agent == "" {
+		r.userPrompts++
+	}
+	kind, author, marks, ok := classify(e)
+	key := ""
+	if ok {
+		key = turnKey(e, kind, marks)
+	}
 	if marker {
 		r.walkOff = e.Text == "off_record"
 	} else if r.walkOff || r.anyOff {
+		if key != "" {
+			r.offKeys[key] = true
+		}
 		return r.withhold(seq, event.WhyOffRecord)
 	}
-	kind, author, marks, ok := classify(e)
 	if !ok {
 		return r.withhold(seq, event.WhyUnknownKind)
+	}
+	if key != "" && r.offKeys[key] {
+		// The same line was said off the record: this is it stored again.
+		return r.withhold(seq, event.WhyOffRecord)
 	}
 	content := e.Kind == "prompt" || e.Kind == "reply" || e.Kind == "tool" || e.Kind == "plan"
 	if content && !walked {
@@ -188,17 +281,14 @@ func (r *reading) line(seq int64, e inbox.Entry, walked bool) event.Event {
 	if e.Trunc > 0 {
 		ev.Cut = []event.Cut{{At: -1, Lost: e.Trunc, Why: event.CutLegacy}}
 	}
-	ev.Src.Key = sameness(seq, e, ev)
-	if first, ok := r.keys[ev.Src.Key]; ok {
-		ev.Copy = first
+	ev.Src.Key = r.sameness(seq, e, key)
+	if f, ok := r.keys[ev.Src.Key]; ok {
+		ev.Copy, ev.Turn = f.seq, f.turn
 		r.session.Copies++
 	} else {
-		r.keys[ev.Src.Key] = seq
+		ev.Turn = r.turnOf(e, kind)
+		r.keys[ev.Src.Key] = first{seq: seq, turn: ev.Turn}
 	}
-	if kind == event.KindPrompt && ev.Copy == 0 {
-		r.turn++
-	}
-	ev.Turn = r.turn
 	if ev.Has(event.MarkWrapper) {
 		r.session.Wrappers++
 	}
@@ -206,12 +296,33 @@ func (r *reading) line(seq int64, e inbox.Entry, walked bool) event.Event {
 	return ev
 }
 
+// turnOf is the ordinal of the turn of a returned line that is not a copy.
+// A turn id not seen before on a returned line opens a new turn, and one
+// seen before is in the turn it opened; a prompt with no turn id opens a
+// new turn; any other line is in the current turn. Only returned lines
+// count, so nothing withheld tells how many turns it held.
+func (r *reading) turnOf(e inbox.Entry, kind event.Kind) int {
+	switch {
+	case e.Turn != "":
+		if t, ok := r.tidTurn[e.Turn]; ok {
+			return t
+		}
+		r.last++
+		r.turn = r.last
+		r.tidTurn[e.Turn] = r.turn
+	case kind == event.KindPrompt:
+		r.last++
+		r.turn = r.last
+	}
+	return r.turn
+}
+
 // withhold makes the bare gap that stands in the place of a line the reader
 // returns nothing of.
 func (r *reading) withhold(seq int64, why string) event.Event {
 	r.session.Withheld++
 	return event.Event{Seq: seq, Turn: r.turn, Kind: event.KindGap, Author: event.AuthorEva, Why: why,
-		Src: event.Source{Key: positionKey(seq)}, Marks: []event.Mark{event.MarkWithheld}}
+		Src: event.Source{Key: event.PlaceKey(seq)}, Marks: []event.Mark{event.MarkWithheld}}
 }
 
 // classify maps a v1 entry to its kind, author and marks. An author comes
@@ -252,7 +363,7 @@ func classify(e inbox.Entry) (event.Kind, event.Author, []event.Mark, bool) {
 		return event.KindPrompt, sub(event.AuthorProgram), name, true
 	case e.Text == "off_record" || e.Text == "on_record":
 		return event.KindControl, event.AuthorEva, name, true
-	case strings.HasPrefix(e.Text, "gap"):
+	case strings.HasPrefix(e.Text, "gap: "):
 		return event.KindGap, event.AuthorEva, name, true
 	case lifeEvent(e.Text):
 		return event.KindLife, event.AuthorHost, name, true
@@ -271,18 +382,38 @@ func lifeEvent(text string) bool {
 	return false
 }
 
+// turnKey is what a line says in its turn, hashed: for a prompt or a reply
+// with a turn id that is not a fixed name, its turn id, kind, subagent and
+// text. Any other line has none ("").
+func turnKey(e inbox.Entry, kind event.Kind, marks []event.Mark) string {
+	if e.Turn == "" || slices.Contains(marks, event.MarkName) || (kind != event.KindPrompt && kind != event.KindReply) {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(e.Turn + "\x00" + string(kind) + "\x00" + e.Agent + "\x00" + e.Text))
+	return "v1:turn:" + hex.EncodeToString(sum[:16])
+}
+
 // sameness is an event's sameness key. v1 keeps no host row id and no tool
-// call id, so a prompt or a reply with a turn id is keyed by the turn id,
-// its kind, its subagent and its text: the hook and v1's recovery store
-// the same prompt or reply that way, and both copies carry that turn. Every
-// other line is keyed by its position, so it is never a copy: the same
-// command run twice in one turn is two events.
-func sameness(seq int64, e inbox.Entry, ev event.Event) string {
-	if e.Turn == "" || ev.Has(event.MarkName) || (ev.Kind != event.KindPrompt && ev.Kind != event.KindReply) {
+// call id, so a prompt or a reply with a turn key (turnKey) is keyed by it:
+// v1's recovery stores again, under the same turn, a prompt or a reply the
+// hook stored. The hook stores each prompt it is given, so two hook lines
+// are two events even when they say the same words in one turn, as a
+// prompt sent twice into a running turn does (plan 14.3): the n-th hook
+// line with a turn key is keyed by n, and any other line by 0, so a
+// recovered line is a copy of the first line with its turn key, and a hook
+// line only of a recovered one. Every other line is keyed by its position,
+// so it is never a copy: the same command run twice in one turn is two
+// events.
+func (r *reading) sameness(seq int64, e inbox.Entry, key string) string {
+	if key == "" {
 		return positionKey(seq)
 	}
-	sum := sha256.Sum256([]byte(e.Turn + "\x00" + string(ev.Kind) + "\x00" + e.Agent + "\x00" + e.Text))
-	return "v1:turn:" + hex.EncodeToString(sum[:16])
+	n := 0
+	if e.Origin == "hook" {
+		n = r.hooks[key]
+		r.hooks[key]++
+	}
+	return key + ":" + strconv.Itoa(n)
 }
 
 func positionKey(seq int64) string { return "v1:line:" + strconv.FormatInt(seq, 10) }
@@ -304,9 +435,6 @@ func (r *reading) note(e inbox.Entry) {
 		r.turns = true
 	}
 	prompt := e.Role == "user" && e.Kind == "prompt"
-	if prompt && e.Agent == "" {
-		r.userPrompts++
-	}
 	if !r.firstPromptSeen && e.Agent == "" && (prompt || e.Kind == "event" && e.Text == "host_prompt") {
 		r.firstPromptSeen, r.programStart = true, !prompt
 	}

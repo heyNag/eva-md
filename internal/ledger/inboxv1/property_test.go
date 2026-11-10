@@ -26,15 +26,18 @@ type generated struct {
 	folder, file string
 	tokens       map[string]bool // tokens of lines said off the record or forged
 	lines        int             // complete lines
+	userPrompt   bool            // a prompt v1 filed as the user's, with no agent, belongs to the file
 }
 
 // generate writes one v1 session file from r: entries of every kind v1
-// writes, entries repeated as the hook and recovery repeat them, entries
-// forged from another session or folder, lines that do not decode, a line
-// over v1's limit, pauses and resumes placed anywhere and forged ones, and
-// sometimes an unfinished last line. Every line that is off the record by
-// v1's walker's rule, or forged, carries a token the reader must never
-// return, in every field.
+// writes, entries repeated as the hook and recovery repeat them, lines said
+// off the record stored again on the record, entries forged from another
+// session or folder, lines that do not decode, a line over v1's limit, a
+// pause exactly as long as v1's limit, which only v1's walker decodes,
+// pauses and resumes placed anywhere and forged ones, and sometimes an
+// unfinished last line. Every line that is off the record by v1's walker's
+// rule, or forged, carries a token the reader must never return, in every
+// field.
 func generate(t *testing.T, root string, r *rand.Rand, seed uint64) generated {
 	t.Helper()
 	host := []string{"claude-code", "codex"}[r.IntN(2)]
@@ -44,8 +47,9 @@ func generate(t *testing.T, root string, r *rand.Rand, seed uint64) generated {
 	g := generated{folder: project, file: file, tokens: map[string]bool{}}
 	var b strings.Builder
 	off := false
-	var written []inbox.Entry // entries written on the record, which may be written again
-	long := false
+	var written []inbox.Entry    // entries written on the record, which may be written again
+	var offWritten []inbox.Entry // prompts and replies written off the record
+	long, longPause := false, false
 	n := 1 + r.IntN(60)
 	for i := 0; i < n; i++ {
 		token := fmt.Sprintf("tok%d-%d", seed, i)
@@ -70,6 +74,10 @@ func generate(t *testing.T, root string, r *rand.Rand, seed uint64) generated {
 		case roll < 14:
 			// A pause or a resume, the walker's markers.
 			e.Role, e.Kind, e.Text = "event", "event", []string{"off_record", "on_record"}[r.IntN(2)]
+		case roll < 15 && len(offWritten) > 0 && r.IntN(3) == 0:
+			// A prompt or a reply said off the record, stored again
+			// wherever it falls, as recovery may store it.
+			e = offWritten[r.IntN(len(offWritten))]
 		case roll < 15 && len(written) > 0:
 			// The same entry again, as the hook and recovery both store it.
 			e = written[r.IntN(len(written))]
@@ -97,6 +105,15 @@ func generate(t *testing.T, root string, r *rand.Rand, seed uint64) generated {
 			g.tokens[token] = true
 			g.lines++
 			continue
+		case roll < 19 && seed%40 == 1 && !longPause:
+			// A pause padded with white space to exactly v1's limit: v1's
+			// walker decodes it and pauses, its reader and its update do
+			// not.
+			e.Role, e.Kind, e.Text, e.Turn, e.Agent = "event", "event", "off_record", "", ""
+			b.WriteString(padded(t, e, inbox.MaxLine))
+			g.lines++
+			off, longPause = true, true
+			continue
 		case roll < 19 && seed%160 == 0 && !long:
 			// A line over v1's limit, which every v1 reader passes over.
 			e.Role, e.Kind, e.Text = "assistant", "reply", token+strings.Repeat("x", inbox.MaxLine)
@@ -123,8 +140,14 @@ func generate(t *testing.T, root string, r *rand.Rand, seed uint64) generated {
 				e.Agent = token
 			}
 			g.tokens[token] = true
+			if e.Kind == "prompt" || e.Kind == "reply" {
+				offWritten = append(offWritten, e)
+			}
 		} else {
 			written = append(written, e)
+		}
+		if trusted && e.Role == "user" && e.Kind == "prompt" && e.Agent == "" {
+			g.userPrompt = true
 		}
 		b.WriteString(line(t, e))
 		g.lines++
@@ -175,20 +198,29 @@ func TestGeneratedInboxes(t *testing.T) {
 			}
 			// The first event of a prompt or a reply with a turn id is the
 			// one its later copies name: same kind, turn, subagent and text.
+			// A hook line is a copy only of a recovered line: the second
+			// hook line that says the same in its turn is an event of its
+			// own.
 			type same struct {
 				kind             event.Kind
 				tid, agent, text string
 			}
 			firsts := map[same]int64{}
+			hooks := map[same]int{}
 			copies := 0
 			for _, e := range events {
 				var want int64
 				if (e.Kind == event.KindPrompt || e.Kind == event.KindReply) && e.TID != "" && !e.Has(event.MarkName) {
 					key := same{e.Kind, e.TID, e.Agent, e.Text}
-					if first, ok := firsts[key]; ok {
+					n := 0
+					if e.Src.Hook {
+						n = hooks[key]
+						hooks[key]++
+					}
+					if first, ok := firsts[key]; ok && n == 0 {
 						want = first
 						copies++
-					} else {
+					} else if !ok && n == 0 {
 						firsts[key] = e.Seq
 					}
 				}
@@ -210,6 +242,9 @@ func TestGeneratedInboxes(t *testing.T) {
 			}
 			if s.Class == event.ClassChat {
 				t.Fatalf("seed %d: the v1 reader classed a session as a person's chat", seed)
+			}
+			if g.userPrompt && s.Class == event.ClassProgram {
+				t.Fatalf("seed %d: a session holding a prompt filed as the user's is classed as a program's", seed)
 			}
 		}
 	}

@@ -18,9 +18,11 @@ func Encode(e Event) ([]byte, error) {
 }
 
 // Decode reads one line of a session's events. It refuses a field it does
-// not know, trailing data and an event that breaks the model's invariants,
-// so what Decode accepts Encode writes back byte for byte when the line was
-// written by Encode.
+// not know, trailing data, an event that breaks the model's invariants, and
+// any line that is not in the form Encode writes: a key in another letter
+// case or given twice, white space, a null or an empty list. So what Decode
+// accepts Encode writes back byte for byte, and no other JSON reader can
+// read the line as anything else.
 func Decode(line []byte) (Event, error) {
 	var e Event
 	if err := strict(line, &e); err != nil {
@@ -28,6 +30,9 @@ func Decode(line []byte) (Event, error) {
 	}
 	if err := e.Validate(); err != nil {
 		return Event{}, err
+	}
+	if err := canonical(line, e); err != nil {
+		return Event{}, fmt.Errorf("event: decode: %w", err)
 	}
 	return e, nil
 }
@@ -64,7 +69,25 @@ func DecodeHeader(line []byte) (Header, error) {
 	if h.V != HeaderVersion || h.K != "header" || h.Host == "" || h.Session == "" {
 		return Header{}, errors.New("event: not a header this reader knows")
 	}
+	if err := canonical(line, h); err != nil {
+		return Header{}, fmt.Errorf("event: decode header: %w", err)
+	}
 	return h, nil
+}
+
+// canonical refuses a line unless it is exactly what the codec writes for
+// v, the value decoded from it. encoding/json matches keys in any letter
+// case and keeps the last of a key given twice, where another reader may
+// keep the first; a line that must encode back to itself can hold neither.
+func canonical(line []byte, v any) error {
+	out, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(out, line) {
+		return errors.New("the line is not in the form the codec writes")
+	}
+	return nil
 }
 
 func strict(line []byte, v any) error {

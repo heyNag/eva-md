@@ -13,14 +13,14 @@
 {"seq":13,"t":"2026-11-02T09:07:00.000Z","turn":2,"k":"summary","pv":"host","text":"Summary of the work so far.","cut":[{"at":0,"lost":9000,"why":"policy"}],"src":{"h":true,"key":"k:summary:13"}}
 {"seq":14,"t":"2026-11-02T09:07:00.000Z","turn":2,"k":"delivery","pv":"eva","src":{"key":"k:delivery:14"}}
 {"seq":15,"t":"2026-11-02T09:08:00.000Z","turn":3,"k":"control","pv":"eva","src":{"h":true,"key":"k:control:15"},"op":"off"}
-{"seq":16,"turn":3,"k":"gap","pv":"eva","src":{"key":"k:gap:16"},"why":"off_record","mark":["withheld"]}
+{"seq":16,"turn":3,"k":"gap","pv":"eva","src":{"key":"place:16"},"why":"off_record","mark":["withheld"]}
 {"seq":17,"t":"2026-11-02T09:09:00.000Z","turn":4,"k":"control","pv":"eva","src":{"h":true,"key":"k:control:17"},"op":"on"}
 {"seq":18,"t":"2026-11-02T09:10:00.000Z","turn":5,"k":"prompt","pv":"spoken","text":"move the meeting to friday","src":{"r":"row-18","key":"k:prompt:18"}}
 {"seq":19,"t":"2026-11-02T09:10:00.000Z","turn":5,"k":"prompt","pv":"front_model","text":"The user asks to move the meeting.","taint":[{"k":"net","at":7},{"k":"mcp","at":12}],"src":{"r":"row-19","key":"k:prompt:19"}}
 {"seq":20,"t":"2026-11-02T09:11:00.000Z","turn":6,"k":"prompt","pv":"program","text":"run the nightly check","src":{"h":true,"key":"k:prompt:20"}}
 {"seq":21,"t":"2026-11-02T09:12:00.000Z","turn":7,"tid":"turn-c","k":"prompt","pv":"v1_user","text":"\u003crealtime_delegation\u003e made-up hand-over \u003c/realtime_delegation\u003e","cut":[{"at":-1,"lost":1200,"why":"legacy"}],"src":{"key":"v1:turn:0011"},"mark":["wrapper","recovered"],"ctx":{"project":"general","branch":"main"}}
 {"seq":22,"t":"2026-11-02T09:13:00.000Z","turn":2,"tid":"turn-b","k":"reply","pv":"agent","text":"The page says the limit is ten. [… 40 bytes cut by eva.md …] Done.","cut":[{"at":32,"lost":40,"why":"size"}],"src":{"key":"k:reply:8"},"copy":8}
-{"seq":23,"turn":7,"k":"gone","pv":"eva","src":{"key":"k:gone:23"}}
+{"seq":23,"turn":7,"k":"gone","pv":"eva","src":{"key":"place:23"}}
 {"seq":24,"t":"2026-11-02T09:14:00.000Z","turn":8,"k":"prompt","pv":"unknown","text":"a prompt from a surface no adapter knows","src":{"h":true,"key":"k:prompt:24"}}
 {"seq":25,"turn":8,"k":"gap","pv":"eva","text":"gap: malformed inbox record","src":{"key":"v1:line:25"},"mark":["repaired","name"]}
 {"seq":26,"t":"2026-11-02T09:15:00.000Z","turn":8,"k":"control","pv":"eva","src":{"key":"k:control:26"},"op":"forget"}

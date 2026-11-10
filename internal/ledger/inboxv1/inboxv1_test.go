@@ -68,12 +68,14 @@ func line(t *testing.T, e inbox.Entry) string {
 }
 
 // v1View is what v1's own readers make of a session file: its reader's
-// entry for each complete line, the update's decoding of each, and the
-// lines its walker yields, by line number.
+// entry for each complete line, the update's decoding of each, the lines
+// its walker yields, by line number, and whether the walker was off the
+// record before each line (walkOff[n] for line n), as it tracks it.
 type v1View struct {
 	read    []inbox.Entry
 	decoded []update.Entry
 	walked  map[int]inbox.Line
+	walkOff []bool
 }
 
 func viewV1(t *testing.T, root string, k ledger.Key) v1View {
@@ -104,7 +106,19 @@ func viewV1(t *testing.T, root string, k ledger.Key) v1View {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return v1View{read: read, decoded: update.Decode(data, 0, 1), walked: walked}
+	// The walker's own off-the-record state before each line, one line at
+	// a time: it reports the state only where it stops.
+	walkOff := make([]bool, len(read)+1)
+	var pos inbox.Position
+	for n := 1; n <= len(read); n++ {
+		walkOff[n] = pos.Off
+		next, err := inbox.Walk(context.Background(), f, k.Folder, k.File, pos, 1, func(inbox.Line) bool { return true })
+		if err != nil || next.Line != n {
+			t.Fatalf("%s: the walker stops at line %d before line %d: %v", k.File, next.Line, n, err)
+		}
+		pos = next
+	}
+	return v1View{read: read, decoded: update.Decode(data, 0, 1), walked: walked, walkOff: walkOff}
 }
 
 // checkV1 reads a session through the backend and holds it to what v1's
@@ -124,6 +138,9 @@ func checkV1(t *testing.T, root string, k ledger.Key) (event.Session, []event.Ev
 	}
 	withheld, copies := 0, 0
 	updateOff := false // the off-the-record state as v1's update tracks it, from any marker line
+	// What prompts and replies said off the record say in their turn: the
+	// same line stored again on the record is withheld too.
+	offSaid := map[string]bool{}
 	for i, e := range events {
 		n := i + 1
 		if d := v.decoded[i]; d.Kind == "event" && (d.Text == "off_record" || d.Text == "on_record") {
@@ -139,13 +156,26 @@ func checkV1(t *testing.T, root string, k ledger.Key) (event.Session, []event.Ev
 			t.Fatalf("%s line %d: the v1 reader filed an event as typed", k.File, n)
 		}
 		w, walked := v.walked[n]
+		r := v.read[i]
+		said := ""
+		if r.Turn != "" && (r.Kind == "prompt" || r.Kind == "reply") {
+			said = r.Turn + "\x00" + r.Kind + "\x00" + r.Agent + "\x00" + r.Text
+		}
+		off := updateOff || v.walkOff[n]
+		if e.Kind != event.KindControl && !e.Has(event.MarkWithheld) && !e.Has(event.MarkRepaired) && off {
+			t.Errorf("%s line %d: returned, but v1's walker or its update is off the record there", k.File, n)
+		}
 		switch {
 		case e.Has(event.MarkWithheld):
 			withheld++
 			// What v1's walker yields is withheld only where v1's update
-			// would drop it as off the record.
-			if walked && v.read[i] == w.Entry && (e.Why != event.WhyOffRecord || !updateOff) {
+			// would drop it as off the record, or where the same line was
+			// said off the record before.
+			if walked && v.read[i] == w.Entry && (e.Why != event.WhyOffRecord || !updateOff && (said == "" || !offSaid[said])) {
 				t.Errorf("%s line %d: withheld (%s), but v1's walker yields it", k.File, n, e.Why)
+			}
+			if e.Why == event.WhyOffRecord && off && said != "" {
+				offSaid[said] = true
 			}
 		case e.Has(event.MarkRepaired):
 			if v.read[i].Text != e.Text || v.read[i].Session != "" || v.decoded[i].Text != e.Text {
@@ -350,19 +380,19 @@ func TestFixtureInboxReadsAsV1Does(t *testing.T) {
 	expect(7, event.KindPrompt, event.AuthorV1User, "", 0, 2)
 	expect(8, event.KindReply, event.AuthorAgent, "", 0, 2)
 	expect(9, event.KindReply, event.AuthorAgent, "", 0, 2)
-	expect(10, event.KindReply, event.AuthorAgent, "", 5, 2)
-	expect(11, event.KindControl, event.AuthorEva, "", 0, 2)
-	expect(12, event.KindGap, event.AuthorEva, event.WhyOffRecord, 0, 2)
-	expect(13, event.KindGap, event.AuthorEva, event.WhyOffRecord, 0, 2)
-	expect(14, event.KindGap, event.AuthorEva, event.WhyOffRecord, 0, 2)
-	expect(15, event.KindControl, event.AuthorEva, "", 0, 2)
-	expect(16, event.KindPrompt, event.AuthorV1User, "", 0, 3)
-	expect(17, event.KindGap, event.AuthorEva, event.WhyUntrusted, 0, 3)
-	expect(18, event.KindReply, event.AuthorAgent, "", 0, 3)
-	expect(19, event.KindTasks, event.AuthorAgent, "", 0, 3)
-	expect(20, event.KindSummary, event.AuthorHost, "", 0, 3)
-	expect(21, event.KindGap, event.AuthorEva, "", 0, 3)
-	expect(22, event.KindTool, event.AuthorSubagent, "", 0, 3)
+	expect(10, event.KindReply, event.AuthorAgent, "", 5, 1) // a copy is in its first's turn
+	expect(11, event.KindControl, event.AuthorEva, "", 0, 3) // a pause is a turn of its own
+	expect(12, event.KindGap, event.AuthorEva, event.WhyOffRecord, 0, 3)
+	expect(13, event.KindGap, event.AuthorEva, event.WhyOffRecord, 0, 3)
+	expect(14, event.KindGap, event.AuthorEva, event.WhyOffRecord, 0, 3)
+	expect(15, event.KindControl, event.AuthorEva, "", 0, 4)
+	expect(16, event.KindPrompt, event.AuthorV1User, "", 0, 5)
+	expect(17, event.KindGap, event.AuthorEva, event.WhyUntrusted, 0, 5)
+	expect(18, event.KindReply, event.AuthorAgent, "", 0, 5)
+	expect(19, event.KindTasks, event.AuthorAgent, "", 0, 5)
+	expect(20, event.KindSummary, event.AuthorHost, "", 0, 5)
+	expect(21, event.KindGap, event.AuthorEva, "", 0, 6)
+	expect(22, event.KindTool, event.AuthorSubagent, "", 0, 6)
 	if chat[10].Op != event.OpOff || chat[14].Op != event.OpOn {
 		t.Errorf("the controls hold %q and %q", chat[10].Op, chat[14].Op)
 	}
@@ -444,24 +474,45 @@ func TestV1ReferencesResolve(t *testing.T) {
 }
 
 // A session v1 wrote into two project folders, and two sessions that share
-// their first 8 characters, are not resolved by a short reference; the
-// whole id tells the second pair apart.
+// their first 8 characters, are not resolved by a short reference to a line
+// both hold; the whole id tells the second pair apart. A line only one of
+// them holds resolves to it, as v1's eva-md show resolves it, and so does
+// a line only one of them holds as a line that decodes.
 func TestAmbiguousReferences(t *testing.T) {
 	root := newInbox(t)
 	for _, project := range []string{"one", "two"} {
 		add(t, root, inbox.Entry{Host: "codex", Session: "11112222-aaaa", Project: project, Role: "user", Kind: "prompt", Text: "in " + project, Origin: "hook"})
 	}
+	for _, text := range []string{"one: second", "one: third"} {
+		add(t, root, inbox.Entry{Host: "codex", Session: "11112222-aaaa", Project: "one", Role: "assistant", Kind: "reply", Text: text, Origin: "hook"})
+	}
+	appendRaw(t, root, "two", "codex-11112222-aaaa.jsonl", "not a json line\n") // two's line 2 is repaired
 	add(t, root, inbox.Entry{Host: "codex", Session: "33334444-aaaa", Project: "one", Role: "user", Kind: "prompt", Text: "first", Origin: "hook"})
+	add(t, root, inbox.Entry{Host: "codex", Session: "33334444-aaaa", Project: "one", Role: "assistant", Kind: "reply", Text: "first's reply", Origin: "hook"})
 	add(t, root, inbox.Entry{Host: "codex", Session: "33334444-bbbb", Project: "one", Role: "user", Kind: "prompt", Text: "second", Origin: "hook"})
 	b := Backend{Root: root}
-	for _, ref := range []string{"s:11112222#1", "s:11112222-aaaa#1", "s:33334444#1"} {
+	for _, ref := range []string{"s:11112222#1", "s:11112222-aaaa#1", "s:33334444#1", "e:33334444#1"} {
 		if _, _, err := ledger.Resolve(context.Background(), b, ref); !errors.Is(err, ledger.ErrAmbiguous) {
 			t.Errorf("%s: %v", ref, err)
 		}
 	}
-	_, e, err := ledger.Resolve(context.Background(), b, "s:33334444-bbbb#1")
-	if err != nil || e.Text != "second" {
-		t.Fatalf("the whole id resolves to %q, %v", e.Text, err)
+	for ref, want := range map[string]string{
+		"s:33334444-bbbb#1": "second",
+		"s:33334444#2":      "first's reply",
+		"s:11112222#3":      "one: third",
+		"s:11112222-aaaa#3": "one: third",
+		"s:11112222#2":      "one: second", // two's line 2 does not decode
+	} {
+		s, e, err := ledger.Resolve(context.Background(), b, ref)
+		if err != nil || e.Text != want {
+			t.Errorf("%s resolves to %q, %v; want %q", ref, e.Text, err, want)
+		}
+		if strings.HasPrefix(ref, "s:1111") && s.Folder != "one" {
+			t.Errorf("%s resolves in folder %q", ref, s.Folder)
+		}
+	}
+	if _, _, err := ledger.Resolve(context.Background(), b, "s:11112222#4"); !errors.Is(err, ledger.ErrNotFound) {
+		t.Errorf("a line neither folder holds: %v", err)
 	}
 }
 
@@ -469,7 +520,10 @@ func TestAmbiguousReferences(t *testing.T) {
 // replies in one turn, and the same command run twice in one turn, are two
 // events and no copy. Nothing is dropped, and a copy needs its turn: the
 // same words in another turn, as another kind, from another subagent or
-// with no turn id are not a copy.
+// with no turn id are not a copy. Two lines the hook stored are two events
+// even with the same words in one turn, as a prompt sent twice into a
+// running turn (plan 14.3); a recovered line is a copy of the first line
+// that says the same in its turn, and a hook line of a recovered one.
 func TestSecondCopies(t *testing.T) {
 	root := newInbox(t)
 	e := func(role, kind, turn, agent, text, origin string) inbox.Entry {
@@ -490,23 +544,31 @@ func TestSecondCopies(t *testing.T) {
 		e("assistant", "reply", "", "", "Untimed.", "catchup"),     // 12: no turn id, no copy
 		e("event", "event", "t2", "", "host_prompt", "hook"),       // 13
 		e("event", "event", "t2", "", "host_prompt", "hook"),       // 14: a name says nothing, no copy
-		e("assistant", "reply", "t1", "", "Reply one.", "hook"),    // 15: a third of 3
+		e("assistant", "reply", "t1", "", "Reply one.", "hook"),    // 15: the hook's again, no copy
+		e("user", "prompt", "t3", "", "continue", "hook"),          // 16
+		e("user", "prompt", "t3", "", "continue", "hook"),          // 17: sent twice into the turn, no copy
+		e("user", "prompt", "t3", "", "continue", "catchup"),       // 18: copy of 16
+		e("user", "prompt", "t3", "", "continue", "catchup"),       // 19: copy of 16
+		e("assistant", "reply", "t4", "", "Recovered.", "catchup"), // 20
+		e("assistant", "reply", "t4", "", "Recovered.", "catchup"), // 21: recovered twice, copy of 20
+		e("assistant", "reply", "t4", "", "Recovered.", "hook"),    // 22: the hook's after recovery, copy of 20
+		e("assistant", "reply", "t4", "", "Recovered.", "hook"),    // 23: the hook's again, no copy
 	} {
 		add(t, root, x)
 	}
 	k := sessions(t, root)["copies-1"]
 	s, events := checkV1(t, root, k)
-	if len(events) != 15 {
-		t.Fatalf("%d events for 15 lines", len(events))
+	if len(events) != 23 {
+		t.Fatalf("%d events for 23 lines", len(events))
 	}
-	want := map[int64]int64{2: 1, 7: 3, 15: 3}
+	want := map[int64]int64{2: 1, 7: 3, 18: 16, 19: 16, 21: 20, 22: 20}
 	for _, ev := range events {
 		if ev.Copy != want[ev.Seq] {
 			t.Errorf("line %d: copy of %d, want %d", ev.Seq, ev.Copy, want[ev.Seq])
 		}
 	}
-	if s.Copies != 3 {
-		t.Errorf("%d copies counted, want 3", s.Copies)
+	if s.Copies != len(want) {
+		t.Errorf("%d copies counted, want %d", s.Copies, len(want))
 	}
 }
 

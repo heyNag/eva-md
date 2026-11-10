@@ -44,6 +44,18 @@ func TestSessionClass(t *testing.T) {
 		{"a prompt filed as the user's, then a host prompt", []inbox.Entry{prompt, ev("host_prompt")}, "", event.ClassUnknown},
 		{"a subagent's host prompt first", []inbox.Entry{agent(ev("host_prompt")), prompt}, "", event.ClassUnknown},
 		{"a voice hand-over", []inbox.Entry{{Role: "user", Kind: "prompt", Turn: "t1", Text: wrapperPrompt}, reply}, "", event.ClassUnknown},
+		{"an end after a missing reply", []inbox.Entry{ev("gap: missing final reply"), ev("session_end")}, "", event.ClassUnknown},
+		{"an end after a subagent's host prompt", []inbox.Entry{agent(ev("host_prompt")), ev("session_end")}, "", event.ClassUnknown},
+		{"a host prompt after a prompt said off the record", []inbox.Entry{
+			ev("session_start: startup"),
+			{Role: "event", Kind: "event", Turn: "t1", Text: "off_record"},
+			{Role: "user", Kind: "prompt", Turn: "t2", Text: "made-up typed words"},
+			{Role: "assistant", Kind: "reply", Turn: "t2", Text: "made-up reply"},
+			{Role: "event", Kind: "event", Turn: "t3", Text: "on_record"},
+			{Role: "event", Kind: "event", Turn: "t4", Text: "host_prompt"},
+			{Role: "assistant", Kind: "reply", Turn: "t4", Text: "made-up reply"},
+		}, "", event.ClassUnknown},
+		{"a host prompt after another session's prompt", []inbox.Entry{forged(prompt), ev("host_prompt"), reply}, "", event.ClassProgram},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			root := newInbox(t)
@@ -67,7 +79,7 @@ func TestSessionClass(t *testing.T) {
 // A prompt, reply, tool or task line that v1's walker did not yield is
 // withheld, even where the reader's own reading would return it.
 func TestUnconfirmedContentIsWithheld(t *testing.T) {
-	r := reading{key: ledger.Key{Host: "codex", Session: "s-1", Folder: "general", File: "codex-s-1.jsonl"}, keys: map[string]int64{}}
+	r := newReading(ledger.Key{Host: "codex", Session: "s-1", Folder: "general", File: "codex-s-1.jsonl"}, nil)
 	for i, pair := range v1Pairs[:4] {
 		e := inbox.Entry{V: 1, Host: "codex", Session: "s-1", Project: "general", Role: pair[0], Kind: pair[1], Text: "tok-unconfirmed", Turn: "t1"}
 		if ev := r.line(int64(2*i+1), e, false); ev.Why != event.WhyUnconfirmed || ev.Text != "" || ev.TID != "" {

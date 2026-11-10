@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -187,6 +188,8 @@ const (
 	WhyUnconfirmed = "unconfirmed"  // v1's walker did not yield the line
 )
 
+var withheldReasons = []string{WhyOffRecord, WhyUntrusted, WhyUnknownKind, WhyUnconfirmed}
+
 // Event is one event of a session. Its id is the session's host and id with
 // Seq (see ID).
 type Event struct {
@@ -261,14 +264,32 @@ func (e Event) Validate() error {
 			return fmt.Errorf("event: unknown or repeated mark %q", m)
 		}
 	}
-	if e.Has(MarkWithheld) && (e.Kind != KindGap || e.Why == "" || e.Text != "" || e.Ctx != nil || e.TID != "" || e.Agent != "" || e.T != "") {
-		return errors.New("event: a withheld event is a bare gap with a reason")
+	if e.Has(MarkWithheld) && (e.Kind != KindGap || !slices.Contains(withheldReasons, e.Why) || !slices.Equal(e.Marks, []Mark{MarkWithheld}) ||
+		e.Ctx != nil || e.TID != "" || e.T != "" || !e.placeOnly()) {
+		return errors.New("event: a withheld event is a bare gap with a reason, which holds nothing but its place")
+	}
+	if e.Kind == KindGone && !e.placeOnly() {
+		return errors.New("event: a tombstone holds nothing of what was forgotten")
 	}
 	if e.Has(MarkWrapper) && (e.Kind != KindPrompt || e.Author == AuthorTyped || e.Author == AuthorSpoken) {
 		return errors.New("event: an undecoded wrapper is a prompt of no single speaker")
 	}
 	return nil
 }
+
+// placeOnly reports an event that holds nothing of a text but its place:
+// written by eva-md, with no text, rule version, cut, subagent, exposure,
+// copy, hook or row, and its place as its sameness key (PlaceKey), so not
+// even a key derived from a text it stands for.
+func (e Event) placeOnly() bool {
+	return e.Author == AuthorEva && e.Text == "" && len(e.Red) == 0 && e.RV == 0 && len(e.Cut) == 0 && e.Agent == "" &&
+		len(e.Exposure) == 0 && e.Copy == 0 && !e.Src.Hook && e.Src.Row == "" && e.Src.Key == PlaceKey(e.Seq)
+}
+
+// PlaceKey is the sameness key of an event that holds nothing but its
+// place, a withheld event or a tombstone: place:<seq>. It is never another
+// event's key, so such an event is never a copy and never copied.
+func PlaceKey(seq int64) string { return "place:" + strconv.FormatInt(seq, 10) }
 
 // Session is one session, with its class and what reading it found.
 type Session struct {

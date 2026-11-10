@@ -8,6 +8,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/heyNag/eva-md/internal/ledger/event"
 )
@@ -32,9 +33,11 @@ type Reader interface {
 // ErrNotFound is returned by Resolve when no session holds the event.
 var ErrNotFound = errors.New("ledger: no such event")
 
-// ErrAmbiguous is returned by Resolve when more than one session matches a
-// reference by its first 8 characters, or one session id is kept in more
-// than one folder; the full session id, or the folder, tells them apart.
+// ErrAmbiguous is returned by Resolve when more than one session the
+// reference names holds its event: two sessions that share their first 8
+// characters, or one session id kept in more than one folder. The full
+// session id tells the first apart; nothing in a reference tells the
+// second apart until the folders are joined.
 var ErrAmbiguous = errors.New("ledger: the reference matches more than one session")
 
 // Resolve returns the session and the event a short reference names, e:
@@ -42,7 +45,9 @@ var ErrAmbiguous = errors.New("ledger: the reference matches more than one sessi
 // names a withheld event resolves to that event, which holds nothing but
 // its place. A v1 reference names a line, and resolves here as the event
 // whose seq is that line, which is what the v1 backend yields; a backend
-// whose seq is not v1's line maps the reference first.
+// whose seq is not v1's line maps the reference first. Of the sessions the
+// reference names, only those that hold the event count, as in v1's
+// eva-md show; it is ambiguous only when more than one does.
 func Resolve(ctx context.Context, r Reader, ref string) (event.Session, event.Event, error) {
 	parsed, err := event.ParseRef(ref)
 	if err != nil {
@@ -52,27 +57,43 @@ func Resolve(ctx context.Context, r Reader, ref string) (event.Session, event.Ev
 	if err != nil {
 		return event.Session{}, event.Event{}, err
 	}
-	var matches []Key
+	// Every session the reference names is read, and those that hold the
+	// event are kept, as v1's eva-md show keeps only the files that hold
+	// the line: a session v1 wrote into two folders, or two sessions that
+	// share their first 8 characters, still resolve when only one holds it.
+	type hit struct {
+		s event.Session
+		e event.Event
+	}
+	var hits []hit
 	for _, k := range keys {
-		if parsed.Names(k.Session) {
-			matches = append(matches, k)
+		if !parsed.Names(k.Session) {
+			continue
+		}
+		s, events, err := r.Read(ctx, k)
+		if err != nil {
+			return event.Session{}, event.Event{}, err
+		}
+		for _, e := range events {
+			if e.Seq == parsed.First {
+				hits = append(hits, hit{s, e})
+				break
+			}
 		}
 	}
-	switch len(matches) {
-	case 0:
+	if len(hits) > 1 {
+		// Where more than one holds it, v1 keeps a line only when it
+		// decodes and belongs to its file: not one it repaired, and not one
+		// withheld as another session's.
+		hits = slices.DeleteFunc(hits, func(h hit) bool {
+			return h.e.Has(event.MarkRepaired) || h.e.Has(event.MarkWithheld) && h.e.Why == event.WhyUntrusted
+		})
+		if len(hits) != 1 {
+			return event.Session{}, event.Event{}, ErrAmbiguous
+		}
+	}
+	if len(hits) == 0 {
 		return event.Session{}, event.Event{}, ErrNotFound
-	case 1:
-	default:
-		return event.Session{}, event.Event{}, ErrAmbiguous
 	}
-	s, events, err := r.Read(ctx, matches[0])
-	if err != nil {
-		return event.Session{}, event.Event{}, err
-	}
-	for _, e := range events {
-		if e.Seq == parsed.First {
-			return s, e, nil
-		}
-	}
-	return event.Session{}, event.Event{}, ErrNotFound
+	return hits[0].s, hits[0].e, nil
 }
