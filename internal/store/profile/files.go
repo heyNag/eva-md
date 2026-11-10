@@ -316,19 +316,6 @@ func positive(s string) bool {
 	return err == nil && n > 0 && strconv.FormatInt(n, 10) == s
 }
 
-// itemInfo is what the cross-file checks need of an item.
-type itemInfo struct {
-	path, area, kind, state, title string
-}
-
-func (c *checker) register(f fc, id string) {
-	if prev, ok := c.ids[id]; ok {
-		f.fault("id", "id", "is also the id of "+prev)
-		return
-	}
-	c.ids[id] = f.d.path
-}
-
 // areaProject checks project on a file in an area: the folder's in a
 // project, an existing project or none in global/.
 func (c *checker) areaProject(f fc) {
@@ -349,12 +336,7 @@ func (c *checker) areaProject(f fc) {
 }
 
 func (c *checker) projectExists(pid string) bool {
-	for _, l := range c.locs {
-		if l.class == "project-record" && l.pid == pid && l.bad == "" {
-			return true
-		}
-	}
-	return false
+	return strings.HasSuffix(c.ids[pid], "/project.md")
 }
 
 func (c *checker) item(f fc) {
@@ -364,7 +346,6 @@ func (c *checker) item(f fc) {
 		if id != l.id {
 			f.fault("id", "id", "is not the file name's id")
 		}
-		c.register(f, id)
 	}
 	c.month(f, idTime(l.id))
 	f.text("title", true, 200)
@@ -537,7 +518,6 @@ func (c *checker) workstream(f fc) {
 		if b, has := f.str("branch", false); has && id != workstreamID(l.pid, b) {
 			f.fault("id", "id", "is not the id derived from the project and the branch")
 		}
-		c.register(f, id)
 	}
 	if b, ok := f.str("branch", false); ok && !validBranch(b) {
 		f.fault("branch", "branch", "is not a git branch name")
@@ -578,6 +558,9 @@ func (c *checker) workstream(f fc) {
 		target := m[2]
 		c.later = append(c.later, func() {
 			t := c.files[target]
+			if c.rep.Protected[target].Unreadable && strings.HasPrefix(target, l.area+"/items/") {
+				return // what it holds cannot be read, so it cannot be held against the link
+			}
 			if t == nil || t.loc.class != "item-file" || t.loc.area != l.area || t.get("type") == nil || t.get("type").raw != "decision" || t.get("state") == nil || t.get("state").raw != "active" {
 				f.fault("", "decisions-in-force", "/"+target+" is not an active decision of the project")
 			}
@@ -677,7 +660,6 @@ func (c *checker) disagreement(f fc) {
 		if id != l.id {
 			f.fault("id", "id", "is not the file name's id")
 		}
-		c.register(f, id)
 	}
 	c.month(f, idTime(l.id))
 	if it, ok := f.str("item", true); ok {
@@ -706,7 +688,6 @@ func (c *checker) project(f fc) {
 		if id != l.pid {
 			f.fault("id", "id", "is not the folder's project id")
 		}
-		c.register(f, id)
 	}
 	f.text("title", true, 200)
 	f.text("description", false, 300)

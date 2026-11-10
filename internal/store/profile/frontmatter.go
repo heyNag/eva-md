@@ -185,8 +185,16 @@ func lenient(rest string) string {
 		}
 		return s
 	case strings.HasPrefix(s, "'"):
-		if i := strings.Index(s[1:], "'"); i >= 0 {
-			return strings.ReplaceAll(s[1:1+i], "''", "'")
+		var b strings.Builder
+		for i := 1; i < len(s); i++ {
+			if s[i] != '\'' {
+				b.WriteByte(s[i])
+			} else if i+1 < len(s) && s[i+1] == '\'' {
+				b.WriteByte('\'')
+				i++
+			} else {
+				return b.String()
+			}
 		}
 		return s
 	}

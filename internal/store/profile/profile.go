@@ -76,9 +76,12 @@ func Check(root string) (Report, error) {
 		if err != nil {
 			return err
 		}
-		rel := filepath.ToSlash(strings.TrimPrefix(p, root))
-		rel = strings.TrimPrefix(rel, "/")
-		if rel == "" {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
 			return nil
 		}
 		if rel == ".git" {
@@ -101,7 +104,22 @@ func Check(root string) (Report, error) {
 	}
 	sort.Strings(paths)
 	for _, p := range paths {
-		c.locs = append(c.locs, classify(p))
+		l := classify(p)
+		c.locs = append(c.locs, l)
+		// Ids are indexed from file names, so a reference to a file that
+		// cannot be read still resolves.
+		id := l.id
+		if l.class == "project-record" {
+			id = l.pid
+		}
+		if id == "" || l.bad != "" {
+			continue
+		}
+		if prev, ok := c.ids[id]; ok {
+			c.fault(p, "id", "id", "is also the id of "+prev)
+			continue
+		}
+		c.ids[id] = p
 	}
 	for _, p := range []string{"index.md", "README.md", ".gitattributes", ".gitignore", ".eva-md/store.toml", ".eva-md/schema.toml"} {
 		if !slices.Contains(paths, p) {
