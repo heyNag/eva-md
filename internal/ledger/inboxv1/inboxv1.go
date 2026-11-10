@@ -214,8 +214,9 @@ func (r *reading) withhold(seq int64, why string) event.Event {
 		Src: event.Source{Key: positionKey(seq)}, Marks: []event.Mark{event.MarkWithheld}}
 }
 
-// classify maps a v1 entry to its kind, author and marks. Only the pairs
-// of role and kind v1 writes are known.
+// classify maps a v1 entry to its kind, author and marks. An author comes
+// only from a pair of role and kind v1 writes; ok is false for a kind the
+// reader does not know.
 func classify(e inbox.Entry) (event.Kind, event.Author, []event.Mark, bool) {
 	sub := func(a event.Author) event.Author {
 		if e.Agent != "" {

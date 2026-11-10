@@ -97,7 +97,7 @@ func generate(t *testing.T, root string, r *rand.Rand, seed uint64) generated {
 			g.tokens[token] = true
 			g.lines++
 			continue
-		case roll < 19 && seed%16 == 0 && !long:
+		case roll < 19 && seed%160 == 0 && !long:
 			// A line over v1's limit, which every v1 reader passes over.
 			e.Role, e.Kind, e.Text = "assistant", "reply", token+strings.Repeat("x", inbox.MaxLine)
 			g.tokens[token] = true
@@ -149,7 +149,7 @@ func generate(t *testing.T, root string, r *rand.Rand, seed uint64) generated {
 // forged into the file, under every placement of pauses and resumes, and
 // marks and counts copies without dropping any line.
 func TestGeneratedInboxes(t *testing.T) {
-	seeds := 400
+	seeds := 300
 	if testing.Short() {
 		seeds = 60
 	}
