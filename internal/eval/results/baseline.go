@@ -100,18 +100,24 @@ func (b Baseline) check(cat Catalogue) error {
 
 // Changed returns the first of paths that differs between the commits
 // from and to in the repository at repo, or "" when none does: whether a
-// baseline measured at from is stale at to.
+// baseline measured at from is stale at to. Each path is taken from the
+// repository's root, literally, never as a pattern. A path that is in
+// neither commit is an error, since it would never go stale: the
+// catalogue names it wrongly.
 func Changed(ctx context.Context, repo, from, to string, paths []string) (string, error) {
-	for _, rev := range []string{from, to} {
+	var commits [2]string
+	for i, rev := range []string{from, to} {
 		if rev == "" || strings.HasPrefix(rev, "-") {
 			return "", errors.New("a revision is empty or starts with -")
 		}
-		if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", rev+"^{commit}"); err != nil {
+		out, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", rev+"^{commit}")
+		if err != nil {
 			return "", fmt.Errorf("%s is not a commit in the repository", short(rev))
 		}
+		commits[i] = strings.TrimSpace(out)
 	}
 	for _, p := range paths {
-		_, err := git(ctx, repo, "diff", "--quiet", "--no-renames", "--no-ext-diff", from, to, "--", ":(literal)"+p)
+		_, err := git(ctx, repo, "diff", "--quiet", "--no-renames", "--no-ext-diff", "--no-textconv", commits[0], commits[1], "--", ":(top,literal)"+p)
 		var exit *exec.ExitError
 		switch {
 		case err == nil:
@@ -119,6 +125,10 @@ func Changed(ctx context.Context, repo, from, to string, paths []string) (string
 			return p, nil
 		default:
 			return "", err
+		}
+		// Unchanged, so the same in both: in the second, or in neither.
+		if _, err := git(ctx, repo, "cat-file", "-e", commits[1]+":"+p); err != nil {
+			return "", fmt.Errorf("%s is in neither commit", p)
 		}
 	}
 	return "", nil

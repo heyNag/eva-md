@@ -67,8 +67,9 @@ func commitFile(t *testing.T, repo, rel, content string) string {
 	return gitIn(t, repo, "rev-parse", "HEAD")
 }
 
-// newRepo makes a repository with a file in the covered folder and one
-// outside it, and returns it and its first commit.
+// newRepo makes a repository with a file in each path the fixture
+// catalogue covers and one outside them, and returns it and its last
+// commit.
 func newRepo(t *testing.T) (string, string) {
 	t.Helper()
 	repo := filepath.Join(t.TempDir(), "repo")
@@ -77,6 +78,9 @@ func newRepo(t *testing.T) (string, string) {
 	}
 	gitIn(t, repo, "init", "--quiet")
 	commitFile(t, repo, "internal/hook/hook.go", "package hook\n")
+	commitFile(t, repo, "scripts/benchmark.py", "print(0)\n")
+	commitFile(t, repo, "internal/update/update.go", "package update\n")
+	commitFile(t, repo, "internal/searchindex/index.go", "package searchindex\n")
 	return repo, commitFile(t, repo, "docs/notes.md", "notes\n")
 }
 
@@ -686,9 +690,17 @@ func TestABaselineGoesStaleWhenACoveredPathChanges(t *testing.T) {
 	if p, err := Changed(context.Background(), repo, at, "HEAD", []string{"scripts/benchmark.py"}); err != nil || p != "scripts/benchmark.py" {
 		t.Fatalf("removed: %q, %v", p, err)
 	}
-	// A path is taken literally, never as a pattern.
-	if p, err := Changed(context.Background(), repo, commit, "HEAD", []string{"internal/*"}); err != nil || p != "" {
+	// A path is taken literally, never as a pattern, and from the root of
+	// the repository wherever in it the command runs; a path in neither
+	// commit, which could never go stale, is an error.
+	if p, err := Changed(context.Background(), repo, commit, "HEAD", []string{"internal/*"}); err == nil || p != "" || !strings.Contains(err.Error(), "in neither commit") {
 		t.Fatalf("a pattern: %q, %v", p, err)
+	}
+	if p, err := Changed(context.Background(), filepath.Join(repo, "docs"), commit, "HEAD", []string{"internal/hook"}); err != nil || p != "internal/hook" {
+		t.Fatalf("from a folder of the repository: %q, %v", p, err)
+	}
+	if p, err := Changed(context.Background(), repo, commit, commit, []string{"internal/hok"}); err == nil || p != "" {
+		t.Fatalf("a misspelt path: %q, %v", p, err)
 	}
 	// A commit the repository lacks, or a base that is an option, is an
 	// error, and the gate fails saying it cannot tell.

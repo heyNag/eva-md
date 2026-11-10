@@ -75,6 +75,7 @@ func newRepo(t *testing.T) (string, string) {
 	write(t, filepath.Join(repo, "spec", "metrics.json"), catalogueJSON)
 	write(t, filepath.Join(repo, "eval", "gates.json"), gatesJSON)
 	write(t, filepath.Join(repo, "internal", "hook", "hook.go"), "package hook\n")
+	write(t, filepath.Join(repo, "internal", "update", "update.go"), "package update\n")
 	gitIn(t, repo, "init", "--quiet")
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "--quiet", "-m", "first")
