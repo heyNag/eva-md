@@ -17,7 +17,8 @@ import (
 // Fixtures that look like secrets are joined from fragments at run time.
 
 // TestMain checks every text the package's tests redact against redactV1, as
-// they run, and fails the run if one differs.
+// they run (every tenth under the race detector), and fails the run if one
+// differs.
 func TestMain(m *testing.M) {
 	redacted = oracle.check
 	code := m.Run()
@@ -34,14 +35,23 @@ var oracle = &v1Oracle{}
 
 type v1Oracle struct {
 	mu      sync.Mutex
-	checked int
+	calls   int // calls of Redact
+	checked int // calls checked
 	bad     []string
 }
 
 // check is set as redacted: it compares one call of Redact with redactV1,
 // and checks the findings and that redacting the result again changes
-// nothing (see differs).
+// nothing (see differs). Under the race detector, which slows the rules
+// many times over, it checks every tenth call.
 func (o *v1Oracle) check(text, out string, n int) {
+	o.mu.Lock()
+	o.calls++
+	call := o.calls
+	o.mu.Unlock()
+	if raceOn && call%10 != 1 {
+		return
+	}
 	problem := differs(text, out, n, ruleMemo{})
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -141,9 +151,9 @@ func badFindings(r Result) string {
 // the package's tests redact is checked against redactV1.
 func TestOracleSeesRedactCalls(t *testing.T) {
 	isolate(t)
-	before := oracleChecked()
+	before := oracleCalls()
 	Redact("token=" + j("Ab3d", "Ef6hIj9l"))
-	if oracleChecked() != before+1 {
+	if oracleCalls() != before+1 {
 		t.Fatal("Redact did not tell the oracle of its call")
 	}
 	// And the oracle can tell a wrong answer.
@@ -152,10 +162,10 @@ func TestOracleSeesRedactCalls(t *testing.T) {
 	}
 }
 
-func oracleChecked() int {
+func oracleCalls() int {
 	oracle.mu.Lock()
 	defer oracle.mu.Unlock()
-	return oracle.checked
+	return oracle.calls
 }
 
 // textSource is a source of texts: secret shapes from the other tests of
