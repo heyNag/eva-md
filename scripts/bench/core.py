@@ -99,10 +99,13 @@ def shell_quote(s):
 # Claude Code runs the binary itself, with its arguments; Codex runs a
 # command line through a shell, which /bin/sh stands in for here. Every hook
 # figure is timed from before the first process starts to after the last
-# exits, so it holds each process's start.
+# exits, so it holds each process's start. The Codex line's fallback, which
+# answers {} when the hook fails, also exits 1 here, so a hook that fails
+# still fails the benchmark; it runs only then, so it costs a hook that
+# works nothing.
 def launch(binary, host):
     if host == "codex":
-        return ["/bin/sh", "-c", shell_quote(str(binary))+" hook --host codex || echo '{}'"]
+        return ["/bin/sh", "-c", shell_quote(str(binary))+" hook --host codex || { echo '{}'; exit 1; }"]
     return [str(binary), "hook", "--host", host]
 
 

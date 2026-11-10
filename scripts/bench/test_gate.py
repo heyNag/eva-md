@@ -193,7 +193,7 @@ class Scenarios(unittest.TestCase):
 
     def test_launch_paths(self):
         self.assertEqual(core.launch(Path("/opt/it's/eva-md"), "codex"),
-                         ["/bin/sh", "-c", "'/opt/it'\"'\"'s/eva-md' hook --host codex || echo '{}'"])
+                         ["/bin/sh", "-c", "'/opt/it'\"'\"'s/eva-md' hook --host codex || { echo '{}'; exit 1; }"])
         self.assertEqual(core.launch(Path("/opt/eva-md"), "claude-code"), ["/opt/eva-md", "hook", "--host", "claude-code"])
 
 

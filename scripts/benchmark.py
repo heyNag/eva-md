@@ -411,12 +411,24 @@ def padded_inbox(run, evabench):
             run.metric(name,values,target)
 
 
-def run_once(core, binary, cwd):
+def run_once(core, binary, cwd, failures=None):
     """Runs every scenario, in the order of their places, on binary; returns
-    the run with its report and the gate's samples."""
+    the run with its report and the gate's samples. A scenario that fails
+    stops the run, unless failures is given: then the failure is recorded
+    there by the scenario's name, the samples it gave are dropped, and the
+    next scenario runs."""
     run = core.Run(binary, cwd)
     for s in core.ordered():
-        s.fn(run)
+        if failures is None:
+            s.fn(run)
+            continue
+        before = set(run.metrics)
+        try:
+            s.fn(run)
+        except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as e:
+            failures.setdefault(s.name, str(e))
+            for name in set(run.metrics) - before:
+                del run.metrics[name]
     return run
 
 
@@ -431,8 +443,6 @@ def compare(core, a):
     verdict and returns its exit code."""
     old, new = a.compare[0].resolve(strict=True), a.compare[1].resolve(strict=True)
     cwd = a.cwd.resolve(strict=True)
-    if a.rounds < 1 or a.ceiling_factor < 0:
-        raise SystemExit("benchmark: --rounds must be 1 or more and --ceiling-factor 0 or more")
     load = os.getloadavg()[0]
     with core.Home(new, cwd) as h:
         for binary in (old, new):
@@ -441,12 +451,14 @@ def compare(core, a):
             subprocess.run([str(binary), "version"], capture_output=True, env=h.env, timeout=30)
     roles = [("old", old), ("new", new), ("control", new)]
     samples = {role: {} for role, _ in roles}
-    targets, runs = {}, []
+    # The old binary may not do what a scenario added with the change
+    # checks: its failures leave that scenario's figures not compared.
+    targets, runs, old_failures = {}, [], {}
     for r in range(a.rounds):
         for k in range(len(roles)):
             role, binary = roles[(r+k) % len(roles)]
             print("benchmark: round %d of %d, %s" % (r+1, a.rounds, role), file=sys.stderr, flush=True)
-            run = run_once(core, binary, cwd)
+            run = run_once(core, binary, cwd, old_failures if role == "old" else None)
             for name, values in run.metrics.items():
                 samples[role].setdefault(name, []).extend(values)
             targets.update(run.targets)
@@ -457,7 +469,7 @@ def compare(core, a):
     verdict = core.decide(samples["old"], samples["new"], samples["control"], ceilings)
     gate = {"verdict": verdict["verdict"], "exit": verdict["exit"], "old": str(old), "new": str(new),
             "rounds": a.rounds, "ceiling_factor": a.ceiling_factor, "launch_paths": core.LAUNCH_PATHS,
-            "load_average_at_start": round(load, 2), "decision": verdict, "runs": runs,
+            "load_average_at_start": round(load, 2), "decision": verdict, "old_failures": old_failures, "runs": runs,
             "checked_at": datetime.now(timezone.utc).isoformat()}
     if a.output:
         write(a.output, json.dumps(gate, indent=2)+"\n")
@@ -469,6 +481,8 @@ def compare(core, a):
             "; ".join(m["reasons"] + ["control: "+c for c in m["control_reasons"]]) or "ok"))
     for name in verdict["not_compared"]:
         print("%-28s not compared: a binary gave it no samples" % name)
+    for name, error in sorted(old_failures.items()):
+        print("the old binary failed the scenario %s: %s" % (name, error))
     print("latency gate: %s" % verdict["verdict"] + {
         "not judged": " (the control failed: two runs of the new binary differed as a regression would, so the machine was too noisy to judge)",
         "fail": "", "pass": ""}[verdict["verdict"]])
@@ -509,6 +523,8 @@ def main():
         p.error("give --binary, or --compare OLD NEW")
     if a.binary and (a.baseline or a.commit):
         p.error("--baseline and --commit are for --compare")
+    if a.rounds < 1 or a.ceiling_factor < 0:
+        p.error("--rounds must be 1 or more, and --ceiling-factor 0 or more")
     core = load()
     core.scenario(100, "padded-inbox")(lambda run: padded_inbox(run, core))
     if a.compare:
