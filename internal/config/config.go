@@ -73,6 +73,10 @@ type Config struct {
 	// on a chat's first prompt, then every ReminderEvery prompts. Default 5;
 	// 0 turns it off.
 	ReminderEvery int `toml:"reminder_every"`
+	// Switches holds the [switches] table: each registered switch the file
+	// sets, by name, a bool or a word. Read a switch with its BoolSwitch or
+	// WordSwitch, which gives its default when the file doesn't set it.
+	Switches map[string]any `toml:"switches,omitempty"`
 	// Unknown lists keys in the file that eva-md does not know, such as a
 	// misspelled one. They are reported, not saved.
 	Unknown []string `toml:"-"`
@@ -105,9 +109,7 @@ func LoadContext(ctx context.Context, file string) (Config, error) {
 	if err != nil {
 		return Default(), errors.New("config: invalid TOML")
 	}
-	for _, key := range md.Undecoded() {
-		c.Unknown = append(c.Unknown, key.String())
-	}
+	c.Unknown = unknownKeys(md, &c)
 	if c.Notice == "" {
 		c.Notice = NoticeStart
 	}
@@ -155,7 +157,7 @@ func (c Config) Validate() error {
 			return errors.New("effort entry must have a key and a value")
 		}
 	}
-	return nil
+	return checkSwitches(c)
 }
 
 func checkExclude(e string) error {

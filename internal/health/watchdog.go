@@ -16,6 +16,43 @@ import (
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
+func init() {
+	registerRows(600, "hooks", func(r *Report, in *inspection) { inspectHooks(in.ctx, r, in.d, in.now()) })
+}
+
+// inspectHooks adds each host's rows of its hooks: each event's newest
+// heartbeat, then the capture's freshness, the hooks' failures, transcript
+// recovery's format drift and the hooks' times.
+func inspectHooks(ctx context.Context, r *Report, d paths.Dirs, now time.Time) {
+	for _, host := range []string{"claude-code", "codex"} {
+		for _, event := range hostEvents(host) {
+			b, valid := readBeat(d, host, event, now)
+			if !valid {
+				r.add(host+" "+event, "UNKNOWN", "no valid heartbeat observed", "exercise this event in an enabled, trusted session")
+				continue
+			}
+			detail := "last observed " + b.At.Format(time.RFC3339)
+			if !b.TranscriptAvailable {
+				detail += "; transcript unavailable for catch-up"
+			}
+			if b.Entrypoint != "" {
+				detail += "; entrypoint " + b.Entrypoint
+				if b.Headless {
+					detail += ", a program's chat: its prompts are stored as host prompts"
+				}
+			}
+			status := "PASS"
+			if now.Sub(b.At) > 24*time.Hour {
+				status = "UNKNOWN"
+				detail += "; historical evidence only"
+			}
+			r.add(host+" "+event, status, detail, "")
+		}
+		r.Checks = append(r.Checks, captureFreshness(ctx, d, host, now), hookCheck(d, host, now), driftCheck(d, host))
+		r.Checks = append(r.Checks, hookTimes(d, host, now))
+	}
+}
+
 func hostEvents(host string) []string {
 	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PreCompact", "SessionEnd"}
 	if host == "claude-code" {

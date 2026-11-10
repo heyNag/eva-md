@@ -9,6 +9,10 @@ import (
 	"github.com/heyNag/eva-md/internal/searchindex"
 )
 
+func init() {
+	registerRows(500, "search index", func(r *Report, in *inspection) { inspectSearchIndex(r, in.d) })
+}
+
 // inspectSearchIndex adds the search index's row, read from its manifests
 // and the folder listings alone: how much of the inbox it covers, that it
 // is not built yet, or the project folders whose index is damaged, which

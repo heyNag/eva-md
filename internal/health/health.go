@@ -151,63 +151,47 @@ func Inspect(ctx context.Context, d paths.Dirs, hosts bool) Report {
 }
 
 // inspect is Inspect, and without repair, as eva-md status, writes nothing.
+// The rows come from the registered producers, in the order of their places
+// (see registerRows).
 func inspect(ctx context.Context, d paths.Dirs, hosts, repair bool) Report {
-	r := Report{}
+	return rows(&inspection{ctx: ctx, d: d, hosts: hosts, repair: repair})
+}
+
+func init() {
+	registerRows(100, "binary", func(r *Report, in *inspection) { inspectBinary(r, in.d) })
+	registerRows(200, "config", inspectConfig)
+	registerRows(300, "wiki", func(r *Report, in *inspection) {
+		if c, err := in.config(); err == nil {
+			inspectWiki(in.ctx, r, in.d, c, in.repair)
+		}
+	})
+	registerRows(400, "inbox", func(r *Report, in *inspection) { inspectInbox(in.ctx, r, in.d) })
+}
+
+// inspectBinary adds the row of the stable binary the hooks run.
+func inspectBinary(r *Report, d paths.Dirs) {
 	if info, err := os.Lstat(filepath.Join(d.Share, "bin", "eva-md")); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
 		r.add("binary", "PASS", "stable hook binary is installed", "")
 	} else {
 		r.add("binary", "UNKNOWN", "stable hook binary is not installed", "run eva-md install")
 	}
-	c, err := config.LoadContext(ctx, d.ConfigFile())
+}
+
+// inspectConfig adds the rows of the config file: that it parses, its
+// unknown keys and its mode.
+func inspectConfig(r *Report, in *inspection) {
+	c, err := in.config()
 	if err != nil {
 		r.add("config", "FAIL", "configuration is missing or invalid", "run eva-md setup, or repair the eva-md config")
-	} else {
-		r.add("config", "PASS", "configuration parses", "")
-		if len(c.Unknown) > 0 {
-			r.add("config keys", "FAIL", "unknown keys are ignored: "+strings.Join(c.Unknown, ", "), "correct or remove them in the eva-md config")
-		}
-		if info, e := os.Lstat(d.ConfigFile()); e != nil || info.Mode().Perm()&0077 != 0 {
-			r.add("config permissions", "FAIL", "config must be private", "set config mode to 0600")
-		}
-		inspectWiki(ctx, &r, d, c, repair)
+		return
 	}
-	inspectInbox(ctx, &r, d)
-	inspectSearchIndex(&r, d)
-	now := time.Now()
-	for _, host := range []string{"claude-code", "codex"} {
-		for _, event := range hostEvents(host) {
-			b, valid := readBeat(d, host, event, now)
-			if !valid {
-				r.add(host+" "+event, "UNKNOWN", "no valid heartbeat observed", "exercise this event in an enabled, trusted session")
-				continue
-			}
-			detail := "last observed " + b.At.Format(time.RFC3339)
-			if !b.TranscriptAvailable {
-				detail += "; transcript unavailable for catch-up"
-			}
-			if b.Entrypoint != "" {
-				detail += "; entrypoint " + b.Entrypoint
-				if b.Headless {
-					detail += ", a program's chat: its prompts are stored as host prompts"
-				}
-			}
-			status := "PASS"
-			if now.Sub(b.At) > 24*time.Hour {
-				status = "UNKNOWN"
-				detail += "; historical evidence only"
-			}
-			r.add(host+" "+event, status, detail, "")
-		}
-		r.Checks = append(r.Checks, captureFreshness(ctx, d, host, now), hookCheck(d, host, now), driftCheck(d, host))
-		r.Checks = append(r.Checks, hookTimes(d, host, now))
+	r.add("config", "PASS", "configuration parses", "")
+	if len(c.Unknown) > 0 {
+		r.add("config keys", "FAIL", "unknown keys are ignored: "+strings.Join(c.Unknown, ", "), "correct or remove them in the eva-md config")
 	}
-	inspectMCPManifests(&r, d)
-	if hosts {
-		inspectHosts(ctx, &r, d, inventoryTimeout)
-		inspectMCPServer(ctx, &r, d)
+	if info, e := os.Lstat(in.d.ConfigFile()); e != nil || info.Mode().Perm()&0077 != 0 {
+		r.add("config permissions", "FAIL", "config must be private", "set config mode to 0600")
 	}
-	inspectBackground(&r, d, c, now, repair)
-	return r
 }
 
 func inspectWiki(ctx context.Context, r *Report, d paths.Dirs, c config.Config, repair bool) {

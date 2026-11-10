@@ -28,14 +28,22 @@ const (
 // projects, threads and knowledge pages, and the sessions whose entries
 // wait for an update.
 func Status(ctx context.Context, d paths.Dirs) Report {
-	r := inspect(ctx, d, false, false)
-	c, err := config.LoadContext(ctx, d.ConfigFile())
-	if err != nil || c.WikiPath == "" {
-		return r
-	}
-	inspectContents(&r, c)
-	inspectBacklog(ctx, &r, d, c)
-	return r
+	return rows(&inspection{ctx: ctx, d: d, status: true})
+}
+
+// eva-md status's own rows come after the doctor's, from the config read
+// once more (see statusWiki), and only with a wiki.
+func init() {
+	registerRows(1100, "wiki contents", func(r *Report, in *inspection) {
+		if c, ok := in.statusWiki(); ok {
+			inspectContents(r, c)
+		}
+	})
+	registerRows(1200, "update backlog", func(r *Report, in *inspection) {
+		if c, ok := in.statusWiki(); ok {
+			inspectBacklog(in.ctx, r, in.d, c)
+		}
+	})
 }
 
 // inspectContents counts the wiki's project folders, thread pages and

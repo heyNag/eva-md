@@ -18,7 +18,7 @@ Rules every card carries, so they are said once here:
 | [SEAM-0d](SEAM-0d.md) | Guards on the plugin's bytes and on the upgrade from 2026.11.5 | merged |
 | [LG-10](LG-10.md) | The event model and the one reader | merged |
 | [LG-11](LG-11.md) | The redaction driver with spans, same behaviour | merged |
-| [SEAM-0c](SEAM-0c.md) | Registries for status rows and switches | next |
+| [SEAM-0c](SEAM-0c.md) | Registries for status rows and switches | merged |
 | [EV-12](EV-12.md) | The results store and gates | merged |
 | [ST-01](ST-01.md) | The store's written format and its profile checker | next |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | next |

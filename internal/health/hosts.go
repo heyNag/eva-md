@@ -40,6 +40,14 @@ var (
 	trustTimeout     = 8 * time.Second
 )
 
+func init() {
+	registerRows(800, "hosts", func(r *Report, in *inspection) {
+		if in.hosts {
+			inspectHosts(in.ctx, r, in.d, inventoryTimeout)
+		}
+	})
+}
+
 // inspectHosts adds the rows the hosts' own commands give. inventory is the
 // budget of each host's plugin inventory: inventoryTimeout, or a short one in
 // the test of a listing that stalls.

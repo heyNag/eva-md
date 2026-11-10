@@ -21,6 +21,14 @@ var Version = "dev"
 // refreshKnowledge is a variable so tests can make the wiki's lock busy.
 var refreshKnowledge = knowledgepage.Refresh
 
+func init() {
+	registerRows(1050, "knowledge", func(r *Report, in *inspection) {
+		if c, _ := in.config(); c.WikiPath != "" {
+			inspectKnowledge(r, in.d, c, in.repair)
+		}
+	})
+}
+
 // inspectKnowledge adds the row of the knowledge pages: how many there are
 // of each kind, and whether the files built from them, the knowledge map,
 // the folder's index, the recall index and the root index's line, are

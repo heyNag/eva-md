@@ -41,26 +41,41 @@ const (
 
 var updateHosts = []string{update.HostClaude, update.HostCodex}
 
-// inspectBackground adds the rows the records on disk give: each host's
-// updates from the run log, the daily commit and the push from the commit
-// records, the lint's result, the system map, the code status and the
-// knowledge pages, which repair builds the files of again when they are out
-// of date. It reads the newest records only, never the inbox or the wiki
-// whole.
-func inspectBackground(r *Report, d paths.Dirs, c config.Config, now time.Time, repair bool) {
-	if c.WikiPath == "" {
-		for _, host := range updateHosts {
-			r.add(host+" updates", "UNKNOWN", "no wiki is set up", "run eva-md setup")
+// The rows the records on disk give: each host's updates from the run log,
+// the daily commit and the push from the commit records, the lint's result
+// and the system map; code.go and knowledge.go add the code status and the
+// knowledge pages after them. They read the newest records only, never the
+// inbox or the wiki whole. Without a wiki, the updates and the daily commit
+// say so, and the rest give no row.
+func init() {
+	registerRows(1000, "updates", func(r *Report, in *inspection) {
+		c, _ := in.config()
+		if c.WikiPath == "" {
+			for _, host := range updateHosts {
+				r.add(host+" updates", "UNKNOWN", "no wiki is set up", "run eva-md setup")
+			}
+			return
 		}
-		r.add("daily commit", "UNKNOWN", "no wiki is set up", "run eva-md setup")
-		return
-	}
-	inspectUpdates(r, d, c, now)
-	inspectCommits(r, d, c, now)
-	inspectLint(r, d)
-	inspectSystems(r, c)
-	inspectCode(r, d, c, now)
-	inspectKnowledge(r, d, c, repair)
+		inspectUpdates(r, in.d, c, in.now())
+	})
+	registerRows(1010, "daily commit", func(r *Report, in *inspection) {
+		c, _ := in.config()
+		if c.WikiPath == "" {
+			r.add("daily commit", "UNKNOWN", "no wiki is set up", "run eva-md setup")
+			return
+		}
+		inspectCommits(r, in.d, c, in.now())
+	})
+	registerRows(1020, "lint", func(r *Report, in *inspection) {
+		if c, _ := in.config(); c.WikiPath != "" {
+			inspectLint(r, in.d)
+		}
+	})
+	registerRows(1030, "system map", func(r *Report, in *inspection) {
+		if c, _ := in.config(); c.WikiPath != "" {
+			inspectSystems(r, c)
+		}
+	})
 }
 
 func inspectUpdates(r *Report, d paths.Dirs, c config.Config, now time.Time) {
