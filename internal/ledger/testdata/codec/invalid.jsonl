@@ -1,0 +1,153 @@
+# Each line that does not start with # must be refused by event.Decode. The
+# comment above it says why. A line is in the form the codec writes, so it
+# is refused for what its comment says, unless the comment begins "form:".
+# form: a field the model does not have
+{"seq":1,"turn":0,"k":"prompt","pv":"typed","text":"hi","src":{"key":"a"},"extra":1}
+# form: a field of the source the model does not have
+{"seq":1,"turn":0,"k":"prompt","pv":"typed","text":"hi","src":{"key":"a","x":1}}
+# form: trailing data after the object
+{"seq":1,"turn":0,"k":"prompt","pv":"typed","text":"hi","src":{"key":"a"}} {}
+# form: not an object
+null
+# seq 0
+{"seq":0,"turn":0,"k":"prompt","pv":"typed","text":"hi","src":{"key":"a"}}
+# a negative turn
+{"seq":1,"turn":-1,"k":"prompt","pv":"typed","text":"hi","src":{"key":"a"}}
+# an unknown kind
+{"seq":1,"turn":0,"k":"note","pv":"typed","text":"hi","src":{"key":"a"}}
+# an unknown author
+{"seq":1,"turn":0,"k":"prompt","pv":"user","text":"hi","src":{"key":"a"}}
+# no author
+{"seq":1,"turn":0,"k":"prompt","pv":"","text":"hi","src":{"key":"a"}}
+# no sameness key
+{"seq":1,"turn":0,"k":"prompt","pv":"typed","text":"hi","src":{"h":true,"key":""}}
+# a negative rule version
+{"seq":1,"turn":0,"k":"prompt","pv":"typed","text":"hi","rv":-1,"src":{"key":"a"}}
+# a copy of itself
+{"seq":3,"turn":0,"k":"reply","pv":"agent","text":"hi","src":{"key":"a"},"copy":3}
+# a copy of a later event
+{"seq":3,"turn":0,"k":"reply","pv":"agent","text":"hi","src":{"key":"a"},"copy":4}
+# a control without an operation
+{"seq":1,"turn":0,"k":"control","pv":"eva","src":{"key":"a"}}
+# an operation on an event that is not a control
+{"seq":1,"turn":0,"k":"life","pv":"host","src":{"key":"a"},"op":"off"}
+# an unknown operation
+{"seq":1,"turn":0,"k":"control","pv":"eva","src":{"key":"a"},"op":"pause"}
+# a reason on an event that is not a gap
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hi","src":{"key":"a"},"why":"off_record"}
+# a span past the end of the text
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hi","red":[[0,3,"key","T1"]],"src":{"key":"a"}}
+# an empty span
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","red":[[2,2,"key","T1"]],"src":{"key":"a"}}
+# spans that overlap
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello there","red":[[0,4,"key","T1"],[3,6,"key","T1"]],"src":{"key":"a"}}
+# spans out of order
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello there","red":[[6,8,"key","T1"],[0,4,"key","T1"]],"src":{"key":"a"}}
+# a span with no kind
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","red":[[0,4,"","T1"]],"src":{"key":"a"}}
+# a span with three parts
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","red":[[0,4,"key"]],"src":{"key":"a"}}
+# a span with six parts
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","red":[[0,4,"key","T1","h","x"]],"src":{"key":"a"}}
+# a span with an empty handle written out
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","red":[[0,4,"key","T1",""]],"src":{"key":"a"}}
+# a span whose position is not a whole number
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","red":[[0.5,4,"key","T1"]],"src":{"key":"a"}}
+# a cut that lost nothing
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","cut":[{"at":2,"lost":0,"why":"size"}],"src":{"key":"a"}}
+# a cut with an unknown reason
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","cut":[{"at":2,"lost":5,"why":"tired"}],"src":{"key":"a"}}
+# a cut past the end of the text
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","cut":[{"at":6,"lost":5,"why":"size"}],"src":{"key":"a"}}
+# a cut of no known place that is not v1's
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","cut":[{"at":-1,"lost":5,"why":"size"}],"src":{"key":"a"}}
+# a v1 cut that claims a place v1 never recorded
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","cut":[{"at":2,"lost":5,"why":"legacy"}],"src":{"key":"a"}}
+# an exposure of an unknown kind
+{"seq":4,"turn":0,"k":"reply","pv":"agent","text":"hello","taint":[{"k":"email","at":2}],"src":{"key":"a"}}
+# an exposure brought in by the event itself
+{"seq":4,"turn":0,"k":"reply","pv":"agent","text":"hello","taint":[{"k":"web","at":4}],"src":{"key":"a"}}
+# an exposure brought in by no event
+{"seq":4,"turn":0,"k":"reply","pv":"agent","text":"hello","taint":[{"k":"web","at":0}],"src":{"key":"a"}}
+# an unknown mark
+{"seq":1,"turn":0,"k":"reply","pv":"agent","text":"hello","src":{"key":"a"},"mark":["shiny"]}
+# a mark given twice
+{"seq":1,"turn":0,"k":"life","pv":"host","text":"compact","src":{"key":"a"},"mark":["name","name"]}
+# a withheld event that holds text
+{"seq":2,"turn":0,"k":"gap","pv":"eva","text":"secret","src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event that holds its context
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"key":"place:2"},"why":"off_record","mark":["withheld"],"ctx":{"branch":"main"}}
+# a withheld event that holds its turn id
+{"seq":2,"turn":0,"tid":"turn-a","k":"gap","pv":"eva","src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event that holds its time
+{"seq":2,"t":"2026-11-02T09:00:00.000Z","turn":0,"k":"gap","pv":"eva","src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event that holds a subagent's id
+{"seq":2,"turn":0,"k":"gap","pv":"eva","agent":"agent-1","src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event with no reason
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"key":"place:2"},"mark":["withheld"]}
+# a withheld event with a reason that is not one a reader withholds for
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"key":"place:2"},"why":"missing","mark":["withheld"]}
+# a withheld event that is not a gap (its reason is refused too: only a gap has one, so the model has no withheld event of another kind)
+{"seq":2,"turn":0,"k":"prompt","pv":"eva","src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event with another mark
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"key":"place:2"},"why":"off_record","mark":["withheld","recovered"]}
+# a withheld event with an author other than eva-md
+{"seq":2,"turn":0,"k":"gap","pv":"typed","src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event with a cut, which tells the size of what it withholds
+{"seq":2,"turn":0,"k":"gap","pv":"eva","cut":[{"at":-1,"lost":4096,"why":"legacy"}],"src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event with a rule version
+{"seq":2,"turn":0,"k":"gap","pv":"eva","rv":3,"src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event that is a copy of another
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"key":"place:2"},"why":"off_record","mark":["withheld"],"copy":1}
+# a withheld event with an exposure
+{"seq":2,"turn":0,"k":"gap","pv":"eva","taint":[{"k":"web","at":1}],"src":{"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event that says a hook supplied it
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"h":true,"key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event with the host's row id
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"r":"row-9","key":"place:2"},"why":"off_record","mark":["withheld"]}
+# a withheld event keyed by a hash of its text
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"key":"v1:turn:852ad5e0c4a1f2b39d7e6a10b2c3d4e5"},"why":"off_record","mark":["withheld"]}
+# a withheld event keyed by another place
+{"seq":2,"turn":0,"k":"gap","pv":"eva","src":{"key":"place:1"},"why":"off_record","mark":["withheld"]}
+# a tombstone that holds text
+{"seq":2,"turn":0,"k":"gone","pv":"eva","text":"forgotten words","src":{"key":"place:2"}}
+# a tombstone with an author other than eva-md
+{"seq":2,"turn":0,"k":"gone","pv":"typed","src":{"key":"place:2"}}
+# a tombstone keyed by a hash of its text
+{"seq":2,"turn":0,"k":"gone","pv":"eva","src":{"key":"v1:turn:852ad5e0c4a1f2b39d7e6a10b2c3d4e5"}}
+# a tombstone with a cut
+{"seq":2,"turn":0,"k":"gone","pv":"eva","cut":[{"at":-1,"lost":4096,"why":"legacy"}],"src":{"key":"place:2"}}
+# a tombstone with a subagent's id
+{"seq":2,"turn":0,"k":"gone","pv":"eva","agent":"agent-1","src":{"key":"place:2"}}
+# a tombstone that is a copy of another
+{"seq":2,"turn":0,"k":"gone","pv":"eva","src":{"key":"place:2"},"copy":1}
+# a tombstone with the host's row id
+{"seq":2,"turn":0,"k":"gone","pv":"eva","src":{"r":"row-9","key":"place:2"}}
+# an undecoded voice wrapper filed as typed
+{"seq":1,"turn":1,"k":"prompt","pv":"typed","text":"\u003crealtime_delegation\u003e x","src":{"key":"a"},"mark":["wrapper"]}
+# an undecoded voice wrapper filed as spoken
+{"seq":1,"turn":1,"k":"prompt","pv":"spoken","text":"\u003crealtime_delegation\u003e x","src":{"key":"a"},"mark":["wrapper"]}
+# a wrapper mark on an event that is not a prompt
+{"seq":1,"turn":1,"k":"reply","pv":"agent","text":"\u003crealtime_delegation\u003e x","src":{"key":"a"},"mark":["wrapper"]}
+# a seq that is a string
+{"seq":"1","turn":0,"k":"prompt","pv":"typed","text":"hi","src":{"key":"a"}}
+# form: keys in another letter case
+{"SEQ":1,"TURN":0,"K":"prompt","PV":"v1_user","TEXT":"hi","SRC":{"KEY":"a"}}
+# form: one key in another letter case
+{"seq":1,"turn":0,"k":"prompt","PV":"typed","text":"x","src":{"key":"a"}}
+# form: the text given twice, which readers that keep the first and the last read apart
+{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","text":"other","src":{"key":"a"}}
+# form: the author given twice
+{"seq":1,"turn":0,"k":"prompt","pv":"agent","pv":"typed","text":"x","src":{"key":"a"}}
+# form: white space
+{"seq": 1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","src":{"key":"a"}}
+# form: a null
+{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","src":{"key":"a"},"mark":null}
+# form: an empty list
+{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","src":{"key":"a"},"mark":[]}
+# form: keys in another order
+{"turn":0,"seq":1,"k":"prompt","pv":"v1_user","text":"hi","src":{"key":"a"}}
+# form: an empty field written out
+{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"hi","agent":"","src":{"key":"a"}}
+# form: a character the codec escapes, written as it is
+{"seq":1,"turn":0,"k":"prompt","pv":"v1_user","text":"<b>","src":{"key":"a"}}
