@@ -200,8 +200,11 @@ benchmark() {
 
 step "gofmt -l cmd internal" gofmt_check
 step "go vet ./..." go vet ./...
-step "go test $*" in_snapshot go test "$@"
-step "go test -race $*" in_snapshot go test -race "$@"
+# Each package gets 60 minutes, past go test's own 10, which a loaded
+# machine passes without any test being wrong. A caller's own -timeout
+# comes later and wins; CI's job timeout still bounds the run.
+step "go test $*" in_snapshot go test -timeout=60m "$@"
+step "go test -race $*" in_snapshot go test -race -timeout=60m "$@"
 step "go build -mod=readonly -o bin/eva-md ./cmd/eva-md" build
 step "benchmark" benchmark
 

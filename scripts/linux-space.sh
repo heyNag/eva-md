@@ -19,13 +19,14 @@
 #   MINUTES, 100 unless given. A cache is this user's and the user
 #   eva-md-check's shared one, which linux-check.sh from before commit
 #   7d824ae still fills, as builders on older branches run it. A folder is
-#   taken for a cache only when it is no link and its README is the one Go
-#   writes. The fuzz corpus Go keeps beside the entries, and anything else
+#   taken for a cache only when it is no link and its README's first line
+#   is the one Go writes. The fuzz corpus Go keeps beside the entries, and anything else
 #   in the folder, stays. Go trims its own cache the same way after five
 #   days. It renews the time of an entry it uses once that is an hour old,
 #   so a running build's entries are younger than an hour plus the build's
 #   length: the script refuses MINUTES under 90 while a go command runs,
-#   and any age is safe when none does;
+#   and MINUTES of no more than an hour plus the minutes the longest
+#   running go command has run; any age is safe when none runs;
 # - snapshots that linux-check.sh and linux-gate.sh left more than three
 #   hours ago, as a run that was killed cannot remove its own.
 #
@@ -102,6 +103,13 @@ if [ "$age" -lt 90 ] && { ! command -v pgrep >/dev/null || pgrep -x go >/dev/nul
   echo "linux-space.sh: a go command is running, and with MINUTES under 90 the prune could remove what it is using. Use 90 or more." >&2
   exit 2
 fi
+# A go command that has run long, as a race test run under load does, may
+# use entries younger than an hour plus the minutes it has run.
+longest=$(ps -o etimes= -C go 2>/dev/null | sort -n | tail -n 1 | tr -dc 0-9)
+if [ -n "$longest" ] && [ "$age" -le $((longest / 60 + 60)) ]; then
+  echo "linux-space.sh: a go command has run for $((longest / 60)) minutes, and a prune under $((longest / 60 + 61)) minutes could remove what it is using." >&2
+  exit 2
+fi
 
 removed_kb=0
 # Removes each path find prints, NUL-separated, and adds up its size.
@@ -115,7 +123,7 @@ remove_listed() {
 
 for cache in "$own" "${home:+$home/.cache/go-build}"; do
   [ -n "$cache" ] && [ -d "$cache" ] && [ ! -L "$cache" ] || continue
-  grep -qs '^This directory holds cached build artifacts from the Go build system\.$' "$cache/README" || continue
+  [ "$(head -n 1 "$cache/README" 2>/dev/null)" = 'This directory holds cached build artifacts from the Go build system.' ] || continue
   for sub in "$cache"/[0-9a-f][0-9a-f]; do
     [ -d "$sub" ] && [ ! -L "$sub" ] || continue
     # An entry is a file, or a folder when it holds an executable; Go renews
