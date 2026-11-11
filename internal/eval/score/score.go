@@ -19,6 +19,7 @@
 package score
 
 import (
+	"errors"
 	"slices"
 
 	"github.com/heyNag/eva-md/internal/eval/scenario"
@@ -228,7 +229,7 @@ func (s *scorer) read(it Item) read {
 	}
 	for _, src := range it.Sources {
 		t, facts, err := s.sc.Locate(src.Session, src.Seq)
-		if err == scenario.ErrNoTurn {
+		if errors.Is(err, scenario.ErrNoTurn) {
 			r.resolved = true
 			continue
 		}

@@ -294,4 +294,10 @@ func TestUnreadableLines(t *testing.T) {
 	if _, err := v1page.ReadThread(now + "### Next\n- x [stated]\n"); err == nil || strings.Contains(err.Error(), "x [stated]") {
 		t.Errorf("a Now without its end marker: %v", err)
 	}
+	if _, err := v1page.ReadThread("# A title\n\n## Timeline\n### 2026-01-14\n- done [stated]: x\n"); err == nil {
+		t.Error("a page with no Now reads")
+	}
+	if _, err := v1page.ReadThread(now + end + now + end); err == nil || !strings.Contains(err.Error(), "line 4:") {
+		t.Errorf("a page with two Nows: %v", err)
+	}
 }

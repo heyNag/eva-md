@@ -127,6 +127,9 @@ func plantedAt(sc scenario.Scenario, id string) (Source, scenario.Turn, bool) {
 // active item that cites nothing. It returns ErrNotApplicable when no
 // fact or item fits.
 func Distort(ex Export, sc scenario.Scenario, d Distortion) (Export, error) {
+	if !slices.Contains(Distortions, d) {
+		return ex, fmt.Errorf("score: unknown distortion %q", d)
+	}
 	s, reads, _ := evaluate(sc, ex)
 	out := Export{Items: slices.Clone(ex.Items)}
 	for i := range out.Items {
@@ -201,8 +204,6 @@ func Distort(ex Export, sc scenario.Scenario, d Distortion) (Export, error) {
 				it.Kind = kinds[(slices.Index(kinds, it.Kind)+1)%len(kinds)]
 				return out, nil
 			}
-		default:
-			return ex, fmt.Errorf("score: unknown distortion %q", d)
 		}
 	}
 	return ex, ErrNotApplicable

@@ -196,7 +196,10 @@ func ReadThread(body string) (score.Export, error) {
 			ex.Items = append(ex.Items, it)
 		}
 	}
-	if inNow {
+	switch {
+	case !sawStart:
+		return score.Export{}, errors.New("v1page: the page has no Now")
+	case inNow:
 		return score.Export{}, errors.New("v1page: the Now's end marker is missing")
 	}
 	return ex, nil
