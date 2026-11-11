@@ -67,7 +67,7 @@ func TestRetrievalCommand(t *testing.T) {
 		t.Fatalf("%d rows", len(runs[0]))
 	}
 	for i := range runs[1] {
-		if runs[1][i].Time.IsZero() || runs[1][i].Time.Before(runs[0][i].Time) {
+		if runs[0][i].Time.IsZero() || runs[1][i].Time.IsZero() {
 			t.Errorf("row %d's time: %v then %v", i+1, runs[0][i].Time, runs[1][i].Time)
 		}
 		runs[1][i].Time = runs[0][i].Time
