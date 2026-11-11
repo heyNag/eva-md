@@ -219,7 +219,7 @@ func TestUsageListsEveryCommand(t *testing.T) {
 		t.Fatal(code)
 	}
 	listed := strings.Fields(strings.NewReplacer("usage: eva-md", "", "|", " ").Replace(errOut.String()))
-	built := []string{"setup", "version", "upgrade", "init", "install", "uninstall", "doctor", "status", "brief", "show", "search", "index", "inbox", "update", "commit", "maintain", "system", "validate", "hook", "mcp"}
+	built := []string{"setup", "version", "upgrade", "init", "install", "uninstall", "doctor", "status", "brief", "show", "search", "index", "inbox", "audit", "update", "commit", "maintain", "system", "validate", "hook", "mcp"}
 	if strings.Join(listed, " ") != strings.Join(built, " ") {
 		t.Fatalf("usage lists %q", listed)
 	}
