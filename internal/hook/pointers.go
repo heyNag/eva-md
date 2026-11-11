@@ -109,7 +109,11 @@ func nextState(ctx context.Context, markers session.Markers, host string, p payl
 	if p.Event != "UserPromptSubmit" {
 		return s, nil, changed
 	}
-	return s, promptLines(ctx, env, project, p.Prompt, b.brief, &s), true
+	lines, routes := promptLines(ctx, env, project, p.Prompt, b.brief, &s)
+	if p.record != nil {
+		p.record.lines = routes
+	}
+	return s, lines, true
 }
 
 // saveState saves the chat's state in place, with one open and write and
@@ -191,22 +195,29 @@ func briefPages(text string) []string {
 // block of facts it recalls, a blank line apart, or else the reminder, when
 // it is due. A prompt that carries a brief gets no reminder, since the
 // brief's footer says the same. The wiki's instance is checked at most once.
-func promptLines(ctx context.Context, env Env, project, prompt string, brief bool, s *promptState) []string {
+// It returns the lines and the routes of health.Routes they come by.
+func promptLines(ctx context.Context, env Env, project, prompt string, brief bool, s *promptState) ([]string, []string) {
 	s.Prompts++
 	instance := sync.OnceValue(func() bool { return instanceOf(env.Config) })
+	var routes []string
 	lines, systems := pointers(ctx, env, prompt, s, instance)
+	if len(lines) > 0 {
+		routes = append(routes, "pointers")
+	}
 	if block := recall(ctx, env, project, prompt, s, instance); block != "" {
 		if len(lines) > 0 {
 			block = "\n" + block
 		}
 		lines = append(lines, block)
+		routes = append(routes, "recall")
 	}
 	if len(lines) == 0 && !brief && reminderDue(env.Config.ReminderEvery, s.Prompts) {
 		if line := reminder(env.Dirs, systems); line != "" {
 			lines = append(lines, line)
+			routes = append(routes, "reminder")
 		}
 	}
-	return lines
+	return lines, routes
 }
 
 // reminderDue reports whether the reminder rides with a chat's prompt n: the
