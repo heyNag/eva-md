@@ -510,9 +510,12 @@ def compare(core, a):
     for lost in verdict["lost"]:
         print("not judged: %s" % lost)
     if verdict["machine_too_noisy"]:
-        why = " (runs of one binary differed by more than %.2f: the machine was too noisy to judge)" % verdict["threshold"]
+        why = (" (runs differed by more than %.2f in %d figures or more, or one run was that much quicker than the rest: "
+               "the machine was too noisy to judge)" % (verdict["threshold"], verdict["noisy_figures"]))
     elif verdict["lost"]:
         why = " (a scenario may have been lost to load: run the gate again)"
+    elif verdict["too_noisy"]:
+        why = " (a figure's runs differed by more than %.2f, too much to judge it: run the gate again)" % verdict["threshold"]
     else:
         why = " (a figure rose, but no more than %.2f times what the machine put between runs: run the gate again)" % verdict["threshold"]
     print("latency gate: %s" % verdict["verdict"] + {

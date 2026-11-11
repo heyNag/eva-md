@@ -255,36 +255,45 @@ def context(output):
 # one's, by the lower bound of the bootstrap interval (LEVEL, DRAWS draws, a
 # fixed seed) of the ratio of the new p95 to the old one.
 #
-# The controls are splits of each binary's runs into two halves, the old
-# binary's and the new one's alike: 3 a binary at two rounds, the role split
-# (its first role's runs against its again role's) among them; with more
-# rounds, a seeded sample of at most SPLITS a binary that always holds the
-# role split. A control compares runs of one binary only, so a change, which
-# slows all of a binary's runs alike, cancels out of it, however large, and
-# only what the machine did between runs is left: load on some runs of a
-# binary and not others puts between the halves of one of its splits as
-# much as it puts between the two binaries, or more. A control's lower
-# bound, both ways, is raised to the power SCALE: its sides hold half the
-# runs the gate's comparison does, so what the machine puts between them is
-# twice as wide, in the logarithm's variance, as what it puts between two
-# binaries alike, and the power puts it back on the comparison's scale. A
+# The controls are splits of the runs into two sides that each hold half of
+# the old binary's runs and half of the new one's: 18 at two rounds, the two
+# role splits among them (old and new against old_again and new_again, old
+# and new_again against old_again and new); with more rounds, a seeded
+# sample of at most SPLITS that always holds the two role splits. Each side
+# holds as many runs of each binary, so only what the machine did between
+# runs is left between the sides: load on some runs and not others puts as
+# much between the sides of some split as between the two binaries. A
+# change cancels out too, unless it is large: then each side's p95 comes
+# from its runs of the slower binary alone, and the controls would measure
+# two of its runs against two. So when the binaries' typical runs differ by
+# more than THRESHOLD (the ratio of the lower medians of their runs'
+# medians, which load on half of a binary's runs or fewer leaves where it
+# was), the controls divide the new binary's samples by that ratio first. A
 # figure's noise is the NOISE_QUANTILE, by nearest rank, of its controls'
-# scaled bounds, the largest at 1, and at least 1.
+# lower bounds, both ways, and at least 1: the fourth largest of 36 at two
+# rounds, the eighth of 72 at three.
 #
 # A figure is judged only with at least WHOLE samples on each binary's
-# side. One with fewer is listed as having too few samples: it neither
-# fails nor passes, and when it is short only because a scenario failed in
-# some runs (each run, given as many samples as its fullest, would have
+# side. One with fewer is listed as having too few samples, and neither
+# fails nor passes; when it is short only because a scenario failed in some
+# runs (each run, given as many samples as the figure's fullest, would have
 # reached WHOLE), the gate is not judged, to be run again. A judged figure
-# whose noise is above THRESHOLD is too noisy to judge: it cannot fail, and
-# says the machine was noisy, which leaves the gate not judged unless
-# another figure failed. Otherwise a figure fails when its lower bound is
-# above THRESHOLD times its noise, or when the lower bound of the interval
-# of the new binary's p95 is above its ceiling and the old binary's p95 is
-# not. One whose lower bound is above THRESHOLD but not above THRESHOLD
-# times its noise is unsettled, and leaves the gate not judged unless
-# another figure failed. The controls have no ceiling: a fixed ceiling says
-# where a binary sits, not how noisy the machine is.
+# whose noise is above THRESHOLD is too noisy to judge, and cannot fail.
+# When NOISY_FIGURES or more judged figures are too noisy to judge, the
+# machine was too noisy, and the whole verdict stops. So it does when one of
+# a binary's runs was more than THRESHOLD times as quick as its next, over
+# all the judged figures (run_levels): load on all of a binary's runs but
+# one is what no control can tell from a change, since every split has a
+# loaded run on each side. Only the runs themselves call the machine noisy.
+# Otherwise a
+# figure fails when its lower bound is above THRESHOLD times its noise, or
+# when the lower bound of the interval of the new binary's p95 is above its
+# ceiling and the old binary's p95 is not. One whose lower bound is above
+# THRESHOLD but not above THRESHOLD times its noise is unsettled. A figure
+# too noisy to judge, or unsettled, stops nothing: another figure that
+# failed still fails the gate, and without one the gate is not judged. The
+# controls have no ceiling: a fixed ceiling says where a binary sits, not
+# how noisy the machine is.
 ROLES = ("old", "new", "old_again", "new_again")
 BINARY = {"old": "old", "old_again": "old", "new": "new", "new_again": "new"}
 ROLES_OF = {"old": ("old", "old_again"), "new": ("new", "new_again")}
@@ -298,9 +307,9 @@ WHOLE = 100  # the samples on each binary's side a figure needs to be judged
 # ROUNDS rounds each binary gives it WHOLE even when one of its runs is
 # lost to a failed scenario (Run.loops): 34 at two rounds.
 GATE_RUN_SAMPLES = -(-WHOLE // (2*ROUNDS-1))
-SPLITS = 36  # the most controls a binary has
-SCALE = math.sqrt(0.5)  # the power a control's bound is raised to
-NOISE_QUANTILE = 1.0  # of the controls' scaled bounds: the largest
+SPLITS = 36  # the most controls a figure has
+NOISE_QUANTILE = 0.89  # of the controls' lower bounds: the fourth largest of 36
+NOISY_FIGURES = 2  # the figures too noisy to judge that call the machine too noisy
 # A scenario the new binary failed in at least BROKEN of its runs more than
 # the old one fails the gate; in at least LOST of them, the verdict is "not
 # judged" and the gate is to be run again.
@@ -374,16 +383,19 @@ def p95_low(values, seed=SEED, draws=DRAWS):
 
 
 def splits(rounds, seed=SEED, most=SPLITS):
-    """A binary's controls at rounds rounds. Its runs are numbered as
+    """The controls at rounds rounds. A binary's runs are numbered as
     decide orders them, its first role's then its again role's, 0 to
-    2*rounds-1; a split is the runs on its first side, which holds run 0,
-    and the rest are on the other. The role split comes first; with more
-    than most splits, the rest are a sample, seeded with seed."""
-    role = tuple(range(rounds))
-    rest = [c for c in itertools.combinations(range(2*rounds), rounds) if c[0] == 0 and c != role]
-    if 1+len(rest) > most:
-        rest = random.Random(seed).sample(rest, most-1)
-    return [role] + rest
+    2*rounds-1; a split is the runs of the old binary and of the new one on
+    its first side, which holds the old binary's run 0, and the rest are on
+    the other. The two role splits come first; with more than most splits,
+    the rest are a sample, seeded with seed."""
+    first, again = tuple(range(rounds)), tuple(range(rounds, 2*rounds))
+    role = [(first, first), (first, again)]
+    rest = [(o, n) for o in itertools.combinations(range(2*rounds), rounds) if o[0] == 0
+            for n in itertools.combinations(range(2*rounds), rounds) if (o, n) not in role]
+    if len(role)+len(rest) > most:
+        rest = random.Random(seed).sample(rest, most-len(role))
+    return role + rest
 
 
 def scenarios(failures, rounds):
@@ -433,37 +445,67 @@ def by_run(samples, rounds):
     return out
 
 
-KIND = "mix"
-STOP_AT = 1
+def aligned(o_runs, n_runs, threshold=THRESHOLD):
+    """What the controls divide the new binary's samples by: the ratio of
+    the lower median of the new binary's runs' medians to the old one's,
+    when it is above threshold or below its inverse, and otherwise 1. Load
+    on half of a binary's runs or fewer leaves its lower median on a run
+    the load missed."""
+    def typical(runs):
+        medians = sorted(nearest_rank(r, 0.5) for r in runs if r)
+        return medians[(len(medians)-1)//2]
+    if not any(o_runs) or not any(n_runs):
+        return 1.0
+    k = typical(n_runs)/typical(o_runs)
+    return k if k > threshold or k < 1/threshold else 1.0
 
 
-def mix_splits(rounds, seed=SEED, most=SPLITS):
-    first, again = tuple(range(rounds)), tuple(range(rounds, 2*rounds))
-    role = [(first, first), (first, again)]
-    rest = [(o, n) for o in itertools.combinations(range(2*rounds), rounds) if o[0] == 0
-            for n in itertools.combinations(range(2*rounds), rounds) if (o, n) not in role]
-    if len(role)+len(rest) > most:
-        rest = random.Random(seed).sample(rest, most-len(role))
-    return role + rest
+def run_levels(figures):
+    """How quick each of a binary's runs was, over all its figures: for
+    each figure every run of which gave samples, each run's median over
+    the lower median of its runs' medians; and for each run, the median of
+    those over the figures. figures is a list, for each figure, of the
+    binary's runs' samples. None when no figure had samples in every
+    run."""
+    rel = []
+    for runs in figures:
+        if runs and all(runs):
+            medians = [nearest_rank(r, 0.5) for r in runs]
+            typical = sorted(medians)[(len(medians)-1)//2]
+            rel.append([m/typical for m in medians])
+    if not rel:
+        return None
+    return [nearest_rank([r[i] for r in rel], 0.5) for i in range(len(rel[0]))]
 
 
-def control_bounds(runs, rounds, controls, seed=SEED, draws=DRAWS, scale=SCALE):
-    """A binary's controls' lower bounds, both ways, raised to scale: for
-    each split, the bound of its first side's p95 over its other side's,
-    and of the other over the first. A split with a side that has no
-    samples, as when runs were lost, gives none."""
+def one_quick_run(levels, threshold=THRESHOLD):
+    """Whether a binary's quickest run, by run_levels, was more than
+    threshold times as quick as its next: load on all its other runs, which
+    no control can tell from a change, or a run the machine sped up."""
+    if not levels or len(levels) < 3:
+        return False
+    ordered_levels = sorted(levels)
+    return ordered_levels[1] > threshold*ordered_levels[0]
+
+
+def control_bounds(o_runs, n_runs, controls, seed=SEED, draws=DRAWS):
+    """The controls' lower bounds, both ways: for each split, the bound of
+    its other side's p95 over its first side's, and of the first over the
+    other. A split with a side that has no samples, as when runs were lost,
+    gives none."""
+    every = range(len(o_runs))
     bounds = []
-    for first in controls:
-        a = [v for i in first for v in runs[i]]
-        b = [v for i in range(2*rounds) if i not in first for v in runs[i]]
+    for a_old, a_new in controls:
+        a = [v for i in a_old for v in o_runs[i]] + [v for i in a_new for v in n_runs[i]]
+        b = [v for i in every if i not in a_old for v in o_runs[i]] + [v for i in every if i not in a_new for v in n_runs[i]]
         if a and b:
-            low, high = interval(b, a, seed, draws)
-            bounds += [low**scale, (1/high)**scale if high > 0 else math.inf]
+            low, high = interval(a, b, seed, draws)
+            bounds += [low, 1/high if high > 0 else math.inf]
     return bounds
 
 
 def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD, seed=SEED, draws=DRAWS,
-           whole=WHOLE, quantile=NOISE_QUANTILE, scale=SCALE, sources=None):
+           whole=WHOLE, quantile=NOISE_QUANTILE, noisy_figures=NOISY_FIGURES, sources=None):
     """The gate's verdict. samples maps each role (ROLES) to its runs, in
     order, each a map of each figure to its samples from that run; ceilings
     maps each gated figure to its ceiling in milliseconds, or None;
@@ -475,14 +517,15 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     is listed as not compared. One the new binary gave none fails, unless
     the new binary failed the scenario that gives it in every one of its
     runs (with no sources, any scenario), which the scenarios' rule then
-    judges: it has too few samples.
+    judges: it is short by those runs.
 
     The verdict is the first of these that applies: "could not run", exit
     2, when a scenario failed in every run of both binaries; "fail", exit 1,
-    when the new binary broke a scenario, gave a figure no samples, or a
-    figure failed; "not judged", exit 0, when a judged figure was too noisy
-    to judge, a scenario was lost, a figure was unsettled, or a figure had
-    too few samples because a scenario failed in some runs; otherwise
+    when the new binary broke a scenario or gave a figure no samples; "not
+    judged", exit 0, when noisy_figures or more figures were too noisy to
+    judge; "fail", exit 1, when a figure failed; "not judged", exit 0, when
+    a figure was too noisy to judge or unsettled, a scenario was lost, or a
+    figure was short because a scenario failed in some runs; otherwise
     "pass", exit 0."""
     found = scenarios(failures or {}, rounds)
     runs = by_run(samples, rounds)
@@ -490,6 +533,7 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     every = found["runs_per_binary"]
     lost_everywhere = {s for s, c in found["failed_runs"].items() if c["new"] >= every}
     metrics, unsettled_all, failed, missing, skipped, too_few, short, noisy = {}, [], [], [], [], [], [], []
+    judged_runs = {"old": [], "new": []}
     for name in sorted(ceilings):
         o_runs = [list(run.get(name) or []) for run in runs["old"]]
         n_runs = [list(run.get(name) or []) for run in runs["new"]]
@@ -499,43 +543,35 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
             continue
         if not n:
             source = (sources or {}).get(name)
-            if source in lost_everywhere if source is not None else lost_everywhere:
+            if (source in lost_everywhere) if source is not None else lost_everywhere:
                 too_few.append(name)
                 short.append(name)
             else:
                 missing.append("%s: the new binary gave no samples, the old one %d" % (name, len(o)))
             continue
-        if KIND in ("mix", "mixk"):
-            lows = []
-            k = 1.0
-            if KIND == "mixk":
-                lm = lambda rs: sorted(nearest_rank(r, 0.5) for r in rs if r)[(len([r for r in rs if r])-1)//2]
-                k = lm(n_runs)/lm(o_runs)
-            nk_runs = [[v/k for v in r] for r in n_runs]
-            for a_old, a_new in mix_splits(rounds, seed):
-                a = [v for i in a_old for v in o_runs[i]] + [v for i in a_new for v in nk_runs[i]]
-                b = [v for i in range(2*rounds) if i not in a_old for v in o_runs[i]] + \
-                    [v for i in range(2*rounds) if i not in a_new for v in nk_runs[i]]
-                if a and b:
-                    low_ab, high_ab = interval(a, b, seed, draws)
-                    lows += [low_ab, 1/high_ab if high_ab > 0 else math.inf]
-        else:
-            lows = control_bounds(o_runs, rounds, controls, seed, draws, scale) + \
-                control_bounds(n_runs, rounds, controls, seed, draws, scale)
+        k = aligned(o_runs, n_runs, threshold)
+        lows = control_bounds(o_runs, [[v/k for v in r] for r in n_runs], controls, seed, draws)
         noise = max(1.0, nearest_rank(lows, quantile)) if lows else math.inf
         low = ratio_low(o, n, seed, draws)
         p95_o, p95_n, p95_n_low = nearest_rank(o), nearest_rank(n), p95_low(n, seed, draws)
         ceiling = ceilings[name]
         reasons, unsettled = [], []
         enough = min(len(o), len(n)) >= whole
+        if enough:
+            judged_runs["old"].append(o_runs)
+            judged_runs["new"].append(n_runs)
         if not enough:
             too_few.append(name)
-            # Each run given as many samples as the figure's fullest run.
-            if max(len(r) for r in o_runs+n_runs)*2*rounds >= whole:
+            # Short by failed runs: the scenario that gives it (with no
+            # sources, any scenario) failed in some run, and each run, given
+            # as many samples as the figure's fullest, would have made whole.
+            source = (sources or {}).get(name)
+            failed_some = (source in found["failed_runs"]) if source is not None else bool(found["failed_runs"])
+            if failed_some and max(len(r) for r in o_runs+n_runs)*2*rounds >= whole:
                 short.append(name)
         elif noise > threshold:
             noisy.append(name)
-            unsettled.append("the controls' %.3f is above %.2f: the machine was too noisy to judge" % (noise, threshold))
+            unsettled.append("the controls' %.3f is above %.2f: too noisy to judge" % (noise, threshold))
         else:
             if low > threshold*noise:
                 reasons.append("p95 ratio's lower bound %.3f is above %.2f times the controls' %.3f" % (low, threshold, noise))
@@ -550,7 +586,7 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
             "ratio_low": round(low, 3) if math.isfinite(low) else None,
             "n_old": len(o), "n_new": len(n), "ceiling_ms": ceiling,
             "n_runs": {role: [len(run.get(name) or []) for run in samples.get(role, [])] for role in ROLES},
-            "controls": len(lows), "noise": round(noise, 3) if math.isfinite(noise) else None,
+            "controls": len(lows), "aligned": round(k, 3), "noise": round(noise, 3) if math.isfinite(noise) else None,
             "too_few_samples": not enough, "reasons": reasons, "unsettled": unsettled,
             "judged": enough and not unsettled}
         unsettled_all += ["%s: %s" % (name, r) for r in unsettled]
@@ -562,11 +598,14 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
         s, found["failed_runs"][s]["new"], every, found["failed_runs"][s]["old"])
         for s in found["lost"]]
     lost += ["%s has too few samples because a scenario failed in some runs: run the gate again" % name for name in short]
+    levels = {b: run_levels(f) for b, f in judged_runs.items()}
+    quick = [b for b in ("old", "new") if one_quick_run(levels[b], threshold)]
+    machine = len(noisy) >= noisy_figures or bool(quick)
     if found["unrunnable"]:
         verdict, code = "could not run", 2
     elif hard:
         verdict, code = "fail", 1
-    elif len(noisy) >= STOP_AT:
+    elif machine:
         verdict, code = "not judged", 0
     elif failed:
         verdict, code = "fail", 1
@@ -575,10 +614,11 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     else:
         verdict, code = "pass", 0
     return {"verdict": verdict, "exit": code, "rounds": rounds, "threshold": threshold, "seed": seed, "draws": draws,
-            "whole": whole, "noise_quantile": quantile, "scale": scale, "controls": 2*len(controls),
-            "machine_too_noisy": bool(noisy), "unsettled": unsettled_all, "lost": lost, "failures": hard+failed,
-            "too_few_samples": too_few, "short_by_failures": short, "scenarios": found, "not_compared": skipped,
-            "metrics": metrics}
+            "whole": whole, "noise_quantile": quantile, "noisy_figures": noisy_figures, "controls": len(controls),
+            "machine_too_noisy": machine, "too_noisy": noisy, "one_quick_run": quick,
+            "run_levels": {b: [round(x, 3) for x in v] if v else None for b, v in levels.items()}, "unsettled": unsettled_all, "lost": lost,
+            "failures": hard+failed, "too_few_samples": too_few, "short_by_failures": short, "scenarios": found,
+            "not_compared": skipped, "metrics": metrics}
 
 
 def redecide(gate):
@@ -587,4 +627,4 @@ def redecide(gate):
     figure and the rule's parameters it recorded."""
     d = gate["decision"]
     return decide(gate["samples"], gate["ceilings"], gate["scenario_failures"], gate["rounds"], d["threshold"],
-                  d["seed"], d["draws"], d["whole"], d["noise_quantile"], d["scale"], gate.get("figure_scenarios"))
+                  d["seed"], d["draws"], d["whole"], d["noise_quantile"], d["noisy_figures"], gate.get("figure_scenarios"))

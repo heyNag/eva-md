@@ -371,7 +371,7 @@ def main():
     else:
         base, ceilings = made_up, CEILINGS
     print("rule: noise is the %g quantile of %d controls' bounds; threshold %.2f; %d samples a side to judge; %s base; %d seeds a case" % (
-        a.quantile, 4*len(core.splits(core.ROUNDS)), core.THRESHOLD, core.WHOLE,
+        a.quantile, 2*len(core.splits(core.ROUNDS)), core.THRESHOLD, core.WHOLE,
         "saved gates'" if a.gates else "made-up", a.seeds), flush=True)
     if a.monotonic:
         began = time.time()
