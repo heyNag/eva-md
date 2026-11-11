@@ -77,8 +77,14 @@ func holdLocks(t *testing.T, dirs paths.Dirs) func() {
 // leaveMarks writes marks with both locks held, so nothing runs them.
 func leaveMarks(t *testing.T, dirs paths.Dirs, marks ...Mark) {
 	t.Helper()
+	leaveMarksAt(t, dirs, time.Now(), marks...)
+}
+
+// leaveMarksAt is leaveMarks with the clock at now.
+func leaveMarksAt(t *testing.T, dirs paths.Dirs, now time.Time, marks ...Mark) {
+	t.Helper()
 	release := holdLocks(t, dirs)
-	if err := Wake(context.Background(), dirs, marks, Options{}); err != nil {
+	if err := Wake(context.Background(), dirs, marks, Options{Now: func() time.Time { return now }}); err != nil {
 		t.Fatal(err)
 	}
 	release()

@@ -124,8 +124,8 @@ type Mark struct {
 	// Kind is the registered job the mark is for.
 	Kind string
 	// Key names what the job is asked to do, chosen by the job's caller:
-	// a name paths.SafeName leaves as it is. One mark is kept per kind
-	// and key.
+	// a name paths.SafeName leaves as it is, with no upper-case letter.
+	// One mark is kept per kind and key.
 	Key string
 	// Reason is one word: lower-case letters, digits and _, starting with
 	// a letter, at most 32 bytes.
@@ -141,8 +141,8 @@ func (m Mark) check() error {
 	if _, ok := registered(m.Kind); !ok {
 		return fmt.Errorf("work: no job of kind %q is registered", m.Kind)
 	}
-	if safe, err := paths.SafeName(m.Key); err != nil || safe != m.Key {
-		return errors.New("work: a mark's key must be a plain file name")
+	if !validKey(m.Key) {
+		return errors.New("work: a mark's key must be a plain lower-case file name")
 	}
 	if !wordPattern.MatchString(m.Reason) {
 		return errors.New("work: a mark's reason must be one lower-case word")
@@ -155,13 +155,14 @@ func (m Mark) check() error {
 
 // Options are what a caller may set for one wake.
 type Options struct {
-	// Now is the journal's clock; time.Now when nil.
+	// Now is the clock of the journal and of the times marks hold;
+	// time.Now when nil.
 	Now func() time.Time
 	// Log is given to each job's Run; io.Discard when nil.
 	Log io.Writer
 
 	// hook, for tests only, is called at the named points of a wake:
-	// "marked", "waiter", "worker", "taken", "idle" and "last".
+	// "marked", "waiter", "worker", "listed", "taken", "idle" and "last".
 	hook func(point string)
 }
 
@@ -210,9 +211,12 @@ func leave() { inside.Add(-1) }
 // one job at a time, until none is left; a kind whose run ended busy or cut
 // is not run again in this wake. It then releases worker.lock and lists the
 // marks once more: if any it would run are there, it starts again at step
-// 1, so a mark written while it was finishing always has a process to run
-// it. Every mark must be of a registered kind. Wake returns nil when the
-// worker is busy and a waiter exists.
+// 1, so a mark written while it was finishing has a process to run it. A
+// worker cut by ctx, or whose run returned an error, does no last listing:
+// if its waiter was cut too, marks written meanwhile wait for the next
+// wake or tick, as the cut run's own marks do. Every mark must be of a
+// registered kind. Wake returns nil when the worker is busy and a waiter
+// exists.
 func Wake(ctx context.Context, dirs paths.Dirs, marks []Mark, o Options) error {
 	for _, m := range marks {
 		if err := m.check(); err != nil {
@@ -225,7 +229,7 @@ func Wake(ctx context.Context, dirs paths.Dirs, marks []Mark, o Options) error {
 	}
 	defer root.Close()
 	for _, m := range marks {
-		if err := writeMark(ctx, root, m); err != nil {
+		if err := writeMark(ctx, root, m, o.now()); err != nil {
 			return err
 		}
 	}

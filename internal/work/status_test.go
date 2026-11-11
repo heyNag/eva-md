@@ -3,6 +3,7 @@ package work
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -59,15 +60,14 @@ func TestStatusGivesEachReasonPastTheBar(t *testing.T) {
 		Job{Kind: "tidy", Run: done},
 	)
 	dirs := testDirs(t)
-	leaveMarks(t, dirs,
-		Mark{Kind: "tidy", Key: "daily", Reason: "tick", Host: "codex"},
-		Mark{Kind: "tidy", Key: "push", Reason: "tick"},
-	)
+	leaveMarksAt(t, dirs, ago(7*time.Minute), Mark{Kind: "tidy", Key: "daily", Reason: "tick", Host: "codex"})
+	leaveMarksAt(t, dirs, ago(2*time.Minute), Mark{Kind: "tidy", Key: "push", Reason: "tick"})
 	wake := filepath.Join(dirs.State, "work", wakeDir)
-	if err := os.Chtimes(filepath.Join(wake, "tidy-daily"), ago(7*time.Minute), ago(7*time.Minute)); err != nil {
+	// A mark whose file holds no time is measured from the file's own.
+	if err := os.WriteFile(filepath.Join(wake, "tidy-old"), []byte("tick\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chtimes(filepath.Join(wake, "tidy-push"), ago(2*time.Minute), ago(2*time.Minute)); err != nil {
+	if err := os.Chtimes(filepath.Join(wake, "tidy-old"), ago(8*time.Minute), ago(8*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	// A mark of a kind no job registered is not reported.
@@ -85,6 +85,7 @@ func TestStatusGivesEachReasonPastTheBar(t *testing.T) {
 	want := []Waiting{
 		kept[2], // an hour
 		kept[1], // ten minutes
+		{Kind: "tidy", Since: ago(8 * time.Minute), Reason: WaitBehind},
 		{Kind: "tidy", Host: "codex", Since: ago(7 * time.Minute), Reason: WaitBehind},
 		kept[3], // six minutes
 		kept[0], // just past the bar
@@ -106,6 +107,50 @@ func TestStatusGivesEachReasonPastTheBar(t *testing.T) {
 		if !seen[r] {
 			t.Errorf("no item %s", r)
 		}
+	}
+}
+
+// A chat that keeps going writes its mark again on each stop. The wait is
+// measured from the oldest wake still waiting, not from the latest write,
+// so work stuck behind a long job is reported.
+func TestStatusMeasuresAMarkFromItsFirstWrite(t *testing.T) {
+	t0 := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	withJobs(t, Job{Kind: "sync", Run: done})
+	dirs := testDirs(t)
+	m := Mark{Kind: "sync", Key: "k1", Reason: "stop", Host: "codex"}
+	for _, d := range []time.Duration{0, 4 * time.Minute, 6 * time.Minute} {
+		leaveMarksAt(t, dirs, t0.Add(d), m)
+	}
+	now := t0.Add(6*time.Minute + time.Second)
+	got := Status(context.Background(), dirs, now).Items
+	if len(got) != 1 || !got[0].Since.Equal(t0) || got[0].Reason != WaitBehind || got[0].Host != "codex" {
+		t.Fatalf("Status gave %+v, want the mark since %v", got, t0)
+	}
+
+	// A mark written again while its run goes on was first written then:
+	// the run took the older one.
+	t1 := t0.Add(20 * time.Minute)
+	calls := 0
+	withJobs(t, Job{Kind: "sync", Run: func(_ context.Context, _ []Mark, _ io.Writer) Outcome {
+		calls++
+		if calls == 1 {
+			writeMarkNow(t, dirs, m, t1)
+			return Done
+		}
+		return Busy
+	}})
+	if err := Wake(context.Background(), dirs, nil, Options{Now: func() time.Time { return t1 }}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("the job ran %d times, want 2", calls)
+	}
+	if got := Status(context.Background(), dirs, t1.Add(time.Minute)).Items; len(got) != 0 {
+		t.Fatalf("Status a minute after the new mark gave %+v", got)
+	}
+	got = Status(context.Background(), dirs, t1.Add(6*time.Minute)).Items
+	if len(got) != 1 || !got[0].Since.Equal(t1) {
+		t.Fatalf("Status gave %+v, want the mark since %v", got, t1)
 	}
 }
 

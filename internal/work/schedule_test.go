@@ -101,10 +101,14 @@ func TestNoWakeIsLostWhileAJobIsHeld(t *testing.T) {
 }
 
 // The points of a wake where a schedule holds a caller until it lets it
-// go: just after taking the worker lock, after taking marks, in the job's
-// Run, when it has run out of marks and still holds the lock, and before
-// the last listing. In all but the last it holds the worker lock.
-var holdPoints = []string{"worker", "taken", "run", "idle", "last"}
+// go: just after taking the worker lock, between listing marks and taking
+// them, after taking marks, in the job's Run, when it has run out of marks
+// and still holds the lock, and before the last listing. In all but the
+// last it holds the worker lock.
+var holdPoints = []string{"worker", "listed", "taken", "run", "idle", "last"}
+
+// lockPoints are the hold points where a caller holds the worker lock.
+var lockPoints = []string{"worker", "listed", "taken", "run", "idle"}
 
 // A schedEvent is a caller reaching a point.
 type schedEvent struct {
@@ -161,10 +165,37 @@ func runSchedule(t *testing.T, seed uint64) int {
 	state := map[int]string{}
 	cancels := map[int]context.CancelFunc{}
 	cancelled := map[int]bool{}
+	// expect is, for each caller, what it must become first, by the locks
+	// the other callers held when it started: "waiter" or "exit" where the
+	// worker lock was held, "not exit" where it was free. role is what it
+	// became.
+	expect := map[int]string{}
+	role := map[int]string{}
 	wakesLeft := 6 + rng.IntN(7)
 	keys := []string{"sync-a", "sync-b", "tidy-a", "sync-c"}
 
+	locks := func() (lockHeld, waiting, active bool) {
+		for _, s := range state {
+			switch {
+			case s == "active":
+				active = true
+			case s == "waiter":
+				waiting = true
+			case slices.Contains(lockPoints, s):
+				lockHeld = true
+			}
+		}
+		return lockHeld, waiting, active
+	}
 	start := func(c int, marks []Mark) {
+		switch lockHeld, waiting, _ := locks(); {
+		case lockHeld && waiting:
+			expect[c] = "exit"
+		case lockHeld:
+			expect[c] = "waiter"
+		default:
+			expect[c] = "not exit"
+		}
 		rel := make(chan Outcome, 1)
 		release[c] = rel
 		state[c] = "active"
@@ -174,7 +205,7 @@ func runSchedule(t *testing.T, seed uint64) int {
 			switch p {
 			case "marked", "waiter":
 				events <- schedEvent{caller: c, point: p}
-			case "worker", "taken", "idle", "last":
+			case "worker", "listed", "taken", "idle", "last":
 				events <- schedEvent{caller: c, point: p}
 				<-rel
 			}
@@ -187,18 +218,25 @@ func runSchedule(t *testing.T, seed uint64) int {
 	// stable reports whether every caller is held, waiting behind a held
 	// worker, or gone.
 	stable := func() bool {
-		lockHeld, waiting := false, false
-		for _, s := range state {
-			switch s {
-			case "active":
-				return false
-			case "waiter":
-				waiting = true
-			case "worker", "taken", "run", "idle":
-				lockHeld = true
-			}
+		lockHeld, waiting, active := locks()
+		return !active && (!waiting || lockHeld)
+	}
+	// became checks the first role a caller takes against what the locks
+	// said it must. A wake that finds the worker lock held and no waiter
+	// must become the waiter, so a waiter that became the worker must have
+	// dropped waiter.lock. Where the lock was free, a waiter cut by its
+	// context may still hold it for a moment, so the wake may wait.
+	became := func(c int, point string) {
+		if role[c] != "" {
+			return
 		}
-		return !waiting || lockHeld
+		role[c] = point
+		switch want := expect[c]; {
+		case want == "not exit" && point == "exit":
+			t.Errorf("seed %d: caller %d returned with the worker lock free", seed, c)
+		case want != "not exit" && point != want:
+			t.Errorf("seed %d: caller %d became %s, want %s", seed, c, point, want)
+		}
 	}
 	settle := func() {
 		for !stable() {
@@ -208,6 +246,7 @@ func runSchedule(t *testing.T, seed uint64) int {
 				case "marked":
 					// Still active.
 				case "exit":
+					became(ev.caller, ev.point)
 					if ev.err != nil && !(cancelled[ev.caller] && errors.Is(ev.err, context.Canceled)) {
 						t.Errorf("seed %d: caller %d: %v", seed, ev.caller, ev.err)
 					}
@@ -216,6 +255,9 @@ func runSchedule(t *testing.T, seed uint64) int {
 					runs = append(runs, ev.marks)
 					state[ev.caller] = ev.point
 				default:
+					if ev.point == "waiter" || ev.point == "worker" {
+						became(ev.caller, ev.point)
+					}
 					state[ev.caller] = ev.point
 				}
 			case <-time.After(hangGuard):

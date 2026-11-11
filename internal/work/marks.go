@@ -8,7 +8,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,26 +47,67 @@ func openWork(dirs paths.Dirs) (*os.Root, error) {
 }
 
 // markText is what a mark's file holds: its reason, then its host if it has
-// one.
-func markText(m Mark) string {
-	if m.Host == "" {
-		return m.Reason + "\n"
+// one, then when the mark was first written, in Unix milliseconds.
+func markText(m Mark, first time.Time) string {
+	words := []string{m.Reason}
+	if m.Host != "" {
+		words = append(words, m.Host)
 	}
-	return m.Reason + " " + m.Host + "\n"
+	words = append(words, strconv.FormatInt(first.UnixMilli(), 10))
+	return strings.Join(words, " ") + "\n"
 }
 
 // writeMark writes m into wake/, replacing the same mark if it is there.
-func writeMark(ctx context.Context, root *os.Root, m Mark) error {
-	if err := paths.WriteFileAtomicAt(ctx, root, path.Join(wakeDir, m.name()), []byte(markText(m)), 0o600); err != nil {
+// The new file keeps the time the mark it replaces was first written, so
+// Status measures a wait from the oldest wake still waiting and not from
+// the latest. A mark with none in wake/ to replace, as one written while
+// its run goes on, was first written now.
+func writeMark(ctx context.Context, root *os.Root, m Mark, now time.Time) error {
+	name := path.Join(wakeDir, m.name())
+	first := now
+	if data, err := root.ReadFile(name); err == nil {
+		if _, _, t, ok := parseText(data); ok && t.Before(first) {
+			first = t
+		}
+	}
+	if err := paths.WriteFileAtomicAt(ctx, root, name, []byte(markText(m, first)), 0o600); err != nil {
 		return fmt.Errorf("work: write a mark: %w", err)
 	}
 	return nil
 }
 
-// A listed mark is a mark as found in a folder, with when it was written.
+var msPattern = regexp.MustCompile(`^[0-9]{1,15}$`)
+
+// parseText reads a mark file's words: its reason, its host and when it was
+// first written, each only where a word matches its pattern. ok is false
+// when the file holds no time.
+func parseText(data []byte) (reason, host string, first time.Time, ok bool) {
+	words := strings.Fields(string(data))
+	if len(words) == 0 {
+		return "", "", time.Time{}, false
+	}
+	if wordPattern.MatchString(words[0]) {
+		reason = words[0]
+	}
+	for _, w := range words[1:] {
+		switch {
+		case host == "" && hostPattern.MatchString(w):
+			host = w
+		case !ok && msPattern.MatchString(w):
+			if ms, err := strconv.ParseInt(w, 10, 64); err == nil {
+				first, ok = time.UnixMilli(ms), true
+			}
+		}
+	}
+	return reason, host, first, ok
+}
+
+// A listed mark is a mark as found in a folder, with when it was first
+// written: the time its file holds or, for a file that holds none, the
+// file's own time.
 type listed struct {
 	Mark
-	written time.Time
+	since time.Time
 }
 
 // listMarks lists the marks in dir, by file name. A file whose name or
@@ -98,14 +141,12 @@ func listMarks(root *os.Root, dir string) ([]listed, error) {
 		if err != nil {
 			continue
 		}
-		words := strings.Fields(string(data))
-		if len(words) > 0 && wordPattern.MatchString(words[0]) {
-			m.Reason = words[0]
+		reason, host, first, ok := parseText(data)
+		m.Reason, m.Host = reason, host
+		if !ok {
+			first = info.ModTime()
 		}
-		if len(words) > 1 && hostPattern.MatchString(words[1]) {
-			m.Host = words[1]
-		}
-		out = append(out, listed{m, info.ModTime()})
+		out = append(out, listed{m, first})
 	}
 	return out, nil
 }
@@ -114,10 +155,7 @@ func listMarks(root *os.Root, dir string) ([]listed, error) {
 // A kind holds no '-', so the first one ends it.
 func parseName(name string) (Mark, bool) {
 	kind, key, ok := strings.Cut(name, "-")
-	if !ok || !kindPattern.MatchString(kind) {
-		return Mark{}, false
-	}
-	if safe, err := paths.SafeName(key); err != nil || safe != key {
+	if !ok || !kindPattern.MatchString(kind) || !validKey(key) {
 		return Mark{}, false
 	}
 	if _, ok := registered(kind); !ok {
@@ -126,9 +164,29 @@ func parseName(name string) (Mark, bool) {
 	return Mark{Kind: kind, Key: key}, true
 }
 
+// validKey reports whether key may name a mark: a name paths.SafeName
+// leaves as it is, with no upper-case letter, so that two keys never name
+// one file on a file system that does not tell letter case apart, as
+// macOS's does not by default.
+func validKey(key string) bool {
+	if safe, err := paths.SafeName(key); err != nil || safe != key {
+		return false
+	}
+	return strings.ToLower(key) == key
+}
+
+// syncDirAt syncs a folder under the work root. Tests replace it to see
+// the order of syncs.
+var syncDirAt = paths.SyncDirAt
+
 // take moves marks out of wake/ into run/<id>/ and lists what it moved,
 // so a mark written again while the run goes on lands as a new file in
-// wake/ and is not removed by the run's end.
+// wake/ and is not removed by the run's end. It lists run/<id>/ again
+// rather than trusting marks, so the run gets the words of the files it
+// moved, which may have been written again since marks were listed. It
+// syncs run/<id>/, run/ and wake/ before it returns, so the run's folder
+// is on disk before its start line is written: after a power loss, a start
+// line always has its run's folder, which recovery settles.
 func take(root *os.Root, id string, marks []listed) ([]listed, error) {
 	dir := path.Join(runDir, id)
 	if err := root.Mkdir(dir, 0o700); err != nil {
@@ -138,6 +196,11 @@ func take(root *os.Root, id string, marks []listed) ([]listed, error) {
 		err := root.Rename(path.Join(wakeDir, m.name()), path.Join(dir, m.name()))
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, errors.Join(fmt.Errorf("work: take a mark: %w", err), putBack(root, id))
+		}
+	}
+	for _, d := range []string{dir, runDir, wakeDir} {
+		if err := syncDirAt(root, d); err != nil {
+			return nil, errors.Join(fmt.Errorf("work: %w", err), putBack(root, id))
 		}
 	}
 	taken, err := listMarks(root, dir)
@@ -165,7 +228,14 @@ func putBack(root *os.Root, id string) error {
 		if err := root.Link(from, path.Join(wakeDir, e.Name())); err != nil && !errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("work: put a mark back: %w", err)
 		}
-		if err := root.Remove(from); err != nil {
+	}
+	// The marks are on disk in wake/ before they leave run/<id>/, so a
+	// power loss between the two can't lose one.
+	if err := syncDirAt(root, wakeDir); err != nil {
+		return fmt.Errorf("work: %w", err)
+	}
+	for _, e := range entries {
+		if err := root.Remove(path.Join(dir, e.Name())); err != nil {
 			return fmt.Errorf("work: %w", err)
 		}
 	}

@@ -75,7 +75,8 @@ type Report struct {
 }
 
 // Status says why work waits: what each job's Waiting returns and, for each
-// mark not yet run, WaitBehind since the mark was written. It keeps an item
+// mark not yet run, WaitBehind since the mark was first written: writing it
+// again while it waits does not reset that time. It keeps an item
 // only when it has waited longer than Bar, or is held or waiting for
 // sign-in. It reads the marks' names and words and no captured text; a
 // wake folder it can't read adds nothing.
@@ -92,7 +93,7 @@ func Status(ctx context.Context, dirs paths.Dirs, now time.Time) Report {
 		root.Close()
 		if err == nil {
 			for _, m := range marks {
-				all = append(all, Waiting{Kind: m.Kind, Host: m.Host, Since: m.written, Reason: WaitBehind})
+				all = append(all, Waiting{Kind: m.Kind, Host: m.Host, Since: m.since, Reason: WaitBehind})
 			}
 		}
 	}

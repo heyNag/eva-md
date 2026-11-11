@@ -75,6 +75,7 @@ func (w *worker) runNext(ctx context.Context, marks []listed) error {
 		return nil
 	}
 	mine := slices.DeleteFunc(slices.Clone(marks), func(m listed) bool { return m.Kind != job.Kind })
+	w.o.at("listed")
 	id, err := newRunID()
 	if err != nil {
 		return err

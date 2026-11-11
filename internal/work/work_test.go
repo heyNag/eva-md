@@ -62,6 +62,8 @@ func TestWakeRefusesABadMarkAndWritesNothing(t *testing.T) {
 		"key with a slash":  {Kind: "sync", Key: "a/b", Reason: "stop"},
 		"key with a colon":  {Kind: "sync", Key: "claude-code:1", Reason: "stop"},
 		"dot key":           {Kind: "sync", Key: "..", Reason: "stop"},
+		"upper-case key":    {Kind: "sync", Key: "ABC", Reason: "stop"},
+		"mixed-case key":    {Kind: "sync", Key: "claude-code-Ab1", Reason: "stop"},
 		"no reason":         {Kind: "sync", Key: "k", Reason: ""},
 		"two words":         {Kind: "sync", Key: "k", Reason: "two words"},
 		"upper reason":      {Kind: "sync", Key: "k", Reason: "Stop"},
@@ -80,14 +82,37 @@ func TestWakeRefusesABadMarkAndWritesNothing(t *testing.T) {
 func TestTheSameMarkTwiceLeavesOne(t *testing.T) {
 	withJobs(t, Job{Kind: "sync", Run: done})
 	dirs := testDirs(t)
-	leaveMarks(t, dirs, Mark{Kind: "sync", Key: "k1", Reason: "stop", Host: "codex"})
-	leaveMarks(t, dirs, Mark{Kind: "sync", Key: "k1", Reason: "end"}, Mark{Kind: "sync", Key: "k1", Reason: "compact", Host: "codex"})
+	first := time.Date(2026, 11, 10, 7, 0, 0, 123e6, time.UTC)
+	leaveMarksAt(t, dirs, first, Mark{Kind: "sync", Key: "k1", Reason: "stop", Host: "codex"})
+	leaveMarksAt(t, dirs, first.Add(time.Hour), Mark{Kind: "sync", Key: "k1", Reason: "end"}, Mark{Kind: "sync", Key: "k1", Reason: "compact", Host: "codex"})
 	if got := names(t, dirs, wakeDir); !slices.Equal(got, []string{"sync-k1"}) {
 		t.Fatalf("wake holds %q", got)
 	}
+	// The last write's words, and the first write's time.
 	data, err := os.ReadFile(filepath.Join(dirs.State, "work", wakeDir, "sync-k1"))
-	if err != nil || string(data) != "compact codex\n" {
-		t.Fatalf("the mark holds %q, %v", data, err)
+	if want := fmt.Sprintf("compact codex %d\n", first.UnixMilli()); err != nil || string(data) != want {
+		t.Fatalf("the mark holds %q, %v, want %q", data, err, want)
+	}
+}
+
+// Keys differ only by letter case on no file system: a file in wake/ whose
+// key has an upper-case letter, which no wake writes, is not a mark.
+func TestAFileWithAnUpperCaseKeyIsNotAMark(t *testing.T) {
+	r := newRecorder()
+	withJobs(t, Job{Kind: "sync", Run: r.run})
+	dirs := testDirs(t)
+	leaveMarks(t, dirs, Mark{Kind: "sync", Key: "k1", Reason: "stop"})
+	if err := os.WriteFile(filepath.Join(dirs.State, "work", wakeDir, "sync-K2"), []byte("stop\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Wake(context.Background(), dirs, nil, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.all(); len(got) != 1 || !slices.Equal(keysOf(got[0]), []string{"k1"}) {
+		t.Fatalf("ran %+v", got)
+	}
+	if got := names(t, dirs, wakeDir); !slices.Equal(got, []string{"sync-K2"}) {
+		t.Fatalf("wake holds %q", got)
 	}
 }
 
@@ -168,7 +193,7 @@ func TestAMarkWrittenAgainDuringItsRunRunsAgain(t *testing.T) {
 				return Failed
 			}
 			defer root.Close()
-			if err := writeMark(ctx, root, Mark{Kind: "sync", Key: "k1", Reason: "again"}); err != nil {
+			if err := writeMark(ctx, root, Mark{Kind: "sync", Key: "k1", Reason: "again"}, time.Now()); err != nil {
 				t.Error(err)
 			}
 		}
@@ -201,7 +226,7 @@ func TestABusyJobKeepsItsMarksAndRunsOnceInAWorkersRun(t *testing.T) {
 					return Failed
 				}
 				defer root.Close()
-				if err := writeMark(ctx, root, Mark{Kind: "sync", Key: "k2", Reason: "stop"}); err != nil {
+				if err := writeMark(ctx, root, Mark{Kind: "sync", Key: "k2", Reason: "stop"}, time.Now()); err != nil {
 					t.Error(err)
 				}
 			}
@@ -420,7 +445,7 @@ func plantRun(t *testing.T, dirs paths.Dirs, id string, marks []Mark, lines ...e
 		t.Fatal(err)
 	}
 	for _, m := range marks {
-		if err := os.WriteFile(filepath.Join(dir, m.name()), []byte(markText(m)), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, m.name()), []byte(markText(m, time.Now())), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -560,7 +585,7 @@ func TestAWaiterCutByItsContextLeavesItsMarkToTheWorker(t *testing.T) {
 }
 
 func TestNoJournalLineHoldsAKeyOrAJobsErrorText(t *testing.T) {
-	const marker = "zq7Marker"
+	const marker = "zq7marker"
 	dirs := testDirs(t)
 	withJobs(t,
 		Job{Kind: "sync", Priority: 1, Run: func(_ context.Context, _ []Mark, log io.Writer) Outcome {
