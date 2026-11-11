@@ -104,11 +104,12 @@ func genFront(r *rand.Rand) (front string, want Protection, beyond bool) {
 				want.Locked, want.Verified, beyond = true, true, true
 			case n == 2:
 				// A tab before a key: YAML refuses the line, but a person
-				// wrote a mark.
+				// wrote a mark. U+FEFF before one: a reader may drop it.
+				lead := pick([]string{"\t", "\xef\xbb\xbf", "\t\xef\xbb\xbf"})
 				if r.IntN(2) == 0 {
-					lines, want.Locked = append(lines, "\tlocked:"+pick(unlockValues)), true
+					lines, want.Locked = append(lines, lead+"locked:"+pick(unlockValues)), true
 				} else {
-					lines, want.Verified = append(lines, "\tverified:"+pick(unverifiedValues)), true
+					lines, want.Verified = append(lines, lead+"verified:"+pick(unverifiedValues)), true
 				}
 				beyond = true
 			default:
@@ -237,6 +238,13 @@ func TestProtectionBeyondProfile(t *testing.T) {
 		{"\tlocked: true", Protection{Locked: true}},
 		{"type: fact\n\tlocked:\tfalse", Protection{Locked: true}},
 		{"type: fact\n\t\"verified\": []", Protection{Verified: true}},
+		// U+FEFF before a key: a reader handed the frontmatter alone drops
+		// it where the stream starts and reads the key.
+		{"\xef\xbb\xbflocked: false", Protection{Locked: true}},
+		{"\xef\xbb\xbf\xef\xbb\xbf  verified: []\ntype: fact", Protection{Verified: true}},
+		{"type: fact\n\xef\xbb\xbf\tlocked: false", Protection{Locked: true}},
+		{"\xef\xbb\xbf{type: fact, locked: false}", Protection{Locked: true, Verified: true}},
+		{"\xef\xbb\xbf\n\xef\xbb\xbf# c\n\t\xef\xbb\xbf!!map {type: fact}", Protection{Locked: true, Verified: true}},
 		// A key line with no space after its colon is a different key to
 		// YAML, "verified:{locked"; it still protects as the key it shows.
 		{"verified:{locked: true}", Protection{Verified: true}},

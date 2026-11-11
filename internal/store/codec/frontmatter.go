@@ -123,13 +123,14 @@ func (d *Doc) Protection() Protection {
 		p.Locked, p.Verified = true, true
 	}
 	// A line that belongs to no key but reads as a protection key, such as
-	// one indented less than the block or with a tab before it, is a mark a
-	// person wrote; so is a key line with no space after its colon.
+	// one indented less than the block or with a tab or U+FEFF before it,
+	// is a mark a person wrote; so is a key line with no space after its
+	// colon.
 	for i := 1; i < d.close; i++ {
 		if d.kinds[i] != opaque && d.kinds[i] != keyLine {
 			continue
 		}
-		s := strings.TrimLeft(text(d.lines[i]), " \t")
+		s := unlead(text(d.lines[i]))
 		key, ok := "", false
 		switch m := reTightKey.FindStringSubmatch(s); {
 		case m != nil:
@@ -556,7 +557,7 @@ func (d *Doc) owned(key string) map[int]bool {
 // is then one mapping written on its lines.
 func (d *Doc) flowRoot() bool {
 	for i := 1; i < d.close; i++ {
-		s := strings.Trim(text(d.lines[i]), " \t")
+		s := strings.TrimRight(unlead(text(d.lines[i])), " \t")
 		if s == "" || strings.HasPrefix(s, "#") {
 			continue
 		}
@@ -686,7 +687,7 @@ func readKey(s string, explicit bool) (key, after string, ok bool) {
 		}
 		s = strings.TrimLeft(s[i:], " \t")
 	}
-	if s == "" || s[0] == ' ' || s[0] == '\t' {
+	if s == "" || s[0] == ' ' || s[0] == '\t' || strings.HasPrefix(s, bom) {
 		return "", "", false
 	}
 	switch c := s[0]; {
@@ -754,6 +755,19 @@ func readKey(s string, explicit bool) (key, after string, ok bool) {
 		key, after = strings.TrimRight(s[:i], " \t"), s[i:]
 	}
 	return key, strings.TrimLeft(after, " \t"), true
+}
+
+// bom is U+FEFF, which a YAML reader drops where a stream starts: a
+// frontmatter line that starts with it reads as the line without it to a
+// reader handed the frontmatter alone.
+const bom = "\xef\xbb\xbf"
+
+// unlead drops the spaces, tabs and U+FEFF a line starts with.
+func unlead(s string) string {
+	for t := ""; t != s; {
+		t, s = s, strings.TrimPrefix(strings.TrimLeft(s, " \t"), bom)
+	}
+	return s
 }
 
 // isAnchorByte reports a byte of libyaml's anchor and alias names.
