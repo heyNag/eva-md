@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -40,7 +41,7 @@ var (
 		Shows:   ": marketplace root does not contain a supported manifest",
 	}
 	claudeCodeMarketplaceRoot = Quirk{
-		ID: "claude-code.marketplace-root-keys", Host: ClaudeCode, Lowest: "2.1.312", Highest: "2.1.316",
+		ID: "claude-code.marketplace-root-keys", Host: ClaudeCode, Lowest: "2.1.311", Highest: "2.1.316",
 		What:    "A marketplace's folder is read from the first of root, path, installLocation, marketplaceSource.source, source.path and source.source its listing gives (inspect in internal/install/host.go).",
 		Fixture: "claude-code-marketplace-list.json",
 		Shows:   `"installLocation"`,
@@ -52,10 +53,10 @@ var (
 		Shows:   `"installLocation"`,
 	}
 	codexHooksFeature = Quirk{
-		ID: "codex.features-list-hooks-row", Host: Codex, Lowest: "0.166.0", Highest: "0.166.0",
-		What:    "Whether hooks are on is the row of codex features list whose first column is hooks, read by its last column (internal/health/hosts.go and internal/install/install.go).",
+		ID: "codex.features-list-hooks-row", Host: Codex, Lowest: "0.164.0", Highest: "0.166.0",
+		What:    "Whether hooks are on is the row of codex features list whose first column is hooks, read by its last column only, since its middle column changes by version: experimental here, stable from 0.167 (internal/health/hosts.go and internal/install/install.go).",
 		Fixture: "codex-features-list.txt",
-		Shows:   "\nhooks ",
+		Shows:   "\nhooks experimental true\n",
 	}
 )
 
@@ -63,10 +64,10 @@ var (
 // its tested maximum: the newest version eva-md was checked against.
 var table = []Row{
 	{
-		Host: ClaudeCode, Lowest: "2.1.312", Highest: "2.1.316",
+		Host: ClaudeCode, Lowest: "2.1.311", Highest: "2.1.316",
 		Events: []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "PreCompact", "PostCompact", "PostModelSwitch", "SessionEnd"},
 		Quirks: []Quirk{claudeCodeMarketplaceRoot},
-		Source: "Lowest: the update's failure classes are matched as claude 2.1.312 words them (docs/known-limitations.md). " +
+		Source: "Lowest: the lowest version the repository records eva-md being checked on, 2.1.311, where docs/design.md records --json-schema working with --tools \"\" and strict validation requiring the marketplace description. " +
 			"Highest: docs/verification.md, Live checks, Claude Code marketplace removal. " +
 			"Events: render in internal/install/templates.go.",
 	},
@@ -74,17 +75,20 @@ var table = []Row{
 		Host: Codex, Lowest: "0.164.0", Highest: "0.166.0",
 		Events: []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PreCompact", "Interrupt", "SessionEnd"},
 		Quirks: []Quirk{codexMarketplaceRoot, codexFolderMissing, codexHooksFeature},
-		Source: "Lowest: docs/design.md records the .codex-plugin manifest exposing all seven hooks, and hook trust over the plugin's contents, on Codex 0.164.0. " +
+		Source: "Lowest: the lowest version the repository records eva-md being checked on, 0.164.0, where docs/design.md records hook trust over the plugin's contents and the unified shell's exit status. " +
 			"Highest: docs/verification.md, Live checks, Codex tool features and Codex plugin inventory. " +
 			"Events: render in internal/install/templates.go.",
 	},
 }
 
-// Rows gives a host's rows, oldest first.
+// Rows gives a host's rows, oldest first. They are copies: a change to one
+// leaves the table alone.
 func Rows(id ID) []Row {
 	var rows []Row
 	for _, r := range table {
 		if r.Host == id {
+			r.Events = slices.Clone(r.Events)
+			r.Quirks = slices.Clone(r.Quirks)
 			rows = append(rows, r)
 		}
 	}

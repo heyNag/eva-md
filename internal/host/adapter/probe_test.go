@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -50,8 +52,8 @@ func TestProbeFindsTheRowForTheVersion(t *testing.T) {
 		known, untested bool
 	}{
 		{ClaudeCode, "claude", "2.1.300 (Claude Code)", "2.1.300", "", false, false},
-		{ClaudeCode, "claude", "2.1.314 (Claude Code)", "2.1.314", "2.1.312", true, false},
-		{ClaudeCode, "claude", "2.1.400 (Claude Code)", "2.1.400", "2.1.312", false, true},
+		{ClaudeCode, "claude", "2.1.314 (Claude Code)", "2.1.314", "2.1.311", true, false},
+		{ClaudeCode, "claude", "2.1.400 (Claude Code)", "2.1.400", "2.1.311", false, true},
 		{Codex, "codex", "codex-cli 0.150.0", "0.150.0", "", false, false},
 		{Codex, "codex", "codex-cli 0.165.0", "0.165.0", "0.164.0", true, false},
 		{Codex, "codex", "codex-cli 0.170.2", "0.170.2", "0.164.0", false, true},
@@ -117,7 +119,7 @@ func TestProbeWithoutACLI(t *testing.T) {
 func counting(n *atomic.Int32) func(context.Context, string, ...string) ([]byte, error) {
 	return func(ctx context.Context, cli string, args ...string) ([]byte, error) {
 		n.Add(1)
-		return native(ctx, cli, args...)
+		return native(probeWaitDelay)(ctx, cli, args...)
 	}
 }
 
@@ -225,5 +227,73 @@ func TestProbeEndsWhenCancelled(t *testing.T) {
 		}
 	case <-time.After(hangGuard):
 		t.Fatal("the probe didn't end when cancelled")
+	}
+}
+
+// probeWithin runs a probe with the given limits and gives its result, or
+// fails the test if it hasn't ended within the hang guard.
+func probeWithin(t *testing.T, id ID, dir string, lim limits) ProbeResult {
+	t.Helper()
+	done := make(chan ProbeResult, 1)
+	go func() { done <- probe(context.Background(), id, Env{LookPath: lookIn(dir)}, lim) }()
+	select {
+	case p := <-done:
+		return p
+	case <-time.After(hangGuard):
+		t.Fatal("the probe didn't end")
+		return ProbeResult{}
+	}
+}
+
+// A CLI that prints a version and then never exits ends when the probe's
+// time limit does, though the caller's context never ends, and gives no
+// version. The limit is this probe's alone; the package's stays raised.
+func TestProbeEndsAtItsTimeLimit(t *testing.T) {
+	dir := realDir(t)
+	// The CLI blocks until it is killed; nothing waits on its clock.
+	fakeCLI(t, dir, "claude", "echo '2.1.314 (Claude Code)'\nexec sleep 3600")
+	p := probeWithin(t, ClaudeCode, dir, limits{timeout: 100 * time.Millisecond, waitDelay: probeWaitDelay})
+	if p.Version != "" || p.Known || p.Row != nil || p.CLI != filepath.Join(dir, "claude") {
+		t.Fatalf("a probe past its time limit: %+v", p)
+	}
+}
+
+// A CLI that exits but leaves a child holding its output open is waited for
+// no longer than the probe's wait delay, though its time limit is far off.
+func TestProbeEndsAtItsWaitDelay(t *testing.T) {
+	dir := realDir(t)
+	pidFile := filepath.Join(dir, "child.pid")
+	fakeCLI(t, dir, "codex", "sleep 3600 &\necho $! > '"+pidFile+"'\necho 'codex-cli 0.165.0'")
+	t.Cleanup(func() {
+		if data, err := os.ReadFile(pidFile); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	p := probeWithin(t, Codex, dir, limits{timeout: probeTimeout, waitDelay: 100 * time.Millisecond})
+	if p.Version != "" || p.Known || p.CLI != filepath.Join(dir, "codex") {
+		t.Fatalf("a probe whose CLI left its output open: %+v", p)
+	}
+	if _, err := os.Stat(pidFile); err != nil {
+		t.Fatalf("the CLI never started its child: %v", err)
+	}
+}
+
+// Of what <cli> --version prints, only the first 64 KiB are read, and a CLI
+// that prints more still runs to its end: a version past them is not seen,
+// one before them is.
+func TestProbeReadsTheFirst64KiB(t *testing.T) {
+	const flood = "head -c 70000 /dev/zero | tr '\\0' x\necho"
+	for body, want := range map[string]string{
+		flood + "\necho '2.1.314 (Claude Code)'": "",
+		"echo '2.1.314 (Claude Code)'\n" + flood: "2.1.314",
+	} {
+		dir := realDir(t)
+		fakeCLI(t, dir, "claude", body)
+		p := probeWithin(t, ClaudeCode, dir, limits{timeout: probeTimeout, waitDelay: probeWaitDelay})
+		if p.Version != want || p.Known != (want != "") {
+			t.Errorf("a CLI printing %q: %+v", body, p)
+		}
 	}
 }

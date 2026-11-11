@@ -1,4 +1,4 @@
-apps                                     experimental       false
-hooks                                    stable             true
-multi_agent                              stable             false
-view_image                               stable             true
+apps experimental false
+hooks experimental true
+multi_agent experimental false
+view_image stable true

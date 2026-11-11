@@ -50,10 +50,21 @@ var (
 	probeWaitDelay = time.Second
 )
 
+// limits are the time limits one probe keeps. Probe takes the package's; a
+// test that needs a short limit gives it to one probe here.
+type limits struct {
+	timeout   time.Duration
+	waitDelay time.Duration
+}
+
 // Probe finds a host's CLI on PATH and reads its version. It reads no
 // settings file, calls no model and uses no network. A CLI's version is read
 // once while its file keeps its path, size and modification time.
 func Probe(ctx context.Context, id ID, env Env) ProbeResult {
+	return probe(ctx, id, env, limits{timeout: probeTimeout, waitDelay: probeWaitDelay})
+}
+
+func probe(ctx context.Context, id ID, env Env, lim limits) ProbeResult {
 	result := ProbeResult{Host: id}
 	h, ok := ByID(string(id))
 	if !ok {
@@ -64,13 +75,13 @@ func Probe(ctx context.Context, id ID, env Env) ProbeResult {
 		lookPath = exec.LookPath
 	}
 	if run == nil {
-		run = native
+		run = native(lim.waitDelay)
 	}
 	result.CLI = cliPath(h.Names.CLI, lookPath)
 	if result.CLI == "" {
 		return result
 	}
-	result.Version = version(ctx, result.CLI, run)
+	result.Version = version(ctx, result.CLI, run, lim.timeout)
 	result.Row, result.Known, result.Untested = match(id, result.Version)
 	return result
 }
@@ -108,7 +119,7 @@ var versions = struct {
 
 // version reads the CLI's version, from the cache while its file is
 // unchanged. A run that fails is not cached, so it is tried again.
-func version(ctx context.Context, cli string, run func(context.Context, string, ...string) ([]byte, error)) string {
+func version(ctx context.Context, cli string, run func(context.Context, string, ...string) ([]byte, error), timeout time.Duration) string {
 	info, err := os.Stat(cli)
 	if err != nil {
 		return ""
@@ -119,7 +130,7 @@ func version(ctx context.Context, cli string, run func(context.Context, string, 
 	if ok && e.size == info.Size() && e.mod.Equal(info.ModTime()) {
 		return e.version
 	}
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	out, err := run(ctx, cli, "--version")
 	if err != nil {
@@ -151,16 +162,21 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// native runs a command from /, so no project's own settings take part, and
-// keeps what it prints on stdout. Its diagnostics are dropped.
-func native(ctx context.Context, cli string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, cli, args...)
-	cmd.Dir = "/"
-	cmd.WaitDelay = probeWaitDelay
-	var stdout cappedBuffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return nil, errors.New("host version unavailable")
+// native is the runner that runs a command from /, so no project's own
+// settings take part, and keeps the first probeOutputLimit bytes it prints on
+// stdout. Its diagnostics are dropped. Once the command has exited or its
+// context has ended, its output is waited for no longer than waitDelay, as a
+// child it leaves behind can hold the output open.
+func native(waitDelay time.Duration) func(ctx context.Context, cli string, args ...string) ([]byte, error) {
+	return func(ctx context.Context, cli string, args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, cli, args...)
+		cmd.Dir = "/"
+		cmd.WaitDelay = waitDelay
+		var stdout cappedBuffer
+		cmd.Stdout = &stdout
+		if err := cmd.Run(); err != nil {
+			return nil, errors.New("host version unavailable")
+		}
+		return stdout.buffer.Bytes(), nil
 	}
-	return stdout.buffer.Bytes(), nil
 }

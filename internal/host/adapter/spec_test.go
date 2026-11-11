@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -247,8 +249,8 @@ func TestMatch(t *testing.T) {
 		{Codex, "0.1000.0", codex, false, true},
 		{Codex, "1.0.0", codex, false, true},
 		{Codex, "", nil, false, false},
-		{ClaudeCode, "2.1.311", nil, false, false},
-		{ClaudeCode, "2.1.312", claude, true, false},
+		{ClaudeCode, "2.1.310", nil, false, false},
+		{ClaudeCode, "2.1.311", claude, true, false},
 		{ClaudeCode, "2.1.316", claude, true, false},
 		{ClaudeCode, "2.1.317", claude, false, true},
 		{ClaudeCode, "0.166.0", nil, false, false},
@@ -318,5 +320,109 @@ func TestAThirdHostIsARowAndAName(t *testing.T) {
 	p := Probe(context.Background(), third.ID, Env{LookPath: lookIn(dir)})
 	if p.Version != "3.2.0" || !p.Known || p.Untested || p.Row == nil || p.Row.Host != third.ID || p.Row.Lowest != "3.0.0" {
 		t.Fatalf("probe of the third host: %+v", p)
+	}
+}
+
+// A change to the rows Rows gives, or to the row a probe's match gives,
+// leaves the table alone.
+func TestRowsAreCopies(t *testing.T) {
+	want := copyTable(table)
+	r := Rows(Codex)[0]
+	r.Events[0] = "Changed"
+	r.Quirks[0].Fixture = ""
+	row, known, _ := match(ClaudeCode, "2.1.314")
+	if row == nil || !known {
+		t.Fatalf("match gave no row: %+v", row)
+	}
+	row.Events[0] = "Changed"
+	row.Quirks[0].Shows = ""
+	if !reflect.DeepEqual(table, want) {
+		t.Fatalf("the table changed: %+v", table)
+	}
+	if err := checkTable(table, filepath.Join("testdata", "quirks")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Each host's lowest row starts at the lowest version of it the docs record
+// eva-md being checked on, so a version the docs name always has a row, and
+// its source says so. A version is recorded as the host's app or CLI name,
+// then N.N.N.
+func TestLowestRowIsTheLowestVersionRecorded(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	files, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, filepath.Join(root, "README.md"))
+	var text strings.Builder
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text.Write(data)
+		text.WriteByte('\n')
+	}
+	for _, h := range All() {
+		re := regexp.MustCompile(`(?i)\b(?:` + regexp.QuoteMeta(h.Names.App) + `|` + regexp.QuoteMeta(h.Names.CLI) + `) (\d+\.\d+\.\d+)\b`)
+		lowest, seen := "", [3]int{}
+		for _, m := range re.FindAllStringSubmatch(text.String(), -1) {
+			if v, ok := parseVersion(m[1]); ok && (lowest == "" || compare(v, seen) < 0) {
+				lowest, seen = m[1], v
+			}
+		}
+		rows := Rows(h.ID)
+		if lowest == "" || len(rows) == 0 {
+			t.Fatalf("%s: the docs record no version of it, or it has no rows", h.ID)
+		}
+		if rows[0].Lowest != lowest {
+			t.Errorf("%s's lowest row starts at %s; the lowest version the docs record is %s", h.ID, rows[0].Lowest, lowest)
+		}
+		if !strings.Contains(rows[0].Source, "Lowest: the lowest version the repository records eva-md being checked on, "+lowest) {
+			t.Errorf("%s's lowest row doesn't say which rule picked its lowest version: %q", h.ID, rows[0].Source)
+		}
+	}
+}
+
+// The quirks v1 matches on every version span all of their host's rows, not
+// one version of them.
+func TestQuirksV1ReadsEverywhereSpanTheirRows(t *testing.T) {
+	for _, id := range []string{"claude-code.marketplace-root-keys", "codex.marketplace-root-keys", "codex.features-list-hooks-row"} {
+		var q Quirk
+		for _, each := range Quirks() {
+			if each.ID == id {
+				q = each
+			}
+		}
+		rows := Rows(q.Host)
+		if q.ID == "" || len(rows) == 0 || q.Lowest != rows[0].Lowest || q.Highest != rows[len(rows)-1].Highest {
+			t.Errorf("quirk %s covers %q to %q, not all of its host's rows", id, q.Lowest, q.Highest)
+		}
+	}
+}
+
+// The hooks row of codex features list, in the quirk's fixture, has the
+// form the repository records for the versions before Codex 0.167, "hooks
+// experimental <state>", not 0.167's "hooks stable <state>", and the quirk
+// checks the middle column. Read as v1 reads it, by its first and last
+// column, it gives the state.
+func TestCodexHooksRowFixture(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "quirks", codexHooksFeature.Fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows [][]string
+	for _, line := range strings.Split(string(data), "\n") {
+		if f := strings.Fields(line); len(f) > 0 && f[0] == "hooks" {
+			rows = append(rows, f)
+		}
+	}
+	if len(rows) != 1 || len(rows[0]) != 3 || rows[0][1] != "experimental" || rows[0][2] != "true" {
+		t.Fatalf("the fixture's hooks rows: %q", rows)
+	}
+	stable := strings.Replace(string(data), "hooks experimental", "hooks stable", 1)
+	if !strings.Contains(string(data), codexHooksFeature.Shows) || strings.Contains(stable, codexHooksFeature.Shows) {
+		t.Errorf("the quirk's Shows %q doesn't tell the form before 0.167 from 0.167's", codexHooksFeature.Shows)
 	}
 }
