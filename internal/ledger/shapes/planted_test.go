@@ -290,8 +290,9 @@ func TestAChatIsCountedOnce(t *testing.T) {
 
 // A Codex fork's file begins with a first record of its own, which names
 // the session it was forked from in forked_from_id and need not repeat
-// any of that session's rows: one chat with five such forks counts once,
-// a fork of a chat off the record adds to no figure, and a marker planted
+// any of that session's rows: one chat with five such forks, one of them a
+// fork of a fork, counts once, a fork of a chat off the record, or of one
+// of its forks, adds to no figure, and a marker planted
 // as a fork's parent id, as a string or an object, reaches no output.
 func TestACodexForkCountsWithItsChat(t *testing.T) {
 	ids := codexIDs(8)
@@ -308,9 +309,11 @@ func TestACodexForkCountsWithItsChat(t *testing.T) {
 		}
 		parent := ids[0]
 		chat(parent, nil)
-		for _, fork := range ids[1:6] {
+		for _, fork := range ids[1:5] {
 			chat(fork, map[string]any{"forked_from_id": parent})
 		}
+		// A fork of a fork names the fork it was made from, not the chat.
+		chat(ids[5], map[string]any{"forked_from_id": ids[4]})
 		if off {
 			f.mark(codex, parent, session.OffRecord)
 		} else {
