@@ -51,6 +51,8 @@ type Options struct {
 	Config  config.Config // for the folders left out by design
 	Session string        // one session, by its id; "" for every one
 	Last    int           // the newest sessions only, when above 0
+
+	rowLimit int // the longest host row decoded, maxRow when 0; tests lower it
 }
 
 // Coverage counts one kind's items: in the host's record and the inbox
@@ -80,10 +82,15 @@ type Recovery struct {
 	NoRecord     int // no recovery record, as for a record pruned
 	NoneNamed    int // no hook named a transcript
 	NamedRefused int // a hook named one and recovery refused it
+	NotWritten   int // a hook named one the rules admit, not written yet
+	WhyUnknown   int // missing, in a record from before eva-md kept why
 	Refused      int // the record names one the rules refuse now
 	Gone         int // the record names one that no longer exists
 	OffNow       int // the chat is off the record now: not opened
-	Unreadable   int // the record or the transcript could not be read
+	// OffUnplaced counts chats that were off the record once, where neither
+	// the inbox nor the host's record shows the range: not counted.
+	OffUnplaced int
+	Unreadable  int // the record or the transcript could not be read
 }
 
 // Row is one paired session's coverage.
@@ -100,6 +107,7 @@ type Report struct {
 	Rows          []Row
 	Coverage      [kinds]Coverage
 	BeforeCapture int // host items before a session's first stored line
+	LeftOut       int // host items in folders the hooks leave out by design
 	TooLong       int // host rows too long to read
 	PausedInbox   int // ranges said off the record in the inbox
 	PausedHost    int // and in the host's records read
@@ -175,9 +183,10 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if o.Last > 0 && len(order) > o.Last {
 		order = order[:o.Last]
 	}
+	away := outside(o)
 	for _, g := range order {
 		r.Files += len(groups[g])
-		if err := r.session(ctx, o, g.host, g.session, groups[g]); err != nil {
+		if err := r.session(ctx, o, away, g.host, g.session, groups[g]); err != nil {
 			return Report{}, err
 		}
 	}
@@ -217,25 +226,40 @@ func span(events []event.Event) (first, last time.Time) {
 // stretches of time either says were off the record are left out of every
 // count on both sides, but as paused ranges: what the host's record says
 // was paused is not counted from the inbox either, where a hook stored it.
-func (r *Report) session(ctx context.Context, o Options, host, id string, files []file) error {
+// A line or row with no time is left out whenever there is such a range. A
+// chat that was off the record once, where neither side shows the range,
+// is not paired.
+func (r *Report) session(ctx context.Context, o Options, away func(string) bool, host, id string, files []file) error {
 	var paused []interval
 	var first time.Time
+	inboxPaused := 0
 	for _, f := range files {
 		r.Classes[f.session.Class]++
 		p, n := pauses(f.events)
 		paused = append(paused, p...)
-		r.PausedInbox += n
+		inboxPaused += n
 		if a, _ := span(f.events); !a.IsZero() && (first.IsZero() || a.Before(first)) {
 			first = a
 		}
 	}
-	rec, ok, err := r.hostRecord(ctx, o, host, id)
+	r.PausedInbox += inboxPaused
+	rec, ok, err := r.hostRecord(ctx, o, away, host, id)
 	if err != nil {
 		return err
 	}
+	if ok && inboxPaused == 0 && rec.paused == 0 {
+		_, was, err := session.Markers{Root: o.Dirs.Sessions()}.GetContext(ctx, host, id, session.WasOff)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil || was {
+			r.Recovery.OffUnplaced++
+			ok = false
+		}
+	}
 	if ok {
+		r.Recovery.Paired++
 		r.PausedHost += rec.paused
-		r.TooLong += rec.tooLong
 		paused = append(paused, rec.pauses...)
 	}
 	var stored [kinds]map[string]int
@@ -244,8 +268,8 @@ func (r *Report) session(ctx context.Context, o Options, host, id string, files 
 	}
 	for i := range files {
 		files[i].events = slices.DeleteFunc(slices.Clone(files[i].events), func(e event.Event) bool {
-			t, err := time.Parse(time.RFC3339Nano, e.T)
-			return err == nil && within(t, paused)
+			t, _ := time.Parse(time.RFC3339Nano, e.T)
+			return within(t, paused)
 		})
 		r.inboxFile(files[i].events, &stored)
 	}
@@ -263,8 +287,14 @@ func (r *Report) session(ctx context.Context, o Options, host, id string, files 
 		switch {
 		case within(it.at, paused):
 			continue
+		case it.kind == longRow:
+			r.TooLong++
+			continue
 		case !it.at.IsZero() && !first.IsZero() && it.at.Before(first.Add(-lead)):
 			r.BeforeCapture++
+			continue
+		case it.kind == awayItem:
+			r.LeftOut++
 			continue
 		case it.kind == interrupt:
 			interrupted[it.turn] = true
@@ -290,7 +320,7 @@ func (r *Report) session(ctx context.Context, o Options, host, id string, files 
 // hostRecord reads the host's record of the session, where its recovery
 // record names one that recovery's rules admit, and counts why it did not
 // otherwise. A transcript the rules refuse by its path is never opened.
-func (r *Report) hostRecord(ctx context.Context, o Options, host, id string) (hostRecord, bool, error) {
+func (r *Report) hostRecord(ctx context.Context, o Options, away func(string) bool, host, id string) (hostRecord, bool, error) {
 	s, found, err := catchup.Record(ctx, o.Dirs, host, id)
 	switch {
 	case ctx.Err() != nil:
@@ -301,11 +331,17 @@ func (r *Report) hostRecord(ctx context.Context, o Options, host, id string) (ho
 	case !found:
 		r.Recovery.NoRecord++
 		return hostRecord{}, false, nil
-	case s.Missing && s.Refused:
-		r.Recovery.NamedRefused++
-		return hostRecord{}, false, nil
 	case s.Missing:
-		r.Recovery.NoneNamed++
+		switch s.MissingWhy {
+		case catchup.MissingNoneNamed:
+			r.Recovery.NoneNamed++
+		case catchup.MissingRefused:
+			r.Recovery.NamedRefused++
+		case catchup.MissingNotWritten:
+			r.Recovery.NotWritten++
+		default:
+			r.Recovery.WhyUnknown++
+		}
 		return hostRecord{}, false, nil
 	}
 	_, off, err := session.Markers{Root: o.Dirs.Sessions()}.GetContext(ctx, host, id, session.OffRecord)
@@ -327,7 +363,11 @@ func (r *Report) hostRecord(ctx context.Context, o Options, host, id string) (ho
 		return hostRecord{}, false, nil
 	}
 	defer f.Close()
-	rec, err := readHost(ctx, host, id, f, maxRow)
+	limit := o.rowLimit
+	if limit <= 0 {
+		limit = maxRow
+	}
+	rec, err := readHost(ctx, s, away, f, limit)
 	if ctx.Err() != nil {
 		return hostRecord{}, false, ctx.Err()
 	}
@@ -335,7 +375,6 @@ func (r *Report) hostRecord(ctx context.Context, o Options, host, id string) (ho
 		r.Recovery.Unreadable++
 		return hostRecord{}, false, nil
 	}
-	r.Recovery.Paired++
 	return rec, true, nil
 }
 
@@ -509,9 +548,13 @@ func within(t time.Time, in []interval) bool {
 // pauses returns the stretches of time an inbox file says were off the
 // record, and how many ranges it holds. A range opens at a pause control,
 // or at a line withheld as off the record when no control opened it, and
-// closes at the next line returned; its stretch runs from the time of the
-// control, or of the last line before it, to a second after the line that
-// closed it, and is open where no time is known.
+// closes at the next line returned with a time that is neither withheld
+// nor repaired; its stretch runs from the time of the control, or of the
+// last line before it, to a second after the line that closed it, and is
+// open where no time is known. A control that brings the chat back on the
+// record with no range open closes one that began after the last line
+// before it, as when recovery found the control that opened it in a row
+// the hooks missed and stored nothing in its place.
 func pauses(events []event.Event) ([]interval, int) {
 	var out []interval
 	n := 0
@@ -521,7 +564,8 @@ func pauses(events []event.Event) ([]interval, int) {
 	for _, e := range events {
 		t, _ := time.Parse(time.RFC3339Nano, e.T)
 		off := e.Kind == event.KindControl && e.Op == event.OpOff || e.Has(event.MarkWithheld) && e.Why == event.WhyOffRecord
-		neutral := e.Has(event.MarkWithheld) && e.Why != event.WhyOffRecord
+		on := e.Kind == event.KindControl && e.Op == event.OpOn
+		neutral := e.Has(event.MarkWithheld) && e.Why != event.WhyOffRecord || e.Has(event.MarkRepaired) || t.IsZero()
 		switch {
 		case off && !open:
 			open, n = true, n+1
@@ -529,11 +573,12 @@ func pauses(events []event.Event) ([]interval, int) {
 			if e.Kind == event.KindControl {
 				cur.start = t
 			}
+		case on && !open && !t.IsZero():
+			n++
+			out = append(out, interval{start: last, end: t.Add(time.Second)})
 		case !off && !neutral && open:
 			open = false
-			if !t.IsZero() {
-				cur.end = t.Add(time.Second)
-			}
+			cur.end = t.Add(time.Second)
 			out = append(out, cur)
 		}
 		if !t.IsZero() {

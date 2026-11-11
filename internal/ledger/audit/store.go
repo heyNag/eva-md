@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -23,9 +24,11 @@ type Store struct {
 	// ByDesign counts, of NoEvaFile, those in a folder eva-md leaves out by
 	// design (a temporary, spare, excluded, wiki or eva-md folder), told by
 	// the name Claude Code gives a project's folder of chats. Several
-	// folders share a name, so it is an upper bound; Codex names no folder,
-	// so it is 0 there.
+	// folders share a name, so it may count a folder captured; a folder
+	// excluded by its remote is not told, so it is not counted. Codex names
+	// no folder, so there it is not known (Folders false).
 	ByDesign int
+	Folders  bool // the file names tell the folders, so ByDesign is known
 }
 
 // stores counts each host's folder of chats under o.Home against the
@@ -34,7 +37,7 @@ func stores(o Options, known map[string]map[string]bool, first time.Time) []Stor
 	left := leftOut(o)
 	var out []Store
 	for _, host := range []string{"claude-code", "codex"} {
-		s := Store{Host: host}
+		s := Store{Host: host, Folders: host == "claude-code"}
 		walkStore(o.Home, host, func(folder, id string, mod time.Time) {
 			s.Files++
 			switch {
@@ -188,5 +191,55 @@ func leftOut(o Options) func(string) bool {
 			}
 		}
 		return false
+	}
+}
+
+// outside returns whether a chat's folder is one whose events v1's hook
+// leaves out by design, as the hook judges it but for an exclusion by the
+// folder's remote, which needs git: an excluded folder, a temporary
+// folder, Claude Code's spares, Codex's memories, eva-md's state or the
+// wiki, or a folder inside one, by its path and where its symlinks lead.
+func outside(o Options) func(string) bool {
+	var roots []string
+	for _, d := range []string{o.TempDir, "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp",
+		filepath.Join(o.Home, ".claude", "spares"), filepath.Join(o.Home, ".codex", "memories"), o.Dirs.State, o.Config.WikiPath} {
+		if !filepath.IsAbs(d) {
+			continue
+		}
+		if r, err := filepath.EvalSymlinks(d); err == nil {
+			d = r
+		}
+		roots = append(roots, filepath.Clean(d))
+	}
+	fold := func(p string) string {
+		if runtime.GOOS == "darwin" {
+			return strings.ToLower(p)
+		}
+		return p
+	}
+	inside := func(child string) bool {
+		for _, root := range roots {
+			if rel, err := filepath.Rel(fold(root), fold(child)); err == nil && (rel == "." || filepath.IsLocal(rel)) {
+				return true
+			}
+		}
+		return false
+	}
+	known := map[string]bool{}
+	return func(dir string) bool {
+		if v, ok := known[dir]; ok {
+			return v
+		}
+		v := false
+		if filepath.IsAbs(dir) {
+			resolved := filepath.Clean(dir)
+			if r, err := filepath.EvalSymlinks(dir); err == nil {
+				resolved = r
+			}
+			v = o.Config.Excluded(dir, "") || o.Config.Excluded(resolved, "") || inside(resolved) ||
+				strings.HasSuffix(filepath.ToSlash(resolved), "/.codex/memories")
+		}
+		known[dir] = v
+		return v
 	}
 }

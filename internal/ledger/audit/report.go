@@ -28,7 +28,7 @@ func (r Report) Write(w io.Writer) error {
 		}
 		p.f("\n")
 	}
-	p.f("host's rows before a session's first stored line, not compared: %d; too long to read: %d\n", r.BeforeCapture, r.TooLong)
+	p.f("host's rows not compared: before a session's first stored line %d, in folders left out by design %d, too long to read %d\n", r.BeforeCapture, r.LeftOut, r.TooLong)
 	p.f("ranges said off the record, counted as paused only: %d in the inbox, %d in the host's records read\n", r.PausedInbox, r.PausedHost)
 	p.f("exact repeats (all, a hook's line with a recovered one):\n")
 	for k, n := range [kinds]string{"prompts", "replies", "tool lines"} {
@@ -46,14 +46,19 @@ func (r Report) Write(w io.Writer) error {
 	p.f("inbox files by what they show: a subagent's %d, a program's start %d, an end with no start %d, no turn at all %d, none of these %d\n",
 		c[event.ClassSubagent], c[event.ClassProgram], c[event.ClassUnrun], c[event.ClassHousekeeping], c[event.ClassUnknown]+c[event.ClassChat])
 	v := r.Recovery
-	p.f("sessions not paired with a host record: no recovery record %d, payload named none %d, path named and refused %d, refused now %d, gone %d, off the record now %d, unreadable %d\n",
-		v.NoRecord, v.NoneNamed, v.NamedRefused, v.Refused, v.Gone, v.OffNow, v.Unreadable)
+	p.f("sessions not paired with a host record: no recovery record %d, payload named none %d, path named and refused %d, path named and not written yet %d, missing for a reason an older record does not keep %d, refused now %d, gone %d, off the record now %d, off the record once with its range not found %d, unreadable %d\n",
+		v.NoRecord, v.NoneNamed, v.NamedRefused, v.NotWritten, v.WhyUnknown, v.Refused, v.Gone, v.OffNow, v.OffUnplaced, v.Unreadable)
 	if r.Stores == nil {
 		p.f("host sessions with no eva-md file: counted only when every session is audited\n")
 	}
 	for _, s := range r.Stores {
-		p.f("host sessions with no eva-md file on %s: %d of %d, %d of them in folders left out by design at most; %d more older than the inbox\n",
-			s.Host, s.NoEvaFile, s.Files, s.ByDesign, s.Older)
+		p.f("host sessions with no eva-md file on %s: %d of %d", s.Host, s.NoEvaFile, s.Files)
+		if s.Folders {
+			p.f(", %d of them in folders left out by design, those excluded by their remote not told", s.ByDesign)
+		} else {
+			p.f(", how many in folders left out by design not known")
+		}
+		p.f("; %d more older than the inbox\n", s.Older)
 	}
 	return p.err
 }

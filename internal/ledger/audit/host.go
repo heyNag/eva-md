@@ -2,14 +2,17 @@ package audit
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/ledger/inboxv1"
 	"github.com/heyNag/eva-md/internal/session"
 )
@@ -34,15 +37,20 @@ var (
 var codexShell = map[string]bool{"shell": true, "container.exec": true, "exec_command": true, "shell_command": true, "local_shell": true}
 
 // maxRow is the longest row of a host's record the audit decodes. A longer
-// row, as a pasted image makes, is passed over and counted.
+// row, as a pasted image makes, is scanned for a record control, as
+// recovery scans one, and otherwise counted as too long to read.
 const maxRow = 32 << 20
 
-// interrupt is the kind of a host item that says its turn was interrupted.
-const interrupt = -1
+// The kinds of a host's item that are not compared.
+const (
+	interrupt = -1 // its turn was interrupted
+	longRow   = -2 // a row too long to read
+	awayItem  = -3 // a prompt, reply or tool call in a folder the hooks leave out
+)
 
 // hostItem is one prompt, final reply or tool call of the host's record,
-// or an interrupt, with its turn id and its time (zero when the row has
-// none). It holds nothing of the row's text.
+// an interrupt, or a row too long to read, with its turn id and its time
+// (zero when the row has none). It holds nothing of the row's text.
 type hostItem struct {
 	kind  int
 	turn  string
@@ -51,34 +59,48 @@ type hostItem struct {
 }
 
 // hostRecord is what the audit counts of one host transcript: its items,
-// outside every range said off the record, how many such ranges it holds
-// and the stretches of time they cover, and how many rows were too long to
-// read.
+// outside every range said off the record, and how many such ranges it
+// holds and the stretches of time they cover.
 type hostRecord struct {
-	items   []hostItem
-	paused  int
-	pauses  []interval
-	tooLong int
+	items  []hostItem
+	paused int
+	pauses []interval
 }
 
 // hostReader reads one transcript's rows in order.
 type hostReader struct {
-	host, session string
-	rec           hostRecord
-	turn          string    // the current turn's id
-	off           bool      // in a range said off the record
-	offAt         time.Time // when it began, zero when not known
-	tools         map[string]bool
-	replied       map[string]bool // Codex turns whose final reply is counted
+	src     catchup.Source
+	outside func(string) bool // a folder whose chats the hooks leave out
+	rec     hostRecord
+	turn    string    // the current turn's id
+	off     bool      // in a range said off the record
+	offAt   time.Time // when it began, zero when not known
+	last    time.Time // the time of the last row that had one
+	// unknown marks a row since the last record control that could not be
+	// read, so whether it was one is not known; unknownAt is its time, or
+	// the time of the last row before it.
+	unknown   bool
+	unknownAt time.Time
+	away      bool // on Codex, the turn runs in a folder the hooks leave out
+	tools     map[string]bool
+	replied   map[string]bool // Codex turns whose final reply is counted
+	ordinal   int             // Codex turns begun, for those with no turn id
+	answered  bool            // the reply of turn ordinal is counted
 }
 
-// readHost reads the host's transcript r of session id, passing over rows
-// longer than limit. A last row with no newline is left unread, as
-// recovery leaves it.
-func readHost(ctx context.Context, host, id string, r io.Reader, limit int) (hostRecord, error) {
-	h := &hostReader{host: host, session: id, tools: map[string]bool{}, replied: map[string]bool{}}
+// readHost reads the host's transcript r of the session s names. A row
+// longer than limit is scanned for a record control and otherwise counted
+// as too long to read. A last row with no newline is left unread, as
+// recovery leaves it. outside, when not nil, says which folders' chats the
+// hooks leave out by design.
+func readHost(ctx context.Context, s catchup.Source, outside func(string) bool, r io.Reader, limit int) (hostRecord, error) {
+	if outside == nil {
+		outside = func(string) bool { return false }
+	}
+	h := &hostReader{src: s, outside: outside, tools: map[string]bool{}, replied: map[string]bool{}}
 	br := bufio.NewReaderSize(r, 64<<10)
 	var row []byte
+	var long catchup.LongRow
 	over := false
 	for n := 0; ; n++ {
 		if n%1024 == 0 {
@@ -88,9 +110,14 @@ func readHost(ctx context.Context, host, id string, r io.Reader, limit int) (hos
 		}
 		chunk, err := br.ReadSlice('\n')
 		if !over && len(row)+len(chunk) > limit {
-			over, row = true, row[:0]
+			over = true
+			long = catchup.LongRow{}
+			long.Feed(row)
+			row = row[:0]
 		}
-		if !over {
+		if over {
+			long.Feed(bytes.TrimSuffix(chunk, []byte{'\n'}))
+		} else {
 			row = append(row, chunk...)
 		}
 		switch {
@@ -104,49 +131,106 @@ func readHost(ctx context.Context, host, id string, r io.Reader, limit int) (hos
 		case err != nil:
 			return hostRecord{}, err
 		}
-		if over {
-			h.rec.tooLong++
-		} else if host == "codex" {
+		switch {
+		case over:
+			h.long(long.Control(s))
+		case s.Host == "codex":
 			h.codex(row)
-		} else {
+		default:
 			h.claude(row)
 		}
 		row, over = row[:0], false
 	}
 }
 
-// add counts an item unless the record is off the record there.
+// long counts a row too long to read, unless it is a record control. A row
+// whose control can't be told may have been one.
+func (h *hostReader) long(control, ts string, ok bool) {
+	at, _ := time.Parse(time.RFC3339Nano, ts)
+	if control != "" {
+		h.control(control, at)
+	} else {
+		if !ok {
+			h.unread(at)
+		}
+		h.add(longRow, "", ts, false)
+	}
+	h.seen(at)
+}
+
+// seen keeps the time of a row that has one.
+func (h *hostReader) seen(at time.Time) {
+	if !at.IsZero() {
+		h.last = at
+	}
+}
+
+// unread marks a row that could not be read, at its time, or the time of
+// the last row before it when it has none.
+func (h *hostReader) unread(at time.Time) {
+	if h.unknown {
+		return
+	}
+	if at.IsZero() {
+		at = h.last
+	}
+	h.unknown, h.unknownAt = true, at
+}
+
+// add counts an item unless the record is off the record there. In a
+// folder the hooks leave out a prompt, reply or tool call is counted
+// apart and an interrupt not at all.
 func (h *hostReader) add(kind int, turn, ts string, voice bool) {
 	if h.off {
 		return
+	}
+	if h.away && kind == interrupt {
+		return
+	}
+	if h.away && kind >= 0 {
+		kind, turn, voice = awayItem, "", false
 	}
 	at, _ := time.Parse(time.RFC3339Nano, ts)
 	h.rec.items = append(h.rec.items, hostItem{kind: kind, turn: turn, at: at, voice: voice})
 }
 
-// prompt counts a prompt that reached the agent, unless it is a record
-// control, which opens or closes a range said off the record and is
-// counted as neither, or a text v1's hooks never take for a prompt. A
-// range's stretch of time runs from its control's row to a second after
-// the row that closed it, and is open where a row has no time.
-func (h *hostReader) prompt(text, turn, ts string) {
-	at, _ := time.Parse(time.RFC3339Nano, ts)
-	switch session.RecordControl(text) {
+// control opens or closes a range said off the record. A range's stretch
+// of time runs from its control's row to a second after the row that
+// closed it, and is open where a row has no time. A control that brings
+// the chat back on the record with no range open closes one opened at a
+// row since the last control that could not be read, if there was one,
+// since that row may have been the control that opened it.
+func (h *hostReader) control(control string, at time.Time) {
+	switch control {
 	case "off_record":
 		if !h.off {
 			h.off, h.offAt = true, at
 			h.rec.paused++
 		}
-		return
 	case "on_record":
-		if h.off {
-			end := at
-			if !end.IsZero() {
-				end = end.Add(time.Second)
-			}
+		end := at
+		if !end.IsZero() {
+			end = end.Add(time.Second)
+		}
+		switch {
+		case h.off:
 			h.rec.pauses = append(h.rec.pauses, interval{start: h.offAt, end: end})
+		case h.unknown:
+			h.rec.pauses = append(h.rec.pauses, interval{start: h.unknownAt, end: end})
+			h.rec.paused++
 		}
 		h.off = false
+	}
+	h.unknown = false
+}
+
+// prompt counts a prompt that reached the agent, unless it is a record
+// control, which opens or closes a range said off the record and is
+// counted as neither, or a text v1's hooks never take for a prompt.
+func (h *hostReader) prompt(text, turn, ts string) {
+	if control := session.RecordControl(text); control != "" {
+		at, _ := time.Parse(time.RFC3339Nano, ts)
+		h.control(control, at)
 		return
 	}
 	head := strings.ToLower(strings.TrimSpace(text))
@@ -195,6 +279,7 @@ type claudeRow struct {
 	Type        string `json:"type"`
 	SessionID   string `json:"sessionId"`
 	Timestamp   string `json:"timestamp"`
+	Cwd         string `json:"cwd"`
 	PromptID    string `json:"promptId"`
 	IsMeta      bool   `json:"isMeta"`
 	IsSidechain bool   `json:"isSidechain"`
@@ -215,9 +300,16 @@ type claudeRow struct {
 // assistant row holds tool calls and, when it ends the turn, a final reply.
 func (h *hostReader) claude(line []byte) {
 	var row claudeRow
-	if json.Unmarshal(line, &row) != nil || row.SessionID != h.session || row.IsSidechain || row.AgentID != "" || row.Message.Role != row.Type {
+	if json.Unmarshal(line, &row) != nil {
+		h.unread(time.Time{})
 		return
 	}
+	at, _ := time.Parse(time.RFC3339Nano, row.Timestamp)
+	defer h.seen(at)
+	if row.SessionID != h.src.Session || row.IsSidechain || row.AgentID != "" || row.Message.Role != row.Type {
+		return
+	}
+	h.away = row.Cwd != "" && h.outside(row.Cwd)
 	if row.PromptID != "" {
 		h.turn = row.PromptID
 	}
@@ -286,29 +378,43 @@ type codexRow struct {
 		Role    string          `json:"role"`
 		Name    string          `json:"name"`
 		CallID  string          `json:"call_id"`
+		Cwd     string          `json:"cwd"`
 	} `json:"payload"`
 }
 
 // codex reads one row of Codex's record: a user message is a prompt, a
 // final agent message the turn's reply, counted once a turn, and a call of
-// a tool v1's hook takes a tool call.
+// a tool v1's hook takes a tool call. The session's first record and each
+// turn's context say which folder its turns run in.
 func (h *hostReader) codex(line []byte) {
 	var row codexRow
 	if json.Unmarshal(line, &row) != nil {
+		h.unread(time.Time{})
 		return
 	}
+	at, _ := time.Parse(time.RFC3339Nano, row.Timestamp)
+	defer h.seen(at)
 	p := row.Payload
 	turn := p.TurnID
 	if turn == "" {
 		turn = h.turn
 	}
 	switch row.Type + "/" + p.Type {
+	case "session_meta/":
+		if p.Cwd != "" {
+			h.away = h.outside(p.Cwd)
+		}
 	case "turn_context/", "event_msg/task_started":
 		if p.TurnID != "" {
 			h.turn = p.TurnID
 		}
+		if p.Cwd != "" {
+			h.away = h.outside(p.Cwd)
+		}
+		h.begin()
 		return
 	case "event_msg/user_message":
+		h.begin()
 		h.prompt(str(p.Message), turn, row.Timestamp)
 	case "event_msg/agent_message":
 		if p.Phase == "final" && strings.TrimSpace(str(p.Message)) != "" {
@@ -336,13 +442,25 @@ func (h *hostReader) codex(line []byte) {
 	}
 }
 
+// begin marks a row that begins a Codex turn: a turn begun once its reply
+// is counted is the next one.
+func (h *hostReader) begin() {
+	if h.answered {
+		h.ordinal, h.answered = h.ordinal+1, false
+	}
+}
+
 // reply counts a turn's final reply once: Codex writes it in more than one
-// row.
+// row. A turn with no id is told by the rows that begin it.
 func (h *hostReader) reply(turn, ts string) {
-	if h.off || h.replied[turn] {
+	key := turn
+	if key == "" {
+		key = "#" + strconv.Itoa(h.ordinal)
+	}
+	if h.off || h.replied[key] {
 		return
 	}
-	h.replied[turn] = true
+	h.replied[key], h.answered = true, true
 	h.add(Reply, turn, ts, false)
 }
 

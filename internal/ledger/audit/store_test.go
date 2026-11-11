@@ -12,7 +12,8 @@ import (
 
 // The hosts' sessions with no eva-md file are counted by file name: those
 // written before the inbox's oldest line apart, and on Claude Code those in
-// a folder left out by design, by the folder's name, as an upper bound. A
+// a folder left out by design, by the folder's name or where a symlink to
+// it leads; Codex's file names give no folder, so that is not known. A
 // file that is not a session's, a symlink and a folder too deep are not
 // counted, and no session file is opened.
 func TestHostSessionsWithNoEvaFile(t *testing.T) {
@@ -27,11 +28,12 @@ func TestHostSessionsWithNoEvaFile(t *testing.T) {
 		path string
 		mod  time.Time
 	}{
-		{filepath.Join(projects, "-"+marker+"-cwd", marker+"-kept.jsonl"), recent},         // has an eva-md file
-		{filepath.Join(projects, "-"+marker+"-cwd", marker+"-lost.jsonl"), recent},         // none
-		{filepath.Join(projects, "-"+marker+"-cwd", marker+"-old.jsonl"), old},             // none, older than the inbox
-		{filepath.Join(projects, claudeFolder(f.home, false)+"-tmp-x", "a.jsonl"), recent}, // the temporary folder
-		{filepath.Join(projects, "-private-var-folders-ab-T", "b.jsonl"), recent},          // macOS's temporary folders
+		{filepath.Join(projects, "-"+marker+"-cwd", marker+"-kept.jsonl"), recent},             // has an eva-md file
+		{filepath.Join(projects, "-"+marker+"-cwd", marker+"-lost.jsonl"), recent},             // none
+		{filepath.Join(projects, "-"+marker+"-cwd", marker+"-old.jsonl"), old},                 // none, older than the inbox
+		{filepath.Join(projects, claudeFolder(f.home, false)+"-tmp-x", "a.jsonl"), recent},     // the temporary folder
+		{filepath.Join(projects, claudeFolder(f.home, false)+"-realtmp-y", "f.jsonl"), recent}, // where its symlink leads
+		{filepath.Join(projects, "-private-var-folders-ab-T", "b.jsonl"), recent},              // macOS's temporary folders
 		{filepath.Join(projects, claudeFolder(f.home, false)+"--claude-spares", "c.jsonl"), recent},
 		{filepath.Join(projects, claudeFolder(f.home, false)+"-wiki", "d.jsonl"), recent},     // the wiki
 		{filepath.Join(projects, claudeFolder(f.home, false)+"-secret-1", "e.jsonl"), recent}, // excluded by a pattern
@@ -61,6 +63,12 @@ func TestHostSessionsWithNoEvaFile(t *testing.T) {
 	if err := os.Symlink(elsewhere, filepath.Join(projects, "-"+marker+"-cwd", "linked.jsonl")); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Mkdir(filepath.Join(f.home, "realtmp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(f.home, "realtmp"), filepath.Join(f.home, "tmp")); err != nil {
+		t.Fatal(err)
+	}
 	o := Options{Dirs: f.dirs, Home: f.home, TempDir: filepath.Join(f.home, "tmp"),
 		Config: config.Config{WikiPath: filepath.Join(f.home, "wiki"), Exclude: []string{"~/secret-[0-9]", "remote:github.com/x/*"}}}
 	r, err := Run(t.Context(), o)
@@ -68,7 +76,7 @@ func TestHostSessionsWithNoEvaFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Store{
-		{Host: "claude-code", Files: 8, NoEvaFile: 6, Older: 1, ByDesign: 5},
+		{Host: "claude-code", Files: 9, NoEvaFile: 7, Older: 1, ByDesign: 6, Folders: true},
 		{Host: "codex", Files: 2, NoEvaFile: 1},
 	}
 	if len(r.Stores) != 2 || r.Stores[0] != want[0] || r.Stores[1] != want[1] {

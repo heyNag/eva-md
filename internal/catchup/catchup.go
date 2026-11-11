@@ -89,11 +89,21 @@ type Source struct {
 	// than the registered one. Recovery reads on and honours a record
 	// control, but stores nothing until a turn comes back to the folder.
 	Elsewhere bool `json:"elsewhere,omitempty"`
-	// Refused marks a missing transcript that a hook named and recovery's
-	// rules refused, as against one no hook named. It is kept while later
-	// events name none, and holds nothing of the path.
-	Refused bool `json:"refused,omitempty"`
+	// MissingWhy says why a missing transcript is missing: no hook named
+	// one (MissingNoneNamed), a hook named one recovery's rules refused
+	// (MissingRefused), or one they admit that did not exist yet
+	// (MissingNotWritten). It is kept while later events name none, holds
+	// nothing of the path, and is empty in a record written before it was
+	// kept.
+	MissingWhy string `json:"missing_why,omitempty"`
 }
+
+// Why a recovery record's transcript is missing (Source.MissingWhy).
+const (
+	MissingNoneNamed  = "none_named"
+	MissingRefused    = "refused"
+	MissingNotWritten = "not_written"
+)
 
 // blindSpan counts the bytes of rows recovery could not recognize, and the
 // turns that ended with a reply meanwhile.
@@ -168,14 +178,20 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 	if path == "" {
 		s.Missing = true
 		s.Reason = "transcript_unavailable"
-		s.Refused = found && old.Missing && old.Refused
+		s.MissingWhy = MissingNoneNamed
+		if found && old.Missing {
+			s.MissingWhy = old.MissingWhy
+		}
 		return save(ctx, dirs, s)
 	}
 	f, err := openTranscript(s)
 	if err != nil {
+		s.MissingWhy = MissingRefused
+		if _, perr := transcriptPath(s); perr == nil && errors.Is(err, fs.ErrNotExist) {
+			s.MissingWhy = MissingNotWritten
+		}
 		s.Path = ""
 		s.Missing = true
-		s.Refused = true
 		s.Reason = "transcript_unavailable"
 		s.Skip, s.Slow = nil, nil
 		return save(ctx, dirs, s)
