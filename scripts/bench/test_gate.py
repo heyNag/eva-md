@@ -572,6 +572,14 @@ class Controls(unittest.TestCase):
         self.assertEqual(d["run_levels"]["new"], [0.9, 1.0, 1.0, 1.0])
         self.assertEqual(sorted({f.split(":")[0] for f in d["failures"]}), ["capture", "prompt"])
         self.assertEqual(core.decide(s, {"capture": None, "prompt": None}, quick=core.THRESHOLD)["verdict"], "fail")
+        # redecide takes the gap a gate.json recorded, and one from before
+        # the gap had a value of its own took the threshold for it.
+        gate = {"samples": s, "ceilings": {"capture": None, "prompt": None}, "scenario_failures": {}, "rounds": 2, "decision": d}
+        self.assertEqual(core.redecide(gate)["verdict"], "not judged")
+        gate["decision"] = dict(d, quick=1.15)
+        self.assertEqual(core.redecide(gate)["verdict"], "fail")
+        gate["decision"] = {k: v for k, v in d.items() if k != "quick"}
+        self.assertEqual(core.redecide(gate)["verdict"], "fail")
 
     def test_a_figure_too_noisy_to_judge_counts_in_the_runs_levels(self):
         # a and c have the new binary's first run quicker by 1.1, b and d
