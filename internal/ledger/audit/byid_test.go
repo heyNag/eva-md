@@ -444,8 +444,9 @@ func at0() time.Time { return time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC) }
 
 // A session is paired by its id, and scored as by its recovery record,
 // when the home is reached through a link, as the record names it, as the
-// audit is given it, or both, and when ~/.claude and ~/.codex are links to
-// another folder, as a dotfiles setup makes them: the folder of chats is
+// audit is given it, or both, and when ~/.claude and ~/.codex, or the
+// folders of chats in them themselves, are links to another folder, as a
+// dotfiles setup makes them and recovery accepts: the folder of chats is
 // listed where it leads, and the file found there is admitted under the
 // home the record names. eva-md's own folders stay on the home itself,
 // since it refuses them under a linked folder.
@@ -457,12 +458,14 @@ func TestPairedByIDThroughALink(t *testing.T) {
 	for _, c := range []struct {
 		name                string
 		recordLink, runLink bool
-		dotfiles            bool
+		dotfiles            bool // ~/.claude and ~/.codex are links
+		chats               bool // the folders of chats themselves are links
 	}{
 		{name: "the record's home", recordLink: true},
 		{name: "the audit's home", runLink: true},
 		{name: "both", recordLink: true, runLink: true},
 		{name: "dotfiles", dotfiles: true},
+		{name: "the folders of chats", chats: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -496,6 +499,16 @@ func TestPairedByIDThroughALink(t *testing.T) {
 						t.Fatal(err)
 					}
 					symlink(t, filepath.Join(dotfiles, d), filepath.Join(f.home, d))
+				}
+			}
+			if c.chats {
+				dotfiles := filepath.Join(f.home, marker+"-dotfiles")
+				for _, d := range [][2]string{{".claude", "projects"}, {".codex", "sessions"}} {
+					mkdirs(t, filepath.Join(dotfiles, d[0]))
+					if err := os.Rename(filepath.Join(f.home, d[0], d[1]), filepath.Join(dotfiles, d[0], d[1])); err != nil {
+						t.Fatal(err)
+					}
+					symlink(t, filepath.Join(dotfiles, d[0], d[1]), filepath.Join(f.home, d[0], d[1]))
 				}
 			}
 			home := f.home
