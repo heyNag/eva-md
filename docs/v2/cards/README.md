@@ -2,7 +2,7 @@
 
 A card is the lead's order for one work package of [the v2 plan](../plan.md). A builder starts from its card and reads nothing else it does not point to. The plan governs: where a card and the plan differ, the plan is right and the card is fixed.
 
-How a package runs (plan section 9): the builder works on a branch in its own worktree and commits there; reviewers who were given only the card and the diff try to break it; the builder fixes what they find; the lead runs the project's checks on the result, merges it into `main` and pushes. Nothing is released by a merge.
+How a package runs (plan section 9): the builder works on a branch in its own worktree and commits there; reviewers who were given only the card and the diff try to break it; the builder fixes what they find; the lead runs the quick document and script tests `AGENTS.md` names, merges it into `main` and pushes, and the project's checks and CI run on that commit after it (`AGENTS.md`, the standing leave), with a failure fixed forward at once. Only the lead pushes. Nothing is released by a merge.
 
 Rules every card carries, so they are said once here:
 
@@ -11,7 +11,7 @@ Rules every card carries, so they are said once here:
 - Every rule of [AGENTS.md](../../../AGENTS.md) holds. In particular: `internal/redact/baseline` is never edited; tests never touch the real machine and never depend on its speed; a hook never calls a model or the network; only eva's name is shown; no new dependency.
 - Before a builder reports, `scripts/linux-check.sh` passes from the root of its worktree.
 - No secret, and nothing from a real chat, goes into a fixture. Test values are made up.
-- A package that changes a hook, or anything a hook runs, reports the latency gate's comparison with the commit it started from: `scripts/linux-gate.sh` on Linux. `not judged` is not a result: it is run again when the machine is quiet.
+- A package that changes a hook, or anything a hook runs, reports the latency gate's comparison with the commit it started from: `scripts/linux-gate.sh` on Linux. `not judged` is not a result: run it again when the first load figure `uptime` gives is below the number `nproc` prints. If the machine has not been that quiet for half an hour, stop waiting and say so in the report, with the load: CI's `latency` job on the merge is the run of record, and the lead reads it.
 - CI's macOS job is the run of record and no builder can run macOS, so tests are written for it: a test that compares a path with one that git or the system resolved resolves its own first (`filepath.EvalSymlinks` on `t.TempDir()`), since macOS reaches its temporary folders through an alias, and no test leans on a file system that tells letter case apart.
 - `AGENTS.md` and `README.md` are the lead's. A builder changes only the lines its card names in them; for anything else it gives the words in its report and the lead writes them at the merge.
 
