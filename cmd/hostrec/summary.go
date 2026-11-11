@@ -32,7 +32,9 @@ type recording struct {
 	eventsBy map[string]map[string]int // host, then event, then count
 }
 
-func readRecording(rec string) (*recording, error) {
+// readRecording reads a recording; a step's events are counted for the
+// hosts named only.
+func readRecording(rec string, hosts []string) (*recording, error) {
 	r := &recording{perStep: map[string]stepRecord{}, eventsBy: map[string]map[string]int{}}
 	var err error
 	if r.marks, err = readLines[hostfacts.MarkLine](filepath.Join(rec, hostfacts.MarksFile)); err != nil {
@@ -55,9 +57,11 @@ func readRecording(rec string) (*recording, error) {
 		}
 	}
 	for _, ev := range r.events {
-		s := r.perStep[ev.Mark]
-		s.events++
-		r.perStep[ev.Mark] = s
+		if slices.Contains(hosts, ev.Host) {
+			s := r.perStep[ev.Mark]
+			s.events++
+			r.perStep[ev.Mark] = s
+		}
 		if r.eventsBy[ev.Host] == nil {
 			r.eventsBy[ev.Host] = map[string]int{}
 		}
@@ -91,13 +95,13 @@ func cmdSummary(c *cli, args []string) int {
 	if e == nil {
 		return code
 	}
-	r, err := readRecording(e.rec)
-	if err != nil {
-		return c.fail("%v", err)
-	}
 	hosts, ok := scopeHosts[args[0]]
 	if !ok {
 		hosts = []string{"claude-code", "codex"}
+	}
+	r, err := readRecording(e.rec, hosts)
+	if err != nil {
+		return c.fail("%v", err)
 	}
 	c.say("Events that fired:")
 	for _, h := range hosts {
