@@ -9,9 +9,9 @@ The `latency` job of `.github/workflows/ci.yml`, on macOS and apart from the tes
 - `gate.json`: the verdict, every metric's comparison, and each run's full report.
 - `latency-macos.json`: the change's own binary's figures over its runs, `new` and `new_again`, in the format below.
 
-To refresh the baseline, open the run of the commit to take it from (a push to `main`), download its `latency` artifact, check that `gate.json` says `"verdict": "pass"` and that its `load_average_at_start` is not high, and copy its `latency-macos.json` over this folder's, unchanged. Commit it with the run's link in the message. The file names its commit, so the run can be found again.
+To refresh the baseline, open the run of the commit to take it from (a push to `main`), download its `latency` artifact, check that `gate.json` says `"verdict": "pass"`, and copy its `latency-macos.json` over this folder's, unchanged. A pass means the machine was quiet enough: every figure's controls stayed within the gate's rule. The load average the file records says little on the CI machine, where it reads about 15 on 3 CPUs at the start of a job that has only just built two binaries. Commit it with the run's link in the message. The file names its commit, so the run can be found again.
 
-The file in this folder now was measured on Linux, in a builder's cloud session, and says so (`"measured_on": "linux"`): the binary of commit eeb63ed, v1 as SEAM-0c left it, in the first of the twenty gates its builder ran of that binary against itself, as the unprivileged user `linux-check.sh` runs the benchmark as (`"user": "not root"`), so its turn's process counts are a real install's. It shows the format and v1's figures on that machine; it is replaced from the macOS job's artifact.
+The file in this folder now comes from the `latency` job's run of commit 84f0fc7 on `main`, the first in which the gate ran in a job of its own, and its verdict was pass: v1's hooks as they stand before any package of the v2 build has changed one. (The commit changed only the CI workflow and documents, so the two binaries it compared were alike.) The first file here was measured on Linux, in a builder's cloud session, to show the format; this one replaces it.
 
 ## Format
 
