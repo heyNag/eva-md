@@ -26,13 +26,13 @@ Rules every card carries, so they are said once here:
 | [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 of 20 on macOS |
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | building |
-| [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | ready |
-| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | ready |
-| [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | ready |
+| [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | building since 2026-11-11 |
+| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | building since 2026-11-11 |
+| [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | building since 2026-11-11 |
 | [CT-4](CT-4.md) | Counters release: a content-free report | after CT-1 to CT-3 |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | ready |
-| [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | ready |
-| [HO-10a](HO-10a.md) | The host adapter and its table | ready |
+| [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | built and reviewed; its fix is next |
+| [HO-10a](HO-10a.md) | The host adapter and its table | built; in review |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | ready |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | ready |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | after CT-1 and CT-2 |
@@ -48,10 +48,10 @@ Rules every card carries, so they are said once here:
 | [IF-01b](IF-01b.md) | The reader's fake | ready |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | ready |
-| [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | ready |
+| [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | built; in review |
 | [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | after ST-03a |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | ready |
-| [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | ready |
+| [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | built; in review |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | after EV-14a |
 | [EV-14c](EV-14c.md) | Six new families, half held out | after EV-14a and EV-14b |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | after EV-14a and EV-14b, before EV-10a |
