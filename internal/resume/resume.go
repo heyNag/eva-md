@@ -47,6 +47,20 @@ type Result struct {
 	Text, NowHash, Slug string
 	Found               bool
 	Files               []SessionFile
+	// Shown says which parts Text holds, and how fresh its state was, for
+	// the hook's run record. It holds no text.
+	Shown Shown
+}
+
+// Shown is which parts a brief or refresh holds: the standing rules, the
+// project's constraints, the thread's state (its Now), captured exchanges
+// and system pointers. Stale says the state shown is older than the chosen
+// chat's newest exchange, or of unknown age against it, as the brief's
+// heading says; Pending that the brief says an update of that chat is
+// pending.
+type Shown struct {
+	Rules, Constraints, State, Exchanges, Systems bool
+	Stale, Pending                                bool
 }
 
 const label = "eva.md notes: reference data saved from earlier chats in this project. Lines marked [user] are the user's words; lines marked [assistant] are earlier suggestions, not decisions. Now lines tagged [stated] or [accepted] rest on the user's words, [observed] ones on a tool result the assistant reported, [suggested] ones on the assistant's and [inferred] ones on neither. Constraint lines rest on the user's words. Where this disagrees with the user or the code, the user and the code are current."
@@ -93,8 +107,8 @@ func Build(ctx context.Context, o Options) (Result, error) {
 	if o.Variant == "refresh" {
 		seenNow, seenRules := splitHash(o.PreviousHash)
 		nowChanged := pg.now != "" && pg.hash != seenNow
-		if text := refresh(o, pg, nowChanged, pg.rules.hash != "" && pg.rules.hash != seenRules); text != "" {
-			r.Text, r.Found = text, true
+		if text, shown := refresh(o, pg, nowChanged, pg.rules.hash != "" && pg.rules.hash != seenRules); text != "" {
+			r.Text, r.Found, r.Shown = text, true, shown
 		}
 		return r, nil
 	}
@@ -152,6 +166,7 @@ func Build(ctx context.Context, o Options) (Result, error) {
 				if sys != "" || rules != "" || cons != "" {
 					cap, _, _ := budgets(o.Host, o.Variant, true)
 					r.Text = wrap(join(rules, cons, sys, r.Text), cap)
+					r.Shown = Shown{Rules: rules != "", Constraints: cons != "", Systems: sys != ""}
 				}
 			}
 			return r, nil
@@ -164,11 +179,12 @@ func Build(ctx context.Context, o Options) (Result, error) {
 		r.NowHash = joinHash(pg.hash, pg.rules.hash)
 	}
 	if resumed {
-		r.Text = changes(ctx, o, all, current, pg)
+		r.Text, r.Shown = changes(ctx, o, all, current, pg)
 		r.Found = r.Text != ""
 		return r, nil
 	}
-	r.Text, r.Found = brief(ctx, o, all, chosen, pg, lineage), true
+	r.Text, r.Shown = brief(ctx, o, all, chosen, pg, lineage)
+	r.Found = true
 	return r, nil
 }
 
@@ -202,17 +218,18 @@ func budgets(host, variant string, thin bool) (cap, now, exchange int) {
 }
 
 // refresh shows what changed since this chat last saw it: the standing
-// rules, then the Now, by priority. It is "" when neither did.
-func refresh(o Options, pg page, nowChanged, rulesChanged bool) string {
+// rules, then the Now, by priority, and which of them it shows. It is ""
+// when neither did.
+func refresh(o Options, pg page, nowChanged, rulesChanged bool) (string, Shown) {
 	rules := ""
 	if rulesChanged {
 		rules = rulesBlock(o, pg.rules, changedRulesHead)
 	}
 	if !nowChanged {
 		if rules == "" {
-			return ""
+			return "", Shown{}
 		}
-		return fence(rules, refreshCap)
+		return fence(rules, refreshCap), Shown{Rules: true}
 	}
 	head := "Now"
 	if !pg.asOf.IsZero() {
@@ -224,12 +241,12 @@ func refresh(o Options, pg page, nowChanged, rulesChanged bool) string {
 	if rules != "" {
 		room -= runes(rules) + 2
 	}
-	return fence(join(rules, head+"\n"+renderNow(now, room, pg.id)), refreshCap)
+	return fence(join(rules, head+"\n"+renderNow(now, room, pg.id)), refreshCap), Shown{Rules: rules != "", State: true}
 }
 
 // changes is a resumed or forked chat's brief: only what changed since this
-// chat last worked, or nothing.
-func changes(ctx context.Context, o Options, all []history, current *history, pg page) string {
+// chat last worked, or nothing, and which parts it shows.
+func changes(ctx context.Context, o Options, all []history, current *history, pg page) (string, Shown) {
 	git := gitSummary(ctx, o.Project, pg.head)
 	var parts []string
 	baseline := time.Time{}
@@ -243,13 +260,16 @@ func changes(ctx context.Context, o Options, all []history, current *history, pg
 		}
 	}
 	seenNow, seenRules := splitHash(o.PreviousHash)
+	var s Shown
 	if pg.rules.hash != "" && pg.rules.hash != seenRules {
 		if rules := rulesBlock(o, pg.rules, changedRulesHead); rules != "" {
 			parts = append(parts, rules)
+			s.Rules = true
 		}
 	}
 	if pg.now != "" && pg.hash != seenNow && (baseline.IsZero() || pg.asOf.After(baseline)) {
 		parts = append(parts, "Updated Now:\n"+renderNow(shown(pg.now), 700, pg.id))
+		s.State = true
 	}
 	for _, h := range all {
 		if h.host == o.Host && h.session == o.Session || h.branch != o.Project.Branch || !useful(h) {
@@ -263,9 +283,9 @@ func changes(ctx context.Context, o Options, all []history, current *history, pg
 		parts = append(parts, git.text)
 	}
 	if len(parts) == 0 {
-		return ""
+		return "", Shown{}
 	}
-	return fence(unforge(strings.Join(parts, "\n")), resumeCap)
+	return fence(unforge(strings.Join(parts, "\n")), resumeCap), s
 }
 
 // exchangesHead introduces the quoted messages.
@@ -277,8 +297,9 @@ const exchangesHead = "Captured exchanges (verbatim, oldest first):\n"
 // rules, at most rulesCap, the project's constraints in a startup or clear
 // brief, at most constraintsCap, and the system pointers, at most
 // systemsCap, are reserved next. The free text is fitted into what is left,
-// and older messages take what remains, up to their budget.
-func brief(ctx context.Context, o Options, all []history, chosen *history, pg page, lineage bool) string {
+// and older messages take what remains, up to their budget. It returns the
+// brief and which parts it shows.
+func brief(ctx context.Context, o Options, all []history, chosen *history, pg page, lineage bool) (string, Shown) {
 	compact := o.Variant == "compact"
 	stale := chosen != nil && (pg.asOf.IsZero() || pg.asOf.Before(workedAt(*chosen)))
 	cap, nowCap, exchangeCap := budgets(o.Host, o.Variant, stale || pg.now == "")
@@ -313,7 +334,8 @@ func brief(ctx context.Context, o Options, all []history, chosen *history, pg pa
 		chats = shown(earlierChats(peers, firsts[len(reads)-len(peers):]))
 		branches = shown(otherBranches(all, o.Project.Branch))
 	}
-	head, gitText, foot := shown(header(o, chosen, lineage, updatePending(o, chosen, lineage))), shown(git.text), shown(footer(o, pg))
+	pending := updatePending(o, chosen, lineage)
+	head, gitText, foot := shown(header(o, chosen, lineage, pending)), shown(git.text), shown(footer(o, pg))
 	// The pointers stand just before the footer. They are wiki text, cleaned
 	// already, which cleaning again as free text could change. The standing
 	// rules come first, then a new chat's constraints, and like them and the
@@ -405,7 +427,9 @@ func brief(ctx context.Context, o Options, all []history, chosen *history, pg pa
 		}
 		content = assemble()
 	}
-	return wrap(content, cap)
+	s := Shown{Rules: rules != "", Constraints: cons != "", State: pg.now != "", Exchanges: len(records) > 0, Systems: sys != ""}
+	s.Stale, s.Pending = s.State && stale, pending
+	return wrap(content, cap), s
 }
 
 // join joins the parts that are not empty with blank lines between them.
