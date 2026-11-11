@@ -77,6 +77,15 @@ if [ "$(id -u)" -eq 0 ]; then
     useradd --create-home --user-group --shell /usr/sbin/nologin "$user" || exit 2
   fi
   home=$(getent passwd "$user" | cut -d: -f6)
+  # A cloud session has a fixed allowance of disk, and a run needs about
+  # 2 GB of it for its snapshot and its build cache. With less it would
+  # fail part way, with errors that say nothing of the disk.
+  free_mb=$(df --output=avail -BM "$home" 2>/dev/null | tail -n 1 | tr -dc 0-9)
+  if [ -n "$free_mb" ] && [ "$free_mb" -lt 2500 ]; then
+    echo "linux-check.sh: only $free_mb MB of disk is left, and a run needs about 2,500." \
+      "Free some with scripts/linux-space.sh --prune, then run this again." >&2
+    exit 2
+  fi
   # A run that is killed outright, as by SIGKILL, can't remove its snapshot,
   # so remove those left more than three hours ago. A folder's time is when
   # its run started, or reached the benchmark, the last step, and a full run
