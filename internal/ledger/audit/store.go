@@ -36,8 +36,8 @@ type Store struct {
 func stores(o Options, known map[string]map[string]bool, first time.Time) []Store {
 	left := leftOut(o)
 	var out []Store
-	for _, host := range []string{"claude-code", "codex"} {
-		s := Store{Host: host, Folders: host == "claude-code"}
+	for _, s := range []Store{{Host: "claude-code", Folders: true}, {Host: "codex"}} {
+		host := s.Host
 		walkStore(o.Home, host, func(folder, id string, mod time.Time) {
 			s.Files++
 			switch {
@@ -46,7 +46,7 @@ func stores(o Options, known map[string]map[string]bool, first time.Time) []Stor
 				s.Older++
 			default:
 				s.NoEvaFile++
-				if host == "claude-code" && left(folder) {
+				if s.Folders && left(folder) {
 					s.ByDesign++
 				}
 			}
