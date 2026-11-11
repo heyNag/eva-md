@@ -1,9 +1,12 @@
 # Host facts: the one sheet
 
-eva.md v2 rests on things only the hosts can tell: what a hook payload holds, when a transcript row is on disk, how a voice call reaches a hook, what a plugin change costs in reviews. Each of the six design papers lists the host facts it assumes: ledger section 13, deliver section 12, hosts section 14, store section 16, derive section 11 and evaluate section 14, all in [working-papers/design/](working-papers/design/). This sheet merges them, with the facts the papers assume without listing them and the ones [the plan](plan.md) added (Stage 0, "What the host sitting must settle", and the HF-00 row), and numbers each fact once. It is the first half of HF-00. [The run-book](host-sitting-runbook.md) is written from it, and the card [HF-00](cards/HF-00.md) describes the recorder that the run-book needs.
+eva.md v2 rests on things only the hosts can tell: what a hook payload holds, when a transcript row is on disk, how a voice call reaches a hook, what a plugin change costs in reviews. This sheet lists each such fact once, with a number, what settles it, and what the design does if it is wrong.
+
+Who uses it: the owner needs only [the run-book](host-sitting-runbook.md), which is written from this sheet. The lead fills in each fact's Result after the sittings. A builder reads a fact and its fallback before relying on it. The card [HF-00](cards/HF-00.md) describes the recorder the run-book needs.
 
 ## How to read it
 
+- **Where the facts come from.** Each of the six design papers lists the host facts it assumes: ledger section 13, deliver section 12, hosts section 14, store section 16, derive section 11 and evaluate section 14, all in [working-papers/design/](working-papers/design/). This sheet merges them, with the facts the papers assume without listing them and the ones [the plan](plan.md) added (Stage 0, "What the host sitting must settle", and the HF-00 row). It is the first half of the plan's HF-00 row.
 - **One fact, one number.** A fact two papers need is one fact that names both. A fact is a sentence that a recording or a reading can confirm or refute. Numbers run from F-001 and never change; a fact found wrong is marked refuted, not removed.
 - **Grouped by host, then by what is looked at.** First the facts that hold for both hosts, then Claude Code's, then Codex's, then the git server, the operating system and the model. Last come the facts no Stage 0 route can settle.
 - **Needed by** names the papers, the label each paper gives the fact (a row of its host-facts section, or "unlisted" with the section where it is assumed, or "plan item"), and the packages, decisions and gates that lean on it. "Plan decision N" is row N of the plan's section 7.
@@ -17,6 +20,7 @@ eva.md v2 rests on things only the hosts can tell: what a hook payload holds, wh
 - **What settles it** says what is recorded or read. The recorder keeps hook payloads whole, since everything typed and spoken in a sitting is made up; of the hosts' own files it keeps only row types, field names, sizes and short enum-like values, never text.
 - **If refuted** is the fallback each paper names, or the plan's where the plan has one. "None named" means the paper names none.
 - **Result** is empty until the fact is settled. It is then filled with one of confirmed, refuted or not settled, the date, and the host's version (and the voice version, for voice facts). A fact on both hosts has a result for each.
+- **Results about the real project, server or machine say only which way the design goes.** This repository is public. For F-176, F-177, the real-branch half of F-183, F-202, and the git and macOS versions that F-185, F-189 and F-204 read, the Result says only "the primary path holds" or "the fallback applies", in general terms, and a version floor as "at or above the floor" or "below the floor". It never states the server's settings, a device-management profile, the Mac's macOS or git version, or anything else of the one real install. The owner's answers stay in the recording, outside the repository. Host versions (each CLI's, each desktop app's, the voice version) are the hosts' public release names and are written as they are; nothing names which model the owner chose.
 
 ## The counts
 
@@ -209,7 +213,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** Every prompt the host writes in a person's place (a scheduled or loop prompt, a task notification or subagent report, bash-mode input and output, an interrupt notice, a command banner, a message from another session, a compaction summary or resume note) is marked in the hook payload or the record, by a known wrapper or a field, so it is never read as typed.
 - **Needed by.** ledger unlisted (3.6, one list of wrappers): provenance by allowlist, `pv_false_typed`, LG-13; deliver §12 row 12: DL-11, DL-09, V-H2; derive unlisted (5.5, legend of 4): DV-20, DV-21; plan's Codex fallback "typed unless it carries a known wrapper".
 - **Settled by.** Both host sittings, each host's half in its own.
-- **What settles it.** Each host-written kind the run-book can make (a command banner, a bash-mode line, an interrupt, a scheduled prompt where offered, a subagent report, a compaction, a resume): the first characters and the field names of each prompt, as the hook and the record carry it.
+- **What settles it.** Each host-written kind the run-book can make (a command banner, a bash-mode line, an interrupt, a scheduled prompt where offered, a subagent report, a compaction, a resume): the first characters and the field names of each prompt, as the hook and the record carry it. A message from another session is not made in the sittings, since the run-book has no way to send one; that kind keeps deliver's fallback (unknown is treated as not typed) until a host shows it.
 - **If refuted.** Unrecognized prompts are stored as `unknown`, which supports only `external` (derive 5.5); deliver: unknown is treated as not typed.
 - **Result, Claude Code.** Not yet recorded.
 - **Result, Codex.** Not yet recorded.
@@ -281,7 +285,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** The host's record folder is given by `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, and a hook can read that variable in its environment.
 - **Needed by.** ledger unlisted (6.2 step 2; catchup-11): the transcript trust checks, LG-21.
 - **Settled by.** Both host sittings, each host's half in its own.
-- **What settles it.** With the variable set to a made-up folder for one session (and unset for the others): whether the name is in the hook's environment, and whether the named record lies under it.
+- **What settles it.** With the variable set to a made-up folder for one session, in which the scratch plugins were registered first (and unset for the others): whether the name is in the hook's environment, and whether the named record lies under it.
 - **If refuted.** None named.
 - **Result, Claude Code.** Not yet recorded.
 - **Result, Codex.** Not yet recorded.
@@ -946,7 +950,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** A subagent on Claude Code gets the instruction-file hierarchy and nothing a SessionStart hook injected.
 - **Needed by.** deliver unlisted (7.6 Subagents): DL-15, DL-D7.
 - **Settled by.** The Claude Code sitting.
-- **What settles it.** SessionStart injects a planted word; a subagent asked for it.
+- **What settles it.** SessionStart injects a planted word and the folder's instruction file holds another; the main agent and then a subagent asked for both.
 - **If refuted.** None named; the subagent brief may be redundant.
 - **Result.** Not yet recorded.
 
@@ -1264,7 +1268,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** Codex gives the model a hook message up to about 2,500 tokens, up to 3,000 when the plugin declares that limit, and writes the rest to a file.
 - **Needed by.** deliver §12 row 2: DL-03, DL-09, DL-10, V-H1, HO-20.
 - **Settled by.** The Codex sitting.
-- **What settles it.** The planted-word probe at 4,900 and at 9,000 characters, once with the declared limit and once without: whether the word reaches the model, and the count of spill files (a count only).
+- **What settles it.** The planted-word probe at 7,000, 8,300, 11,000 and 14,000 characters, each once with the declared limit and once without, so the ladder straddles both limits whether Codex counts about three or about four characters a token: whether the word reaches the model, and the count of spill files at each size (a count only). The limit is recorded as found, between the last size that came whole and the first that did not.
 - **If refuted.** Lower the Codex cap.
 - **Result.** Not yet recorded.
 
@@ -1273,7 +1277,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** Codex fires its session-end hook when a chat is closed, and after 30 idle minutes in a chat left open.
 - **Needed by.** derive §11 row 11 (Codex half): the `ended` rule, P2, `end_to_saved`, DV-24.
 - **Settled by.** The Codex sitting.
-- **What settles it.** One made-up chat closed, and one left open and idle for 35 minutes, in the CLI and in the desktop app: whether and when the end hook fired.
+- **What settles it.** One made-up chat closed, and one left open and idle for 35 minutes with its hooks approved throughout, in the CLI and in the desktop app (a thread left untouched until the app is quit): whether and when the end hook fired.
 - **If refuted.** The `idle` rule covers it.
 - **Result.** Not yet recorded.
 
@@ -1421,7 +1425,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** In the voice version the app uses, a hand-over's request is the front model's wording, not the person's transcribed words.
 - **Needed by.** plan's decision 29 and 6.1; ledger plan item: LG-13, DV-21, DV-23, DV-24, EV-14, DV-03; derive plan item: the tags of 5.5, DV-21.
 - **Settled by.** The Codex sitting.
-- **What settles it.** A request said in known made-up words; the hand-over's request field compared with what was said; the app's voice version.
+- **What settles it.** A request said in known made-up words; the hand-over's request field compared with what was said; the app's version from its About window, the voice setting the app shows, and any version field the wrapper or the session file carries.
 - **If refuted.** None needed for authority: under decision 29 the front model's wording never carries the person's authority. Only its label changes.
 - **Result.** Not yet recorded.
 
@@ -1457,7 +1461,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** Each field of a voice hand-over is limited to 4 KiB, so a longer stretch of talk loses its start.
 - **Needed by.** plan's decision 30: what eva.md states it captures.
 - **Settled by.** The Codex sitting.
-- **What settles it.** Talk with no hand-over well past the limit, then a hand-over: the field sizes, and whether the stretch's first made-up line is missing.
+- **What settles it.** Talk with no hand-over well past the limit (a made-up story of 8,626 bytes, read aloud), then a hand-over: the field sizes, the talk's byte count, and whether the stretch's first made-up line is missing.
 - **If refuted.** None named.
 - **Result.** Not yet recorded.
 
@@ -1531,7 +1535,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** A stray file added to Codex's cached copy of an approved plugin reports its hooks as modified, a symlink there makes hashing fail, and installing the plugin again from identical source bytes turns the hooks back to trusted with no review.
 - **Needed by.** hosts §14 #3: the automatic repair (4.4), `trust.review`, `capture.silent`, HO-20, HO-23; hosts unlisted (4.1 row 4): "nothing is written inside a plugin root", the property test.
 - **Settled by.** The Codex sitting.
-- **What settles it.** A made-up `.DS_Store` added to the cached copy: `hooks/list`; the plugin installed again from the unchanged source: `hooks/list` and whether `/hooks` asks. The symlink half from the source.
+- **What settles it.** A made-up `.DS_Store` added to the cached copy: `hooks/list`; then a made-up symbolic link added there: `hooks/list`; the plugin installed again from the unchanged source: `hooks/list` and whether `/hooks` asks.
 - **If refuted.** The repair becomes an ask.
 - **Result.** Not yet recorded.
 
@@ -1708,7 +1712,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** One hook start on Codex, through the shell Codex runs it with, the process's start included, costs 100 ms or less at the 95th percentile.
 - **Needed by.** plan section 8 threshold and 13.2; ledger plan item: C-H1, LG-20, HO-20; deliver §12 row 16: V-H1, HO-20, DL-14; hosts §14 #7: generation 1's PreToolUse row, HO-30, risk 13; evaluate unlisted (10 row 6): the LAT suite.
 - **Settled by.** The Codex sitting.
-- **What settles it.** At least 200 hook starts, each timed from the moment its shell was created to the recorder's exit, with the Codex version and the shell; the median and the 95th percentile.
+- **What settles it.** At least 200 hook starts, each timed from the moment its shell was created to the recorder's exit, with the Codex version and the shell; the median and the 95th percentile. Every second start also hashes a made-up folder of 2 KB, as a check of a plugin root would (hosts §14 #7's second half), and the two halves are reported apart.
 - **If refuted.** Plan: no hook on Codex's shell tool beyond what v1 declares; hosts risk 3: tool time on edits only.
 - **Result.** Not yet recorded.
 
@@ -1728,7 +1732,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** The git server accepts a push of commits whose author and committer address is unknown to it, one SSH-signed by a key no account has registered and one unsigned, made from the evaluation home without the real install's credentials.
 - **Needed by.** store §16 row 4 and risk 3: ST-00, ST-D4, plan decision 3, ST-06, ST-07 step 7, ST-09; evaluate unlisted (10 row 9): the store's machine identity; evaluate unlisted (4.3): the live checks of the daily commit and push; plan section 8 ("Daily commit outcomes; signing prompts").
 - **Settled by.** Sitting 0 (the evaluation home, the machine and the git server).
-- **What settles it.** The one push to the scratch repository: accepted or rejected for each commit, the class of a rejection (never the server's text), how the server shows the signed one, and whether any prompt appeared.
+- **What settles it.** The one push to the scratch repository, from the scheduled job, authenticated by the deploy key made in the evaluation account for the test and passed per call (never a credential of the owner's own account): accepted or rejected for each commit, the class of a rejection (never the server's text), how the server shows the signed one, and whether any prompt appeared.
 - **If refuted.** Plan decision 3: leave machine commits unsigned if only the signature is refused; if the committer is refused, its fallback (squash at each push with your identity and signing, ST-D4's `identity = "user"`).
 - **Result.** Not yet recorded.
 
@@ -1755,7 +1759,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** Under the person's credential setup, `git ls-remote` with prompts off succeeds silently or fails fast; it never waits on a prompt or an approval dialog.
 - **Needed by.** store §16 row 6 and risk 4: ST-00, ST-06, 8.1, 8.2.
 - **Settled by.** Sitting 0 (the evaluation home, the machine and the git server).
-- **What settles it.** `git ls-remote` against the scratch repository with prompts off, batch mode and a 10-second limit, with the evaluation account's agent available and then locked: the time, the exit class, and any dialog. The real setup from the owner's answer to plan 13.6 question 3; the sitting settles it only for the evaluation account.
+- **What settles it.** `git ls-remote` against the scratch repository with prompts off, batch mode and a 10-second limit, with the deploy key made for the test held in the evaluation account's SSH agent, and then with that agent locked (`ssh-add -x`): the time, the exit class, and any dialog. The real setup from the owner's answer to plan 13.6 question 3; the sitting settles it only for the evaluation account's credential, a key in its agent.
 - **If refuted.** Risk 4: the machine key as a deploy key is offered, and attempts are rate-limited after one that needed approval.
 - **Result.** Not yet recorded.
 
@@ -1773,7 +1777,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** The git server's SSH host key is known to the SSH client a background job uses, so a push in batch mode does not stop at an unknown-host check.
 - **Needed by.** store unlisted (4.5, 8.2): ST-06, ST-09.
 - **Settled by.** Sitting 0 (the evaluation home, the machine and the git server).
-- **What settles it.** From the scheduled job, an SSH read of the scratch repository in batch mode: whether it fails on the host key, and which known-hosts file the job reads.
+- **What settles it.** From the scheduled job, an SSH read of the scratch repository in batch mode, once before anyone accepted the server's host key, and once after the owner accepted it in a terminal of the evaluation account: whether each stops at the host-key check, and which known-hosts files the job reads.
 - **If refuted.** None named.
 - **Result.** Not yet recorded.
 
@@ -1788,10 +1792,10 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 
 #### F-182. Write deploy keys exist and can be added
 
-- **Fact.** Deploy keys with write access exist on the git server in use, the installed `gh` or `glab` can add one, and a push authenticated by it succeeds.
+- **Fact.** Deploy keys with write access exist on the git server in use, can be added to one repository, and a push authenticated by one succeeds; the installed `gh` or `glab`, if any, has a command to add one.
 - **Needed by.** store §16 row 5 and risk 4: ST-00, ST-06, ST-09, S-H5.
 - **Settled by.** Sitting 0 (the evaluation home, the machine and the git server).
-- **What settles it.** The help text of the deploy-key command at the installed version; if the owner agrees to a second push, a write deploy key made for the test added to the scratch repository and one push with it.
+- **What settles it.** A write deploy key made in the evaluation account, added by the owner to the scratch repository on the server's web page, and the sitting's one push made with it. Whether `gh` or `glab` is installed and has a deploy-key command with write access, read from its help at the installed version with no sign-in; if neither is installed, that half stays not settled.
 - **If refuted.** `auth = "user"`: transport as git already does for that person.
 - **Result.** Not yet recorded.
 
@@ -1800,7 +1804,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** The scratch repository's default branch accepts a forced push with a lease; the server's default branch protection does not block it.
 - **Needed by.** store unlisted (8.7, 8.4, §18 item 3): ST-11, ST-D8 (plan section 12, "Removing something from pushed history").
 - **Settled by.** Sitting 0 (the evaluation home, the machine and the git server).
-- **What settles it.** Whether `main` is protected by default; if the owner agrees to a further push, a `--force-with-lease` push of a rewritten history, and its outcome; the owner's word on the real project's branch.
+- **What settles it.** Whether `main` is protected by default; if the owner agrees to a further push, a `--force-with-lease` push of a rewritten history with the deploy key, and its outcome; the owner's word on the real project's branch.
 - **If refuted.** ST-D8's "if no": forget retires and blanks; removing a pushed secret is a hand procedure; "never force" stays absolute.
 - **Result.** Not yet recorded.
 
@@ -1876,7 +1880,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** A push authenticated with the machine key passed per call succeeds with no agent socket, and never consults the person's SSH agent or approval app, even when the SSH config names one for that host.
 - **Needed by.** store unlisted (4.5, risk 4): ST-06, ST-09, the bar of no sign-in prompt.
 - **Settled by.** Sitting 0 (the evaluation home, the machine and the git server).
-- **What settles it.** The evaluation account's SSH config names a made-up agent for the scratch server; from the scheduled job, with no agent socket, the machine key used per call: whether the read and, where a deploy key was allowed, the push succeed, and whether any dialog appeared.
+- **What settles it.** For the job's run, the evaluation account's SSH config names a made-up agent for the scratch server; from the scheduled job, with no agent socket, the deploy key made for the test, standing for the machine key, used per call: whether the read and the push succeed, and whether any dialog appeared.
 - **If refuted.** None named.
 - **Result.** Not yet recorded.
 
@@ -1995,7 +1999,7 @@ So the Claude Code sitting gives evidence on 78 facts (27 of its own and 51 shar
 - **Fact.** `osascript` run from a launchd user agent posts a notification with no permission prompt, attributed to the system's script runner.
 - **Needed by.** hosts §14 #11 third part: the OS channel (7.6), HO-D4, HO-23, plan section 12 (an operating-system notification as a last resort).
 - **Settled by.** Sitting 0 (the evaluation home, the machine and the git server).
-- **What settles it.** One made-up notification from the scratch agent: whether a prompt appeared, the name the notification shows, and the macOS version.
+- **What settles it.** One made-up notification from the scratch agent: whether a prompt appeared, and the name the notification shows. The macOS version stays in the recording; the Result says only whether the fact holds.
 - **If refuted.** No OS channel on macOS.
 - **Result.** Not yet recorded.
 
@@ -2125,7 +2129,7 @@ Where two papers, or a paper and the plan, state a fact differently. Each is res
 4. **A hook on every Codex tool** (F-120, F-173). The ledger's C-H1 declares PostToolUse for every tool on Codex. The plan's threshold says that if one Codex hook start costs over 100 ms at the 95th percentile, no hook goes on Codex's shell tool beyond what v1 declares. The threshold governs; F-173 measures it, and F-120 records which events fire.
 5. **A pre-tool hook that asks** (F-095). Deliver (section 8, DL-D2) writes the ask tier for both hosts; the plan's section 12 says "Claude Code only: Codex has no way for a hook to ask", and defers it. The fact is stated for Claude Code, with Codex's lack as its second half.
 6. **Runs on the real install** (F-173, F-178, F-181, F-049). Hosts §14 #7 and deliver row 16 put 200 timed runs "on the real install"; store row 6 runs `ls-remote` there; deliver row 11 reads "a developer's machine"; hosts §14 #13 runs `upgrade --check` there. The plan touches the real install only with read-only reports. All are moved to the evaluation home, which shares the real install's network. F-178 is settled there only for the evaluation account's credential setup; for the real one the owner's answer to the plan's question 3 of 13.6 stands.
-7. **Real-install settings no scratch repository shows** (F-176, F-177, F-183, F-202). The store's push rules, protected branch and private-network questions, and hosts' and derive's "launch agents allowed on the real install", need the real project or machine. The run-book has the owner read them, from the server's settings page and System Settings, in sitting 0. Nothing is run against the real install.
+7. **Real-install settings no scratch repository shows** (F-176, F-177, F-183, F-202). The store's push rules, protected branch and private-network questions, and hosts' and derive's "launch agents allowed on the real install", need the real project or machine. The run-book has the owner read them, from the server's settings page and System Settings, in sitting 0. Nothing is run against the real install, and their Results say only which way the design goes (see "How to read it").
 8. **The detached child, and `EVA_MD_INNER`** (F-030, F-028). Derive marks both for DV-02; the ledger and hosts mark the detached child for the sitting, and the recorder sees both directly. They are settled in the sittings.
 9. **The fallback when the server refuses machine commits** (F-175). Store risk 3 and ST-D4 name an address the person chooses, or `identity = "user"`. The plan's decision 3 adds a middle step: if only the signature is refused, the commits stay unsigned; the squash with the person's identity comes only if the committer is refused too. The plan's order is the sheet's.
 10. **Six cloud questions, not five** (F-208 to F-214). Hosts section 2 says the cloud spike confirms five facts; its section 11.4, its HO-42 and the plan's section 12 say six. The sheet lists six, and §14 #14.
@@ -2136,12 +2140,12 @@ Where two papers, or a paper and the plan, state a fact differently. Each is res
 ### For the lead
 
 1. **The facts held for later** (F-208 to F-216). Cloud sessions, Cowork and the desktop app's SSH sessions wait in the plan's section 12; their spike, HO-42, is a Stage 4 package. None has a Stage 0 route. Keep them numbered and unsettled, or move them out of the sheet.
-2. **One push, or more** (F-182, F-183, F-191). The plan asks for one push to the scratch repository. The store also wants a push with a deploy key and a forced push with a lease. The run-book makes the one push from the scheduled job and offers the other two as optional steps; if the owner declines them, the three facts stay partly settled.
+2. **One push, or more** (F-182, F-183, F-191). The plan asks for one push to the scratch repository. The store also wants a push with a deploy key and a forced push with a lease. The run-book makes the one push from the scheduled job with a deploy key made in the evaluation account, which settles F-182's main part and F-191 with it, and offers the forced push as an optional step; if the owner declines it, F-183 stays partly settled.
 3. **Evaluate's twelve facts and the shrunk pilot** (F-067 to F-072, F-115 to F-117, F-163, F-169). The plan's EV-03 row no longer lists the host facts the paper's EV-03 did. The sheet keeps them with EV-03, since only its container and pty runs show them. Two of them, the pty session (F-070) and memory written in a pty-driven session (F-116), need the Mac; say whether they move to the sittings.
 4. **The spare sessions of deliver row 17** (F-011). The paper does not say which desktop app. v1's design knows Claude's desktop spare folder, so it is most likely Claude's; the sheet checks both apps, at no extra step.
 5. **Two doubts the sittings should resolve rather than assume.** The ledger (3.4) has the Claude Code task tool hand over the whole list each time, while the finding it cites speaks of one task's status line (F-078). The ledger (6.2) expects a subagent's rows in the main transcript with a sidechain flag, while Claude Code may write them to a file of their own (F-027). The recorder records which.
 6. **The `gc.auto=0` doubt** (F-196). The store sets `gc.auto=0` and relies on `git maintenance run --auto`, whose default task goes through `git gc --auto`, which that setting turns off. A scratch test on git 2.56 on Linux packed nothing that way. The fact is marked for the published source and sitting 0's machine checks try it; the store's builder should not wait for the sitting to find out.
 7. **The Claude Code half of the PostCompact fallback** (F-098). The ledger names a fallback only for Codex. The sheet presumes the record's compaction-summary row, which v1 marks and skips; confirm.
-8. **What the fixtures may keep** (the card, F-121 and the voice facts). The plan says the fixtures keep the recordings' field names and shapes, with every value made up. Some values are the hosts' own vocabulary and the fixtures are useless without them: event names, row types, source and reason values, booleans. The card keeps those, from a closed list the lead approves, and replaces every other value; say whether that list is acceptable.
+8. **What the fixtures may keep** (the card, F-121 and the voice facts). The plan says the fixtures keep the recordings' field names and shapes, with every value made up. Some values are the hosts' own vocabulary and the fixtures are useless without them: event names, row types, source and reason values, booleans. The card keeps those, from a closed list the lead approves, and replaces every other value. Model names, effort levels, plan names, versions and usage figures are never on the list, even when a host writes them on every row. Say whether that list is acceptable.
 9. **Facts that serve deferred packages.** Tool-time delivery (F-089, F-123, F-048), generated rules files (F-094), the ask tier (F-095), the OS notification (F-204), the MCP-only floor (F-055, F-108) and additive hook plugins (F-159) feed packages the plan has cut or deferred. They cost little in the sittings and stay in, at the end of their steps; drop any you want shorter sittings without.
 10. **Two Codex figures of about 2,500 tokens.** F-125 is the size of a hook message; F-170 is the size of Codex's own memory summary. They are not the same fact.

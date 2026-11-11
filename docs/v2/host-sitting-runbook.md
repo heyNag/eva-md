@@ -4,47 +4,54 @@ This run-book is for the owner, at a Mac. It settles the host facts of [host-fac
 
 ## Before anything else
 
-**What it is for.** eva.md v2 rests on facts only the hosts can tell. The six design papers each list the ones they assume. 141 of the 216 facts in the fact sheet are settled here, in three sittings: one for the evaluation home, the machine and the git server, and one for each host. A small recorder keeps what the hooks receive. Afterwards the lead turns the recording into test fixtures with every value replaced by a made-up one, and marks each fact confirmed or refuted.
+**What it is for.** eva.md v2 rests on facts only the hosts can tell. The six design papers each list the ones they assume. 141 of the 216 facts in the fact sheet are settled here, in three sittings: one for the evaluation home, the machine and the git server, and one for each host. A short part after them takes everything down and hands the recording over. A small recorder keeps what the hooks receive. Afterwards the lead turns the recording into test fixtures with every value replaced by a made-up one, and marks each fact confirmed or refuted.
 
 **What you need.**
 
+- **An administrator's password for the Mac**, once, to add a user account in sitting 0. No later step asks for one.
 - **An evaluation home.** A separate user account on the Mac, made in sitting 0, with both hosts installed and signed in with your own subscription. A separate account is safer than a separate folder: a host may keep its sign-in in the login keychain, which a folder does not separate. Sitting 0 still tests the folder way, inside the evaluation account, for the evaluation harness that needs it (F-073, F-074).
-- **Both hosts' CLIs and desktop apps**, and a microphone for the two voice calls in Codex's desktop app.
-- **A scratch repository on the git server** your wiki uses, created by you in sitting 0, private and empty. It receives one push.
+- **Both hosts' CLIs and desktop apps.** The CLIs are installed in sitting 0 inside the evaluation account only. The desktop apps in `/Applications` are shared by all accounts and need no install.
+- **A scratch repository on the git server your wiki uses**, which you create in sitting 0 with your own account's browser, private and empty, and a key for it that sitting 0 makes inside the evaluation account. It receives one push. You need neither `gh` nor `glab`, and nothing signs either one in.
 - **The recorder** (`hostrec`), with its scratch plugins and scratch MCP server. It is not built yet: it is the second half of HF-00, described in [the card](cards/HF-00.md). This run-book cannot be followed until that card is merged.
-- **Go**, to build the recorder from a checkout of this repository.
+- **Go**, installed in sitting 0 inside the evaluation account, to build the recorder from a checkout of this public repository.
+- **A microphone and a quiet room** for the two voice calls in Codex's desktop app: no one else speaking, and no television, radio or phone playing. A call transcribes every voice it hears.
+- **Days between the sittings.** At least one night between sitting 0 and sitting 2, with the Mac asleep at least once in between: X-01 checks a sign-in and an approval days old, and X-49 the scheduled job's times across a sleep. Sitting 1 fits on any day after sitting 0.
 
-**What is never touched.** Your real install and its home: your own account's eva-md, its wiki, its inbox, its hooks, `~/.claude` and `~/.codex` in your own account. Nothing in this run-book is typed in your own account, except reading one page of System Settings in sitting 0. eva-md itself is not installed in the evaluation home; only the scratch plugins are. Every prompt, name, word and value below is made up for this run-book and stands for nothing real.
+**What is never touched.** Your real install and its home: your own account's eva-md, its wiki, its inbox, its hooks, `~/.claude` and `~/.codex` in your own account, and the host versions it runs. In your own account you only use System Settings (S0-01 and S0-02), your browser on the git server (S0-08, S0-10 and E-04), where you create the scratch repository, add its key and read your real project's settings without changing them, and TextEdit, for two files in `/Users/Shared`. Never use `sudo`, and never install, upgrade or sign in a host from your own account for these sittings. If a host's instructions need either, stop and tell the lead. eva-md itself is not installed in the evaluation home; only the scratch plugins are. Every prompt, name, word and value below is made up for this run-book and stands for nothing real.
 
-**How long it takes.** Each step states its minutes; the sums are below, and each part repeats its own.
+**How long it takes.** Each step states its minutes. The sums below are the least each part takes; plan for about a fifth more, for first-time screens and waits no step foresaw.
 
-| Part | What | Minutes |
-| --- | --- | --- |
-| Sitting 0 | The evaluation home, the machine and the git server | 113 |
-| Sitting 1 | Claude Code | 156 |
-| Sitting 2 | Codex: the CLI, then the desktop app with two voice calls | 224 |
-| All three | | 493 |
+| Part | What | Minutes, at least | Plan for |
+| --- | --- | --- | --- |
+| Sitting 0 | The evaluation home, the machine and the git server | 141 | about 170 |
+| Sitting 1 | Claude Code | 164 | about 195 |
+| Sitting 2 | Codex: the CLI, then the desktop app with two voice calls | 242 | about 290 |
+| After the sittings | Take down, check and hand over | 35 | about 40 |
+| All | | 582 | about 695 |
 
-Take a break wherever a part says one fits. A sitting can stop between any two steps and go on later: the recorder cuts its recording by step.
+**Where a sitting can stop.** Between any two steps, except inside three spans that hold a chat open: C-31 to C-38, X-31 to X-32, and X-39 to X-47. Each part says where a break fits. Before you stop, type `hostrec close` in the side window; the scratch hooks record nothing while the recording is closed, and the next `hostrec mark` opens it again. If you must stop inside a span, close its open chat first, note it with `hostrec note`, and when you come back start the span again from its first step.
 
 ## How to follow a step
 
-- You use two Terminal windows in the evaluation account. **The chat window** runs the host. **The side window** runs `hostrec` commands.
-- Every step starts with `hostrec mark <step>` in the side window, so the recording knows where each step begins.
-- Text in a box after **Type** is typed exactly, then Enter. Text after **Say** is spoken.
-- **Expect** says what should happen. **If not** says what to do. When something unexpected happens, write one line with `hostrec note "what you saw"` in the side window, and go on. Do not retry a step more than once, and never change a setting a step does not name.
-- **Settles** names the facts a step gives evidence for. The table at the end maps each fact to its steps and each step to its facts.
-- Before each step that needs one, `hostrec arm <name>` makes the scratch hooks return a planted word, sleep, or start a background job. Arming changes a file outside the plugins, so it never costs a Codex review. Each `arm` replaces the one before, and `hostrec disarm` puts the hooks back to recording only.
+- You use two Terminal windows in the evaluation account. **The chat window** runs the host. **The side window** runs `hostrec` commands. Some steps open a third window for a chat left open.
+- Every step starts with `hostrec mark <step>` in the side window, so the recording knows where each step begins. The first mark of a sitting opens the recording; `hostrec close` at the end of the sitting closes it.
+- `hostrec tail`, in the side window, prints one line for each hook event since the step's mark (its time, host and event name, never what it held), and returns.
+- Text in a box after **Type** is typed exactly, then Enter. Text after **Say** is spoken. **Type and say only the run-book's text.** If anything else was typed in a chat, or heard during a voice call (another voice, a television, a phone), type `hostrec note "off-script at <step>"`, so the lead drops that step's payloads.
+- **Expect** says what should happen. Where the screen cannot show it, it says so, and the recording checks it. **If not** says what to do. When something unexpected happens, write one line with `hostrec note "what you saw"` in the side window, and go on. Do not retry a step more than once, and never change a setting a step does not name.
+- **The hosts' own questions.** Answer them so the step can go on. When a host asks whether to trust a new folder, trust it: the scratch folders are made up. When a host asks to run a command or edit a file the prompt asked for, approve it, choosing the answer that stops it asking again for that command when one is offered; refuse anything the prompt did not ask for, and note it. When macOS asks for the microphone at the first voice call, allow it. During a call, approve a command the agent asks for by clicking. When closing a window or quitting an app asks you to confirm, confirm. When a desktop app offers to update, choose Later.
+- **Only the run-book's chats.** Both desktop apps are signed in to your own subscription, so their lists may show chats, threads or tasks from elsewhere. Open only the chats and threads this run-book creates, and leave every other one closed.
+- **Settles** names the facts a step gives evidence for. The tables at the end map each fact to its steps and each step to its facts.
+- **Arms.** Before each step that needs one, `hostrec arm <name>` makes the scratch hooks return a planted word, sleep, or start a background job. Arming changes a file outside the plugins: no arm touches a plugin, on either host, so arming never costs a Codex review. Each `arm` replaces the one before. Every arm except the start-text probes of C-03 and X-03 also gives each new, resumed or cleared chat the start word `MARIGOLD-TUESDAY`. `hostrec disarm` puts the hooks back to recording only, with no word.
 
 ## Sitting 0: the evaluation home, the machine and the git server
 
-113 minutes, plus waiting for the scheduled job's first run. A break fits after S0-08.
+141 minutes at least. A break fits after S0-09.
 
 ### S0-01. Make the evaluation account (10 min)
 
-1. Open System Settings, Users & Groups, and add a Standard user. Full name `HF Eval Home`, account name `hfeval`. Give it a password you keep for these sittings.
-2. Turn on fast user switching if it is off (Control Center), so you can switch between your own account and this one without logging out.
-3. Log in to `hfeval`.
+1. In your own account, open System Settings, Users & Groups, and add a user; macOS asks for an administrator's password. Choose Standard, full name `HF Eval Home`, account name `hfeval`. Give it a password you keep for these sittings.
+2. Turn on fast user switching if it is off (System Settings, Control Center), so you can switch between your own account and this one without logging out.
+3. Log in to `hfeval`. Skip every offer of the first-login screens (Apple Account, iCloud, Siri, Screen Time): this account needs none of them.
 
 **Expect:** a fresh desktop for `hfeval`.
 **If not:** if the Mac does not let you add a user, stop here; the lead plans the sittings again for a folder used as `HOME`.
@@ -55,53 +62,86 @@ Take a break wherever a part says one fits. A sitting can stop between any two s
 1. In `hfeval`, open System Settings, General, Device Management (on older macOS: Privacy & Security, Profiles). Note whether any profile is listed.
 2. Switch to your own account and look at the same page, reading only. Switch back to `hfeval`.
 
-Then, in Terminal in `hfeval`:
-
-```
-mkdir -p ~/hf-tools && echo 'export PATH="$HOME/hf-tools:$PATH"' >> ~/.zshrc
-```
-
 **Expect:** no profile in either account.
-**If not:** a profile is listed. Note only that one is there and whether its name mentions login items or background items; never its other details. You note it after S0-05, when `hostrec note` exists.
+**If not:** a profile is listed. Note only that one is there and whether its name mentions login items or background items; never its other details. You type that note after S0-05, when `hostrec note` exists.
 **Settles:** F-202.
 
-### S0-03. Tools for the account (15 min)
+### S0-03. Tools for the account (20 min)
 
-1. In Terminal in `hfeval`, type `git --version`, `command -v ssh-keygen` and `go version`.
-2. Install Claude Code's CLI and Codex's CLI for this account, by each host's own instructions. The desktop apps in `/Applications` are shared by all accounts and need no install.
-3. Type `claude --version` and `codex --version`.
+Everything here installs into the evaluation account's own home. Never use `sudo`, Homebrew or a global npm install for it: they write to folders your own account owns. In Terminal in `hfeval`:
 
-**Expect:** every command prints a version or a path.
-**If not:** if `git` asks to install the command line tools, accept and wait. If `go` is missing, install it from go.dev, or ask the lead for a built recorder and put it at `~/hf-tools/hostrec`.
+1. Check what the Mac already has:
+
+   ```
+   git --version
+   command -v ssh-keygen
+   uname -m
+   ```
+
+   `uname -m` prints `arm64` on Apple silicon or `x86_64` on Intel; it decides two names below.
+2. Set this account's PATH:
+
+   ```
+   mkdir -p ~/hf-tools ~/.local/bin
+   echo 'export PATH="$HOME/hf-tools:$HOME/hf-tools/go/bin:$HOME/.local/bin:$PATH"' >> ~/.zshrc
+   ```
+
+   Then open a new Terminal window, so the line takes effect, and close the old one.
+3. Go, unpacked inside this account (on Intel, write `amd64` in place of `arm64`):
+
+   ```
+   curl -fsSL -o ~/hf-tools/go.tgz https://go.dev/dl/go1.26.0.darwin-arm64.tar.gz
+   tar -C ~/hf-tools -xzf ~/hf-tools/go.tgz && rm ~/hf-tools/go.tgz
+   go version
+   ```
+
+4. Claude Code's CLI, by its own installer, which installs into this account's `~/.local` only:
+
+   ```
+   curl -fsSL https://claude.ai/install.sh | bash
+   claude --version
+   ```
+
+5. Codex's CLI, as the program from its releases on GitHub, put in `~/hf-tools` (on Intel, write `x86_64` in place of `aarch64`, both times):
+
+   ```
+   curl -fsSL -o ~/hf-tools/codex.tgz https://github.com/openai/codex/releases/latest/download/codex-aarch64-apple-darwin.tar.gz
+   tar -C ~/hf-tools -xzf ~/hf-tools/codex.tgz && rm ~/hf-tools/codex.tgz
+   mv ~/hf-tools/codex-aarch64-apple-darwin ~/hf-tools/codex
+   codex --version
+   ```
+
+**Expect:** `git` prints a version and `ssh-keygen` a path; each version command prints a version; nothing asks for an administrator's password.
+**If not:** if `git` asks to install the command line tools, cancel and stop: they are shared by every account on the Mac, so installing them changes what your real install runs; tell the lead. If anything asks for an administrator's password, cancel and stop, and tell the lead. If a download fails, tell the lead, who checks the hosts' install pages (the addresses are among the run-book's untried assumptions, at the end).
 **Settles:** nothing on its own.
 
 ### S0-04. Sign both hosts in (10 min)
 
-1. Type `claude` in Terminal, sign in with your own subscription when asked, then type `/exit`.
+1. Type `claude` in Terminal. Answer its first screens (a colour theme, trusting the folder), sign in with your own subscription when it asks (it opens the browser of this account), then type `/exit`.
 2. Type `codex login` and sign in with your own subscription.
 3. Open the Claude desktop app and the Codex desktop app, sign each in, and quit both.
 
 **Expect:** each host says you are signed in.
 **If not:** if a sign-in reuses your own account's session without asking, stop: tell the lead before going on, because the evaluation home is then not separate.
-**Settles:** nothing on its own; F-073 and F-074 are checked in S0-12.
+**Settles:** nothing on its own; the sign-ins are checked again in S0-14.
 
 ### S0-05. Build the recorder and the scratch folders (10 min)
 
-Open a new Terminal window, so the line S0-02 added takes effect, and type:
+Type:
 
 ```
-git clone <this repository's address, from its page on the git host> ~/hf-src/eva-md
+git clone https://github.com/heyNag/eva-md.git ~/hf-src/eva-md
 cd ~/hf-src/eva-md && go build -o ~/hf-tools/hostrec ./cmd/hostrec
 hostrec setup --rec ~/hf-rec
 ```
 
-**Expect:** `hostrec setup` makes the recording folder `~/hf-rec`; the scratch repositories `~/scratch/alpha-orchard` and `~/scratch/beta-lantern`, a plain folder `~/scratch/outside`, and `~/scratch/long-notes` with a long made-up `AGENTS.md`; the scratch marketplaces under `~/hf/marketplace`; and prints the commands of S0-06. All their content is made up: fruit, lanterns and orchards.
-**If not:** copy the error into `hostrec note` if it runs, or into a message to the lead, and stop.
+**Expect:** `hostrec setup` says it found no eva-md install and no earlier session in this account, and makes the recording folder `~/hf-rec`; a private folder `~/hf-private`, which is never handed over; the scratch repositories `~/scratch/alpha-orchard` and `~/scratch/beta-lantern`, a plain folder `~/scratch/outside`, and `~/scratch/long-notes` with a long made-up `AGENTS.md`; and the scratch marketplaces under `~/hf`. All their content is made up: fruit, lanterns and orchards.
+**If not:** if `setup` refuses because it found an eva-md install or an earlier session, stop: this is not a fresh evaluation account. For any other error, copy it into `hostrec note` if that runs, or into a message to the lead, and stop.
 **Settles:** nothing on its own.
 
-### S0-06. Register the scratch plugins with no terminal attached (5 min)
+### S0-06. Register the scratch plugins with no terminal attached (8 min)
 
-Type each line as `hostrec setup` printed it. They read from nothing, so a question would fail rather than wait:
+Type `hostrec register`. It runs the hosts' own commands that add the scratch marketplaces and plugins, as `hostrec setup` printed them, each with no terminal attached and nothing to read from, so a question would fail rather than wait:
 
 ```
 claude plugin marketplace add ~/hf/marketplace/claude-code --json </dev/null
@@ -109,12 +149,17 @@ claude plugin install hf-recorder@hf-scratch --scope user --json </dev/null
 codex plugin marketplace add ~/hf/marketplace/codex --json </dev/null
 codex plugin add hf-hooks@hf-scratch --json </dev/null
 codex plugin add hf-tools@hf-scratch --json </dev/null
-codex plugin list --json </dev/null
-hostrec note "S0-06 done"
 ```
 
-**Expect:** each command ends with no question, and the last Codex list shows both `hf-hooks` and `hf-tools`.
-**If not:** note which command asked or failed, and its exit status (`echo $?`).
+A command that fails is tried once more without `--json`. At the end `register` lists each host's plugins.
+
+**Expect:** each command ends with exit status 0 and no question, and the list shows `hf-recorder` for Claude Code, and `hf-hooks` and `hf-tools` for Codex.
+**If not:** for each command `register` reports as failed:
+
+1. Type it yourself in the side window as `register` printed it last, without `</dev/null`. If it asks a question, answer it so the plugin is added, and type `hostrec note "S0-06: <the command's first four words> asked: <the question, in a few words>"`. That is a result for F-056, not a failure.
+2. If it fails again, add the plugin through the host's own plugin screen (`/plugin` in Claude Code, `/plugins` in Codex), and note that you did.
+3. Type `hostrec register --check`. If a scratch plugin is still not listed, stop and tell the lead: sittings 1 and 2 need all three.
+
 **Settles:** F-056, F-158.
 
 ### S0-07. Approve the Codex hooks (5 min)
@@ -123,22 +168,28 @@ hostrec note "S0-06 done"
 2. In Codex, type `/hooks`. Approve every hook of `hf-hooks`. Leave Codex with `/quit` (or Ctrl+C twice).
 3. In the side window type `hostrec trust`.
 
-**Expect:** `/hooks` lists the scratch hooks as needing review; after approval `hostrec trust` reports them trusted. No other screen asked anything.
+**Expect:** `/hooks` lists the scratch hooks as needing review; after approval `hostrec trust` reports them trusted. No other screen asked anything but whether to trust the folder.
 **If not:** note what `/hooks` showed and what `hostrec trust` reports.
 **Settles:** F-161.
 
-### S0-08. The scratch repository on the git server (10 min)
+### S0-08. The scratch repository on the git server (12 min)
 
-1. In your browser, on the git server your wiki uses, create a new private, empty repository named `hf-scratch-plum`, with no README.
-2. Copy its SSH address. In the side window type `hostrec remote set <the address>`.
-3. On the repository's settings page, look at the default branch: is it protected, and are forced pushes allowed? Type `hostrec note "scratch main protected: yes|no; force push allowed: yes|no"`.
-4. Answer three questions about your real wiki's project on that server from its settings page or from what you know, reading only. Type `hostrec note "real project: push rule on committer address yes|no; signed commits required yes|no; main protected against force push yes|no; server reachable only on a private network yes|no"`.
+1. Switch to your own account. In your browser, on the git server your wiki uses, create a new private, empty repository named `hf-scratch-plum`, with no README.
+2. Copy its SSH address, which ends in `hf-scratch-plum.git`. Open TextEdit, make a new plain-text document (Format, Make Plain Text), paste the address alone, and save it as `hf-scratch-address.txt` in the folder `/Users/Shared` (in the save dialog, Cmd+Shift+G lets you type that folder).
+3. On the repository's settings page, look at the default branch: is it protected, and are forced pushes allowed? Keep the two answers in mind.
+4. Open your real wiki's project settings on that server, reading only, for the four answers of the second note below. Change nothing.
+5. Switch back to `hfeval`. In the side window type `hostrec remote set`. It reads the address file, shows the repository's name, refuses any repository not named `hf-scratch-plum`, asks you to confirm with `y`, and deletes the file. Then type the two notes:
 
-**Expect:** the repository exists and the notes are saved.
-**If not:** if you cannot create a repository there, create it on github.com instead and say so in a note.
+   ```
+   hostrec note "scratch main protected: yes|no; force push allowed: yes|no"
+   hostrec note "real project: push rule on committer address yes|no; signed commits required yes|no; main protected against force push yes|no; server reachable only on a private network yes|no"
+   ```
+
+   keeping one word of each pair. If S0-02 found a profile, type its note now as well.
+
+**Expect:** `remote set` shows `hf-scratch-plum` and stores its address; the notes are saved. Nothing of the real project is run or changed. Your answers stay in the recording, which never enters the repository; the fact sheet records only which way the design goes.
+**If not:** if you cannot create a repository there, create it on github.com in the same way and say so in a note. If `remote set` refuses the name, check that the file holds the scratch repository's address, never your real wiki's.
 **Settles:** F-176, F-177, F-183.
-
-*A break fits here.*
 
 ### S0-09. The machine's git checks (5 min)
 
@@ -148,64 +199,95 @@ Type `hostrec machine`.
 **If not:** note any prompt or dialog that appeared, and which check it came with.
 **Settles:** F-185, F-186, F-187, F-188.
 
-### S0-10. Reads from the git server with prompts off (5 min)
+*A break fits here.*
 
-1. Type `hostrec remote read`. It runs `git ls-remote` against `hf-scratch-plum` with prompts off and a 10-second limit, then an anonymous HTTPS read with no credentials.
-2. Lock the evaluation account's SSH agent, or quit the app that holds its keys if you use one, then type `hostrec remote read --again`. Unlock it afterwards.
+### S0-10. A key for the scratch repository (8 min)
 
-**Expect:** the first read succeeds in a second or two; the anonymous read fails fast; with the agent locked, the read fails fast and no dialog waits.
-**If not:** if a dialog appears, note what it asked and answer nothing; it should time out.
-**Settles:** F-178, F-179.
+1. In the side window type `hostrec key`. It makes a new key, `~/.ssh/hf_scratch_deploy`, in this account only, with no passphrase, and writes its public half to `/Users/Shared/hf-scratch-deploy-key.pub`.
+2. Switch to your own account. Open that file with TextEdit and copy its one line. In your browser, on `hf-scratch-plum`'s settings, add a deploy key: title `hf-eval-made-up`, the copied line as the key, and write access allowed. Close the file and move it to the Trash.
+3. Switch back to `hfeval`.
 
-### S0-11. The scheduled job (15 min, then wait)
+Never copy a key, an SSH agent or a password manager from your own account into the evaluation account, and never add this key to your own user's keys on the server. The key reaches `hf-scratch-plum` and nothing else.
 
-1. Type `hostrec agent install`. It writes a launchd user agent named `org.example.hf-tick` and loads it with `launchctl bootstrap`. Every 15 minutes it appends a time to the recording. On its first run it also: runs `claude -p "Made-up test: reply with the single word PEBBLE."` and `codex exec "Made-up test: reply with the single word PEBBLE."`; reads the scratch repository with `git ls-remote` in batch mode, once with its own SSH setup and once with a made-up machine key passed per call; makes the sitting's one push to `hf-scratch-plum`, two commits authored as `eva.md (hf-test) <hf-test@machines.eva-md.invalid>`, one signed with a fresh key no account knows and one unsigned; fetches one public eva-md release asset by name; writes, reads and removes a file under `~/.local/share/hf-test`; notes which git it finds; and posts one made-up notification with `osascript`.
+**Expect:** the server lists the deploy key on `hf-scratch-plum`, with write access.
+**If not:** if the server offers no deploy keys, or none with write access, note the class (for example `hostrec note "S0-10: deploy keys switched off"`) and tell the lead: the push of S0-13 then cannot be made.
+**Settles:** F-182.
+
+### S0-11. The scheduled job (15 min)
+
+1. Type `hostrec agent install`. It writes a launchd user agent named `org.example.hf-tick` and loads it with `launchctl bootstrap`. Every 15 minutes it appends a time to the recording, also while no sitting is open. On its first run it also: runs `claude -p "Made-up test: reply with the single word PEBBLE."` and `codex exec "Made-up test: reply with the single word PEBBLE."`; reads the scratch repository once with `git ls-remote` in batch mode with its own SSH setup, before anyone has accepted the server's host key; fetches one public eva-md release asset by name; writes, reads and removes a file under `~/.local/share/hf-test`; notes which git it finds; and posts one made-up notification with `osascript`.
 2. Watch the screen for a "background item added" notice and for any password, keychain or permission dialog. Answer no dialog: press Cancel or Deny.
 3. Wait for the first run to end (up to 5 minutes), then type `hostrec agent first-run`.
 
-**Expect:** no administrator password asked; perhaps a one-time background-item notice; one notification titled with the made-up text; `first-run` shows each part's outcome; on the git server, `hf-scratch-plum` now holds two commits.
-**If not:** note each dialog with its wording. If the push failed because the job had no SSH agent, type `hostrec push` once in the side window; that is still the sitting's one push to reach the server.
-**Settles:** F-175, F-180, F-181, F-189, F-190, F-191, F-200, F-201, F-203, F-204.
+**Expect:** no administrator password asked; perhaps a one-time background-item notice; one notification titled with the made-up text; `first-run` shows each part's outcome. The read most likely stops at the unknown host key: that is a result, not a failure.
+**If not:** note each dialog with its wording.
+**Settles:** F-180, F-181, F-189, F-190, F-200, F-201, F-203, F-204.
 
-### S0-12. A sign-in under another HOME (10 min)
+### S0-12. The server's host key, and reads with prompts off (10 min)
 
-1. Type `hostrec keychain-names before`. It lists the names, never the contents, of the login keychain's items.
+1. Type `hostrec remote read`. It first connects once by SSH with the deploy key, in this window, so that you can accept the server's host key: when it asks "Are you sure you want to continue connecting", type `yes`. (If your server's help pages publish its host-key fingerprint, you may compare the two first.) It then puts the deploy key in this account's SSH agent, runs `git ls-remote` against `hf-scratch-plum` with prompts off and a 10-second limit, and makes an anonymous HTTPS read with no credentials.
+2. Lock the agent: type `ssh-add -x`, and give it the made-up lock password `made-up-lock-1` twice. Then type `hostrec remote read --again`.
+3. Unlock it with `ssh-add -X` and the same made-up password, then empty it with `ssh-add -D`.
+
+**Expect:** the host-key question once; the first read succeeds in a second or two; the anonymous read fails fast; with the agent locked, the read fails fast and no dialog waits.
+**If not:** if a dialog appears, note what it asked and answer nothing; it should time out. If the first read fails, note its class and tell the lead before S0-13.
+**Settles:** F-178, F-179, F-180.
+
+### S0-13. The scheduled job's push (8 min)
+
+Type `hostrec agent kick`. It starts the scheduled job now and waits for that run to end (up to 5 minutes). This run reads the scratch repository in batch mode with its own SSH setup again, now that the host key is accepted. For this run only, it adds a line to this account's SSH config naming a made-up agent for the server. It then reads and pushes with the deploy key passed per call and no agent socket: the sitting's one push to `hf-scratch-plum`, two commits authored as `eva.md (hf-test) <hf-test@machines.eva-md.invalid>`, one signed with a fresh key no account knows and one unsigned. Last it removes the config line and prints each part's outcome.
+
+**Expect:** the read with the job's own setup gets past the host-key check (it may then fail for want of a key, which is expected); the read with the deploy key succeeds; the push is accepted, or refused with a class of refusal; no dialog; on the server, `hf-scratch-plum` holds two commits if it was accepted.
+**If not:** note each dialog with its wording. If the job did not run at all, type `hostrec push` once in the side window: it makes the same push from this window with the same key, and it is still the sitting's one push.
+**Settles:** F-175, F-180, F-182, F-191, F-201.
+
+### S0-14. A sign-in under another HOME (10 min)
+
+1. Type `hostrec keychain-names before`. It keeps, never showing them, a hash of the name of each of the login keychain's items.
 2. Type `mkdir -p ~/home-b && HOME=~/home-b claude`. Sign in when asked, type `Made-up test: say hello.`, then `/exit`.
 3. Type `HOME=~/home-b codex login` and sign in.
 4. Type `claude` (with the account's own HOME). It should still be signed in. Type `/exit`. Type `codex login status`.
-5. Type `hostrec keychain-names after`.
+5. Type `hostrec keychain-names after`. It shows the names of the items added or changed since step 1, never their contents or account fields.
 
 **Expect:** both hosts sign in under `~/home-b` and make their folders there; the account's own sign-in still holds afterwards.
 **If not:** if the account's own sign-in was replaced or lost, note it, and sign in again as in S0-04.
 **Settles:** F-073, F-074.
 
-### S0-13. Optional: a push with a deploy key (5 min)
+### S0-15. The deploy-key commands (2 min)
 
-Only if you agree to a second push to `hf-scratch-plum`. Type `hostrec deploy-key`. It prints the help of `gh` or `glab` for deploy keys, makes a key for this test, adds it to `hf-scratch-plum` with write access, and pushes one commit from the scheduled job's setup with it.
+Type `hostrec deploy-key`. It looks for `gh` and `glab` on this Mac, signs in to nothing, and reports only whether each is installed and whether its help shows a deploy-key command with write access. Do not install either for this.
 
-**Expect:** the push succeeds with no dialog.
-**If not:** note the class of failure (for example, deploy keys switched off on the server).
-**Settles:** F-182, F-191.
+**Expect:** a short report; "neither installed" is a result too.
+**If not:** note it.
+**Settles:** F-182.
 
-### S0-14. Optional: a forced push with a lease (3 min)
+### S0-16. Optional: a forced push with a lease (3 min)
 
-Only if you agree to one more push. Type `hostrec force-lease`. It rewrites the last commit of `hf-scratch-plum` and pushes it with `--force-with-lease`.
+Only if you agree to one more push to `hf-scratch-plum`. Type `hostrec force-lease`. It rewrites the last commit of `hf-scratch-plum` and pushes it with `--force-with-lease`, with the deploy key.
 
 **Expect:** accepted where forced pushes are allowed, refused where `main` is protected.
 **If not:** note the outcome.
 **Settles:** F-183.
 
-### S0-15. End of sitting 0 (3 min)
+### S0-17. End of sitting 0 (3 min)
 
-Type `hostrec summary s0`. It lists, by fact number, what was recorded. Leave the evaluation account logged in (switch back to your own with fast user switching), so the scheduled job keeps running. If the Mac sleeps before the next sitting, that is wanted: the job's times show the wake.
+Type `hostrec summary s0`. It lists, by fact number, what was recorded. Then type `hostrec close`. Leave the evaluation account logged in (switch back to your own with fast user switching), so the scheduled job keeps running. If the Mac sleeps before the next sitting, that is wanted: the job's times show the wake.
 
 **Settles:** nothing new.
 
 ## Sitting 1: Claude Code
 
-156 minutes. Breaks fit after C-13 and after C-27. Step C-31 leaves a chat open for 25 minutes while later steps go on.
+164 minutes at least. Breaks fit after C-13 and after C-27. Step C-31 leaves a chat open while later steps go on, until C-38 closes it: do not stop between them.
 
 All steps run in `hfeval`, in `~/scratch/alpha-orchard` unless a step says otherwise.
+
+### C-00. Open the windows (2 min)
+
+Log in to `hfeval` (fast user switching). Open Terminal with two windows, the chat window and the side window, and type `cd ~/scratch/alpha-orchard` in each. Side window: `hostrec mark C-00`, which opens the recording.
+
+**Expect:** both windows in `~/scratch/alpha-orchard`; `mark` says the recording is open.
+**If not:** if `hostrec` is not found, open a new window: the PATH line of S0-03 applies to new windows only.
+**Settles:** nothing on its own.
 
 ### C-01. Start (3 min)
 
@@ -223,8 +305,10 @@ Side: `hostrec mark C-02`. Type:
 This is a test with made-up content. Answer three things on three lines. 1: What codeword, if any, were you given at the start of this chat? Give the word only, or NONE. 2: Did you see a line that starts with "hf test"? Yes or no. 3: List the names of the tools whose names start with hf_ that you can call right now, without searching for tools.
 ```
 
-**Expect:** 1 is `MARIGOLD-TUESDAY`; 2 is most likely no; 3 lists `hf_lookup` (the tool marked to load at start) and perhaps not the others.
-**If not:** note the three answers as given.
+Then side: `hostrec tail`.
+
+**Expect:** 1 is `MARIGOLD-TUESDAY`; 2 is most likely no; 3 lists `hf_lookup` (the tool marked to load at start) and perhaps not the others. `tail` shows a SessionStart line and a UserPromptSubmit line.
+**If not:** note the three answers as given. If `tail` shows no SessionStart or no UserPromptSubmit line, stop: the scratch hooks are not recording; tell the lead.
 **Settles:** F-012, F-046, F-047, F-049, F-093.
 
 ### C-03. Long start texts (5 min)
@@ -249,7 +333,9 @@ Side: `hostrec mark C-04`, `hostrec arm stop-child`. Chat: `/exit`, `claude`, th
 Made-up test. First write one sentence saying what you will do. Then read the file orchard/plums.txt and tell me in one sentence what it says. Then run the shell command `ls orchard` and tell me how many files it lists. Write a short sentence before each step.
 ```
 
-**Expect:** a read, a shell command, short sentences between them, and a final reply. Approve the tools if asked.
+When it asks to run `ls orchard`, approve it with the answer that stops it asking again for that command.
+
+**Expect:** a read, a shell command, short sentences between them, and a final reply.
 **If not:** note what the agent did instead.
 **Settles:** F-001, F-002, F-004, F-005, F-013, F-019, F-020, F-021, F-022, F-030, F-084, F-085.
 
@@ -341,13 +427,13 @@ Side: `hostrec mark C-10`. Press Shift+Tab until the footer shows plan mode. Typ
 Made-up test. Plan how you would rename orchard/a.txt to orchard/apple.txt. Do not do it yet.
 ```
 
-Approve the plan when it is shown. After the rename, enter plan mode again and type:
+When the plan is shown with its choices, pick the one that approves the plan and still asks before each edit (worded like "Yes, and manually approve edits"), then approve the rename when it asks. After the rename, enter plan mode again and type:
 
 ```
 Made-up test. Plan how you would delete orchard/b.txt.
 ```
 
-Reject this plan, keep planning, and type `Not now, this is a test.`
+This time pick the choice that keeps planning (worded like "No, keep planning"), and type `Not now, this is a test.`
 
 **Expect:** the first plan approved and carried out; the second rejected, with nothing deleted.
 **If not:** note what the plan screen offered.
@@ -370,10 +456,10 @@ Made-up test. Use your task list tool: add three tasks, `water the plums`, `coun
 Side: `hostrec mark C-12`, `hostrec arm subagent-word`. Type:
 
 ```
-Made-up test. Delegate this to a general-purpose subagent: it should first tell you any word in capitals it was given when it started, then tell you the codeword given at the start of this chat if it knows it, then read orchard/pears.txt, add a line `checked: yes` to it, and report back in one sentence. Include the subagent's two words in your answer.
+Made-up test. First tell me the codeword you were given at the start of this chat, and the project word from your instruction file, or NONE for each. Then delegate this to a general-purpose subagent: it should first tell you any word in capitals it was given when it started, then the codeword given at the start of this chat if it knows it, then the project word from its instruction file if it has one, then read orchard/pears.txt, add a line `checked: yes` to it, and report back in one sentence. Include the subagent's three answers in your answer.
 ```
 
-**Expect:** a subagent runs; it reports `SILVER-OTTER` and most likely does not know `MARIGOLD-TUESDAY`; the file gains the line.
+**Expect:** you get `MARIGOLD-TUESDAY` and `WILLOW-CANDLE` first; a subagent runs; it reports `SILVER-OTTER`, most likely does not know `MARIGOLD-TUESDAY`, and most likely knows `WILLOW-CANDLE`; the file gains the line.
 **If not:** note the words it gave.
 **Settles:** F-003, F-025, F-026, F-027, F-091.
 
@@ -399,7 +485,7 @@ Side: `hostrec mark C-14`. Type:
 Made-up test. Count from 1 to 30. For each number, run the shell command `sleep 1` once, then print the number. One tool call per number.
 ```
 
-After it has printed about five numbers, type while it is still working:
+If it asks before each `sleep 1`, approve the first with the answer that stops it asking again for that command. After it has printed about five numbers, and while no question is open, type while it is still working:
 
 ```
 Made-up interjection: when you finish, also write the word TEAL-KITE.
@@ -417,7 +503,7 @@ Side: `hostrec mark C-15`. Type:
 Made-up test. Run the shell command `sleep 60`, then say done.
 ```
 
-After about five seconds, press Esc.
+If it asks to run the command, approve it first. About five seconds after the command has started, press Esc.
 
 **Expect:** the turn stops and the screen says it was interrupted.
 **If not:** note it.
@@ -572,7 +658,7 @@ Side: `hostrec mark C-27`. Type `/exit`. Wait two minutes. Type `claude --contin
 Made-up test: say hello again.
 ```
 
-Type `/exit`, then `claude --resume`, pick the newest chat, and if your version offers it, fork it (`claude --resume <id> --fork-session`, or the fork choice in the list). Then type:
+Type `/exit`, then `claude --continue --fork-session`, which forks the newest chat of this folder. If that is refused, type `claude --resume`, pick the newest alpha-orchard chat in the list it shows, and take its fork choice if it has one. Then type:
 
 ```
 Made-up test: say hello from the fork.
@@ -592,26 +678,26 @@ Side: `hostrec mark C-28`, `hostrec arm timeout`. Type `Made-up test: say hello.
 
 ### C-29. A missing hook binary (3 min)
 
-Side: `hostrec mark C-29`, `hostrec arm missing`. It renames `~/hf-tools/hf-missing-check`, which one declared hook names, and the exec-form hook's script under the plugin root. Type `Made-up test: say hello.`
+Side: `hostrec mark C-29`, `hostrec arm missing`. It renames `~/hf-tools/hf-missing-check`, which one declared hook names, outside every plugin. The exec-form hook, whose script lies under the plugin root, keeps running. Type `Made-up test: say hello.` Then side: `hostrec disarm`, which puts the file back.
 
-**Expect:** the reply comes; at most a quiet notice.
-**If not:** note exactly what was shown, and whether you had to do anything to go on. Then `hostrec disarm`.
+**Expect:** the reply comes; at most a quiet notice. Nothing more to see on screen: the recording shows the exec-form hook's line, with the plugin root expanded.
+**If not:** note exactly what was shown, and whether you had to do anything to go on.
 **Settles:** F-050, F-104.
 
 ### C-30. A chat with hooks switched off (4 min)
 
 Side: `hostrec mark C-30`, `hostrec disarm`. Chat: `/exit`, then `claude --settings '{"disableAllHooks": true}'`. Wait two minutes without typing. Then type `Made-up test: say hello with hooks off.` and `/exit`.
 
-**Expect:** no hook line in the recording for this chat; the scratch MCP server's start line is there; the host's own session file still changes.
+**Expect:** the reply. Nothing more to see on screen: the recording checks that no hook line came from this chat, that the scratch MCP server started, and that the host's own session file changed.
 **If not:** if the setting is refused, note it.
 **Settles:** F-024, F-043.
 
-### C-31. A chat left open (3 min, then 25 minutes in the background)
+### C-31. A chat left open (3 min, then open until C-38)
 
-Side: `hostrec mark C-31`. Open a third Terminal window, type `cd ~/scratch/beta-lantern && claude`, and leave it open, typing nothing, for 25 minutes while the next steps go on. After ten minutes, in the side window type `hostrec swap-binary` (it replaces `~/hf-tools/hostrec` with a second build of itself).
+Side: `hostrec mark C-31`. Open a third Terminal window, type `cd ~/scratch/beta-lantern && claude`, and leave it open, typing nothing, while the next steps go on. C-35 swaps the recorder's program under it, and C-38 closes it.
 
-**Expect:** the scratch server's minute stamps keep coming from one process; SessionStart fires within 90 seconds of the server's start; no new server starts after the swap.
-**If not:** note it. Close the window after 25 minutes, with `/exit`.
+**Expect:** Claude Code opens in the third window. Nothing more to see on screen: the recording checks that the scratch server's minute stamps keep coming from one process, that SessionStart fired within 90 seconds of the server's start, and that no new server starts after the swap.
+**If not:** note it.
 **Settles:** F-044, F-045.
 
 ### C-32. A changed hooks file (3 min)
@@ -632,8 +718,10 @@ Made-up test. Read orchard/plums.txt. Then: do you have any rule that mentions a
 
 Then `/compact`, and ask again: `Do you still have a rule with a word in capitals? Word or NONE.` Then `/exit`, `cd ~/scratch/beta-lantern && claude`, and type the first prompt again with `lantern/wicks.txt` in place of `orchard/plums.txt`.
 
+Then side: `hostrec disarm`, which removes the rules file.
+
 **Expect:** the word is known in alpha-orchard after the read; the answers in the other places are what this step measures.
-**If not:** note each answer. `hostrec disarm` afterwards removes the rules file.
+**If not:** note each answer.
 **Settles:** F-094.
 
 ### C-34. A note for the host's own memory (3 min)
@@ -650,23 +738,32 @@ Then side: `hostrec memory-index`.
 **If not:** note it.
 **Settles:** F-087.
 
-### C-35. The environment a hook gets (4 min)
+### C-35. The environment a hook gets, and another config folder (10 min)
 
-Side: `hostrec mark C-35`. Chat: `/exit`, then:
+Side: `hostrec mark C-35`, then `hostrec swap-binary` (it replaces `~/hf-tools/hostrec` with a second build of itself, under the chat C-31 left open).
 
-```
-HF_FAKE_API_TOKEN=made-up-not-real-000 HF_PLAIN_MARK=1 CLAUDE_CONFIG_DIR=~/hf-alt-claude claude
-```
+1. The environment. Chat: `/exit`, then:
 
-Sign in again if asked (same subscription). Type `Made-up test: say hello. Then run the shell command command -v hf-linked-name.` Then `/exit`.
+   ```
+   HF_FAKE_API_TOKEN=made-up-not-real-000 HF_PLAIN_MARK=1 claude
+   ```
 
-**Expect:** the recording notes that both variable names were present in the hooks (never their values), and that the record lies under `~/hf-alt-claude`.
-**If not:** note it.
+   Type `Made-up test: say hello. Then run the shell command command -v hf-linked-name.` Then `/exit`.
+2. Another config folder. Side: `hostrec register claude-code --config-dir ~/hf-alt-claude`, which registers the scratch plugin there as S0-06 did, with no terminal attached. Chat:
+
+   ```
+   CLAUDE_CONFIG_DIR=~/hf-alt-claude claude
+   ```
+
+   Claude Code treats this folder as new: answer its first screens (a colour theme, trusting the folder), and sign in again with the same subscription if it asks. Type `Made-up test: say hello.` Then `/exit`.
+
+**Expect:** two replies; `command -v` prints a path in `~/hf-tools`. Nothing more to see on screen: the recording checks that both made-up variable names reached the hooks (never their values), and that in part 2 the hooks fired and the record lies under `~/hf-alt-claude`.
+**If not:** note it. If `register` fails for the other folder, note it and do part 2 anyway: `hostrec summary` still finds, by name only, the session file made under `~/hf-alt-claude`.
 **Settles:** F-023, F-028, F-029.
 
 ### C-36. A turn that fails (3 min)
 
-Side: `hostrec mark C-36`. Chat: `claude`. Turn off Wi-Fi. Type `Made-up test: say hello.` Wait for the error. Turn Wi-Fi on.
+Side: `hostrec mark C-36`. Chat: `claude`. Disconnect the network (Wi-Fi off in Control Center, or the cable out). Type `Made-up test: say hello.` Wait for the error. Connect the network again.
 
 **Expect:** an error, and the turn ends.
 **If not:** note the message.
@@ -687,7 +784,9 @@ claude -p --output-format stream-json --verbose "Made-up test: reply with the si
 
 ### C-38. The desktop app's Code tab (6 min)
 
-Side: `hostrec mark C-38`, `hostrec arm start`. Open the Claude desktop app and go to its Code tab. Note how many SessionStart lines the side window's `hostrec tail` shows before you do anything. Choose the folder `~/scratch/alpha-orchard`, and type:
+Side: `hostrec mark C-38`. First close the chat C-31 left open: in the third window type `/exit`, and close that window. Then side: `hostrec arm start`.
+
+Open the Claude desktop app. If it lists chats from elsewhere, leave them closed. Open its About window (from the app's menu) and type `hostrec note "claude app version: <the version shown>"`. Go to its Code tab. Before you choose anything, type `hostrec tail` in the side window and note how many SessionStart lines it shows. Choose the folder `~/scratch/alpha-orchard`, and type:
 
 ```
 Made-up test: say hello from the desktop app, and tell me any codeword you were given at the start.
@@ -695,7 +794,7 @@ Made-up test: say hello from the desktop app, and tell me any codeword you were 
 
 Note how the `hf test` start line showed there, if at all. Quit the app.
 
-**Expect:** the hooks fire in the app; the codeword is `MARIGOLD-TUESDAY`.
+**Expect:** the codeword is `MARIGOLD-TUESDAY`, so the hooks fired in the app.
 **If not:** note it.
 **Settles:** F-011, F-046, F-079, F-105.
 
@@ -703,7 +802,7 @@ Note how the `hf test` start line showed there, if at all. Quit the app.
 
 Side: `hostrec mark C-39`, `hostrec arm end-slow`. Chat: `claude`, type `Made-up test: say hello.`, then `/exit`. Then `claude` again, type `Made-up test: say hello.`, and close the whole Terminal window with Cmd+W. Wait 15 seconds, open a new window and type `hostrec children`.
 
-**Expect:** the end hook's lines stop after about 1.5 seconds; each detached child's file appears about 10 seconds after its hook.
+**Expect:** `children` lists a file for each detached child. Nothing more to see on screen: the recording checks that the end hook's lines stop after about 1.5 seconds, and that each child's file appeared about 10 seconds after its hook.
 **If not:** note it.
 **Settles:** F-006, F-030, F-102.
 
@@ -717,7 +816,7 @@ Side: `hostrec mark C-40`, `hostrec arm net-job`. Chat: `cd ~/scratch/alpha-orch
 
 ### C-41. Read-only reports (3 min)
 
-Side: `hostrec mark C-41`, `hostrec cli-report claude-code`. It runs, with the network off once and on once, `claude --version`, `claude --help` and `claude plugin list --json`, and times each.
+Side: `hostrec mark C-41`, `hostrec cli-report claude-code`. It runs `claude --version`, `claude --help` and `claude plugin list --json`, and times each, once with the network off and once with it on. When it says so, disconnect the network (Wi-Fi off, or the cable out) and press Enter; when it says so again, connect it and press Enter.
 
 **Expect:** each prints without signing in or calling a model.
 **If not:** note it.
@@ -728,20 +827,30 @@ Side: `hostrec mark C-41`, `hostrec cli-report claude-code`. It runs, with the n
 Side: `hostrec mark C-42`, `hostrec disarm`, `hostrec summary claude-code`.
 
 **Expect:** a list of every Claude Code event that fired, and of every fact of this sitting with what was recorded for it.
-**If not:** note any fact listed as missing.
+**If not:** `summary` names, for each fact it lists as missing, the steps that settle it. If the sitting has time, redo those steps now, each starting with its own `hostrec mark`, then type `hostrec summary claude-code` again. If not, leave them and tell the lead.
+
+Then type `hostrec close`.
 **Settles:** F-075.
 
 ## Sitting 2: Codex
 
-224 minutes: the CLI part (X-01 to X-38) is 158 minutes and the desktop app part (X-39 to X-50) 66; a break fits after X-20 and before X-39, where the desktop app starts. Step X-31 leaves a chat open for 35 minutes.
+242 minutes at least: the CLI part (X-00 to X-38) is 172 minutes and the desktop app part (X-39 to X-50) 70. A break fits after X-20, and before X-39, where the desktop app starts; the desktop app part can be on another day, starting with X-00 again. Step X-31 leaves a chat open until the end of X-32, and step X-39 one until X-47: do not stop between them.
 
 All steps run in `hfeval`, in `~/scratch/alpha-orchard` unless a step says otherwise.
 
+### X-00. Open the windows (2 min)
+
+Log in to `hfeval` (fast user switching). Open Terminal with two windows, the chat window and the side window, and type `cd ~/scratch/alpha-orchard` in each. Side window: `hostrec mark X-00`, which opens the recording.
+
+**Expect:** both windows in `~/scratch/alpha-orchard`; `mark` says the recording is open.
+**If not:** if `hostrec` is not found, open a new window: the PATH line of S0-03 applies to new windows only.
+**Settles:** nothing on its own.
+
 ### X-01. Start (3 min)
 
-Side: `hostrec mark X-01`, `hostrec trust`.
+Side: `hostrec mark X-01`, `codex login status`, `hostrec trust`.
 
-**Expect:** Codex is still signed in (`codex login status`), and the scratch hooks are still trusted, days after their approval, loaded from the plugin's `.codex-plugin/plugin.json`.
+**Expect:** `codex login status` says Codex is still signed in, and `trust` reports the scratch hooks still trusted, days after their approval, loaded from the plugin's `.codex-plugin/plugin.json`.
 **If not:** if they are not trusted, note it, approve them in `/hooks`, and go on.
 **Settles:** F-073, F-150, F-157, F-160.
 
@@ -753,22 +862,35 @@ Side: `hostrec mark X-02`, `hostrec arm start`. Chat: `codex`, then:
 This is a test with made-up content. Answer on two lines. 1: What codeword, if any, were you given at the start of this chat? Give the word only, or NONE. 2: Did you see a line that starts with "hf test"? Yes or no.
 ```
 
-**Expect:** 1 is `MARIGOLD-TUESDAY`; Codex showed the `hf test` text as a warning; 2 is most likely no.
-**If not:** note how the line showed and the answers.
+Then side: `hostrec tail`.
+
+**Expect:** 1 is `MARIGOLD-TUESDAY`; Codex showed the `hf test` text as a warning; 2 is most likely no. `tail` shows a SessionStart line and a UserPromptSubmit line.
+**If not:** note how the line showed and the answers. If `tail` shows no SessionStart or no UserPromptSubmit line, stop: the scratch hooks are not recording; tell the lead.
 **Settles:** F-012, F-046, F-047, F-049.
 
-### X-03. Long hook messages (6 min)
+### X-03. Long hook messages (10 min)
 
-Side: `hostrec mark X-03`. For each of the four arms below, type the arm in the side window, then in the chat window `/quit`, `codex`, and the prompt:
+Side: `hostrec mark X-03`. For each of the eight arms below, type the arm in the side window, then in the chat window `/quit`, `codex`, and the prompt:
 
 ```
 Made-up test. At the very end of the text you were given at the start of this chat there is a word in capitals. What is it? Word only, or NONE.
 ```
 
-Arms, in order: `hostrec arm start-4900-declared`, `hostrec arm start-9000-declared`, `hostrec arm start-4900-plain`, `hostrec arm start-9000-plain`.
+Arms, in order, each a made-up text of that many characters given through the handler that declares a limit, then through the one that does not:
 
-**Expect:** the word comes back for the shorter texts; the longer ones may be cut.
-**If not:** note the four answers.
+```
+hostrec arm start-probe 7000 declared
+hostrec arm start-probe 7000 plain
+hostrec arm start-probe 8300 declared
+hostrec arm start-probe 8300 plain
+hostrec arm start-probe 11000 declared
+hostrec arm start-probe 11000 plain
+hostrec arm start-probe 14000 declared
+hostrec arm start-probe 14000 plain
+```
+
+**Expect:** the word comes back for the shortest texts; somewhere up the ladder it stops coming back, perhaps at a larger size with the declared limit. Nothing more to see on screen: the recording counts the files Codex writes the rest to, at each size.
+**If not:** note the eight answers.
 **Settles:** F-125.
 
 ### X-04. A turn with two tools and words between (4 min)
@@ -779,7 +901,9 @@ Side: `hostrec mark X-04`, `hostrec arm stop-child`. Chat: `/quit`, `codex`, the
 Made-up test. First write one sentence saying what you will do. Then read the file orchard/plums.txt and tell me in one sentence what it says. Then run the shell command `ls orchard` and tell me how many files it lists. Write a short sentence before each step.
 ```
 
-**Expect:** tool calls, short sentences between them, and a final reply. Approve commands if asked.
+When it asks to run a command, approve it with the answer that stops it asking again for that command.
+
+**Expect:** tool calls, short sentences between them, and a final reply.
 **If not:** note what the agent did instead.
 **Settles:** F-001, F-002, F-004, F-005, F-013, F-019, F-020, F-021, F-022, F-120, F-121, F-122, F-132, F-133.
 
@@ -867,13 +991,13 @@ Side: `hostrec mark X-11`. Switch Codex to plan mode in the way your version off
 Made-up test. Plan how you would rename orchard/d.txt to orchard/date.txt. Do not do it yet.
 ```
 
-Approve the plan. Then plan mode again:
+When Codex shows the plan and asks whether to carry it out, pick the choice that carries it out; if no choice shows, type `Yes, carry out the plan.` Then plan mode again:
 
 ```
 Made-up test. Plan how you would delete orchard/e.txt.
 ```
 
-Reject it and type `Not now, this is a test.`
+This time pick the choice that does not carry it out, or, if no choice shows, type `No, do not carry it out.` Then type `Not now, this is a test.`
 
 **Expect:** one plan carried out, one rejected.
 **If not:** if there is no plan mode, note it.
@@ -899,7 +1023,7 @@ Side: `hostrec mark X-13`. Type:
 Made-up test. Count from 1 to 30. For each number, run the shell command `sleep 1` once, then print the number. One tool call per number.
 ```
 
-After about five numbers, type:
+If it asks before each `sleep 1`, approve the first with the answer that stops it asking again for that command. After about five numbers, and while no question is open, type:
 
 ```
 Made-up interjection: when you finish, also write the word TEAL-KITE.
@@ -917,7 +1041,7 @@ Side: `hostrec mark X-14`. Type:
 Made-up test. Run the shell command `sleep 60`, then say done.
 ```
 
-After about five seconds, press Esc.
+If it asks to run the command, approve it first. About five seconds after the command has started, press Esc.
 
 **Expect:** the turn stops.
 **If not:** note it.
@@ -979,7 +1103,7 @@ Side: `hostrec mark X-20`. Chat: `/quit`, `cd ~/scratch/outside && codex`, then 
 
 ### X-21. A compaction by command (5 min)
 
-Side: `hostrec mark X-21`, `hostrec arm compact`. Chat: `/quit`, `cd ~/scratch/alpha-orchard && codex resume --last`, then `/compact`. Then:
+Side: `hostrec mark X-21`, `hostrec arm compact`. Chat: `/quit`, `cd ~/scratch/alpha-orchard && codex resume`, pick the newest alpha-orchard chat in the list it shows, then `/compact`. Then:
 
 ```
 Made-up test. What word in capitals, if any, were you given just after the compaction? Word only, or NONE.
@@ -1011,24 +1135,27 @@ Side: `hostrec mark X-23`. Type `/clear` (or `/new` if this version has no `/cle
 
 ### X-24. Resume and fork (6 min)
 
-Side: `hostrec mark X-24`. `/quit`, wait two minutes, `cd ~/scratch/alpha-orchard && codex resume --last`, then `Made-up test: say hello again.` Then fork the chat the way your version offers (`/fork`, or editing an earlier message), and type `Made-up test: say hello from the fork.`
+Side: `hostrec mark X-24`. `/quit`, wait two minutes, `cd ~/scratch/alpha-orchard && codex resume`, pick the newest alpha-orchard chat in the list, then `Made-up test: say hello again.` Then fork the chat the way your version offers (`/fork`, or editing an earlier message), and type `Made-up test: say hello from the fork.`
 
 **Expect:** the resumed chat continues; the fork starts as a new chat.
 **If not:** note it.
 **Settles:** F-006, F-033.
 
-### X-25. The environment a hook gets (4 min)
+### X-25. The environment a hook gets, and another Codex home (10 min)
 
-Side: `hostrec mark X-25`. Chat: `/quit`, then:
+Side: `hostrec mark X-25`.
 
-```
-HF_FAKE_API_TOKEN=made-up-not-real-000 HF_PLAIN_MARK=1 codex
-```
+1. The environment. Chat: `/quit`, then:
 
-Type `Made-up test: say hello. Then run the shell command command -v hf-linked-name.`, then `/quit`.
+   ```
+   HF_FAKE_API_TOKEN=made-up-not-real-000 HF_PLAIN_MARK=1 codex
+   ```
 
-**Expect:** the recording notes both variable names present in the hooks, never their values, and whether `CODEX_HOME` is set for them.
-**If not:** note it.
+   Type `Made-up test: say hello. Then run the shell command command -v hf-linked-name.`, then `/quit`.
+2. Another Codex home. Side: `hostrec register codex --codex-home ~/hf-alt-codex`, which registers the scratch plugins there as S0-06 did. Chat: `CODEX_HOME=~/hf-alt-codex codex login`, and sign in with the same subscription. Then `CODEX_HOME=~/hf-alt-codex codex`, type `/hooks`, approve every hook of `hf-hooks`, and type `Made-up test: say hello.` Then `/quit`.
+
+**Expect:** two replies; `command -v` prints a path in `~/hf-tools`. Nothing more to see on screen: the recording checks that both made-up variable names reached the hooks (never their values), whether `CODEX_HOME` is set for them, and that in part 2 the hooks fired and the record lies under `~/hf-alt-codex`.
+**If not:** note it. If `register` fails for the other home, note it and do part 2 anyway: `hostrec summary` still finds, by name only, the session file made under `~/hf-alt-codex`.
 **Settles:** F-023, F-028, F-029.
 
 ### X-26. A run a program drives (3 min)
@@ -1062,7 +1189,7 @@ Made-up test. Run the shell command `true` 100 times, as 100 separate tool calls
 
 Approve commands for the session if asked. Side, at the end: `hostrec timing codex`.
 
-**Expect:** about 200 hook starts (one before and one after each call); `timing` prints the median and the 95th percentile, and the shell the hooks ran under.
+**Expect:** about 200 hook starts (one before and one after each call); `timing` prints the median and the 95th percentile, apart for the plain starts and for those that also hashed a made-up folder of 2 KB, and the shell the hooks ran under.
 **If not:** if the agent batches the commands, let it finish, note it, and type the prompt once more.
 **Settles:** F-162, F-173.
 
@@ -1070,7 +1197,7 @@ Approve commands for the session if asked. Side, at the end: `hostrec timing cod
 
 Side: `hostrec mark X-29`, `hostrec arm stop-child`. Type `Made-up test: say hello.` As soon as the reply appears, press Ctrl+C twice to quit Codex. Wait 15 seconds, then side: `hostrec children`.
 
-**Expect:** the detached child's file appears; the end hook fired on the close.
+**Expect:** `children` lists the detached child's file. Nothing more to see on screen: the recording checks that the end hook fired on the close.
 **If not:** note it.
 **Settles:** F-006, F-030, F-126.
 
@@ -1082,19 +1209,19 @@ Side: `hostrec mark X-30`, `hostrec arm net-job`. Chat: `codex`, `Made-up test: 
 **If not:** note it.
 **Settles:** F-031, F-189, F-190.
 
-### X-31. A chat left open (2 min, then 35 minutes in the background)
+### X-31. A chat left open (2 min, then open until the end of X-32)
 
-Side: `hostrec mark X-31`, `hostrec disarm`. Open a third Terminal window, `cd ~/scratch/beta-lantern && codex`, and leave it open, typing nothing. It stays open until X-47.
+Side: `hostrec mark X-31`, `hostrec disarm`. Open a third Terminal window, `cd ~/scratch/beta-lantern && codex`, and leave it open, typing nothing. X-32 closes it.
 
-**Expect:** the scratch server stamps every minute; SessionStart follows its start within 90 seconds.
+**Expect:** Codex opens in the third window. Nothing more to see on screen: the recording checks that the scratch server stamps every minute, and that SessionStart followed its start within 90 seconds.
 **If not:** note it.
 **Settles:** F-044, F-045.
 
 ### X-32. A new binary behind approved hooks (4 min)
 
-Side: `hostrec mark X-32`, `hostrec trust`, `hostrec swap-binary`, `hostrec trust`. Chat: `codex`, `Made-up test: say hello.`, `/quit`.
+Side: `hostrec mark X-32`, `hostrec trust`, `hostrec swap-binary`, `hostrec trust`. Chat: `codex`, `Made-up test: say hello.`, `/quit`. Then, in the third window, type `/quit` and close that window.
 
-**Expect:** still trusted before and after; the hooks fire with the new build (its log line names the second build); the open chat of X-31 keeps its old server.
+**Expect:** `trust` reports the hooks trusted before and after the swap. Nothing more to see on screen: the recording checks that the hooks fired with the new build and that the open chat of X-31 kept its old server.
 **If not:** note it.
 **Settles:** F-044, F-153.
 
@@ -1106,21 +1233,21 @@ Side: `hostrec mark X-33`, `hostrec plugin-edit codex tools-skill`, then the rei
 **If not:** note it.
 **Settles:** F-151.
 
-### X-34. A stray file in Codex's copy (4 min)
+### X-34. A stray file and a link in Codex's copy (5 min)
 
-Side: `hostrec mark X-34`, `hostrec plugin-edit codex stray-file`, `hostrec trust`, then the reinstall command it prints, then `hostrec trust`.
+Side: `hostrec mark X-34`, `hostrec plugin-edit codex stray-file`, `hostrec trust`, `hostrec plugin-edit codex stray-link`, `hostrec trust`, then the reinstall command it prints, then `hostrec trust`.
 
-**Expect:** after the stray file, `modified`; after installing the same bytes again, `trusted`, with no review. `plugin-edit` also reports the shape of the cached copy's path.
+**Expect:** after the stray file, `modified`; after the made-up link, an error or `modified`; after installing the same bytes again, `trusted`, with no review. `plugin-edit` also reports the shape of the cached copy's path.
 **If not:** note each state.
 **Settles:** F-154, F-155, F-160.
 
-### X-35. A second plugin with hooks (4 min)
+### X-35. A second plugin with hooks (5 min)
 
-Side: `hostrec mark X-35`, then `codex plugin add hf-hooks-two@hf-scratch --json </dev/null`. Chat: `codex`, `Made-up test: say hello.`, `/quit`. Side: `hostrec trust`.
+Side: `hostrec mark X-35`, then `hostrec register codex hf-hooks-two`. Chat: `codex`, `Made-up test: say hello.`, `/quit`. Side: `hostrec trust`, then `hostrec unregister codex hf-hooks-two`, which removes it again with no terminal attached, leaving it unapproved.
 
-**Expect:** the first plugin's hooks fire; the second's wait for review.
-**If not:** note it. Leave the second plugin unapproved.
-**Settles:** F-159.
+**Expect:** `trust` reports the first plugin's hooks trusted and the second's waiting for review; the removal ends with no question.
+**If not:** note it. If the removal fails, type it as `unregister` printed it, without `</dev/null`, and note any question it asked.
+**Settles:** F-056, F-159.
 
 ### X-36. A changed hook declaration (4 min)
 
@@ -1134,13 +1261,13 @@ Side: `hostrec mark X-36`, `hostrec plugin-edit codex hooks-timeout`, the reinst
 
 Side: `hostrec mark X-37`, `hostrec plugin-edit codex hooks-skill`, the reinstall command it prints, `hostrec trust`. Chat: `codex`. Wait two minutes without typing. Then type `Made-up test: say hello before approving.` Then `/hooks`: note whether a review is asked, approve, `/quit`. Side: `hostrec trust`.
 
-**Expect:** the hooks are not trusted after the skill change; no hook line while you wait, though the scratch server starts and the session file changes; after approval, trusted again.
+**Expect:** the first `trust` reports the hooks not trusted after the skill change; `/hooks` asks for a review; the last `trust` reports them trusted again. Nothing more to see on screen: the recording checks that no hook line came while you waited, though the scratch server started and the session file changed.
 **If not:** note it.
 **Settles:** F-024, F-043, F-150.
 
 ### X-38. Read-only reports (3 min)
 
-Side: `hostrec mark X-38`, `hostrec cli-report codex`. It runs, with the network off once and on once, `codex --version`, `codex features list`, `codex plugin list --json` and the read-only `hooks/list`, and times each.
+Side: `hostrec mark X-38`, `hostrec cli-report codex`. It runs `codex --version`, `codex features list`, `codex plugin list --json` and the read-only `hooks/list`, and times each, once with the network off and once with it on. When it says so, disconnect the network (Wi-Fi off, or the cable out) and press Enter; when it says so again, connect it and press Enter.
 
 **Expect:** each prints without signing in or calling a model.
 **If not:** note it.
@@ -1148,17 +1275,20 @@ Side: `hostrec mark X-38`, `hostrec cli-report codex`. It runs, with the network
 
 *A break fits here. The desktop app part starts with X-39.*
 
-### X-39. The desktop app shares the approval (3 min)
+### X-39. The desktop app shares the approval, and a chat left idle (5 min)
 
-Side: `hostrec mark X-39`. Open the Codex desktop app.
+Side: `hostrec mark X-39`.
+
+1. Open a third Terminal window, type `cd ~/scratch/beta-lantern && codex`, and leave it open, typing nothing, until X-47.
+2. Open the Codex desktop app. If it lists chats, threads or tasks from elsewhere, leave them closed. Open its About window (from the app's menu) and type `hostrec note "codex app version: <the version shown>"`. Open its settings, find the voice setting, and type `hostrec note "voice setting: <what it shows>"`. Close the settings.
 
 **Expect:** no hook review asked in the app.
 **If not:** note what it asked.
-**Settles:** F-156.
+**Settles:** F-126, F-142, F-156.
 
 ### X-40. A short chat in the app (6 min)
 
-Side: `hostrec mark X-40`, `hostrec arm start`. In the app, before choosing anything, note how many SessionStart lines `hostrec tail` shows. Choose the project `~/scratch/alpha-orchard`, start a new thread, and type:
+Side: `hostrec mark X-40`, `hostrec arm start`. In the app, before choosing anything, type `hostrec tail` in the side window and note how many SessionStart lines it shows. Choose the project `~/scratch/alpha-orchard`, start a new thread, and type:
 
 ```
 Made-up test: say hello from the app, and tell me any codeword you were given at the start.
@@ -1166,7 +1296,7 @@ Made-up test: say hello from the app, and tell me any codeword you were given at
 
 Note how the `hf test` text showed in the app.
 
-**Expect:** `MARIGOLD-TUESDAY`; the hooks name a session file under Codex's folder.
+**Expect:** `MARIGOLD-TUESDAY`, so the hooks fired in the app. Nothing more to see on screen: the recording checks that the hooks name a session file under Codex's folder.
 **If not:** note it.
 **Settles:** F-011, F-046, F-137.
 
@@ -1178,13 +1308,15 @@ Side: `hostrec mark X-41`, `hostrec disarm`. In the app, start a new thread for 
 Made-up test: run `git status` and `pwd`, and tell me both results.
 ```
 
+Then leave this thread alone: do not open it again until the app is quit in X-45. It is the app's idle thread for F-126.
+
 **Expect:** the task runs in a separate worktree folder.
-**If not:** if no worktree is offered, note it.
-**Settles:** F-127.
+**If not:** if no worktree is offered, note it, and run it in the folder itself.
+**Settles:** F-126, F-127.
 
 ### X-42. Threads opened and never run (3 min)
 
-Side: `hostrec mark X-42`. In the app's thread list, open the thread of X-40, look at it, and open another one, without typing. Then start a new thread and leave it without sending anything.
+Side: `hostrec mark X-42`. In the app's thread list, open the thread of X-40 and look at it, without typing. Then start a new thread for `alpha-orchard` and leave it without sending anything. Then open the thread of X-40 again. Do not open the thread of X-41, or any thread this run-book did not create.
 
 **Expect:** perhaps end hooks with no start; this step records which.
 **If not:** nothing to do.
@@ -1200,7 +1332,7 @@ Side: `hostrec mark X-43`. If the app offers scheduled tasks, make one for `alph
 
 ### X-44. Voice call one: hand-overs, a correction, a yes, the pause phrase (12 min)
 
-Side: `hostrec mark X-44`. In the app, choose `alpha-orchard`, start a new thread, and type nothing. Start a voice call with the app's voice button. Speak at your normal pace. Wait for each reply before the next line unless a line says otherwise.
+Side: `hostrec mark X-44`. Make sure the room is quiet, with no other voice, television or phone. In the app, choose `alpha-orchard`, start a new thread, and type nothing. Start a voice call with the app's voice button; if macOS asks for the microphone, allow it. Speak at your normal pace. Wait for each reply before the next line unless a line says otherwise. If the agent asks to run a command, approve it by clicking.
 
 1. **Say:** "Hello. This is a test with made-up content. Please ask the agent to run the shell command sleep thirty, and then list the files in the orchard folder."
    **Pause** until the screen shows the agent working (about 5 seconds).
@@ -1223,12 +1355,12 @@ Side: `hostrec mark X-44`. In the app, choose `alpha-orchard`, start a new threa
 **If not:** if the voice model hands over a line you meant to keep from the agent, or will not hand over a request, note which line, and go on.
 **Settles:** F-121, F-141, F-142, F-143, F-144, F-145, F-147, F-148.
 
-### X-45. Voice call two: a long stretch, ended by quitting the app (15 min)
+### X-45. Voice call two: a long stretch, ended by quitting the app (22 min)
 
-Side: `hostrec mark X-45`. In the app, start a new thread for `alpha-orchard` and start a voice call.
+Side: `hostrec mark X-45`. In the app, start a new thread for `alpha-orchard` and start a voice call, in the same quiet room.
 
-1. **Say:** "This is a made-up test. For the next few minutes, please do not send anything to the agent. I will read you a made-up story. After each paragraph, reply with one short sentence."
-2. **Read** the seven paragraphs below, one at a time, at your normal pace. After each, **pause** for its one-sentence reply. This takes about six minutes and passes the hand-over's 4 KiB limit.
+1. **Say:** "This is a made-up test. For the next quarter of an hour, please do not send anything to the agent. I will read you a made-up story. After each paragraph, reply with one short sentence."
+2. **Read** the seventeen paragraphs below, one at a time, at your normal pace. After each, **pause** for its one-sentence reply. This takes about fifteen minutes. The story alone is 8,626 bytes of text, more than twice the hand-over's 4 KiB limit, so the talk passes the limit even if the voice model's replies are kept apart from your words.
 3. **Say:** "Now please ask the agent to create a file named story-end dot t x t containing the word heron."
    **Pause** until the agent has finished.
 4. **Say:** "Two more made-up lines, not for the agent. The tide was low at seven. The ferry left without its bell."
@@ -1248,25 +1380,45 @@ The story, all made up:
 >
 > Six. One winter the lanterns stopped shining, all nine at once. The heron counted them in the dark and found the number unchanged, which seemed to satisfy it. The town held a meeting in the school. Someone suggested new lanterns, someone suggested new candles, and the baker suggested bread shaped like lanterns, which was not a solution but was very popular. In the end the teacher's bees were blamed, although nobody could explain how.
 >
-> Seven. In spring the lanterns began to shine again, one each night, until all nine were lit. Nobody knew who had done it. The postmaster drew that year's stamp: nine lanterns, one heron, and a loaf of bread shaped like a whale. The clock tower struck the hour four minutes late, as always, and the heron walked the pier and counted to nine. That is the end of the made-up story.
+> Seven. Every spring a travelling knife grinder came to the town on a bicycle with a stone wheel fixed to the back. He set up beside the post office and sharpened anything people brought him: kitchen knives, garden shears, the teacher's scissors and once, by mistake, a spoon. He charged nothing for the spoon. He told the children that he had cycled through forty towns and that this one was the only town whose clock was wrong on purpose. Nobody had told him about the four minutes, and nobody ever found out how he knew. When he left, he rang his bell twice at the end of the pier, and the heron did not look up.
+>
+> Eight. The harbour master kept a logbook of every boat that came in, even though very few boats came in. Most pages said only the date and the words "no boats". On one page he had written "one boat, painted yellow, did not stop", and the whole town had read that page, because the logbook lay open on a table in the harbour office for anyone to see. People argued for years about where the yellow boat had been going. The baker said it was carrying flour. The teacher said it was carrying bees. The postmaster said it was carrying letters that had been posted in the wrong town.
+>
+> Nine. In the summer the school went on a trip to the island in the bay, which could be reached on foot at low tide. The teacher walked in front with a long stick, testing the sand, and the eleven pupils followed in a line. On the island they found a broken rowing boat, a family of crabs and a wooden sign that said "island", which made everyone laugh. They ate fish-shaped bread for lunch and walked back before the tide turned. One pupil kept a pebble from the island on her windowsill, and said it was the only pebble in the town that had been to sea and come back.
+>
+> Ten. The town had one road in and one road out, and they were the same road. A sign at the edge of town said "welcome" on one side and "come back soon" on the other. Someone had once painted a small heron on the sign, under the word welcome, and nobody had painted over it. Lorries rarely came, because there was nothing to deliver that the town could not make or grow. When a lorry did come, the children ran beside it to the bakery, where the driver was always given a loaf, and the driver always said he would be back, and usually he was.
+>
+> Eleven. The post office had a parrot named Ledger, who could say "next please" and "mind the step" and nothing else. He said "next please" whenever the door opened, even when nobody was waiting, and "mind the step" whenever somebody left, even though there was no step. The postmaster had tried to teach him to say "first class", but he never learned it. Visitors thought the parrot was very clever. The town knew he was not clever at all, only polite, and agreed that a polite parrot was better than a clever one, since a clever parrot might say things nobody wanted to hear.
+>
+> Twelve. On the hill above the town there was an orchard of plum trees that belonged to everyone. In autumn people went up with baskets and took what they needed, and left the rest for the birds. There was a rule, written on a board at the gate, that nobody could take more plums than they could carry in one basket without stopping to rest. The rule had never been broken, partly because the hill was steep and partly because nobody had a very large basket. The baker made plum bread in the shape of a plum, which some people thought was not trying hard enough.
+>
+> Thirteen. In winter the man who wound the clock fell ill and could not climb the tower. For a week nobody wound it, and the clock stopped at twenty past three. The town found that it did not mind very much. People met each other when they were ready rather than when the clock said so, and the school started when the teacher arrived. When the man was well again, he climbed the tower, wound the clock, and set it four minutes slow, as before. Some people said they missed the week without a clock. The heron, as far as anyone could tell, had not noticed either way.
+>
+> Fourteen. The baker had an apprentice, a tall boy who was very good at making bread and very bad at making it fish-shaped. His fish looked like boots, or clouds, or once like a small sheep. The children bought them anyway and argued about what each one was. After a while the baker gave up correcting him and put a sign in the window that said "shapes vary". The boy was so pleased with the sign that he made a loaf in the shape of the sign itself, which was the first loaf he had ever made that looked exactly like what it was meant to be.
+>
+> Fifteen. Every year, on the longest night, the town held a quiet evening on the pier. Nobody made a speech and nobody played music. People brought a cup of something warm, stood near the lanterns, and talked in low voices about the year. The harbour master read out the number of boats that had come in, which was usually small, and everyone clapped as if it were large. The children were allowed to stay up late, and most of them fell asleep on their parents' coats before midnight, which was the way the evening was meant to end.
+>
+> Sixteen. One autumn a letter arrived at the post office addressed only to "the heron, the pier". The postmaster did not know what to do with it. She could not deliver it, because herons have no letterbox, and she could not send it back, because it had no return address. In the end she read it aloud on the pier one evening, so that the heron could hear it. The letter said only "thank you for counting". The heron walked to the end of the pier and back, which the town agreed was as good a reply as any.
+>
+> Seventeen. In spring the lanterns began to shine again, one each night, until all nine were lit. Nobody knew who had done it. The postmaster drew that year's stamp: nine lanterns, one heron, and a loaf of bread shaped like a whale. The clock tower struck the hour four minutes late, as always, and the heron walked the pier and counted to nine. That is the end of the made-up story.
 
-**Expect:** no hand-over during the story; one hand-over in step 3; nothing after it reaches a hook.
+**Expect:** no hand-over during the story; one hand-over in step 3, after which the agent creates the file. Nothing more to see on screen: the recording checks that nothing after that hand-over reached a hook.
 **If not:** if the voice model hands over during the story, note after which paragraph, and go on.
 **Settles:** F-141, F-146, F-147, F-148, F-149.
 
 ### X-46. After the calls (3 min)
 
-Side: `hostrec mark X-46`, `hostrec voice-check`. It counts the rows of the two calls' session files by type, beside the hand-overs the hooks saw, and compares the hand-overs' requests with this run-book's script.
+Side: `hostrec mark X-46`, `hostrec voice-check`. It counts the rows of the two calls' session files by type, beside the hand-overs the hooks saw, and compares the hand-overs' requests with this run-book's script. It also prints the byte count of the talk before X-45's hand-over, and the names of any version fields the wrapper or the session file carries.
 
-**Expect:** a short table of counts; no text from the files.
+**Expect:** a short table of counts; the talk's byte count well over 4,096; no text from the files.
 **If not:** note it.
 **Settles:** F-147, F-149.
 
 ### X-47. The chat left open (2 min)
 
-Side: `hostrec mark X-47`. At least 35 minutes after X-31, look at the third Terminal window, then type `/quit` there. Side: `hostrec summary idle`.
+Side: `hostrec mark X-47`. At least 35 minutes after X-39, look at the third Terminal window, then type `/quit` there and close the window. Side: `hostrec summary idle`.
 
-**Expect:** an end hook fired after about 30 idle minutes, or at the quit; the server stamped every minute from one process.
+**Expect:** `summary idle` says, for the CLI chat of X-39 and for the app's thread of X-41, whether an end hook fired after about 30 idle minutes, at the quit, or not at all, and that the server stamped every minute from one process. If X-41's thread had less than 35 minutes before the app was quit, it says so, and the app's half stays unsettled.
 **If not:** note it.
 **Settles:** F-044, F-045, F-126.
 
@@ -1286,30 +1438,73 @@ Side: `hostrec mark X-49`, `hostrec agent times`, then `hostrec agent remove`.
 **If not:** note the gaps.
 **Settles:** F-200.
 
-### X-50. End of sitting 2 (10 min)
+### X-50. End of sitting 2 (5 min)
 
-Side: `hostrec mark X-50`, `hostrec summary codex`, then the hand-over check below.
+Side: `hostrec mark X-50`, `hostrec summary codex`.
 
 **Expect:** every Codex event that fired, and every fact of this sitting with what was recorded.
-**If not:** note any fact listed as missing.
+**If not:** `summary` names, for each fact it lists as missing, the steps that settle it. If the sitting has time, redo those steps now, each starting with its own `hostrec mark`, then type `hostrec summary codex` again. If not, leave them and tell the lead.
+
+Then type `hostrec close`.
 **Settles:** F-120.
 
-## What you bring back, and how you check it first
+## After the sittings: take down, check and hand over
 
-You bring back one thing: the recording folder, `~/hf-rec` in the evaluation account. Never the hosts' own folders (`~/.claude`, `~/.codex`, the desktop apps' folders), never `~/home-b` or `~/hf-alt-claude`, and never a screenshot of anything but the made-up content above.
+35 minutes at least, on the day of sitting 2 or later. You bring back one thing: the recording folder, `~/hf-rec` in the evaluation account. Never the hosts' own folders (`~/.claude`, `~/.codex`, the desktop apps' folders), never `~/hf-private`, `~/home-b`, `~/hf-alt-claude` or `~/hf-alt-codex`, and never a screenshot of anything but the made-up content above.
 
-The recorder keeps every hook payload whole, since their content is made up; of the hosts' own files it keeps only row types, field names, sizes and short values such as `true` or `user`, never text. Before you hand the folder over:
+The recorder keeps every hook payload whole, since their content is made up. Of the hosts' own files it keeps only row types, field names, sizes, a few short values such as `true` or `user` from a fixed list of fields, ids, and for every other value its length and a hash, which says nothing of the text without the key kept in `~/hf-private`, and that key is never handed over. It never keeps a row's text.
 
-1. Type `hostrec scan ~/hf-rec`. It asks you once, without storing it, for the email address you sign in with and for any other word you want to be sure is absent, such as your own name or a project's name. It then searches the whole folder for those, for your own account's user name and home path, the Mac's computer name, every email address and anything shaped like a key or token, and prints each hit with its file and line.
-2. Read the hits. Expect none, or only the made-up values of this run-book (`made-up-not-real-000` is one, and is never recorded as a value). For any other hit, type `hostrec scrub ~/hf-rec "<the text>"`, which replaces it with a made-up value of the same shape in every file, and run `hostrec scan` again until it is clean.
-3. Type `hostrec pack ~/hf-rec`. It makes `~/hf-rec.tar.gz` and prints its size and a checksum. Hand that file to the lead the way you hand over other files, and say the checksum in the same message.
-4. Afterwards you may delete the evaluation account, or keep it for the next sittings (DV-02's live gates use the same home).
+### E-01. Remove the scratch plugins (5 min)
 
-The lead turns the recording into fixtures with every value replaced (the card's check fails if any value from the recording survives), writes each fact's result into [host-facts.md](host-facts.md) with the date and each host's version, and does not commit the recording itself.
+Side: `hostrec mark E-01`, `hostrec disarm`, then `hostrec unregister all`. It removes the scratch plugins and marketplaces from both hosts with the hosts' own commands, each with no terminal attached, and records whether any asked a question.
+
+**Expect:** each removal ends with exit status 0 and no question, and the lists it prints at the end hold no scratch plugin.
+**If not:** for a removal that failed, type it as `unregister` printed it, without `</dev/null`; if it asks a question, answer it and note the question. If the lead later finds a fact missing, `hostrec register` puts the plugins back for the steps to redo.
+
+Then type `hostrec close`.
+**Settles:** F-056.
+
+### E-02. Check the recording (10 min)
+
+Type `hostrec scan ~/hf-rec`. It asks you once, never storing the answers: the email address you sign in with; your full name; your own account's short name (it shows its guess from the Mac's list of users, for you to confirm); and any other word you want to be sure is absent, such as a project's name. It then searches every file of the recording.
+
+It sorts what it finds. Values the hosts and the recorder make (session ids, turn and tool-use ids, commit hashes, `hf_lookup`'s `r:` tokens, the keys `hostrec` made) are only counted, by kind, and need nothing from you. It shows you only the hits to judge, each with its file and line: anything that matches what you typed, an account's name on this Mac, the computer's name, an email address, or a string shaped like a key or a token that it cannot explain.
+
+**Expect:** "hits to judge: none", or only the made-up values of this run-book (`made-up-not-real-000` is one).
+**If not:** for any other hit, type `hostrec scrub ~/hf-rec "<the text>"`, which replaces it with a made-up value of the same shape in every file, and run `hostrec scan ~/hf-rec` again until it shows no hit to judge. If you cannot tell what a hit is, scrub it: a scrubbed value costs the lead only that value.
+**Settles:** nothing on its own.
+
+### E-03. Pack and hand over (5 min)
+
+Type `hostrec pack ~/hf-rec`. It makes `~/hf-rec.tar.gz`, without `~/hf-private`, and prints its size and a checksum. Hand that file to the lead through the private file share the lead named before sitting 0, and give the checksum in the same message. Never hand it over by a commit, an issue, a pull request, or a message anyone else can read.
+
+**Expect:** the lead confirms it has the file and that the checksum matches.
+**If not:** keep the file and the folder, and do not go on to E-04, until the lead confirms.
+**Settles:** nothing on its own.
+
+### E-04. Take everything down (15 min)
+
+Only after the lead has confirmed the hand-over.
+
+1. In `hfeval`'s side window, type `hostrec agent remove` if X-49 did not run, then `hostrec teardown`. It removes `~/home-b`, `~/hf-alt-claude`, `~/hf-alt-codex`, `~/.local/share/hf-test`, the deploy key and its public half, `~/hf-private`, `~/hf-rec`, `~/hf-rec.tar.gz`, the scratch folders and marketplaces, and the setup marker, and lists what it removed.
+2. Switch to your own account. In your browser, delete `hf-scratch-plum` on the git server, which removes its deploy key with it. Check that no key titled `hf-eval-made-up` is left in your settings there. Delete `/Users/Shared/hf-scratch-address.txt` and `/Users/Shared/hf-scratch-deploy-key.pub` if either is still there.
+3. Either delete the evaluation account (System Settings, Users & Groups, delete the user and its home folder), or keep it for DV-02's live gates, which use the same home: the recorder, its plugins and its recording are gone either way.
+
+**Expect:** `teardown` lists each folder it removed; the scratch repository is gone from the server.
+**If not:** note what is left in a message to the lead, and remove it by hand.
+**Settles:** nothing on its own.
+
+The lead turns the recording into fixtures with every value replaced (the card's check fails if any value from the recording survives), writes each fact's result into [host-facts.md](host-facts.md) with the date and each host's version, keeps the recording outside any checkout and deletes it once the fixtures and results are in, and never commits it.
+
+## For the lead, before sitting 0
+
+- **Name the hand-over channel.** Before sitting 0, tell the owner which private file share E-03 uses. It is never the repository, an issue or a pull request.
+- **Check the run-book's untried assumptions** against the host versions current when the sittings run, and correct the run-book first. None of these has been tried by the writer: S0-03's download addresses and archive names (Go's archive, Claude Code's installer, Codex's release asset and the folder it unpacks to); `--json` on `claude plugin marketplace add` and `claude plugin install`; the forms of `codex plugin marketplace add`, `codex plugin add`, `codex plugin list --json`, `codex plugin disable` and `enable`; `codex features list` and `codex login status`; `/hooks` and `/plugins` in Codex and `/plugin` in Claude Code; `claude --settings '{"disableAllHooks": true}'`; `claude --continue --fork-session`; `/loop`; `codex -c model_auto_compact_token_limit=20000`; `codex resume` and `/fork`; each host's plan mode and question tool; how each host takes `CLAUDE_CONFIG_DIR` and `CODEX_HOME` for plugins and sign-in; and the desktop apps' About windows, the Code tab, the worktree choice, scheduled tasks and the voice button. `hostrec register` tries the main fallbacks for the plugin commands itself.
+- **Build and check the recorder** (the card's acceptance) before sitting 0, and give the owner the commit to build.
 
 ## Facts to steps
 
-Each fact the sheet marks for a sitting, and the steps that settle it. A fact on both hosts has steps in both host sittings.
+Each fact the sheet marks for a sitting, and the steps that settle it. A fact on both hosts has steps in both host sittings. A sitting-0 fact can also take evidence from later steps, which are listed with it.
 
 | Fact | Sitting | Steps |
 | --- | --- | --- |
@@ -1363,10 +1558,10 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | F-048 Several pre-tool hooks can run at once | Both | C-07, X-09 |
 | F-049 The host adds its own context at a chat start | Both | C-02, X-02 |
 | F-050 A missing hook binary leaves the chat unharmed | Both | C-29, X-27 |
-| F-056 Plugins register and are removed with no question | Sitting 0 | S0-06 |
+| F-056 Plugins register and are removed with no question | Sitting 0 | S0-06, X-35, E-01 |
 | F-057 Each CLI reports its state read-only | Both | C-41, X-38, X-48 |
-| F-073 Each host signs in under another HOME and stays signed in | Sitting 0 | S0-04, S0-12, C-01, X-01 |
-| F-074 A sign-in under another HOME leaves the account's own sign-in alone | Sitting 0 | S0-04, S0-12 |
+| F-073 Each host signs in under another HOME and stays signed in | Sitting 0 | S0-14, C-01, X-01 |
+| F-074 A sign-in under another HOME leaves the account's own sign-in alone | Sitting 0 | S0-14 |
 | F-075 A plugin can declare every event v2 uses | Claude Code | C-42 |
 | F-076 StopFailure fires on a failed turn | Claude Code | C-36 |
 | F-077 PostModelSwitch fires on a model change | Claude Code | C-24 |
@@ -1400,7 +1595,7 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | F-123 PreToolUse adds context, and an edit matcher matches `apply_patch` | Codex | X-07 |
 | F-124 An async PostToolUse's context arrives before the next request | Codex | X-08 |
 | F-125 A hook message: about 2,500 tokens, 3,000 declared | Codex | X-03 |
-| F-126 Session end on close and after 30 idle minutes | Codex | X-29, X-47 |
+| F-126 Session end on close and after 30 idle minutes | Codex | X-29, X-39, X-41, X-47 |
 | F-127 A managed worktree as the working folder | Codex | X-41 |
 | F-132 The rollout is written in a known history mode | Codex | X-04 |
 | F-133 Rollout rows have a stable position | Codex | X-04 |
@@ -1410,7 +1605,7 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | F-137 Desktop threads name a session file eva-md can read | Codex | X-40 |
 | F-138 A thread opened and never run ends with no start | Codex | X-42 |
 | F-141 A hand-over reaches the prompt hook as a wrapper | Codex | X-44, X-45 |
-| F-142 The request is the front model's wording | Codex | X-44 |
+| F-142 The request is the front model's wording | Codex | X-39, X-44 |
 | F-143 Each spoken line keeps its speaker | Codex | X-44 |
 | F-144 A task voice starts by itself begins inside the wrapper | Codex | X-44 |
 | F-145 A hand-over while the agent works shares its turn's id | Codex | X-44 |
@@ -1433,24 +1628,24 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | F-162 Hook commands run through a non-login shell | Codex | X-28 |
 | F-173 One hook start costs 100 ms or less at the 95th percentile | Codex | X-28 |
 | F-174 SessionStart `compact` runs before the next request, also mid-turn | Codex | X-22 |
-| F-175 The server takes a push of machine commits | Sitting 0 | S0-11 |
+| F-175 The server takes a push of machine commits | Sitting 0 | S0-13 |
 | F-176 The real wiki's project has no push rule against them | Sitting 0 | S0-08 |
 | F-177 The real wiki's git server is reachable without a private network | Sitting 0 | S0-08 |
-| F-178 A read with prompts off never waits | Sitting 0 | S0-10 |
-| F-179 An anonymous read of a private repository fails fast | Sitting 0 | S0-10 |
-| F-180 A background job knows the server's host key | Sitting 0 | S0-11 |
+| F-178 A read with prompts off never waits | Sitting 0 | S0-12 |
+| F-179 An anonymous read of a private repository fails fast | Sitting 0 | S0-12 |
+| F-180 A background job knows the server's host key | Sitting 0 | S0-11, S0-12, S0-13 |
 | F-181 Release downloads reach a background job | Sitting 0 | S0-11 |
-| F-182 Write deploy keys exist and can be added | Sitting 0 | S0-13 |
-| F-183 The default branch takes a push with a lease | Sitting 0 | S0-08, S0-14 |
+| F-182 Write deploy keys exist and can be added | Sitting 0 | S0-10, S0-13, S0-15 |
+| F-183 The default branch takes a push with a lease | Sitting 0 | S0-08, S0-16 |
 | F-185 The Mac's git does what the store needs | Sitting 0 | S0-09 |
 | F-186 `ssh-keygen` makes and signs with a key, with no prompt | Sitting 0 | S0-09 |
 | F-187 Signature letters for known and unknown keys | Sitting 0 | S0-09 |
 | F-188 Per-call settings never start the person's signing program | Sitting 0 | S0-09 |
 | F-189 The git a background job finds is new enough | Sitting 0 | S0-11, C-40, X-30 |
 | F-190 No privacy prompt for the store's folder | Sitting 0 | S0-11, C-40, X-30 |
-| F-191 The machine key pushes with no agent | Sitting 0 | S0-11, S0-13 |
+| F-191 The machine key pushes with no agent | Sitting 0 | S0-13 |
 | F-200 A launchd user agent installs without an admin and keeps time | Sitting 0 | S0-11, X-49 |
-| F-201 Work the scheduler starts reaches the model and the git server | Sitting 0 | S0-11 |
+| F-201 Work the scheduler starts reaches the model and the git server | Sitting 0 | S0-11, S0-13 |
 | F-202 No device management forbids user launch agents | Sitting 0 | S0-02 |
 | F-203 Installing an agent shows a background-item notice | Sitting 0 | S0-11 |
 | F-204 A notification from a scheduled job needs no permission | Sitting 0 | S0-11 |
@@ -1461,19 +1656,22 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | --- | --- | --- |
 | S0-01 Make the evaluation account | 10 | none |
 | S0-02 Device management | 2 | F-202 |
-| S0-03 Tools for the account | 15 | none |
-| S0-04 Sign both hosts in | 10 | F-073, F-074 |
+| S0-03 Tools for the account | 20 | none |
+| S0-04 Sign both hosts in | 10 | none |
 | S0-05 Build the recorder and the scratch folders | 10 | none |
-| S0-06 Register the scratch plugins with no terminal attached | 5 | F-056, F-158 |
+| S0-06 Register the scratch plugins with no terminal attached | 8 | F-056, F-158 |
 | S0-07 Approve the Codex hooks | 5 | F-161 |
-| S0-08 The scratch repository on the git server | 10 | F-176, F-177, F-183 |
+| S0-08 The scratch repository on the git server | 12 | F-176, F-177, F-183 |
 | S0-09 The machine's git checks | 5 | F-185, F-186, F-187, F-188 |
-| S0-10 Reads from the git server with prompts off | 5 | F-178, F-179 |
-| S0-11 The scheduled job | 15 | F-175, F-180, F-181, F-189, F-190, F-191, F-200, F-201, F-203, F-204 |
-| S0-12 A sign-in under another HOME | 10 | F-073, F-074 |
-| S0-13 Optional: a push with a deploy key | 5 | F-182, F-191 |
-| S0-14 Optional: a forced push with a lease | 3 | F-183 |
-| S0-15 End of sitting 0 | 3 | none |
+| S0-10 A key for the scratch repository | 8 | F-182 |
+| S0-11 The scheduled job | 15 | F-180, F-181, F-189, F-190, F-200, F-201, F-203, F-204 |
+| S0-12 The server's host key, and reads with prompts off | 10 | F-178, F-179, F-180 |
+| S0-13 The scheduled job's push | 8 | F-175, F-180, F-182, F-191, F-201 |
+| S0-14 A sign-in under another HOME | 10 | F-073, F-074 |
+| S0-15 The deploy-key commands | 2 | F-182 |
+| S0-16 Optional: a forced push with a lease | 3 | F-183 |
+| S0-17 End of sitting 0 | 3 | none |
+| C-00 Open the windows | 2 | none |
 | C-01 Start | 3 | F-046, F-047, F-073 |
 | C-02 The first prompt | 4 | F-012, F-046, F-047, F-049, F-093 |
 | C-03 Long start texts | 5 | F-088 |
@@ -1508,7 +1706,7 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | C-32 A changed hooks file | 3 | F-103 |
 | C-33 A rules file with a path pattern | 5 | F-094 |
 | C-34 A note for the host's own memory | 3 | F-087 |
-| C-35 The environment a hook gets | 4 | F-023, F-028, F-029 |
+| C-35 The environment a hook gets, and another config folder | 10 | F-023, F-028, F-029 |
 | C-36 A turn that fails | 3 | F-008, F-076 |
 | C-37 A run a program drives | 3 | F-018, F-028, F-032, F-079 |
 | C-38 The desktop app's Code tab | 6 | F-011, F-046, F-079, F-105 |
@@ -1516,9 +1714,10 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | C-40 A job a hook starts, against the git server | 2 | F-031, F-189, F-190 |
 | C-41 Read-only reports | 3 | F-057 |
 | C-42 End of sitting 1 | 5 | F-075 |
+| X-00 Open the windows | 2 | none |
 | X-01 Start | 3 | F-073, F-150, F-157, F-160 |
 | X-02 The first prompt | 4 | F-012, F-046, F-047, F-049 |
-| X-03 Long hook messages | 6 | F-125 |
+| X-03 Long hook messages | 10 | F-125 |
 | X-04 A turn with two tools and words between | 4 | F-001, F-002, F-004, F-005, F-013, F-019, F-020, F-021, F-022, F-120, F-121, F-122, F-132, F-133 |
 | X-05 Long instructions | 3 | F-134 |
 | X-06 A command that fails | 2 | F-007 |
@@ -1540,7 +1739,7 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | X-22 A compaction in the middle of a turn | 8 | F-034, F-174 |
 | X-23 A clear | 2 | F-006, F-014 |
 | X-24 Resume and fork | 6 | F-006, F-033 |
-| X-25 The environment a hook gets | 4 | F-023, F-028, F-029 |
+| X-25 The environment a hook gets, and another Codex home | 10 | F-023, F-028, F-029 |
 | X-26 A run a program drives | 3 | F-018, F-028, F-032, F-121 |
 | X-27 A missing hook binary | 3 | F-050 |
 | X-28 Timed hook runs | 10 | F-162, F-173 |
@@ -1549,20 +1748,24 @@ Each fact the sheet marks for a sitting, and the steps that settle it. A fact on
 | X-31 A chat left open | 2 | F-044, F-045 |
 | X-32 A new binary behind approved hooks | 4 | F-044, F-153 |
 | X-33 A change to the plugin with no hooks | 4 | F-151 |
-| X-34 A stray file in Codex's copy | 4 | F-154, F-155, F-160 |
-| X-35 A second plugin with hooks | 4 | F-159 |
+| X-34 A stray file and a link in Codex's copy | 5 | F-154, F-155, F-160 |
+| X-35 A second plugin with hooks | 5 | F-056, F-159 |
 | X-36 A changed hook declaration | 4 | F-152, F-160 |
 | X-37 A skill changed inside the hooks plugin | 8 | F-024, F-043, F-150 |
 | X-38 Read-only reports | 3 | F-057 |
-| X-39 The desktop app shares the approval | 3 | F-156 |
+| X-39 The desktop app shares the approval, and a chat left idle | 5 | F-126, F-142, F-156 |
 | X-40 A short chat in the app | 6 | F-011, F-046, F-137 |
-| X-41 A task in a worktree | 4 | F-127 |
+| X-41 A task in a worktree | 4 | F-126, F-127 |
 | X-42 Threads opened and never run | 3 | F-138 |
 | X-43 A scheduled run in the app | 3 | F-016, F-121 |
 | X-44 Voice call one: hand-overs, a correction, a yes, the pause phrase | 12 | F-121, F-141, F-142, F-143, F-144, F-145, F-147, F-148 |
-| X-45 Voice call two: a long stretch, ended by quitting the app | 15 | F-141, F-146, F-147, F-148, F-149 |
+| X-45 Voice call two: a long stretch, ended by quitting the app | 22 | F-141, F-146, F-147, F-148, F-149 |
 | X-46 After the calls | 3 | F-147, F-149 |
 | X-47 The chat left open | 2 | F-044, F-045, F-126 |
 | X-48 Reports with the plugin switched off | 3 | F-057 |
 | X-49 The scheduled job's times | 2 | F-200 |
-| X-50 End of sitting 2 | 10 | F-120 |
+| X-50 End of sitting 2 | 5 | F-120 |
+| E-01 Remove the scratch plugins | 5 | F-056 |
+| E-02 Check the recording | 10 | none |
+| E-03 Pack and hand over | 5 | none |
+| E-04 Take everything down | 15 | none |
