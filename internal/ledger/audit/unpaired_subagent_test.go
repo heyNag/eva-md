@@ -1,12 +1,14 @@
 package audit
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/ledger/event"
 )
@@ -40,14 +42,28 @@ func (f *fixture) unpairedThread(files int) {
 	)
 }
 
+// spyTranscripts records the session of each transcript the audit asks to
+// open as a recovery record names it.
+func spyTranscripts(t *testing.T) *[]string {
+	t.Helper()
+	var opened []string
+	saved := openTranscript
+	t.Cleanup(func() { openTranscript = saved })
+	openTranscript = func(s catchup.Source) (*os.File, error) {
+		opened = append(opened, s.Session)
+		return saved(s)
+	}
+	return &opened
+}
+
 // A Codex subagent's thread that is not paired, as no file of the host's
 // folder of chats is named for its id or two are, adds nothing to any
 // coverage figure, both ways together or each apart, nor to the repeats,
 // the gaps, the voice hand-overs, the turns with no stored reply, the
 // subagents' threads paired or the rows: two homes that differ only by
 // that thread give the same report but for the counts that name it, its
-// session and file, its class, and why it was not paired. No file of it
-// is opened.
+// session and file, its class, and why it was not paired. No host file is
+// opened for it, by its id or as a recovery record's transcript.
 func TestASubagentsThreadNotPairedIsCountedOnlyAsNotPaired(t *testing.T) {
 	without := newFixture(t)
 	without.claudeSession()
@@ -64,9 +80,15 @@ func TestASubagentsThreadNotPairedIsCountedOnlyAsNotPaired(t *testing.T) {
 			f.codexSession()
 			f.unpairedThread(files)
 			opened := spyOpens(t)
+			transcripts := spyTranscripts(t)
 			got, out := f.run("", 0)
 			if len(*opened) != 0 {
-				t.Errorf("opened %q", *opened)
+				t.Errorf("opened by a session's id %q", *opened)
+			}
+			// The two sessions paired by their recovery record open their
+			// transcripts; the thread opens none.
+			if slices.Contains(*transcripts, threadID) || len(*transcripts) != want.Recovery.Paired {
+				t.Errorf("opened as a recovery record's transcript %q, want the %d paired sessions' only", *transcripts, want.Recovery.Paired)
 			}
 
 			// The counts that name the thread.

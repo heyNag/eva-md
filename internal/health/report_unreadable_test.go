@@ -81,25 +81,75 @@ func TestFieldReportWithAttemptMarkersThatCantBeListed(t *testing.T) {
 	noPersonalText(t, out, markers)
 }
 
-// A config that is there but can't be read leaves the wiki's part out, as
-// unreadable, and gives the notice's kind as config_unreadable; the other
-// parts are still counted, and nothing of the config reaches the output.
+// A config that is there but can't be read, as one that is not valid TOML
+// or one that can't be opened, leaves the wiki's part out, as unreadable,
+// and gives the notice's kind as config_unreadable; every other figure of
+// the report, the rest of the operations part's included, is what it is
+// when the config can be read, and nothing of the config, its path or the
+// system's error reaches the output.
 func TestFieldReportWithAConfigThatCantBeRead(t *testing.T) {
 	d, _ := reportHome(t)
-	put(t, d.ConfigFile(), []byte("wiki_path = [\""+planted+"\n"))
+	want, _ := fieldOf(t, d)
+	if want.Parts["wiki"] != PartCounted || want.Wiki == nil || want.Operations.Notice == "config_unreadable" {
+		t.Fatalf("the fixture's wiki part is %q with %+v and the notice %q, want counted, given and not config_unreadable",
+			want.Parts["wiki"], want.Wiki, want.Operations.Notice)
+	}
+	if !want.Operations.Trust.Present || len(want.Operations.Reasons) == 0 || allHookRuns(want.Operations.HookRuns) == 0 || want.Parts["hooks"] != PartCounted {
+		t.Fatalf("the fixture gives no trust flag, commit reason, hook run or hooks part a config that can't be read could drop: %+v, hooks %q",
+			want.Operations, want.Parts["hooks"])
+	}
+	readable, err := os.ReadFile(d.ConfigFile())
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	got, out := fieldOf(t, d)
-	want := map[string]string{"operations": "counted", "hooks": "counted", "updates": "counted", "backlog": "counted", "record": "counted", "wiki": "unreadable"}
-	if !reflect.DeepEqual(got.Parts, want) {
-		t.Errorf("parts: %v, want %v", got.Parts, want)
+	check := func(t *testing.T) {
+		t.Helper()
+		got, out := fieldOf(t, d)
+		if got.Parts["wiki"] != PartUnreadable || got.Wiki != nil || got.Operations.Notice != "config_unreadable" {
+			t.Errorf("the wiki's part is %q with %+v and the notice %q, want unreadable, none and config_unreadable",
+				got.Parts["wiki"], got.Wiki, got.Operations.Notice)
+		}
+
+		// Every other figure is the readable fixture's.
+		got.Parts["wiki"], got.Operations.Notice, got.Wiki = want.Parts["wiki"], want.Operations.Notice, want.Wiki
+		if !reflect.DeepEqual(got, want) {
+			gotJSON, _ := json.MarshalIndent(got, "", "  ")
+			wantJSON, _ := json.MarshalIndent(want, "", "  ")
+			t.Errorf("a config that can't be read changed other figures:\n%s\nwant\n%s", gotJSON, wantJSON)
+		}
+		noPersonalText(t, out, d.ConfigFile())
 	}
-	if got.Wiki != nil || got.Operations.Notice != "config_unreadable" {
-		t.Errorf("the wiki's part %+v and the notice %q, want none and config_unreadable", got.Wiki, got.Operations.Notice)
+
+	t.Run("not valid TOML", func(t *testing.T) {
+		put(t, d.ConfigFile(), []byte("wiki_path = [\""+planted+"\n"))
+		check(t)
+	})
+
+	// Its error names its path and says permission denied, which the
+	// output must not hold.
+	t.Run("can't be opened", func(t *testing.T) {
+		put(t, d.ConfigFile(), readable)
+		if err := os.Chmod(d.ConfigFile(), 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(d.ConfigFile(), 0o600) })
+		if _, err := os.ReadFile(d.ConfigFile()); err == nil {
+			t.Fatal("the config can still be read with mode 0000; the checks run as a user other than root")
+		}
+		check(t)
+	})
+}
+
+// allHookRuns is how many hook runs the operations part counts in all.
+func allHookRuns(runs map[string]map[string]HookRunsCounts) int {
+	n := 0
+	for _, events := range runs {
+		for _, c := range events {
+			n += c.Runs
+		}
 	}
-	if got.Operations.DailyJobDays != 3 || got.Operations.CommitDays != 5 || got.Record.Sessions["claude-code"] != 66 {
-		t.Errorf("the other parts' figures: %+v %+v", got.Operations, got.Record.Sessions)
-	}
-	noPersonalText(t, out, d.ConfigFile())
+	return n
 }
 
 // A code status that is there but can't be read makes the wiki's part
