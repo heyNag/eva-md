@@ -56,7 +56,7 @@ func detach(dirs paths.Dirs, now time.Time, args ...string) error {
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
 		return errors.New("hook: eva-md is not installed")
 	}
-	if !sameBuild(info, executable(), processStart) {
+	if !sameBuild(info, selfAtStart, processStart) {
 		args = withoutTrigger(args)
 	}
 	log, err := update.OpenLog(dirs, now)
@@ -79,13 +79,18 @@ func detach(dirs paths.Dirs, now time.Time, args ...string) error {
 // initialized, a moment after.
 var processStart = time.Now()
 
+// selfAtStart is the file this process was started from as it was then,
+// when the package was initialized (see executable).
+var selfAtStart = executable()
+
 // settled is how long before this process started the binary it spawns
 // must have been written, for sameBuild to take it for the one it runs.
 // Install writes the binary, syncs it and renames it in place in far less.
 const settled = time.Minute
 
 // executable describes the file this process was started from, as its path
-// now finds it, or is nil when it can't be told.
+// finds it now, or is nil when it can't be told. On macOS the path is the
+// one the process was started by, which a file put there since may answer.
 func executable() os.FileInfo {
 	self, err := os.Executable()
 	if err != nil {
@@ -99,14 +104,17 @@ func executable() os.FileInfo {
 }
 
 // sameBuild reports whether binary, the installed binary as info describes
-// it, is the build this process runs, which takes update.TriggerFlag: the
-// file self describes, this process's own, and written at least settled
-// before this process started, at start. Releases up to 2026.11.7 refuse
-// the flag, so a binary install, upgrade or a downgrade replaced after this
-// hook started, or a hook run from another file, gets jobs without it: the
-// update runs, and records no trigger.
+// it now, is the build this process runs, which takes update.TriggerFlag:
+// the file self described when this process started, unchanged since, in
+// its size and modification time, and written at least settled before
+// start, when this process started. Releases up to 2026.11.7 refuse the
+// flag, so a binary that an install, upgrade or a downgrade replaced or
+// rewrote since this hook started, whatever time it was given, one written
+// just before the hook started, or a hook run from another file, gets jobs
+// without it: the update runs, and records no trigger.
 func sameBuild(info, self os.FileInfo, start time.Time) bool {
-	return self != nil && os.SameFile(info, self) && info.ModTime().Before(start.Add(-settled))
+	return self != nil && os.SameFile(info, self) && info.Size() == self.Size() && info.ModTime().Equal(self.ModTime()) &&
+		info.ModTime().Before(start.Add(-settled))
 }
 
 // withoutTrigger is args without update.TriggerFlag and its value.

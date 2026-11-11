@@ -88,44 +88,79 @@ func TestWithSweepKeepsTheTrigger(t *testing.T) {
 }
 
 // The hook passes the trigger only to the build it runs: the very file it
-// was started from, written at least a minute before it started. A file
-// written later may be any release, put there by an upgrade or a downgrade
-// while the hook ran, and one the hook wasn't started from may be too.
+// was started from, as it was then, written at least a minute before it
+// started. A file written later may be any release, put there by an
+// upgrade or a downgrade while the hook ran, whatever time it was given,
+// and one the hook wasn't started from may be too.
 func TestSameBuild(t *testing.T) {
-	dir := t.TempDir()
-	binary, other := filepath.Join(dir, "eva-md"), filepath.Join(dir, "other")
-	for _, f := range []string{binary, other} {
-		if err := os.WriteFile(f, []byte("#!/bin/sh\n"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
 	start := time.Date(2026, 10, 29, 15, 4, 5, 0, time.UTC)
+	long := start.Add(-time.Hour)
 	for _, tc := range []struct {
 		name    string
 		written time.Time
 		self    string
-		want    bool
+		// since changes the installed file after the hook started, given
+		// its path and the folder it is in.
+		since func(t *testing.T, binary, dir string)
+		want  bool
 	}{
-		{"written long before", start.Add(-time.Hour), binary, true},
-		{"written just over a minute before", start.Add(-settled - time.Millisecond), binary, true},
-		{"written a minute before", start.Add(-settled), binary, false},
-		{"written as the hook started", start, binary, false},
-		{"written after", start.Add(time.Second), binary, false},
-		{"another file", start.Add(-time.Hour), other, false},
-		{"no file of its own", start.Add(-time.Hour), "", false},
+		{"written long before", long, "eva-md", nil, true},
+		{"written just over a minute before", start.Add(-settled - time.Millisecond), "eva-md", nil, true},
+		{"written a minute before", start.Add(-settled), "eva-md", nil, false},
+		{"written as the hook started", start, "eva-md", nil, false},
+		{"written after", start.Add(time.Second), "eva-md", nil, false},
+		{"another file", long, "other", nil, false},
+		{"no file of its own", long, "", nil, false},
+		{"touched since", long, "eva-md", func(t *testing.T, binary, _ string) {
+			if err := os.Chtimes(binary, long.Add(-time.Hour), long.Add(-time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"rewritten in place since, its time kept", long, "eva-md", func(t *testing.T, binary, _ string) {
+			if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 2\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(binary, long, long); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"replaced since by another file of the same size and time", long, "eva-md", func(t *testing.T, binary, dir string) {
+			next := filepath.Join(dir, "next")
+			if err := os.WriteFile(next, []byte("#!/bin/sh\n#\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(next, long, long); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(next, binary); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
 	} {
+		dir := t.TempDir()
+		binary := filepath.Join(dir, "eva-md")
+		for _, f := range []string{binary, filepath.Join(dir, "other")} {
+			if err := os.WriteFile(f, []byte("#!/bin/sh\n\n\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if err := os.Chtimes(binary, tc.written, tc.written); err != nil {
 			t.Fatal(err)
+		}
+		// What the hook saw of its own file when it started.
+		var self os.FileInfo
+		if tc.self != "" {
+			var err error
+			if self, err = os.Stat(filepath.Join(dir, tc.self)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if tc.since != nil {
+			tc.since(t, binary, dir)
 		}
 		info, err := os.Lstat(binary)
 		if err != nil {
 			t.Fatal(err)
-		}
-		var self os.FileInfo
-		if tc.self != "" {
-			if self, err = os.Stat(tc.self); err != nil {
-				t.Fatal(err)
-			}
 		}
 		if got := sameBuild(info, self, start); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
@@ -205,8 +240,8 @@ func TestAnOlderReleaseGetsItsUpdate(t *testing.T) {
 
 // The real spawn from a hook started as the installed binary itself: the
 // job gets the trigger once the binary was written a minute or more before
-// the hook started, and not while the binary is newer than that, as one
-// an upgrade put in place while the hook ran would be. The test binary,
+// the hook started, and not while the binary is newer than the hook, as
+// one an upgrade put in place while the hook ran would be. The test binary,
 // copied in as the installed one, is both the hook and, through init, the
 // job.
 func TestTheInstalledBuildGetsTheTrigger(t *testing.T) {
@@ -255,8 +290,14 @@ func TestTheInstalledBuildGetsTheTrigger(t *testing.T) {
 		}
 		return string(args)
 	}
+	// A binary written after the hook started, as by an upgrade while it
+	// ran: dated an hour ahead, which no machine's speed can make settled.
+	ahead := time.Now().Add(time.Hour)
+	if err := os.Chtimes(binary, ahead, ahead); err != nil {
+		t.Fatal(err)
+	}
 	if got, want := hook(), "update\n--session\nclaude-code:test-session\n"; got != want {
-		t.Fatalf("a binary written just now: args %q, want %q", got, want)
+		t.Fatalf("a binary written after the hook started: args %q, want %q", got, want)
 	}
 	long := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(binary, long, long); err != nil {
