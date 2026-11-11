@@ -4,6 +4,7 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 
 ## Redaction
 
+- Redaction removes credentials, not personal details. A name, an address, a phone number and the like stay in the local record, can be sent to the model with a chat's entries, and can be written by it into pages that are committed and pushed.
 - About 1% of a deliberately hard set of generated passwords still keep a piece after redaction. The shapes are ambiguous by nature: a value containing `)` inside a call, `&k=` or `;k=` inside a URL query or connection-string value, and values that start with an unclosed bracket.
 - A UUID or a 40-character hex string after the word Bearer, without an Authorization header, is kept as in ordinary text.
 - The entropy rule erases ordinary camelCase identifiers that follow words such as token, secret or password, as in `token = maxCompletionTokensPerRequest`. Prose is over-redacted too: `Password: expired yesterday` loses its value.
@@ -17,6 +18,7 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 
 ## Capture, identity and config
 
+- A voice call in Codex's desktop app reaches the hooks only as hand-overs: the host passes the agent a request with the talk since the last one. eva-md stores a hand-over as the user's words, though the host's voice model may have worded its request, and talk that is not handed over is captured only if the host carries it in a later hand-over.
 - A project whose key a redaction rule change moves, as when an upgrade starts to read its folder's name as a token and keys it by a hash, starts a new inbox folder: its brief and a search of the project see only chats from then on, and `eva-md search --all` finds the earlier ones.
 - `origin` is read from `remote.origin.url` as configured, without `url.<base>.insteadOf` rewrites, so a clone through an alias and a clone through the full URL get two project keys. Write a remote exclusion in the form origin is configured with; for a repo cloned both ways, exclude both forms.
 - A config that fails to load stops capture and briefs on both hosts until it is fixed. Each chat start says so in one line, and `eva-md doctor` and `eva-md status` report it. A config read cut off by the hook's time limit says nothing. A remote exclusion written as a URL that can't be normalized, such as a `file://` URL or one with a query string, makes the config fail to load.
@@ -220,6 +222,7 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 
 ## Daily commit and push
 
+- The daily commit is made by the day's first hook event, so it saves what had been written by then. Pages the update writes later that day are committed by the next day's first event, or by a manual `eva-md commit`.
 - A hand edit pushed to the wiki from elsewhere stops every push as `diverged` until it is merged by hand; eva-md never pulls, rebases or forces.
 - A declined signature waits until the next day or a manual `eva-md commit`. A failed commit's reason is read from git's wording (as git 2.56 words it), so another git can sort a missing signer or a declined signature as a plain `commit`.
 - A day whose maintain spawn fails gets no commit until the next day or a manual run. A first event that misses its deadline starts nothing, so the next event of the day starts maintain.

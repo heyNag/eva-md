@@ -4,14 +4,14 @@
 
 ## Refreshing it
 
-The macOS job of `.github/workflows/ci.yml` runs the gate on every push to `main` and every pull request, and saves an artifact named `latency` that holds two files:
+The `latency` job of `.github/workflows/ci.yml`, on macOS and apart from the tests, runs the gate on every push to `main` and every pull request, and saves an artifact named `latency` that holds two files:
 
 - `gate.json`: the verdict, every metric's comparison, and each run's full report.
 - `latency-macos.json`: the change's own binary's figures over its runs, `new` and `new_again`, in the format below.
 
-To refresh the baseline, open the run of the commit to take it from (a push to `main`), download its `latency` artifact, check that `gate.json` says `"verdict": "pass"` and that its `load_average_at_start` is not high, and copy its `latency-macos.json` over this folder's, unchanged. Commit it with the run's link in the message. The file names its commit, so the run can be found again.
+To refresh the baseline, open the run of the commit to take it from (a push to `main`), download its `latency` artifact, check that `gate.json` says `"verdict": "pass"`, and copy its `latency-macos.json` over this folder's, unchanged. A pass means the machine was quiet enough: every figure's controls stayed within the gate's rule. The load average the file records says little on the CI machine, where it reads about 15 on 3 CPUs at the start of a job that has only just built two binaries. Commit it with the run's link in the message. The file names its commit, so the run can be found again.
 
-The file in this folder now was measured on Linux, in a builder's cloud session, and says so (`"measured_on": "linux"`): the binary of commit eeb63ed, v1 as SEAM-0c left it, in the first of the twenty gates its builder ran of that binary against itself, as the unprivileged user `linux-check.sh` runs the benchmark as (`"user": "not root"`), so its turn's process counts are a real install's. It shows the format and v1's figures on that machine; it is replaced from the macOS job's artifact.
+The file in this folder now comes from the `latency` job's run of commit 84f0fc7 on `main`, the first in which the gate ran in a job of its own, and its verdict was pass: v1's hooks as they stand before any package of the v2 build has changed one. (The commit changed only the CI workflow and documents, so the two binaries it compared were alike.) The first file here was measured on Linux, in a builder's cloud session, to show the format; this one replaces it.
 
 ## Format
 
@@ -52,3 +52,10 @@ A scenario that fails in a run, as when load runs a hook past its time limit, le
 6. `pass`, exit 0.
 
 A metric the old binary gave no samples, as one added with the change, is listed as not compared. `gate.json` keeps every sample, by role, so a verdict can be worked out again. The step is advisory until an unchanged binary has passed it twenty times in twenty; then the lead removes `continue-on-error` from it.
+
+## Passes toward blocking
+
+The gate may block a merge once an unchanged binary has passed it 20 times with no fail between them, in runs that count, with fewer than one in four of those runs not judged. A run counts when it is the `latency` job's run of a push to `main`, and no file under `cmd/` or `internal/`, nor `go.mod` or `go.sum`, changed between the base its step names ("Comparing BASE with SHA") and its commit (`git diff --quiet BASE SHA -- cmd internal go.mod go.sum`), so that the two binaries it compared are alike. Its verdict is read in the step's log or in its artifact's `gate.json`, never from the run's colour, since the step is advisory. A pass adds one to the count and a `fail` starts it again. A `not judged` does neither, since it blocks nothing, but it goes into the table: a gate that cannot judge one run in four or more is not ready to block. A run of a commit that changed any of them counts neither way. A change to the gate's rule (`scripts/benchmark.py`, `scripts/bench/`) starts the count again. The lead fills the table at each merge.
+
+| Run | Commit | Verdict |
+| --- | --- | --- |

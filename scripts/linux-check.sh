@@ -24,7 +24,10 @@
 #   committed into a fresh repository it owns. It can't read
 #   root's Go module cache either, so root fills a shared read-only one,
 #   /var/cache/eva-md/gomod, with the modules and the Go toolchain go.mod
-#   names, and the user runs offline from it, with its own build cache.
+#   names, and the user runs offline from it. Its build cache is the run's
+#   own and goes with the snapshot: a snapshot has a path of its own, so
+#   what one run builds is of no use to the next, and a cache that is kept
+#   grows by about 1 GB a run until the disk is full.
 #
 # Git configuration in the environment, such as GIT_CONFIG_COUNT, and a commit
 # identity in it, such as GIT_AUTHOR_NAME, are left as they are: the tests
@@ -82,9 +85,24 @@ if [ "$(id -u)" -eq 0 ]; then
   # a killed run's leftovers don't stay long.
   find "$home" -mindepth 1 -maxdepth 1 -type d -name 'check-??????' -mmin +180 \
     -exec rm -rf {} + || true
+  # A cloud session has a fixed allowance of disk. A run needs about 1.5 GB
+  # of it for its snapshot, its temporary files and its build cache, and
+  # holds it until it ends; with less it would fail part way, with errors
+  # that say nothing of the disk. So it asks for 2,500 MB, to leave a
+  # margin, and 2,000 MB more for each check whose snapshot is there and
+  # under three hours old, as each of those may still be running.
+  free_mb=$(df --output=avail -BM "$home" 2>/dev/null | tail -n 1 | tr -dc 0-9)
+  others=$(find "$home" -mindepth 1 -maxdepth 1 -type d -name 'check-??????' -mmin -180 2>/dev/null | wc -l)
+  need=$((2500 + 2000 * others))
+  if [ -n "$free_mb" ] && [ "$free_mb" -lt "$need" ]; then
+    echo "linux-check.sh: $free_mb MB of disk is left, and a run needs 2,500 MB plus 2,000 for each of" \
+      "the $others other checks whose snapshots are here, $need in all. Wait for those to end, or free" \
+      "some with scripts/linux-space.sh --prune, then run this again." >&2
+    exit 2
+  fi
   work=$(mktemp -d "$home/check-XXXXXX") || exit 2
   src=$work/src
-  mkdir "$src" "$work/tmp" || exit 2
+  mkdir "$src" "$work/tmp" "$work/gocache" || exit 2
   # pipefail, here only, so a failure in the tar that reads fails the copy too.
   (
     set -o pipefail
@@ -107,11 +125,16 @@ if [ "$(id -u)" -eq 0 ]; then
     GOMODCACHE=$modcache go version >/dev/null &&
     chmod -R a+rX "$(dirname "$modcache")" || exit 2
 
-  # Runs a command in the snapshot as the user, offline.
+  # Runs a command in the snapshot as the user, offline. -count=1 because
+  # the run's build cache goes with it, so no run can use another's test
+  # results, and go test would only write a log of each to the cache, a
+  # few hundred MB a run, for nothing. Every go command ignores a flag in
+  # GOFLAGS that it doesn't have, so the go commands the tests start take
+  # it too.
   in_snapshot() {
     (cd "$src" && runuser -u "$user" -- env HOME="$home" TMPDIR="$work/tmp" \
-      GOMODCACHE="$modcache" GOPROXY=off GOFLAGS=-mod=readonly \
-      GOCACHE="$home/.cache/go-build" GOPATH="$home/go" "$@")
+      GOMODCACHE="$modcache" GOPROXY=off GOFLAGS='-mod=readonly -count=1' \
+      GOCACHE="$work/gocache" GOPATH="$home/go" "$@")
   }
   bench_cwd=$src
 else
@@ -177,8 +200,11 @@ benchmark() {
 
 step "gofmt -l cmd internal" gofmt_check
 step "go vet ./..." go vet ./...
-step "go test $*" in_snapshot go test "$@"
-step "go test -race $*" in_snapshot go test -race "$@"
+# Each package gets 60 minutes, past go test's own 10, which a loaded
+# machine passes without any test being wrong. A caller's own -timeout
+# comes later and wins; CI's job timeout still bounds the run.
+step "go test $*" in_snapshot go test -timeout=60m "$@"
+step "go test -race $*" in_snapshot go test -race -timeout=60m "$@"
 step "go build -mod=readonly -o bin/eva-md ./cmd/eva-md" build
 step "benchmark" benchmark
 
