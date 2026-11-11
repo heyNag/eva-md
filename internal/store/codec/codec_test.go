@@ -122,6 +122,7 @@ func TestOtherRefusals(t *testing.T) {
 		{"an indented block", "---\n  type: fact\n  title: x\n---\n", func(d *Doc) error { return d.Set("title", "y") }, ErrNotWritten},
 		{"a line over 64 KiB", item, func(d *Doc) error { return d.Set("title", strings.Repeat("x ", 33<<10)) }, ErrNotWritten},
 		{"an explicit key would take a value", "---\n? note\nk: v\n: x\n---\n", func(d *Doc) error { return d.Delete("k") }, ErrNotWritten},
+		{"a raw NEL, which a YAML reader may break a line at", item, func(d *Doc) error { return d.Set("title", "a\u0085b") }, ErrNotWritten},
 		{"a flow mapping would become the block", "---\nk: v\n{b: 2}\n---\n", func(d *Doc) error { return d.Delete("k") }, ErrNotWritten},
 		{"a repeated section", item + "## Evidence\nmore\n", func(d *Doc) error { return d.SetSection("Evidence", "x\n") }, ErrRepeated},
 		{"remove a repeated section", item + "## Evidence\nmore\n", func(d *Doc) error { return d.RemoveSection("Evidence") }, ErrRepeated},

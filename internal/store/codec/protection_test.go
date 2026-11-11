@@ -172,6 +172,13 @@ func TestProtectionBeyondProfile(t *testing.T) {
 		{"# a note\n!!map {locked: true}", Protection{Locked: true, Verified: true}},
 		{"&a\n{\n  locked: true\n}", Protection{Locked: true, Verified: true}},
 		{"  { type: fact }", Protection{Locked: true, Verified: true}},
+		// A YAML reader may break a line where the codec does not: a CR
+		// alone, NEL, LS or PS.
+		{"title: x\rlocked: true", Protection{Locked: true, Verified: true}},
+		{"title: x\u0085locked: true", Protection{Locked: true, Verified: true}},
+		{"title: x locked: true", Protection{Locked: true, Verified: true}},
+		{"title: \"x \"", Protection{Locked: true, Verified: true}},
+		{"title: x\r\r", Protection{Locked: true, Verified: true}},
 	}
 	for _, c := range cases {
 		if got := Read([]byte("---\n" + c.front + "\n---\nbody\n")).Protection(); got != c.want {
@@ -180,7 +187,7 @@ func TestProtectionBeyondProfile(t *testing.T) {
 	}
 	// What stays unprotected: a bare false and an empty mark with spaces
 	// or tabs around them, a flow mapping under a key, a comment.
-	for _, front := range []string{"locked:\tfalse\t", "locked: false  # c", "verified:\t[]\t", "title: {a: b}\nlocked: false", "# {locked: true}\ntype: fact"} {
+	for _, front := range []string{"locked:\tfalse\t", "locked: false  # c", "verified:\t[]\t", "title: {a: b}\nlocked: false", "# {locked: true}\ntype: fact", "title: x\r\nlocked: false\r"} {
 		if got := Read([]byte("---\n" + front + "\n---\n")).Protection(); got != (Protection{}) {
 			t.Errorf("%q: %+v, want none", front, got)
 		}

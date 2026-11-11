@@ -104,9 +104,10 @@ func (d *Doc) Protection() Protection {
 		return Protection{Unreadable: true}
 	}
 	var p Protection
-	if d.flowRoot() {
-		// The block is one flow mapping, whose keys the codec does not
-		// read: it may hold either.
+	if d.flowRoot() || d.hiddenBreak() {
+		// The block is one flow mapping, or has a line YAML breaks where
+		// the codec does not: it may hold either key on lines the codec
+		// does not read as entries.
 		p.Locked, p.Verified = true, true
 	}
 	n := 0
@@ -427,6 +428,18 @@ func (d *Doc) flowRoot() bool {
 		}
 		if s != "" {
 			return strings.HasPrefix(s, "{")
+		}
+	}
+	return false
+}
+
+// hiddenBreak reports a frontmatter line that holds a character a YAML
+// reader may take as a line break: a CR not at the line's end, or NEL, LS
+// or PS.
+func (d *Doc) hiddenBreak() bool {
+	for i := 1; i < d.close; i++ {
+		if strings.ContainsAny(text(d.lines[i]), "\r\u0085  ") {
+			return true
 		}
 	}
 	return false
