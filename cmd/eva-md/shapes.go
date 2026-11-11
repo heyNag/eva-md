@@ -48,7 +48,9 @@ func runShapes(ctx context.Context, args []string, out, errOut io.Writer, limit 
 		return 1
 	}
 	if err := report.Write(out); err != nil {
-		fmt.Fprintln(errOut, "eva-md: the report held something no list holds, so it was not printed")
+		if errors.Is(err, shapes.ErrUnlisted) {
+			fmt.Fprintln(errOut, "eva-md: the report held something no list holds, so it was not printed")
+		}
 		return 1
 	}
 	return 0

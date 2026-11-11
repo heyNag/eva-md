@@ -3,6 +3,7 @@ package shapes
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -297,7 +298,7 @@ func TestWriteRefusesWhatNoListHolds(t *testing.T) {
 	} {
 		r := Report{Format: Format, Version: "2026.11.9", Day: "2026-11-11", Facts: bad}
 		var out bytes.Buffer
-		if err := r.Write(&out); err == nil || out.Len() != 0 {
+		if err := r.Write(&out); !errors.Is(err, ErrUnlisted) || out.Len() != 0 {
 			t.Errorf("%v: %v, printed %q", bad, err, out.String())
 		}
 	}

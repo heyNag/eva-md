@@ -87,9 +87,9 @@ var versionForm = regexp.MustCompile(`^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$`)
 // dayForm is a day as the report prints one.
 var dayForm = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 
-// errUnlisted is Write's refusal of a report that would print a string
+// ErrUnlisted is Write's refusal of a report that would print a string
 // none of its lists hold, or a byte that is not printable ASCII.
-var errUnlisted = errors.New("shapes: the report holds a string no list holds")
+var ErrUnlisted = errors.New("shapes: the report holds a string no list holds")
 
 // Write prints the report as indented JSON. It refuses, printing nothing,
 // a report that holds a byte other than printable ASCII and a line end, or
@@ -108,13 +108,13 @@ func (r Report) Write(w io.Writer) error {
 	return err
 }
 
-// checkPrintable reports errUnlisted for data that holds a byte other
+// checkPrintable reports ErrUnlisted for data that holds a byte other
 // than printable ASCII and a line end, or a string, key or value, other
 // than a word of Words, a day, a version of three numbers or version.
 func checkPrintable(data []byte, version string) error {
 	for _, b := range data {
 		if b != '\n' && (b < 0x20 || b > 0x7e) {
-			return errUnlisted
+			return ErrUnlisted
 		}
 	}
 	words := Words()
@@ -132,7 +132,7 @@ func checkPrintable(data []byte, version string) error {
 			return err
 		}
 		if s, ok := tok.(string); ok && !allowed(s) {
-			return errUnlisted
+			return ErrUnlisted
 		}
 	}
 }
