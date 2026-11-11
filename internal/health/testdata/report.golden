@@ -1,0 +1,869 @@
+{
+  "format": 1,
+  "version": "test",
+  "day": "2026-11-11",
+  "parts": {
+    "backlog": "counted",
+    "hooks": "counted",
+    "operations": "counted",
+    "record": "counted",
+    "updates": "counted",
+    "wiki": "counted"
+  },
+  "operations": {
+    "from": "2026-10-29",
+    "to": "2026-11-11",
+    "daily_job_days": 3,
+    "commit_days": 5,
+    "commits": {
+      "busy": 1,
+      "committed": 1,
+      "failed": 1,
+      "nothing": 1,
+      "other": 1,
+      "refused": 1
+    },
+    "commit_reasons": {
+      "busy.wiki_lock": 1,
+      "failed.other": 1,
+      "other.other": 1,
+      "refused.origin": 1
+    },
+    "pushes": {
+      "ok": 1,
+      "other": 1,
+      "pending": 1,
+      "skipped": 2
+    },
+    "trust_flag": {
+      "present": true,
+      "age_days": 3,
+      "awaited": true
+    },
+    "hook_runs": {
+      "claude-code": {
+        "PostCompact": {
+          "runs": 0,
+          "failed": 0
+        },
+        "PostModelSwitch": {
+          "runs": 0,
+          "failed": 0
+        },
+        "PostToolUse": {
+          "runs": 0,
+          "failed": 0
+        },
+        "PostToolUseFailure": {
+          "runs": 0,
+          "failed": 0
+        },
+        "PreCompact": {
+          "runs": 0,
+          "failed": 0
+        },
+        "SessionEnd": {
+          "runs": 0,
+          "failed": 0
+        },
+        "SessionStart": {
+          "runs": 0,
+          "failed": 0
+        },
+        "Stop": {
+          "runs": 3,
+          "failed": 1
+        },
+        "StopFailure": {
+          "runs": 0,
+          "failed": 0
+        },
+        "UserPromptSubmit": {
+          "runs": 0,
+          "failed": 0
+        }
+      },
+      "codex": {
+        "Interrupt": {
+          "runs": 0,
+          "failed": 0
+        },
+        "PostToolUse": {
+          "runs": 0,
+          "failed": 0
+        },
+        "PreCompact": {
+          "runs": 0,
+          "failed": 0
+        },
+        "SessionEnd": {
+          "runs": 0,
+          "failed": 0
+        },
+        "SessionStart": {
+          "runs": 0,
+          "failed": 0
+        },
+        "Stop": {
+          "runs": 0,
+          "failed": 0
+        },
+        "UserPromptSubmit": {
+          "runs": 0,
+          "failed": 0
+        }
+      }
+    },
+    "notice_now": "config_unknown_keys"
+  },
+  "hooks": {
+    "from": "2026-11-05",
+    "to": "2026-11-11",
+    "ms_bounds": [
+      2,
+      5,
+      10,
+      20,
+      30,
+      50,
+      75,
+      100,
+      150,
+      200,
+      300,
+      500,
+      1000,
+      1500,
+      3000
+    ],
+    "events": {
+      "claude-code": {
+        "PostCompact": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "PostModelSwitch": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "PostToolUse": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "PostToolUseFailure": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "PreCompact": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "SessionEnd": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "SessionStart": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "Stop": {
+          "days": 2,
+          "runs": 3,
+          "failed": 1,
+          "ms": [
+            0,
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "p50_ms_within": 50,
+          "p95_ms_within": -1
+        },
+        "StopFailure": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "UserPromptSubmit": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        }
+      },
+      "codex": {
+        "Interrupt": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "PostToolUse": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "PreCompact": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "SessionEnd": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "SessionStart": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "Stop": {
+          "days": 0,
+          "runs": 0,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 0,
+          "p95_ms_within": 0
+        },
+        "UserPromptSubmit": {
+          "days": 1,
+          "runs": 2,
+          "failed": 0,
+          "ms": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "p50_ms_within": 100,
+          "p95_ms_within": 150
+        }
+      }
+    },
+    "held_behind": {
+      "brief": 0,
+      "prompt": 0,
+      "reply": 1,
+      "tool": 0
+    },
+    "held_off_record": {
+      "brief": 0,
+      "prompt": 0,
+      "reply": 1,
+      "tool": 0
+    },
+    "delivered": {
+      "kinds": {
+        "clear": 0,
+        "compact": 0,
+        "fork": 0,
+        "prompt": 2,
+        "resume": 0,
+        "startup": 0
+      },
+      "added": 2,
+      "chars": 1200,
+      "routes": {
+        "constraints": 0,
+        "exchanges": 0,
+        "pointers": 1,
+        "recall": 1,
+        "reminder": 0,
+        "rules": 0,
+        "state": 1
+      },
+      "briefs": 1,
+      "with_state": 1,
+      "stale": 1,
+      "pending": 0,
+      "stale_or_pending": 1,
+      "fallback": 1,
+      "late": 0
+    }
+  },
+  "updates": {
+    "from": "2026-11-05",
+    "to": "2026-11-11",
+    "passes": 7,
+    "outcomes": {
+      "failed": 2,
+      "ok": 2,
+      "other": 1,
+      "skipped": 2
+    },
+    "skips": {
+      "other": 1,
+      "small": 1
+    },
+    "failures": {
+      "invalid_output": 1,
+      "other": 1
+    },
+    "checked": 2,
+    "refused_whole": {
+      "other": 1
+    },
+    "inside_accepted": {
+      "bad_refs": 2,
+      "carried": 0,
+      "dates": 0,
+      "downgraded": 0,
+      "duplicates": 0,
+      "ignored": 0,
+      "knowledge.added": 0,
+      "knowledge.dropped": 0,
+      "knowledge.duplicates": 0,
+      "knowledge.ignored": 0,
+      "knowledge.near_duplicates": 0,
+      "knowledge.over_cap": 0,
+      "knowledge.paths_dropped": 0,
+      "knowledge.read_only": 0,
+      "knowledge.refused": 0,
+      "knowledge.stale": 0,
+      "knowledge.superseded": 0,
+      "misses.identifiers": 0,
+      "misses.numbers": 0,
+      "misses.paths": 0,
+      "misses.shas": 0,
+      "misses.urls": 0,
+      "pasted": 0,
+      "proposals": 0,
+      "refused": 0,
+      "replace": 0,
+      "restatements": 0,
+      "rules.added": 0,
+      "rules.dropped": 0,
+      "rules.duplicates": 0,
+      "rules.edited": 0,
+      "rules.general": 0,
+      "rules.ignored": 0,
+      "rules.read_only": 0,
+      "rules.refused": 1,
+      "rules.stale": 0,
+      "stale": 0,
+      "unattributed": 0,
+      "unknowns": 0
+    },
+    "tokens_in": {
+      "n": 4,
+      "median": 0,
+      "p95": 3000,
+      "max": 3000
+    },
+    "tokens_out": {
+      "n": 4,
+      "median": 0,
+      "p95": 300,
+      "max": 300
+    },
+    "duration_ms": {
+      "n": 4,
+      "median": 1000,
+      "p95": 90000,
+      "max": 90000
+    },
+    "to_memory_ms": {
+      "other": {
+        "n": 1,
+        "median": 600000,
+        "p95": 600000,
+        "max": 600000
+      },
+      "session_end": {
+        "n": 1,
+        "median": 120000,
+        "p95": 120000,
+        "max": 120000
+      }
+    },
+    "busy": {
+      "jobs": 1,
+      "sessions": 1,
+      "by_trigger": {
+        "other": 1
+      }
+    },
+    "calls": [
+      {
+        "day": "2026-11-05",
+        "hosts": {
+          "claude-code": 0,
+          "codex": 0
+        },
+        "cap": 40
+      },
+      {
+        "day": "2026-11-06",
+        "hosts": {
+          "claude-code": 0,
+          "codex": 0
+        },
+        "cap": 40
+      },
+      {
+        "day": "2026-11-07",
+        "hosts": {
+          "claude-code": 0,
+          "codex": 0
+        },
+        "cap": 40
+      },
+      {
+        "day": "2026-11-08",
+        "hosts": {
+          "claude-code": 0,
+          "codex": 0
+        },
+        "cap": 40
+      },
+      {
+        "day": "2026-11-09",
+        "hosts": {
+          "claude-code": 0,
+          "codex": 0
+        },
+        "cap": 40
+      },
+      {
+        "day": "2026-11-10",
+        "hosts": {
+          "claude-code": 1,
+          "codex": 3
+        },
+        "cap": 40
+      },
+      {
+        "day": "2026-11-11",
+        "hosts": {
+          "claude-code": 0,
+          "codex": 0
+        },
+        "cap": 40
+      }
+    ],
+    "model_reported": 1,
+    "model_default": 0,
+    "model_other": 1
+  },
+  "backlog": {
+    "hosts": {
+      "claude-code": {
+        "sessions": 2,
+        "bytes": 687,
+        "oldest_day": "2026-11-08",
+        "oldest_age_hours": 72,
+        "untimed": 1,
+        "damaged": 1,
+        "held": 1,
+        "held_bytes": 267,
+        "held_oldest_day": "2026-11-11",
+        "held_oldest_age_hours": 1
+      },
+      "codex": {
+        "sessions": 1,
+        "bytes": -1,
+        "oldest_day": "2026-11-09",
+        "oldest_age_hours": 50,
+        "untimed": 0,
+        "damaged": 0,
+        "held": 0,
+        "held_bytes": 0,
+        "held_oldest_day": "",
+        "held_oldest_age_hours": 0
+      }
+    }
+  },
+  "record": {
+    "from": "2026-11-08",
+    "to": "2026-11-11",
+    "sessions": {
+      "claude-code": 66,
+      "codex": 1
+    },
+    "bytes": {
+      "claude-code": 17775,
+      "codex": -1
+    },
+    "entries": {
+      "event": 2,
+      "host_summary": 1,
+      "other": 1,
+      "plan": 1,
+      "prompt": 67,
+      "reply": 5,
+      "tool": 7
+    },
+    "passed_over": 3,
+    "unread": 0,
+    "markers": {
+      "github_token": 1,
+      "other": 1,
+      "password": 1
+    },
+    "replacements": 3,
+    "rules_version": 5,
+    "would_catch": {
+      "kinds": {
+        "github_token": 1
+      },
+      "tiers": {
+        "certain": 1
+      },
+      "entries": 1,
+      "sessions": 1,
+      "cut_entries": 1
+    }
+  },
+  "wiki": {
+    "pages": {
+      "index": 3,
+      "knowledge": 1,
+      "other": 1,
+      "rules": 2,
+      "system": 1,
+      "thread": 2
+    },
+    "complete": true,
+    "system_write_runs": 1,
+    "edits": 2,
+    "edits_unplaced": 1,
+    "code_status": {
+      "found": true,
+      "pages": 3,
+      "pages_citing_code": 2,
+      "entries": {
+        "moved": 1,
+        "no_clone": 1,
+        "other": 1
+      },
+      "pages_no_clone": 1
+    }
+  }
+}
