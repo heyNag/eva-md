@@ -780,7 +780,11 @@
         "oldest_day": "2026-11-08",
         "oldest_age_hours": 72,
         "untimed": 1,
-        "damaged": 1
+        "damaged": 1,
+        "held": 1,
+        "held_bytes": 267,
+        "held_oldest_day": "2026-11-11",
+        "held_oldest_age_hours": 1
       },
       "codex": {
         "sessions": 1,
@@ -788,7 +792,11 @@
         "oldest_day": "2026-11-09",
         "oldest_age_hours": 50,
         "untimed": 0,
-        "damaged": 0
+        "damaged": 0,
+        "held": 0,
+        "held_bytes": 0,
+        "held_oldest_day": "",
+        "held_oldest_age_hours": 0
       }
     }
   },
@@ -809,13 +817,15 @@
       "other": 1,
       "plan": 1,
       "prompt": 67,
-      "reply": 3,
+      "reply": 5,
       "tool": 7
     },
-    "passed_over": 2,
+    "passed_over": 3,
+    "unread": 0,
     "markers": {
       "github_token": 1,
-      "other": 1
+      "other": 1,
+      "password": 1
     },
     "replacements": 3,
     "rules_version": 5,
@@ -827,7 +837,8 @@
         "certain": 1
       },
       "entries": 1,
-      "sessions": 1
+      "sessions": 1,
+      "cut_entries": 1
     }
   },
   "wiki": {

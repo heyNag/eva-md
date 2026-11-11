@@ -97,19 +97,25 @@ type HookRunsCounts struct {
 // BacklogFigures is what waits for an update now, by host (see
 // Unorganized): sessions, bytes, the day of the oldest entry waiting and
 // its age in whole hours, waiting sessions with no dated entry, and
-// sessions whose watermark is damaged.
+// sessions whose watermark is damaged; and apart, the sessions the update
+// leaves until more is appended, as a turn not yet finished, with their
+// bytes and the day and age of their oldest entry.
 type BacklogFigures struct {
 	Hosts map[string]BacklogHost `json:"hosts"`
 }
 
 // BacklogHost is one host's backlog.
 type BacklogHost struct {
-	Sessions    int    `json:"sessions"`
-	Bytes       int64  `json:"bytes"`
-	OldestDay   string `json:"oldest_day"`
-	OldestHours int    `json:"oldest_age_hours"`
-	Untimed     int    `json:"untimed"`
-	Damaged     int    `json:"damaged"`
+	Sessions        int    `json:"sessions"`
+	Bytes           int64  `json:"bytes"`
+	OldestDay       string `json:"oldest_day"`
+	OldestHours     int    `json:"oldest_age_hours"`
+	Untimed         int    `json:"untimed"`
+	Damaged         int    `json:"damaged"`
+	Held            int    `json:"held"`
+	HeldBytes       int64  `json:"held_bytes"`
+	HeldOldestDay   string `json:"held_oldest_day"`
+	HeldOldestHours int    `json:"held_oldest_age_hours"`
 }
 
 // The words of the commit records the report counts by.
@@ -143,8 +149,11 @@ func Field(ctx context.Context, d paths.Dirs, now time.Time) FieldReport {
 	}
 
 	var recorded bool
-	r.Hooks, recorded = hookFigures(d, now)
+	r.Hooks, recorded, complete = hookFigures(d, now)
 	r.Parts["hooks"] = partState(recorded)
+	if !complete {
+		r.Parts["hooks"] = PartIncomplete
+	}
 
 	u, recorded, err := reportUpdates(d, now)
 	r.Updates = u
@@ -394,15 +403,22 @@ func backlogFigures(ctx context.Context, d paths.Dirs, now time.Time) (BacklogFi
 		return b, PartUnreadable
 	}
 	for host, h := range w.Hosts {
-		bh := BacklogHost{Sessions: h.Sessions, Bytes: h.Bytes, Untimed: h.Untimed, Damaged: h.Damaged}
-		if !h.Oldest.IsZero() {
-			bh.OldestDay = h.Oldest.In(now.Location()).Format(time.DateOnly)
-			bh.OldestHours = max(int(now.Sub(h.Oldest)/time.Hour), 0)
-		}
+		bh := BacklogHost{Sessions: h.Sessions, Bytes: h.Bytes, Untimed: h.Untimed, Damaged: h.Damaged, Held: h.Held, HeldBytes: h.HeldBytes}
+		bh.OldestDay, bh.OldestHours = dayAndAge(h.Oldest, now)
+		bh.HeldOldestDay, bh.HeldOldestHours = dayAndAge(h.HeldOldest, now)
 		b.Hosts[host] = bh
 	}
 	if !w.Complete {
 		return b, PartIncomplete
 	}
 	return b, PartCounted
+}
+
+// dayAndAge is the day of t in now's time zone and its age at now in whole
+// hours, or no day and 0 for no time.
+func dayAndAge(t, now time.Time) (string, int) {
+	if t.IsZero() {
+		return "", 0
+	}
+	return t.In(now.Location()).Format(time.DateOnly), max(int(now.Sub(t)/time.Hour), 0)
 }

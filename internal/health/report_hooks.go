@@ -59,16 +59,21 @@ type Delivered struct {
 }
 
 // hookFigures reads the week of every hook event of both hosts that ends
-// on now's day, and reports whether any run was recorded.
-func hookFigures(d paths.Dirs, now time.Time) (HookFigures, bool) {
+// on now's day, and reports whether any run was recorded, and whether
+// every heartbeat there could be read (see beatUnreadable).
+func hookFigures(d paths.Dirs, now time.Time) (f HookFigures, recorded, complete bool) {
 	from, to := weekOf(now)
-	f := HookFigures{From: from, To: to, MSBounds: DurationBounds, Events: map[string]map[string]EventWeek{}}
+	f = HookFigures{From: from, To: to, MSBounds: DurationBounds, Events: map[string]map[string]EventWeek{}}
 	sum := HookDay{}.fit()
+	complete = true
 	for _, host := range updateHosts {
 		f.Events[host] = map[string]EventWeek{}
 		for _, event := range hostEvents(host) {
 			e := HookDay{}.fit()
 			days := eventWeek(d, host, event, now)
+			if days == nil && beatUnreadable(d, host, event) {
+				complete = false
+			}
 			for _, day := range days {
 				e.plus(day)
 				sum.plus(day)
@@ -79,7 +84,7 @@ func hookFigures(d paths.Dirs, now time.Time) (HookFigures, bool) {
 	f.Behind, f.OffRecord = byName(sum.Behind, HeldKinds), byName(sum.OffRecord, HeldKinds)
 	f.Delivered = Delivered{Kinds: byName(sum.Kinds, DeliveryKinds), Added: sum.Added, Chars: sum.Chars, Routes: byName(sum.Routes, Routes),
 		Briefs: sum.Briefs, WithState: sum.WithState, Stale: sum.Stale, Pending: sum.Pending, StaleOrPending: sum.StaleOrPending, Fallback: sum.Fallback, Late: sum.Late}
-	return f, sum.Runs > 0
+	return f, sum.Runs > 0, complete
 }
 
 // byName is counts keyed by names, the name of each count in its order.

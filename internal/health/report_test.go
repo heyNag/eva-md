@@ -74,11 +74,13 @@ func reportHome(t *testing.T) (paths.Dirs, string) {
 		put(t, filepath.Join(wiki, page), []byte("# "+planted+"\n"))
 	}
 
-	// The inbox. One Codex session holds every kind of entry, two markers,
-	// one of a kind no rule writes, a token the current rules catch, the
-	// tool lines the wiki part counts, two lines passed over and an
-	// unterminated last one; an entry recovered after the others is its
-	// oldest. It has no watermark, so all of it waits.
+	// The inbox. One Codex session holds every kind of entry, three
+	// markers, one of a kind no rule writes, a token the current rules
+	// catch, the same token in an entry cut at the size limit, an entry
+	// that says it made far more replacements than its markers show, the
+	// tool lines the wiki part counts, three lines passed over, one of
+	// them too long, and an unterminated last one; an entry recovered after
+	// the others is its oldest. It has no watermark, so all of it waits.
 	project := planted + "-proj"
 	id := planted + "-s1"
 	at := reportNow.Add(-2 * time.Hour)
@@ -99,6 +101,11 @@ func reportHome(t *testing.T) (paths.Dirs, string) {
 		line(t, project, "codex", id, at, "host_summary", planted),
 		line(t, project, "codex", id, at, planted, planted),
 		line(t, project, "codex", id, reportNow.Add(-50*time.Hour), "prompt", "recovered "+planted),
+		line(t, project, "codex", id, at, "prompt", strings.Repeat(planted, inbox.MaxLine/len(planted)+1)),
+		string(must(json.Marshal(inbox.Entry{V: 1, TS: at.Format(time.RFC3339), Host: "codex", Session: id, Role: "assistant", Kind: "reply",
+			Text: "cut: the key was " + fakeToken, Project: project, Origin: "hook", Trunc: 4096})))+"\n",
+		string(must(json.Marshal(inbox.Entry{V: 1, TS: at.Format(time.RFC3339), Host: "codex", Session: id, Role: "assistant", Kind: "reply",
+			Text: "kept [REDACTED:password]", Project: project, Origin: "hook", Red: 987654321})))+"\n",
 		"not json "+planted+"\n",
 		string(other)+"\n",
 		`{"v":1,"ts":"`+at.Format(time.RFC3339)+`","host":"codex","session":"`+id+`","kind":"prompt","text":"`+planted)
@@ -336,15 +343,25 @@ func TestFieldReportCountsTheFixture(t *testing.T) {
 	check("Codex backlog", []any{b["codex"].Sessions, b["codex"].OldestDay, b["codex"].OldestHours, b["codex"].Untimed}, []any{1, "2026-11-09", 50, 0})
 	check("Claude Code backlog", []any{b["claude-code"].Sessions, b["claude-code"].OldestDay, b["claude-code"].OldestHours, b["claude-code"].Untimed, b["claude-code"].Damaged},
 		[]any{2, "2026-11-08", 72, 1, 1})
+	held, err := os.Stat(filepath.Join(d.Inbox(), planted+"-two", "claude-code-"+planted+"-c02.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("Claude Code's session held for more", []any{b["claude-code"].Held, b["claude-code"].HeldBytes, b["claude-code"].HeldOldestDay, b["claude-code"].HeldOldestHours},
+		[]any{1, held.Size(), "2026-11-11", 1})
+	check("Codex's held sessions", []any{b["codex"].Held, b["codex"].HeldOldestDay}, []any{0, ""})
 
 	rec := r.Record
 	check("record days", []any{rec.From, rec.To}, []any{"2026-11-08", "2026-11-11"})
 	check("sessions", rec.Sessions, map[string]int{"codex": 1, "claude-code": 66})
-	check("entries", rec.Entries, map[string]int{"event": 2, "prompt": 67, "reply": 3, "tool": 7, "plan": 1, "host_summary": 1, "other": 1})
-	check("passed over", rec.PassedOver, 2)
-	check("markers", []any{rec.Markers, rec.Replacements}, []any{map[string]int{"github_token": 1, "other": 1}, 3})
-	check("would catch", []any{rec.Catch.Kinds, rec.Catch.Tiers, rec.Catch.Entries, rec.Catch.Sessions},
-		[]any{map[string]int{"github_token": 1}, map[string]int{"certain": 1}, 1, 1})
+	check("entries", rec.Entries, map[string]int{"event": 2, "prompt": 67, "reply": 5, "tool": 7, "plan": 1, "host_summary": 1, "other": 1})
+	check("passed over and unread", []any{rec.PassedOver, rec.Unread}, []any{3, 0})
+	// An entry's replacements count up to the complete markers its text
+	// holds: 2 of the 3 the first entry says it made, and 1 of the
+	// 987654321 the other says.
+	check("markers", []any{rec.Markers, rec.Replacements}, []any{map[string]int{"github_token": 1, "password": 1, "other": 1}, 3})
+	check("would catch", []any{rec.Catch.Kinds, rec.Catch.Tiers, rec.Catch.Entries, rec.Catch.Sessions, rec.Catch.Cut},
+		[]any{map[string]int{"github_token": 1}, map[string]int{"certain": 1}, 1, 1, 1})
 
 	// The Claude Code session waiting past its folder's 64 newest files is
 	// one eva-md status's count leaves out.
@@ -369,7 +386,7 @@ func TestFieldReportCountsTheFixture(t *testing.T) {
 func TestFieldReportHoldsNoText(t *testing.T) {
 	d, wiki := reportHome(t)
 	got := string(fieldJSON(t, d))
-	for _, text := range []string{planted, fakeToken, "ghp_", os.Getenv("HOME"), wiki, "Upper", "elsewhere", "/"} {
+	for _, text := range []string{planted, fakeToken, "ghp_", os.Getenv("HOME"), wiki, "Upper", "elsewhere", "/", "987654321"} {
 		if strings.Contains(got, text) {
 			t.Errorf("the report holds %q", text)
 		}
@@ -477,6 +494,67 @@ func TestFieldReportOnHomesWithLittleRecorded(t *testing.T) {
 			t.Fatalf("%+v %+v", r.Parts, r.Updates)
 		}
 	})
+	// A record there that can't be read is never counted as zeros: its
+	// part says it is incomplete, and Unorganized that it is not complete.
+	// A session file linked twice, which no reader opens, and a project
+	// folder that can't be listed are counted as unread.
+	t.Run("a record that can't be read", func(t *testing.T) {
+		d, _ := reportHome(t)
+		file := filepath.Join(d.Inbox(), planted+"-proj", "codex-"+planted+"-s1.jsonl")
+		if err := os.Link(file, filepath.Join(d.Inbox(), planted+"-link.jsonl")); err != nil {
+			t.Fatal(err)
+		}
+		r := Field(context.Background(), d, reportNow)
+		want := map[string]string{"operations": "counted", "hooks": "counted", "updates": "counted", "backlog": "incomplete", "record": "incomplete", "wiki": "incomplete"}
+		if !reflect.DeepEqual(r.Parts, want) || r.Record.Unread != 1 || r.Record.Sessions["codex"] != 0 || r.Record.Sessions["claude-code"] != 66 {
+			t.Fatalf("%+v %+v", r.Parts, r.Record)
+		}
+		w, err := Unorganized(context.Background(), d)
+		if err != nil || w.Complete || w.Unread != 1 || w.Hosts["codex"].Sessions != 0 || w.Hosts["claude-code"].Sessions != 2 {
+			t.Fatalf("Unorganized: %+v, %v", w, err)
+		}
+
+		folder := filepath.Join(d.Inbox(), planted+"-two")
+		if err := os.Chmod(folder, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(folder, 0o700) })
+		w, err = Unorganized(context.Background(), d)
+		if err != nil || w.Complete || w.Unread != 2 || w.Hosts["claude-code"].Sessions != 0 {
+			t.Fatalf("Unorganized with a folder that can't be listed: %+v, %v", w, err)
+		}
+		if r := Field(context.Background(), d, reportNow); r.Record.Unread != 2 || r.Parts["record"] != PartIncomplete {
+			t.Fatalf("%+v %+v", r.Parts, r.Record)
+		}
+	})
+	t.Run("operations and hooks that can't be read", func(t *testing.T) {
+		d, _ := reportHome(t)
+		month := filepath.Join(d.State, "commits", "2026-11.jsonl")
+		if err := os.Remove(month); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(month, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		r := Field(context.Background(), d, reportNow)
+		if r.Parts["operations"] != PartIncomplete || r.Parts["hooks"] != PartCounted || r.Operations.Commits["committed"] != 1 {
+			t.Fatalf("a month of commit records that can't be read: %+v %+v", r.Parts, r.Operations.Commits)
+		}
+		if err := os.Remove(month); err != nil {
+			t.Fatal(err)
+		}
+		beat := filepath.Join(d.State, "heartbeats", "codex", "UserPromptSubmit.json")
+		if err := os.Remove(beat); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(beat, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		r = Field(context.Background(), d, reportNow)
+		if r.Parts["operations"] != PartIncomplete || r.Parts["hooks"] != PartIncomplete {
+			t.Fatalf("a heartbeat that can't be read: %+v", r.Parts)
+		}
+	})
 	t.Run("cut short", func(t *testing.T) {
 		d, _ := reportHome(t)
 		ctx, cancel := context.WithCancel(context.Background())
@@ -494,7 +572,7 @@ func TestFieldReportOnHomesWithLittleRecorded(t *testing.T) {
 // reportKeys are the report's keys as its format fixes them, each a path
 // from the top; * stands for a map's keys and [] for a list's items.
 var reportKeys = []string{
-	"backlog", "backlog.hosts", "backlog.hosts.*", "backlog.hosts.*.bytes", "backlog.hosts.*.damaged", "backlog.hosts.*.oldest_age_hours",
+	"backlog", "backlog.hosts", "backlog.hosts.*", "backlog.hosts.*.bytes", "backlog.hosts.*.damaged", "backlog.hosts.*.held", "backlog.hosts.*.held_bytes", "backlog.hosts.*.held_oldest_age_hours", "backlog.hosts.*.held_oldest_day", "backlog.hosts.*.oldest_age_hours",
 	"backlog.hosts.*.oldest_day", "backlog.hosts.*.sessions", "backlog.hosts.*.untimed",
 	"day", "format",
 	"hooks", "hooks.delivered", "hooks.delivered.added", "hooks.delivered.chars", "hooks.delivered.fallback", "hooks.delivered.kinds",
@@ -509,8 +587,8 @@ var reportKeys = []string{
 	"operations.to", "operations.trust_flag", "operations.trust_flag.age_days", "operations.trust_flag.awaited", "operations.trust_flag.present",
 	"parts", "parts.*",
 	"record", "record.bytes", "record.bytes.*", "record.entries", "record.entries.*", "record.from", "record.markers", "record.markers.*",
-	"record.passed_over", "record.replacements", "record.rules_version", "record.sessions", "record.sessions.*", "record.to", "record.would_catch",
-	"record.would_catch.entries", "record.would_catch.kinds", "record.would_catch.kinds.*", "record.would_catch.sessions", "record.would_catch.tiers",
+	"record.passed_over", "record.replacements", "record.unread", "record.rules_version", "record.sessions", "record.sessions.*", "record.to", "record.would_catch",
+	"record.would_catch.cut_entries", "record.would_catch.entries", "record.would_catch.kinds", "record.would_catch.kinds.*", "record.would_catch.sessions", "record.would_catch.tiers",
 	"record.would_catch.tiers.*",
 	"updates", "updates.busy", "updates.busy.by_trigger", "updates.busy.by_trigger.*", "updates.busy.jobs", "updates.busy.sessions", "updates.calls",
 	"updates.calls.[]", "updates.calls.[].cap", "updates.calls.[].day", "updates.calls.[].hosts", "updates.calls.[].hosts.*", "updates.checked",

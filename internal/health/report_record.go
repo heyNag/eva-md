@@ -46,12 +46,17 @@ func known(name string, names []string) string {
 
 // RecordFigures is what the inbox holds, over every session file: sessions
 // and bytes by host; entries by kind; lines passed over, as too long or not
-// a well-formed entry of their file; the redaction markers stored, by kind,
-// and the replacements the entries say were made; what the redaction rules
-// of this release would catch in the stored text, by kind and by tier,
-// which is what an older release's rules missed, since this release's
-// rules catch nothing more in text they redacted; and the first and the
-// last day an entry is dated.
+// a well-formed entry of their file; the project folders and session files
+// that couldn't be opened or read to the end, which leave the part
+// incomplete; the redaction markers stored, by kind, and the replacements
+// that left one (see Replacements); what the redaction rules of this
+// release would catch in the stored text (see Catch); and the first and
+// the last day an entry is dated.
+//
+// Replacements is, for each entry, the replacements it says were made, up
+// to the complete markers its text holds: a figure the report can stand
+// behind, whatever number a damaged or edited entry holds, since each
+// replacement it counts left its marker in the stored text.
 type RecordFigures struct {
 	From         string         `json:"from"`
 	To           string         `json:"to"`
@@ -59,20 +64,28 @@ type RecordFigures struct {
 	Bytes        map[string]int `json:"bytes"`
 	Entries      map[string]int `json:"entries"`
 	PassedOver   int            `json:"passed_over"`
+	Unread       int            `json:"unread"`
 	Markers      map[string]int `json:"markers"`
 	Replacements int            `json:"replacements"`
 	RulesVersion int            `json:"rules_version"`
 	Catch        Catch          `json:"would_catch"`
 }
 
-// Catch is what the redaction rules would catch in the stored text: the
+// Catch is what the redaction rules of this release would catch in the
+// stored text, which is what an older release's rules missed: the
 // replacements by marker kind and by tier, and the entries and sessions
-// that hold one.
+// that hold one. It leaves out the entries cut at the size limit when they
+// were stored, and counts them in Cut: a cut joins the head of a text to
+// its tail, which can put a word that marks a secret beside a value the
+// rules, reading the whole text, never saw beside it, so this release can
+// catch more in what it stored itself. Text the rules redacted whole they
+// catch nothing more in.
 type Catch struct {
 	Kinds    map[string]int `json:"kinds"`
 	Tiers    map[string]int `json:"tiers"`
 	Entries  int            `json:"entries"`
 	Sessions int            `json:"sessions"`
+	Cut      int            `json:"cut_entries"`
 }
 
 // toolUse is what the tool lines show of the wiki: runs of eva-md system
@@ -87,7 +100,8 @@ type toolUse struct {
 // readRecord reads every session file of the inbox once, for the record's
 // figures and, when wiki names the wiki's folders, the tool lines' use of
 // it. It reads and writes no other file. complete is false when ctx ended
-// first, and the counts are then a floor.
+// first or a folder or file couldn't be read, and the counts are then a
+// floor.
 func readRecord(ctx context.Context, dir string, wiki []string, loc *time.Location) (r RecordFigures, tools toolUse, complete bool, err error) {
 	r = RecordFigures{Sessions: map[string]int{}, Bytes: map[string]int{}, Entries: map[string]int{}, Markers: map[string]int{},
 		RulesVersion: redact.Version, Catch: Catch{Kinds: map[string]int{}, Tiers: map[string]int{}}}
@@ -95,7 +109,7 @@ func readRecord(ctx context.Context, dir string, wiki []string, loc *time.Locati
 		r.Sessions[host], r.Bytes[host] = 0, 0
 	}
 	complete = true
-	err = eachSessionFile(ctx, dir, func(project, name, host string, f *os.File, size int64) error {
+	r.Unread, err = eachSessionFile(ctx, dir, func(project, name, host string, f *os.File, size int64) error {
 		r.Sessions[host]++
 		r.Bytes[host] += int(size)
 		caught := false
@@ -106,7 +120,6 @@ func readRecord(ctx context.Context, dir string, wiki []string, loc *time.Locati
 				return
 			}
 			r.Entries[known(e.Kind, entryKinds)]++
-			r.Replacements += max(e.Red, 0)
 			if t, err := time.Parse(time.RFC3339, e.TS); err == nil {
 				day := t.In(loc).Format(time.DateOnly)
 				if r.From == "" || day < r.From {
@@ -116,8 +129,12 @@ func readRecord(ctx context.Context, dir string, wiki []string, loc *time.Locati
 					r.To = day
 				}
 			}
-			countMarkers(r.Markers, e.Text)
-			if e.Text != "" {
+			r.Replacements += min(max(e.Red, 0), countMarkers(r.Markers, e.Text))
+			switch {
+			case e.Text == "":
+			case e.Trunc > 0:
+				r.Catch.Cut++
+			default:
 				s := redact.Scan(ctx, e.Text)
 				if s.Through != len(s.Clean) {
 					complete = false
@@ -137,11 +154,14 @@ func readRecord(ctx context.Context, dir string, wiki []string, loc *time.Locati
 			if e.Kind == "tool" && wiki != nil {
 				tools.add(e.Text, wiki)
 			}
-		})
+		}, func() { r.PassedOver++ })
 	})
 	if ctx.Err() != nil {
 		complete = false
 		err = nil
+	}
+	if r.Unread > 0 {
+		complete = false
 	}
 	return r, tools, complete, err
 }
@@ -161,13 +181,14 @@ func tierName(t redact.Tier) string {
 
 // countMarkers counts the complete markers text holds, [REDACTED:<kind>]
 // with a kind of 1 to 32 lower-case letters and underscores, as the rules
-// write them, by kind.
-func countMarkers(counts map[string]int, text string) {
+// write them, by kind, and returns how many it counted.
+func countMarkers(counts map[string]int, text string) int {
 	const open = "[REDACTED:"
+	n := 0
 	for {
 		i := strings.Index(text, open)
 		if i < 0 {
-			return
+			return n
 		}
 		text = text[i+len(open):]
 		end := strings.IndexByte(text, ']')
@@ -175,6 +196,7 @@ func countMarkers(counts map[string]int, text string) {
 			continue
 		}
 		counts[known(text[:end], markerKinds)]++
+		n++
 		text = text[end+1:]
 	}
 }
