@@ -318,6 +318,17 @@ class Decide(unittest.TestCase):
                 self.assertGreater(bounds[-4], at_least)
                 self.assertGreater(bounds[-1], bounds[-4]+0.01, bounds[-6:])
 
+    def test_the_noise_is_the_fourth_largest_of_untied_bounds(self):
+        # Bounds whose third, fourth and fifth largest all differ.
+        parts = runs_of("capture", {"old": (1, 1.06, 1.02, 1.2), "new": (1.16, 1.09, 1.03, 1)}, spread=0.3, seed=16)
+        old = [run["capture"] for role in core.ROLES_OF["old"] for run in parts[role]]
+        new = [run["capture"] for role in core.ROLES_OF["new"] for run in parts[role]]
+        bounds = sorted(core.control_bounds(old, new, core.splits(2)))
+        self.assertEqual(len(bounds), 36)
+        self.assertTrue(bounds[-5] < bounds[-4] < bounds[-3] and bounds[-4] > 1, bounds[-6:])
+        self.assertEqual(core.decide(parts, {"capture": 100})["metrics"]["capture"]["noise"], round(bounds[-4], 3))
+        self.assertEqual(core.NOISE_QUANTILE, 0.89)
+
     def test_a_noise_of_1_15_is_not_too_noisy(self):
         # One run of each binary is 1.15 times as slow as the rest, all
         # samples alike: the controls that put both on one side say 1.15,
@@ -439,6 +450,86 @@ class Decide(unittest.TestCase):
         parts["new"] = parts["new"][:1]
         with self.assertRaisesRegex(ValueError, "the role new has 1 runs, not 2"):
             core.decide(parts, {"capture": 100})
+
+
+class Controls(unittest.TestCase):
+    """The controls with a change in the new binary, and the runs' levels."""
+
+    def same_runs(self, new_levels, name="capture", seed=4):
+        """Each run's samples one list, times the run's level: the old
+        binary's at 1, the new one's at new_levels."""
+        rng = random.Random(seed)
+        s = [20*(1+rng.uniform(-0.1, 0.1)) for _ in range(100)]
+        out = {}
+        for binary, levels in (("old", (1, 1, 1, 1)), ("new", new_levels)):
+            for i, role in enumerate(core.ROLES_OF[binary]):
+                out[role] = [{name: [v*level for v in s]} for level in levels[2*i:2*i+2]]
+        return out
+
+    def test_a_large_change_leaves_the_controls_as_they_were(self):
+        # One run of the new binary 20% slower than its others. Unchanged,
+        # the controls say 1.146; three times as slow, they say the same,
+        # since they divide the new binary's samples by 3 first. Without
+        # that, each side's p95 would come from its two runs of the new
+        # binary, and the controls would say the figure is too noisy.
+        same = self.same_runs((1.2, 1, 1, 1))
+        tripled = self.same_runs((3.6, 3, 3, 3))
+        d1, d3 = core.decide(same, {"capture": None}), core.decide(tripled, {"capture": None})
+        m1, m3 = d1["metrics"]["capture"], d3["metrics"]["capture"]
+        self.assertEqual((m1["aligned"], m3["aligned"]), (1.0, 3.0))
+        self.assertEqual(m1["noise"], m3["noise"])
+        self.assertTrue(1.1 < m3["noise"] <= 1.15, m3["noise"])
+        self.assertEqual((d1["verdict"], d3["verdict"]), ("pass", "fail"))
+        old = [run["capture"] for role in core.ROLES_OF["old"] for run in tripled[role]]
+        new = [run["capture"] for role in core.ROLES_OF["new"] for run in tripled[role]]
+        self.assertGreater(core.nearest_rank(core.control_bounds(old, new, core.splits(2)), core.NOISE_QUANTILE), 1.15)
+
+    def test_the_controls_align_only_past_the_threshold(self):
+        o = [[10.0]*10, [11.0]*10, [10.0]*10, [12.0]*10]
+        # Lower medians 10 and 11.5: 1.15, not past it.
+        self.assertEqual(core.aligned(o, [[11.5]*10, [12.0]*10, [11.0]*10, [20.0]*10]), 1.0)
+        self.assertAlmostEqual(core.aligned(o, [[11.6]*10, [12.0]*10, [11.0]*10, [20.0]*10]), 1.16)
+        # Quicker by as much: aligned too.
+        self.assertAlmostEqual(core.aligned(o, [[8.6]*10, [9.0]*10, [8.6]*10, [9.5]*10]), 0.86)
+        self.assertEqual(core.aligned(o, [[8.7]*10, [9.0]*10, [8.8]*10, [9.5]*10]), 1.0)
+        # Load on half of the new binary's runs leaves its lower median on
+        # a run it missed, so the controls see the load as it is.
+        self.assertEqual(core.aligned(o, [[10.0]*10, [16.0]*10, [11.0]*10, [16.0]*10]), 1.0)
+        # A binary that lost runs: the lower median of the rest.
+        self.assertEqual(core.aligned(o, [[], [16.0]*10, [12.0]*10, []]), 1.2)
+        self.assertEqual(core.aligned(o, [[], [], [], []]), 1.0)
+
+    def test_the_runs_levels_and_one_quick_run(self):
+        # Two figures; the new binary's run 2 is quick in both, by 1.25.
+        a = [[10.0]*5, [12.5]*5, [12.5]*5, [12.5]*5]
+        b = [[40.0]*5, [50.0]*5, [51.0]*5, [49.0]*5]
+        self.assertEqual(core.run_levels([a, b]), [0.8, 1.0, 1.0, 1.0])
+        self.assertTrue(core.one_quick_run(core.run_levels([a, b])))
+        # In one figure only, the median over figures does not see it.
+        c = [[30.0]*5, [30.0]*5, [31.0]*5, [29.0]*5]
+        self.assertFalse(core.one_quick_run(core.run_levels([a, c, c])))
+        # 1.15 is not more than 1.15.
+        self.assertFalse(core.one_quick_run([1.0, 1.15, 1.2, 1.3]))
+        self.assertTrue(core.one_quick_run([1.0, 1.151, 1.2, 1.3]))
+        # A figure a run of which gave nothing counts for no run.
+        self.assertEqual(core.run_levels([[[10.0], [], [10.0], [10.0]]]), None)
+
+    def test_load_on_three_runs_of_the_new_binary_is_not_judged(self):
+        # Three of the new binary's runs loaded by 1.4, and none of the old
+        # one's: no control sees it, but its one quick run, in every
+        # figure, says the machine was too noisy. A rise of 40% in all four
+        # runs fails.
+        for levels, verdict, quick in (((1, 1.4, 1.4, 1.4), "not judged", ["new"]), ((1.4,)*4, "fail", [])):
+            parts = merge(runs_of("capture", {"new": levels}, spread=0.05),
+                          runs_of("prompt", {"new": levels}, spread=0.05, centre=30, seed=40))
+            d = core.decide(parts, {"capture": 100, "prompt": 100})
+            self.assertEqual((d["verdict"], d["one_quick_run"], d["machine_too_noisy"]), (verdict, quick, verdict == "not judged"), levels)
+            self.assertEqual(d["too_noisy"], [])
+            self.assertEqual(sorted({f.split(":")[0] for f in d["failures"]}), ["capture", "prompt"])
+        # Three of the old binary's runs loaded: as noisy.
+        parts = runs_of("capture", {"old": (1.4, 1.4, 1, 1.4)}, spread=0.05)
+        d = core.decide(parts, {"capture": 100})
+        self.assertEqual((d["verdict"], d["one_quick_run"]), ("not judged", ["old"]))
 
 
 class LostRuns(unittest.TestCase):
@@ -599,6 +690,7 @@ class Splits(unittest.TestCase):
         self.assertEqual(s[:2], [((0, 1, 2), (0, 1, 2)), ((0, 1, 2), (3, 4, 5))])
         self.assertTrue(all(len(o) == 3 and len(n) == 3 and o[0] == 0 for o, n in s))
         self.assertEqual(s, core.splits(3))
+        self.assertEqual(s[2:6], [((0, 1, 2), (1, 2, 5)), ((0, 3, 4), (2, 3, 5)), ((0, 1, 5), (3, 4, 5)), ((0, 3, 4), (2, 4, 5))])
         self.assertNotEqual(s, core.splits(3, seed=core.SEED+1))
         self.assertEqual(core.splits(3, seed=core.SEED+1)[:2], s[:2])
 
