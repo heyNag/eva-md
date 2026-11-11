@@ -3,6 +3,7 @@ package work
 import (
 	"cmp"
 	"context"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -85,7 +86,8 @@ func Status(ctx context.Context, dirs paths.Dirs, now time.Time) Report {
 			all = append(all, j.Waiting(ctx, now)...)
 		}
 	}
-	if root, err := openWork(dirs); err == nil {
+	// Status only reads: it creates no folder.
+	if root, err := paths.OpenRoot(filepath.Join(dirs.State, "work"), false); err == nil {
 		marks, err := listMarks(root, wakeDir)
 		root.Close()
 		if err == nil {
