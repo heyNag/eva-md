@@ -1,0 +1,41 @@
+{
+  "v": 1,
+  "gates": [
+    {
+      "metric": "retrieval.heldout.all.precision",
+      "stat": "mean",
+      "rule": "not_worse",
+      "margin": 0
+    },
+    {
+      "metric": "retrieval.heldout.all.recall",
+      "stat": "mean",
+      "rule": "not_worse",
+      "margin": 0
+    },
+    {
+      "metric": "retrieval.heldout.all.false_additions",
+      "stat": "mean",
+      "rule": "not_worse",
+      "margin": 0
+    },
+    {
+      "metric": "retrieval.heldout.name.precision",
+      "stat": "mean",
+      "rule": "not_worse",
+      "margin": 0
+    },
+    {
+      "metric": "retrieval.heldout.name.recall",
+      "stat": "mean",
+      "rule": "not_worse",
+      "margin": 0
+    },
+    {
+      "metric": "retrieval.heldout.name.false_additions",
+      "stat": "mean",
+      "rule": "not_worse",
+      "margin": 0
+    }
+  ]
+}
