@@ -270,7 +270,7 @@ func TestTheHookKeepsTheValuesTheCoreFactsRead(t *testing.T) {
 		map[string]any{"type": "session_meta", "payload": map[string]any{"id": sessionID, "originator": "made_up_originator", "cwd": cwd, "source": "made_up_source", "instructions": plantedSentence}},
 		map[string]any{"type": "event_msg", "payload": map[string]any{"type": "task_started", "turn_id": "turn-made-up-2",
 			"turn_attribution": map[string]any{"turn_trigger": "made_up_trigger", "parent_turn_id": "turn-made-up-1", "root_turn_id": "turn-made-up-1"},
-			"made_up_field": "made_up_enum"}},
+			"made_up_field":    "made_up_enum"}},
 		map[string]any{"type": "realtime_item", "payload": map[string]any{"type": "message", "role": "made_up_role", "outcome": "made_up_outcome", "text": plantedSentence}},
 		map[string]any{"type": "event_msg", "payload": map[string]any{"type": "user_message", "message": "[made_up_notice] " + plantedSentence}},
 	)
