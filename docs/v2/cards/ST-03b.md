@@ -17,6 +17,13 @@ The migration (ST-07) must read every v1 page as v1 read it, and system pages, f
 
 `internal/store/codec/v1.go` (new), `internal/store/codec/v1_test.go` (new), `internal/store/codec/testdata/v1/**` (new), and a new section of `internal/store/codec/SPEC.md`.
 
+```paths
+internal/store/codec/v1.go
+internal/store/codec/v1_test.go
+internal/store/codec/testdata/v1/**
+internal/store/codec/SPEC.md
+```
+
 ## Must not touch
 
 Everything else, ST-03a's other files included; a fault found in them is reported, not fixed here. `internal/okfadapter`, `internal/threadpage`, `internal/knowledgepage`, `internal/systempage`, `internal/update`, `internal/wikiinit` and `go.mod` are read, not edited. The library is reached only through `internal/okfadapter`, as the project's rule requires: no file here imports it.

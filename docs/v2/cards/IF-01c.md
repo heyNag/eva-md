@@ -24,6 +24,12 @@ ST-05, the store core, is large and on the critical path. Before it lands, DV-23
 
 `internal/store/storetest/**` (new), `internal/eval/retrieval/retrievaltest/**` (new), and those two rows of `docs/v2/contract-matrix.md`.
 
+```paths
+internal/store/storetest/**
+internal/eval/retrieval/retrievaltest/**
+docs/v2/contract-matrix.md
+```
+
 ## Must not touch
 
 Everything else. `internal/store/api.go`, `internal/store/conformance`, the rest of `internal/eval/retrieval`, `internal/cardcheck` and `internal/ledger` are read only. If a model or interface lacks what a fake needs, put the gap in the report.

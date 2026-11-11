@@ -39,6 +39,11 @@ The six designs list 83 needs one area has of another. The delivery critique fou
 
 `docs/v2/contract-matrix.md` (new) and `internal/cardcheck/**` (new).
 
+```paths
+docs/v2/contract-matrix.md
+internal/cardcheck/**
+```
+
 ## Must not touch
 
 Everything else. The plan, the designs, the cards and their README are the lead's. If a merged card fails the check, report the card and the row, and do not edit the card.
