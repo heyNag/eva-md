@@ -1,0 +1,148 @@
+Private key blocks, JWTs, URL passwords, Authorization values, and a secret
+key's value in each shape: shell, YAML, JSON, TOML, URL query and connection
+string. See README.md for the format. A private key's secret is its body: its
+BEGIN and END lines are split so the raw file holds no block.
+
+=== secret private_key rsa block with its end line
+The deploy key, before I rotate it:
+-----BEGIN RSA PRIVATE¦ KEY-----
+'⟦MIIEowIBAAKCAQEAx7Qp¦2Lr9Vt4Nm1Kj6Hg3Fd8Sa5Wq0EzRb7Yc4Ud1Ef0Gh5IjKl9Mn
+OpQrStUvWxYz0AbCdEfGhIjQx7Lm2Pv¦Tn8sRb3Yc6Ud1Ef0Gh5IjKl9MnOpQrSt⟧'
+-----END RSA PRIVATE¦ KEY-----
+Then run ssh-add.
+
+=== secret private_key openssh block without an end line
+pasted from the terminal:
+-----BEGIN OPENSSH PRIVATE¦ KEY-----
+'⟦b3BlbnNzaC1rZXktdjEAAAAA¦BG5vbmUAAAAEbm9uZQAAAAAAAAAB⟧'
+
+=== secret private_key ec block in a json string
+{"type": "service_account", "private_key": "-----BEGIN EC PRIVATE¦ KEY-----\n'⟦MHcCAQEEIBk7Rt2Vx9Lp4Nz8¦Kc1Hw6Jy3Fb5Gd0Se7Ua2Xi4Ok9oAoGCCqGSM49⟧'\n-----END EC PRIVATE¦ KEY-----\n", "client_email": "ci@acme.example"}
+
+=== secret private_key pgp block
+-----BEGIN PGP PRIVATE¦ KEY BLOCK-----
+
+'⟦lQOYBGVx7QpBCADr2Lr9Vt4¦Nm1Kj6Hg3Fd8Sa5Wq0EzRb7Yc4U⟧'
+-----END PGP PRIVATE¦ KEY BLOCK-----
+
+=== secret private_key generic pkcs8 block in yaml
+tls:
+  key: |
+    -----BEGIN PRIVATE¦ KEY-----
+    '⟦MIIEvgIBADANBgkqhkiG9w0BAQEFAAS¦CBKgwggSkAgEAAoIBAQDf3Gk⟧'
+    -----END PRIVATE¦ KEY-----
+
+=== secret jwt bare jwt in a log line
+2026-11-02T10:14:03Z auth ok token '⟦ey¦JhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ey¦JzdWIiOiJ1LTQ0MiIsImV4cCI6MTc5OTk5OTk5OX0.Qm7Rt2Vx9Lp4¦Nz8Kc1Hw6Jy3Fb5Gd0Se7Ua2Xi4Ok9⟧' issued
+
+=== secret jwt jwt in a cookie header
+Cookie: theme=dark; id_token='⟦ey¦JhbGciOiJSUzI1NiJ9.ey¦JpZCI6Ijk5In0.Zx8Qp2Lr7¦Vt4Nm1Kj6Hg3Fd9Sa5Wq0E⟧'
+
+=== secret jwt jwt in json
+{"access": "'⟦ey¦JhbGciOiJFUzI1NiJ9.ey¦JzY29wZSI6InJlYWQifQ.Ab3dEf6hIj¦9lMn2pQr5tUv8xYz⟧'", "expires_in": 3600}
+
+=== secret url_password https clone url
+git clone https://alice:'⟦hunt¦er2Pass9⟧'@git.acme.example/team/app.git
+
+=== secret url_password postgres url
+DATABASE_URL=postgres://app:'⟦Tr0ub4¦dor3x77⟧'@db.internal:5432/app
+
+=== secret url_password redis url in yaml
+cache:
+  url: redis://default:'⟦c4cheP¦assW0rd⟧'@redis.internal:6379/0
+
+=== secret url_password mongodb srv url
+mongodb+srv://reporting:'⟦Mng0Rep¦0rt1ng2026⟧'@cluster0.acme.example/?retryWrites=true
+
+=== secret url_password amqp url in prose
+the worker connects to amqp://worker:'⟦Rabb1tQ¦ueue55⟧'@mq.internal:5672/ and retries
+
+=== secret url_password ftp url
+ftp://upload:'⟦FtpUpl0¦adPw⟧'@files.acme.example/incoming/
+
+=== secret auth_header bearer header
+Authorization: Bearer '⟦Zx8Qp2Lr7Vt4¦Nm1Kj6Hg3Fd9Sa5Wq0E⟧'
+
+=== secret auth_header basic header
+authorization: Basic '⟦YWxpY2U6¦c2VjcmV0UGFzcw==⟧'
+
+=== secret auth_header token header
+Authorization: token '⟦a1b2c3d4e5¦f6a7b8c9d0e1f2a3b4c5d6e7f8⟧'
+
+=== secret auth_header curl header
+curl -s -H "Authorization: Bearer '⟦Qm7Rt2Vx9L¦p4Nz8Kc1Hw6Jy3F⟧'" https://api.acme.example/v2/me
+
+=== secret auth_header json header
+{"headers": {"Authorization": "Bearer '⟦Kc1Hw6Jy3F¦b5Gd0Se7Ua2Xi4⟧'", "Accept": "application/json"}}
+
+=== secret auth_header bare bearer
+then pass bearer '⟦Ux3Yc6Wd1¦Ef0Gh5IjKl9Mn⟧' to the client
+
+=== secret key_value_shell export line
+export DB_PASSWORD='⟦Sh3llPa¦ss2026x⟧'
+
+=== secret key_value_shell env file
+APP_ENV=production
+API_KEY='⟦k3yV4lu3¦Xy9Zq2Wp⟧'
+LOG_LEVEL=info
+
+=== secret key_value_shell assignment before a command
+PGPASSWORD='⟦PgPassw¦0rd88⟧' psql -h db.internal -U app
+
+=== secret key_value_shell docker env flag
+docker run -e CLIENT_SECRET='⟦cl13ntS¦ecr3tV4l⟧' acme/api:1.4
+
+=== secret key_value_yaml password key
+database:
+  host: db.internal
+  password: '⟦Yaml9Pa¦ssw0rd!⟧'
+
+=== secret key_value_yaml quoted token
+github:
+  token: "'⟦tok3nY¦amlQu0ted⟧'"
+
+=== secret key_value_yaml api key in a list
+providers:
+  - name: search
+    api_key: '⟦s3archK¦eyV4lue⟧'
+
+=== secret key_value_json api key
+{"api_key": "'⟦js0nApi¦K3yValue⟧'", "region": "eu-west-1"}
+
+=== secret key_value_json password in a nested object
+{"db": {"user": "app", "password": "'⟦N3stedP¦w0rd99⟧'"}}
+
+=== secret key_value_json client secret
+"client_secret": "'⟦Cl1entS¦ecretJs0n⟧'",
+
+=== secret key_value_toml secret key
+[service]
+secret = "'⟦t0mlSec¦retVal⟧'"
+
+=== secret key_value_toml access key
+[storage]
+access_key = "'⟦AccK3yT¦oml2026⟧'"
+
+=== secret key_value_toml passphrase single quoted
+passphrase = ''⟦T0mlPas¦sPhrase⟧''
+
+=== secret key_value_query access token in a callback
+redirected to https://app.example.com/cb?access_token='⟦ya2Abc12¦3Def456⟧'&expires_in=3599
+
+=== secret key_value_query second pair in a query
+https://x.example/cb?state=abc&refresh_token='⟦R3fr3shT¦ok3nQ⟧'&next=/home
+
+=== secret key_value_query form body
+curl -X POST https://auth.example.com/oauth/token -d 'grant_type=client_credentials&client_secret='⟦F0rmB0dy¦Secr3t⟧'&client_id=app'
+
+=== secret connection_string sql server
+Server=db.internal;Database=app;User Id=sa;Password='⟦SqlS3rv¦erPw!1⟧';
+
+=== secret connection_string odbc pwd
+DRIVER={ODBC Driver 18};SERVER=db;UID=report;PWD='⟦0dbcPwd¦Value7⟧'
+
+=== secret connection_string jdbc query
+jdbc:mysql://db.internal:3306/app?user=app&password='⟦Jdbc9Pa¦ssw0rd⟧'&useSSL=true
+
+=== secret connection_string azure service bus
+Endpoint=sb://acme.servicebus.example/;SharedAccessKeyName=send;SharedAccessKey='⟦Kq8Wn3Xp7Rt2Lm5Vb9Zc4Hd1Fg6Js0¦Yu3Ea8Ti2Ow7Pk=⟧'

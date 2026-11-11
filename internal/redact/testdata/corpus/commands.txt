@@ -1,0 +1,53 @@
+Command-line passwords, a password in prose, and random tokens near a trigger
+word, by character class and length. See README.md for the format.
+
+=== secret command_password mysql attached password
+mysql -uroot -p'⟦MySq1Ro¦otPw⟧' -h db.internal app
+
+=== secret command_password mysql long option
+mariadb-dump --password='⟦Mar1aDu¦mpPw9⟧' --all-databases > all.sql
+
+=== secret command_password curl user and password
+curl -u admin:'⟦CurlAdm¦1nPass⟧' https://jenkins.internal/api/json
+
+=== secret command_password sshpass
+sshpass -p '⟦SshP4ss¦W0rd⟧' ssh deploy@bastion.internal
+
+=== secret command_password docker login
+docker login -u ci -p '⟦D0ckerL¦oginPw⟧' registry.acme.example
+
+=== secret command_password redis cli
+redis-cli -h cache.internal -a '⟦Red1sCl¦iAuth⟧' ping
+
+=== secret command_password openssl pass
+openssl enc -aes-256-cbc -in backup.tar -out backup.enc -pass pass:'⟦EncB4ck¦upPw9⟧'
+
+=== secret command_password htpasswd batch
+htpasswd -b -c .htpasswd admin '⟦HtP4sswd¦Batch⟧' && echo done
+
+=== secret prose_password password is
+the password for the staging database is '⟦Stag1ngD¦bPw42⟧' until Friday
+
+=== secret prose_password my password was
+I reset it, my new password is '⟦N3wPassw¦0rdRst⟧' so try again
+
+=== secret prose_password passphrase in prose
+the passphrase is '⟦c0rrectH¦0rseBatt⟧', keep it in the vault
+
+=== secret random_near_trigger base62 token after a phrase
+the staging token is '⟦Zq7Lm2Pv¦Tn8sRb3Yc6Ud1Ef0Gh5Ij⟧'
+
+=== secret random_near_trigger base64 secret after secret
+client secret '⟦Hk2Wq8Zr+Lp5Vn/¦Xt3Ym9Bc7Jd1Fs6=⟧' for the sandbox app
+
+=== secret random_near_trigger hex key after api key
+api key: '⟦9f8e7d6c5b4a39¦28176f5e4d3c2b1a0f⟧'
+
+=== secret random_near_trigger urlsafe token after bearer word
+use the bearer value '⟦tY6_uI8-oP0aS2d¦F4gH6jK8lZ1xC3vB⟧' in the test
+
+=== secret random_near_trigger base32 token after credential
+the credential '⟦JBSWY3DPEHPK3PXP¦KRUGS4ZANFZSAYJA⟧' was rotated
+
+=== secret random_near_trigger mixed token after access key
+access key '⟦pQ4wE7rT1yU9iO3a¦S6dF2gH8jK5lZ0x⟧' expires soon
