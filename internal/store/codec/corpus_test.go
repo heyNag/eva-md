@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
-
-	"github.com/heyNag/eva-md/internal/store/profile"
 )
 
 const (
@@ -20,6 +18,23 @@ const (
 	// lists as hand-edited.
 	fact = "projects/p_00gb3367a19r-acme-orders/items/2026/11/i01qa78gk3m9pa-orders-port.md"
 	hand = "projects/p_6pbe1q7fxb5h-scratch-notes/items/2026/11/i01qqqp0w9x0y1-sandbox-account.md"
+)
+
+// The tests that run the profile checker, in protection_test.go, are in
+// package codec_test, as the checker imports the codec. These give them
+// the fixture store and the corpus.
+const (
+	Fixture = fixture
+	Fact    = fact
+	Hand    = hand
+)
+
+var (
+	Corpus      = corpus
+	CopyFixture = copyFixture
+	Put         = put
+	Restore     = restore
+	IsDocument  = isDocument
 )
 
 // corpusWant is how each hand edit of the corpus protects. Every file of
@@ -157,59 +172,6 @@ func TestLockedWithAComment(t *testing.T) {
 	d := Read([]byte("---\ntype: fact\nlocked: true  # x\n---\nbody\n"))
 	if !d.Protection().Locked {
 		t.Error("locked: true  # x is not locked")
-	}
-}
-
-// The codec and the profile checker read protection alike, on every
-// document of the fixture store and on each corpus case placed in a copy
-// of it.
-func TestProtectionAgreesWithProfile(t *testing.T) {
-	rep, err := profile.Check(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	n := 0
-	err = filepath.WalkDir(fixture, func(p string, de fs.DirEntry, err error) error {
-		if err != nil || de.IsDir() {
-			return err
-		}
-		rel, _ := filepath.Rel(fixture, p)
-		rel = filepath.ToSlash(rel)
-		if !isDocument(rel) {
-			return nil
-		}
-		n++
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		agree(t, rel, Read(b).Protection(), rep.Protected[rel])
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n < 15 {
-		t.Fatalf("read %d documents of the fixture", n)
-	}
-	root := copyFixture(t)
-	for name, b := range corpus(t) {
-		for _, p := range []string{fact, hand, "systems/orders.md"} {
-			put(t, root, p, b)
-			rep, err := profile.Check(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			agree(t, name+" at "+p, Read(b).Protection(), rep.Protected[p])
-		}
-		restore(t, root, fact, hand, "systems/orders.md")
-	}
-}
-
-func agree(t *testing.T, what string, got Protection, want profile.Protection) {
-	t.Helper()
-	if got.Locked != want.Locked || got.Verified != want.Verified || got.Unreadable != want.Unreadable {
-		t.Errorf("%s: codec %+v, profile %+v", what, got, want)
 	}
 }
 

@@ -66,20 +66,20 @@ func TestProtectionIsReadFailClosed(t *testing.T) {
 		}{f, Protection{Locked: true, Verified: true}})
 	}
 	for _, c := range cases {
-		d := parseDoc("x.md", []byte("---\ntype: fact\n"+c.front+"\n---\nbody\n"))
-		if got := d.protection(); got != c.want {
+		d := load("x.md", []byte("---\ntype: fact\n"+c.front+"\n---\nbody\n"))
+		if got := d.prot; got != c.want {
 			t.Errorf("%q: got %+v, want %+v", c.front, got, c.want)
 		}
 	}
 	// A whole block may be indented; its keys are still top-level keys.
 	for _, front := range []string{"  type: fact\n  locked: false", "  type: fact\n  \"locked\": true", "  # note\n  type: fact\n  locked: true"} {
-		d := parseDoc("x.md", []byte("---\n"+front+"\n---\nbody\n"))
-		if got := d.protection(); !got.Locked {
+		d := load("x.md", []byte("---\n"+front+"\n---\nbody\n"))
+		if got := d.prot; !got.Locked {
 			t.Errorf("%q: got %+v, want locked", front, got)
 		}
 	}
 	// A key nested under another is not a top-level key.
-	if got := parseDoc("x.md", []byte("---\ntype: fact\nnote:\n  locked: true\n---\n")).protection(); got.Locked {
+	if got := load("x.md", []byte("---\ntype: fact\nnote:\n  locked: true\n---\n")).prot; got.Locked {
 		t.Errorf("a nested key locks: %+v", got)
 	}
 }
@@ -249,11 +249,11 @@ func TestUnreadableForms(t *testing.T) {
 		"an empty file":           "",
 	}
 	for name, b := range cases {
-		if d := parseDoc("x.md", []byte(b)); d.unreadable == "" || !d.protection().Unreadable {
+		if d := load("x.md", []byte(b)); d.unreadable == "" || !d.prot.Unreadable {
 			t.Errorf("%s: read as readable", name)
 		}
 	}
-	d := parseDoc("x.md", []byte("---\ntype: fact\n---\n"+strings.Repeat("x", 64<<10)+"\n"))
+	d := load("x.md", []byte("---\ntype: fact\n---\n"+strings.Repeat("x", 64<<10)+"\n"))
 	if d.unreadable != "" {
 		t.Errorf("a line of exactly 64 KiB is unreadable: %s", d.unreadable)
 	}
@@ -296,15 +296,15 @@ func TestWrittenForms(t *testing.T) {
 		{`count: 2`, false},
 	}
 	for _, c := range cases {
-		d := parseDoc("x.md", []byte("---\n"+c.line+"\n---\n"))
+		d := load("x.md", []byte("---\n"+c.line+"\n---\n"))
 		if len(d.entries) != 1 || len(d.opaque) != 0 {
 			t.Fatalf("%q: read as %d entries", c.line, len(d.entries))
 		}
-		if d.entries[0].written != c.written {
-			t.Errorf("%q: written %v, want %v", c.line, d.entries[0].written, c.written)
+		if d.entries[0].Written != c.written {
+			t.Errorf("%q: written %v, want %v", c.line, d.entries[0].Written, c.written)
 		}
 	}
-	d := parseDoc("x.md", []byte("---\n# a comment\n\ntype: fact\n---\n"))
+	d := load("x.md", []byte("---\n# a comment\n\ntype: fact\n---\n"))
 	if !slices.Equal(d.opaque, []int{2, 3}) {
 		t.Errorf("a comment and a blank line are not kept apart: %v", d.opaque)
 	}
@@ -321,8 +321,9 @@ func TestLenientScalars(t *testing.T) {
 		" # only a comment":         "",
 	}
 	for in, want := range cases {
-		if got := lenient(in); got != want {
-			t.Errorf("lenient(%q) = %q, want %q", in, got, want)
+		d := load("x.md", []byte("---\ntitle:"+in+"\n---\n"))
+		if e := d.get("title"); e == nil || e.Scalar != want {
+			t.Errorf("title:%s reads as %+v, want %q", in, e, want)
 		}
 	}
 }

@@ -140,10 +140,10 @@ func (f fc) str(key string, required bool) (string, bool) {
 		}
 		return "", false
 	}
-	if !e.written {
-		return e.raw, true
+	if !e.Written {
+		return e.Scalar, true
 	}
-	s, ok := e.val.(string)
+	s, ok := e.Value.(string)
 	if !ok {
 		f.fault(key, key, "is not a string")
 	}
@@ -161,7 +161,7 @@ func (f fc) value(key string, required bool) (any, bool) {
 		}
 		return nil, false
 	}
-	return e.val, e.written
+	return e.Value, e.Written
 }
 
 func (f fc) list(key string, required bool) ([]any, bool) {
@@ -379,22 +379,4 @@ func (f fc) statement() string {
 	}
 	f.fault("", "statement", "the body has no statement")
 	return ""
-}
-
-// section returns the lines under a "## <name>" heading, up to the next
-// heading of that level or higher, and whether the heading is there.
-func (f fc) section(name string) ([]string, bool) {
-	var out []string
-	in, found := false, false
-	for _, line := range f.d.body {
-		if strings.HasPrefix(line, "#") && (strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "# ")) {
-			in = line == "## "+name
-			found = found || in
-			continue
-		}
-		if in && strings.TrimSpace(line) != "" {
-			out = append(out, line)
-		}
-	}
-	return out, found
 }

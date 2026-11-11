@@ -13,8 +13,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+)
 
-	"github.com/heyNag/eva-md/internal/store/profile"
+// GenValue and GenBlock are genValue and genBlock, for TestSetEachItemKey
+// in protection_test.go, which is outside the package.
+var (
+	GenValue = genValue
+	GenBlock = genBlock
 )
 
 // genString makes a string from runes that matter to YAML, JSON and
@@ -399,48 +404,5 @@ func checkBodyEdit(t *testing.T, what string, old []byte, d *Doc, op int, head, 
 	}
 	if n.Protection() != o.Protection() {
 		t.Fatalf("%s: protection changed", what)
-	}
-}
-
-// Setting each key an item may hold, with generated values, on a copy of
-// a fixture item leaves the profile checker with no written-form or
-// frontmatter fault for it.
-func TestSetEachItemKey(t *testing.T) {
-	keys := []string{"type", "id", "title", "description", "status", "state", "state_at", "state_reason", "scope", "project", "workstream",
-		"tag", "words", "generated", "learned", "asserted_at", "confirmed", "supersedes", "branch", "anchors", "cues", "sources",
-		"migrated_from", "verified"}
-	r := rand.New(rand.NewPCG(7, 1))
-	root := copyFixture(t)
-	orig, err := os.ReadFile(filepath.Join(fixture, fact))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range keys {
-		for i := range 12 {
-			d := Read(orig)
-			var err error
-			if i%3 == 2 {
-				err = d.SetBlock(key, genBlock(r))
-			} else {
-				err = d.Set(key, genValue(r, 0))
-			}
-			if err != nil {
-				t.Fatalf("%s: %v", key, err)
-			}
-			b, _ := Write(d)
-			put(t, root, fact, b)
-			rep, err := profile.Check(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, f := range rep.Faults {
-				if f.Path == fact && (f.Rule == "written-form" || f.Rule == "frontmatter") {
-					t.Errorf("%s: %v\n%s", key, f, b)
-				}
-			}
-		}
-	}
-	if err := Read(orig).Set("locked", "x"); !errors.Is(err, ErrProtected) {
-		t.Errorf("Set of locked: %v", err)
 	}
 }
