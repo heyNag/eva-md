@@ -302,6 +302,15 @@ func TestWriteRefusesWhatNoListHolds(t *testing.T) {
 			t.Errorf("%v: %v, printed %q", bad, err, out.String())
 		}
 	}
+	// eva-md's own version is printed as it is, so only the byte check
+	// stands between a version that is not ASCII and the output.
+	for _, version := range []string{"2026.11.9" + nonLatin[0], "2026.11.9é", "２０２６.11.9"} {
+		r := Report{Format: Format, Version: version, Day: "2026-11-11"}
+		var out bytes.Buffer
+		if err := r.Write(&out); !errors.Is(err, ErrUnlisted) || out.Len() != 0 {
+			t.Errorf("version %q: %v, printed %q", version, err, out.String())
+		}
+	}
 	r := Report{Format: Format, Version: "2026.11.9", Day: "2026-11-11", Facts: map[string]any{"F-001": map[string]any{"codex": map[string]any{"rows": Count(4)}}},
 		Days: map[string][2]string{codex: {"2026-11-01", "2026-11-02"}}}
 	var out bytes.Buffer
