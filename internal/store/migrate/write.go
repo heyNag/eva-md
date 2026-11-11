@@ -1,7 +1,6 @@
 package migrate
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -60,12 +59,8 @@ func writeFiles(ctx context.Context, root string, c Change, ownedFiles map[strin
 // commits them on main as eva.md on the machine's label, unsigned, with a
 // message of ids, counts and enums only.
 func commitStep(ctx context.Context, root string, c Change, step Step, o Options, pass string) (string, error) {
-	var spec bytes.Buffer
-	for _, p := range slices.Concat(owned, slices.Sorted(maps.Keys(c.Write)), c.Remove) {
-		spec.WriteString(p)
-		spec.WriteByte(0)
-	}
-	if _, err := git(ctx, root, nil, spec.Bytes(), "add", "-A", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"); err != nil {
+	spec := nulList(slices.Concat(owned, slices.Sorted(maps.Keys(c.Write)), c.Remove))
+	if _, err := git(ctx, root, nil, spec, "add", "-A", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"); err != nil {
 		return "", err
 	}
 	out, err := git(ctx, root, nil, nil, "diff", "--cached", "--name-status", "-z", "--no-renames", "--no-ext-diff", "HEAD")

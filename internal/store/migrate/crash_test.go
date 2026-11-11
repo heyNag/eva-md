@@ -20,14 +20,19 @@ const (
 	rootEnv   = "EVA_MD_MIGRATE_ROOT"
 	stateEnv  = "EVA_MD_MIGRATE_STATE"
 	locksEnv  = "EVA_MD_MIGRATE_LOCKS"
+	stepEnv   = "EVA_MD_MIGRATE_STEP"
 	childExit = 7 // the child ran to its end without reaching the point
 )
 
-// crashChild runs the synthetic step and kills itself with SIGKILL at the
-// crash point it was given.
+// crashSteps are the steps a child can be told to run, by name.
+var crashSteps = map[string]Step{"synthetic": synthetic, "index-only": indexOnly}
+
+// crashChild runs the step it was given, under the first pass, and kills
+// itself with SIGKILL at the crash point it was given.
 func crashChild() int {
 	at, err := strconv.Atoi(os.Getenv(crashEnv))
-	if err != nil {
+	step, ok := crashSteps[os.Getenv(stepEnv)]
+	if err != nil || !ok {
 		return 2
 	}
 	n := 0
@@ -38,8 +43,24 @@ func crashChild() int {
 		}
 	}
 	o := Options{StateDir: os.Getenv(stateEnv), LocksDir: os.Getenv(locksEnv), StoreID: storeID, Writer: writerA, Label: "first", Pass: passA}
-	_, _ = Run(bg(), os.Getenv(rootEnv), synthetic, o)
+	_, _ = Run(bg(), os.Getenv(rootEnv), step, o)
 	return childExit
+}
+
+// crashAt runs the named step in a child on dir, with o's folders, and
+// checks that it killed itself at the point given, counted from 1.
+func crashAt(t *testing.T, dir string, o Options, step string, at int) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), crashEnv+"="+strconv.Itoa(at), stepEnv+"="+step, rootEnv+"="+dir, stateEnv+"="+o.StateDir, locksEnv+"="+o.LocksDir)
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("the child did not crash: %v", err)
+	}
+	if ws, ok := exit.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGKILL {
+		t.Fatalf("the child did not crash at point %d: %v", at, err)
+	}
 }
 
 // TestCrashAtEveryPoint kills a run at each point a recording run lists,
@@ -49,15 +70,7 @@ func crashChild() int {
 // commit carries the first pass once the journal was written.
 func TestCrashAtEveryPoint(t *testing.T) {
 	isolate(t)
-	clean := v1Wiki(t, v1Files)
-	var points []string
-	hook = func(p string) { points = append(points, p) }
-	_, err := Run(bg(), clean, synthetic, machine(t, writerA, "first", passA))
-	hook = func(string) {}
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := treeID(t, clean)
+	points, want := record(t, synthetic)
 	journalAt := slices.Index(points, "journal write") + 1
 	for _, p := range []string{"journal write", "journal remove", "write", "remove", "git add", "git commit", "git update-ref"} {
 		if !slices.Contains(points, p) {
@@ -73,16 +86,7 @@ func TestCrashAtEveryPoint(t *testing.T) {
 			dir := v1Wiki(t, v1Files)
 			before := gitT(t, dir, "rev-parse", "HEAD")
 			o := machine(t, writerB, "rerun", passB)
-			cmd := exec.Command(os.Args[0], "-test.run=^$")
-			cmd.Env = append(os.Environ(), crashEnv+"="+strconv.Itoa(i), rootEnv+"="+dir, stateEnv+"="+o.StateDir, locksEnv+"="+o.LocksDir)
-			err := cmd.Run()
-			var exit *exec.ExitError
-			if !errors.As(err, &exit) {
-				t.Fatalf("the child did not crash: %v", err)
-			}
-			if ws, ok := exit.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGKILL {
-				t.Fatalf("the child did not crash at the point: %v", err)
-			}
+			crashAt(t, dir, o, "synthetic", i)
 
 			r, err := Run(bg(), dir, synthetic, o)
 			if err != nil {

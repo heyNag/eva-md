@@ -230,6 +230,7 @@ func DryRun(ctx context.Context, root string, step Step) (Counts, error) {
 type planned struct {
 	gen    int
 	old    manifest
+	tree   *tree
 	change Change
 	counts Counts
 }
@@ -265,7 +266,7 @@ func plan(ctx context.Context, root string, step Step, commit string) (planned, 
 			counts.HeldBack++
 		}
 	}
-	return planned{gen: gen, old: old, change: c, counts: counts}, nil
+	return planned{gen: gen, old: old, tree: t, change: c, counts: counts}, nil
 }
 
 // generation is store.toml's schema, else v1's schema_version.
@@ -457,10 +458,13 @@ func passCommit(ctx context.Context, root, commit string, j journal) bool {
 		slices.Contains(lines, fmt.Sprintf("Eva-Schema: %d", j.To))
 }
 
-// goBack returns the work tree to the commit before, which HEAD still is:
-// tracked files as they were, and the untracked files a run writes, its
-// temporary files among them, gone. Lock files a git cut short left are
-// cleared first: only a writer holding the store lock runs git here.
+// goBack returns the paths the step's run writes or removes, and the four
+// the runner owns, to the commit before, which HEAD still is, in the index
+// and the work tree, and removes the temporary files a write cut short
+// left. No other path is touched: a change a person made elsewhere stays,
+// and the run then finds the tree dirty and refuses. Lock files a git cut
+// short left are cleared first: only a writer holding the store lock runs
+// git here.
 func goBack(ctx context.Context, root, before string, to int, p planned) error {
 	gitDir, err := git(ctx, root, nil, nil, "rev-parse", "--absolute-git-dir")
 	if err != nil {
@@ -472,7 +476,21 @@ func goBack(ctx context.Context, root, before string, to int, p planned) error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
-	if _, err := git(ctx, root, nil, nil, "reset", "-q", "--hard", before); err != nil {
+	inBefore := map[string]bool{}
+	for _, q := range p.tree.paths {
+		inBefore[q] = true
+	}
+	var touched, restore []string
+	drop := map[string]bool{}
+	for _, q := range slices.Concat(owned, slices.Sorted(maps.Keys(p.change.Write)), p.change.Remove) {
+		touched = append(touched, q)
+		if inBefore[q] {
+			restore = append(restore, q)
+		} else {
+			drop[q] = true
+		}
+	}
+	if _, err := git(ctx, root, nil, nulList(touched), "reset", "-q", before, "--pathspec-from-file=-", "--pathspec-file-nul"); err != nil {
 		return err
 	}
 	out, err := git(ctx, root, nil, nil, "ls-files", "-o", "-z")
@@ -485,13 +503,34 @@ func goBack(ctx context.Context, root, before string, to int, p planned) error {
 	}
 	defer r.Close()
 	for _, f := range strings.Split(string(out), "\x00") {
-		_, written := p.change.Write[f]
-		if f != "" && (written || slices.Contains(owned, f) || strings.HasPrefix(path.Base(f), paths.TempPrefix)) {
-			if err := r.Remove(filepath.FromSlash(f)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return fmt.Errorf("migrate: %w", err)
+		if f == "" || !drop[f] && !strings.HasPrefix(path.Base(f), paths.TempPrefix) {
+			continue
+		}
+		if err := r.Remove(filepath.FromSlash(f)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("migrate: %w", err)
+		}
+		hook("remove")
+		// The folders the run made go too once empty, so a path the step
+		// turned from a file into a folder can be a file again.
+		for dir := path.Dir(f); dir != "."; dir = path.Dir(dir) {
+			if r.Remove(filepath.FromSlash(dir)) != nil {
+				break
 			}
-			hook("remove")
 		}
 	}
-	return nil
+	if len(restore) == 0 {
+		return nil
+	}
+	_, err = git(ctx, root, nil, nulList(restore), "checkout", before, "--pathspec-from-file=-", "--pathspec-file-nul")
+	return err
+}
+
+// nulList is paths as git reads them with --pathspec-file-nul.
+func nulList(list []string) []byte {
+	var b strings.Builder
+	for _, p := range list {
+		b.WriteString(p)
+		b.WriteByte(0)
+	}
+	return []byte(b.String())
 }
