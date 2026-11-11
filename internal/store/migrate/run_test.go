@@ -85,6 +85,15 @@ func TestRunCarriesAV1WikiToAStore(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(o.StateDir, journalFile)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the journal is still there: %v", err)
 	}
+	// The folders the step emptied are gone; the store's own stay.
+	for _, d := range []string{"general", "projects", "knowledge", "systems"} {
+		if _, err := os.Lstat(filepath.Join(dir, d)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the emptied folder %s is still there: %v", d, err)
+		}
+	}
+	if info, err := os.Lstat(filepath.Join(dir, ".eva-md")); err != nil || !info.IsDir() {
+		t.Errorf(".eva-md is gone: %v", err)
+	}
 
 	// The result is a store the profile passes, and a v1 binary's writers
 	// refuse it: schema 2 and no instance.

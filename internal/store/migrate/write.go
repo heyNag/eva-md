@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -28,6 +29,7 @@ func writeFiles(ctx context.Context, root string, c Change, ownedFiles map[strin
 			return fmt.Errorf("migrate: remove: %w", err)
 		}
 		hook("remove")
+		pruneDirs(r, p)
 	}
 	write := func(p string, b []byte) error {
 		if dir := path.Dir(p); dir != "." {
@@ -53,6 +55,16 @@ func writeFiles(ctx context.Context, root string, c Change, ownedFiles map[strin
 		}
 	}
 	return nil
+}
+
+// pruneDirs removes the folders above the removed path p that are left
+// empty, nearest first, so a store keeps no folder that holds nothing.
+func pruneDirs(r *os.Root, p string) {
+	for dir := path.Dir(p); dir != "."; dir = path.Dir(dir) {
+		if r.Remove(filepath.FromSlash(dir)) != nil {
+			return
+		}
+	}
 }
 
 // commitStep stages exactly the paths the step and the runner changed and

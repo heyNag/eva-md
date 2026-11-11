@@ -29,7 +29,7 @@ type manifest struct {
 }
 
 var (
-	reKey     = regexp.MustCompile(`^([A-Za-z0-9_-]+)[ \t]*=[ \t]*(.*)$`)
+	reKey     = regexp.MustCompile(`^("[^"]*"|'[^']*'|[A-Za-z0-9_.-]+)[ \t]*=[ \t]*(.*)$`)
 	reInt     = regexp.MustCompile(`^(0|[1-9][0-9]{0,8})$`)
 	reStr     = regexp.MustCompile(`^"([A-Za-z0-9_-]{1,64})"$`)
 	reStoreID = regexp.MustCompile(`^s[0-9a-hjkmnp-tv-z]{13}$`)
@@ -44,8 +44,8 @@ var errManifest = errors.New("not a readable manifest")
 // readKeys reads the top-level keys of a TOML file that the caller asks
 // for, each at most once: an integer for each of ints, a plain string for
 // each of strs. Lines before the first table header that name another key,
-// blank lines and comments are ignored; a key asked for twice, or a value
-// of another shape, makes the file unreadable.
+// blank lines and comments are ignored; a key asked for twice, quoted or
+// dotted, or a value of another shape, makes the file unreadable.
 func readKeys(b []byte, ints, strs []string) (map[string]int, map[string]string, error) {
 	gotInt, gotStr := map[string]int{}, map[string]string{}
 	for _, line := range strings.Split(string(b), "\n") {
@@ -61,6 +61,12 @@ func readKeys(b []byte, ints, strs []string) (map[string]int, map[string]string,
 			continue
 		}
 		key, value := m[1], m[2]
+		// A key asked for in another form, quoted or dotted, would be
+		// the same key, or clash with it, to a TOML reader: unreadable.
+		first, _, _ := strings.Cut(strings.Trim(key, `"'`), ".")
+		if first != key && (slices.Contains(ints, first) || slices.Contains(strs, first)) {
+			return nil, nil, fmt.Errorf("%w: %s is not a plain key", errManifest, first)
+		}
 		isInt, isStr := slices.Contains(ints, key), slices.Contains(strs, key)
 		if !isInt && !isStr {
 			continue

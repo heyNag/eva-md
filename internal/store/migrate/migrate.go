@@ -510,13 +510,6 @@ func goBack(ctx context.Context, root, before string, to int, p planned) error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 		hook("remove")
-		// The folders the run made go too once empty, so a path the step
-		// turned from a file into a folder can be a file again.
-		for dir := path.Dir(f); dir != "."; dir = path.Dir(dir) {
-			if r.Remove(filepath.FromSlash(dir)) != nil {
-				break
-			}
-		}
 	}
 	if len(restore) == 0 {
 		return nil

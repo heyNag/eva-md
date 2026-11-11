@@ -17,6 +17,34 @@ var indexOnly = Step{From: 1, To: 2, MinReader: 2, Classes: []string{"index"}, P
 	return Change{Write: map[string][]byte{"index.md": []byte(newIndex)}, Counts: Counts{Written: map[string]int{"index": 1}}}, nil
 }}
 
+// fileToFolder is a made-up step 1 to 2 that turns the file log.md into a
+// folder of that name.
+var fileToFolder = Step{From: 1, To: 2, MinReader: 2, Classes: []string{"log"}, Plan: func(t Tree) (Change, error) {
+	b, err := t.Read("log.md")
+	return Change{Write: map[string][]byte{"log.md/entries.md": b}, Remove: []string{"log.md"}, Counts: Counts{Read: map[string]int{"log": 1}, Written: map[string]int{"log": 1}, Removed: 1}}, err
+}}
+
+// TestRecoveryTurnsAFolderBackIntoAFile cuts short a step that made a
+// folder where a file was: the rerun removes the folder, puts the file
+// back, and gives the clean run's tree.
+func TestRecoveryTurnsAFolderBackIntoAFile(t *testing.T) {
+	isolate(t)
+	points, want := record(t, fileToFolder)
+	dir := v1Wiki(t, v1Files)
+	o := machine(t, writerB, "rerun", passB)
+	crashAt(t, dir, o, "file-to-folder", slices.Index(points, "git add"))
+	if info, err := os.Stat(filepath.Join(dir, "log.md")); err != nil || !info.IsDir() {
+		t.Fatalf("the cut run did not make the folder: %v", err)
+	}
+	r, err := Run(bg(), dir, fileToFolder, o)
+	if err != nil || !r.Committed || r.Pass != passA {
+		t.Fatalf("Run = %+v, %v; want a commit under the first pass", r, err)
+	}
+	if got := treeID(t, dir); got != want {
+		t.Fatalf("tree %s, want the clean run's %s", got, want)
+	}
+}
+
 // record runs step on a fresh copy of v1Files and returns the crash points
 // it passed, in order, and the clean run's tree id.
 func record(t *testing.T, step Step) ([]string, string) {
