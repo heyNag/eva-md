@@ -37,6 +37,14 @@ Rules every card carries, so they are said once here:
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | after CT-1 and CT-2 |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | after HO-10a |
+| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | ready |
+| [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | ready |
+| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | after ST-03a |
+| [ST-04](ST-04.md) | The migrator and the minimum reader version | ready |
+| [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | ready |
+| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | after EV-14a |
+| [EV-14c](EV-14c.md) | Six new families, half held out | after EV-14a and EV-14b |
+| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | after EV-14a and EV-14b, before EV-10a |
 | [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | after the counters release |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
 
@@ -44,6 +52,6 @@ SEAM-0 of the plan is split into four parts so that each is small and they do no
 
 The counters release of the plan (LG-01, LG-02, DV-01, DL-02, HO-02) is built as four parts, CT-1 to CT-4, so that they touch different files. The second report's prompt, and three sentences for v1's documents, are the lead's and are written with CT-4.
 
-Three rows of the plan's Stage 1 are built in parts, for the same reason. DV-12: a is the worker as a package with no caller, which can start at once; b puts v1's two background jobs under it behind the switch `worker`, and waits for SEAM-0b and for the counters release, which change the same files of the hook. HO-10: a is the adapter and its table, with no caller; b moves install and setup onto it; health and the doctor's command file move with HO-12, which rebuilds those files, and not as a part of their own. EV-10: a splits v1's two large documents into specs and dated records, after the counters release has written its last sentences into them; b lists, in each spec, the must-keep items and the tests that hold them.
+Five rows of the plan's Stage 1 are built in parts, for the same reason. ST-03: a is the codec and how a lock is read; b reads v1's pages through it and holds that reading equal to v1's. EV-14: a is the scenario model with v1's 12 scripts; b the scorer; then c, the six new families, and d, v1's row from a recording, at once. What a part leaves for a live run, the owner's machine or a host fact not yet recorded is named in its card and built later. DV-12: a is the worker as a package with no caller, which can start at once; b puts v1's two background jobs under it behind the switch `worker`, and waits for SEAM-0b and for the counters release, which change the same files of the hook. HO-10: a is the adapter and its table, with no caller; b moves install and setup onto it; health and the doctor's command file move with HO-12, which rebuilds those files, and not as a part of their own. EV-10: a splits v1's two large documents into specs and dated records, after the counters release has written its last sentences into them; b lists, in each spec, the must-keep items and the tests that hold them.
 
 `eva-eval`'s commands are added as `eva-md`'s are: an instrument registers its command from its own file (`register` in `cmd/eva-eval/main.go`), so the cards that add an instrument do not edit that file.
