@@ -482,9 +482,9 @@ def compare(core, a):
     if a.baseline:
         write(a.baseline, json.dumps(baseline(core, a, samples, targets, runs, load), indent=2)+"\n")
     for name, m in verdict["metrics"].items():
-        print("%-28s old %8.1f ms  new %8.1f ms  ratio %6s  lower bound %6s  controls %6s  %s" % (
-            name, m["p95_base_ms"], m["p95_ms"], m["ratio"], m["ratio_low"], m["control_ratio_low"],
-            "; ".join(m["reasons"] + ["control: "+c for c in m["control_reasons"]]) or "ok"))
+        print("%-28s old %8.1f ms  new %8.1f ms  ratio %6s  lower bound %6s  noise %6s  %s" % (
+            name, m["p95_base_ms"], m["p95_ms"], m["ratio"], m["ratio_low"], m["noise"],
+            "; ".join(m["reasons"] + m["unsettled"]) or "ok"))
     for name in verdict["not_compared"]:
         print("%-28s not compared: the old binary gave it no samples" % name)
     for role, by in failures.items():
@@ -494,7 +494,7 @@ def compare(core, a):
     for failure in verdict["failures"]:
         print("fails: %s" % failure)
     print("latency gate: %s" % verdict["verdict"] + {
-        "not judged": " (a control failed: two sets of runs that a change cancels out of differed as a regression would, so the machine was too noisy to judge)",
+        "not judged": " (a figure rose no more than the machine put between two sets of runs that a change cancels out of, so it was too noisy to judge)",
         "could not run": " (a scenario failed in every run of both binaries)",
         "fail": "", "pass": ""}[verdict["verdict"]])
     return verdict["exit"]

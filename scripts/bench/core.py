@@ -200,11 +200,9 @@ def context(output):
 
 
 # The gate. Each binary runs twice a round, as two roles: old and old_again,
-# new and new_again. The gate's comparison is of the old binary's runs, both
-# roles pooled, with the new one's: a metric fails when the lower bound of
-# the bootstrap interval of the ratio of the new p95 to the old one is above
-# THRESHOLD, or when the new p95 passes the metric's ceiling, which the old
-# one did not.
+# new and new_again. The gate compares the old binary's runs, both roles
+# pooled, with the new one's, by the lower bound of the bootstrap interval
+# of the ratio of the new p95 to the old one.
 #
 # The controls are the two other ways to split the four roles into two
 # pairs: old and new against old_again and new_again, and old and new_again
@@ -213,8 +211,13 @@ def context(output):
 # between runs is left. With the binaries alike, the three splits are alike
 # too: load that falls on the new binary's runs and not on the old one's
 # falls unevenly on new and new_again, or on old and old_again, and a
-# control sees it. A control is judged by the ratio rule only, both ways: a
-# fixed ceiling says where a binary sits, not how noisy the machine is.
+# control sees it. A metric's noise is the largest lower bound of its
+# controls' ratios, both ways, and at least 1: how far apart the machine
+# alone put two sets of runs. A metric fails when its lower bound is above
+# THRESHOLD times its noise, or when the new p95 passes the metric's
+# ceiling, which the old one did not, and its noise is at most THRESHOLD.
+# The controls have no ceiling: a fixed ceiling says where a binary sits,
+# not how noisy the machine is.
 ROLES = ("old", "new", "old_again", "new_again")
 BINARY = {"old": "old", "old_again": "old", "new": "new", "new_again": "new"}
 GATE_SPLIT = (("old", "old_again"), ("new", "new_again"))
@@ -321,24 +324,27 @@ def decide(samples, ceilings, failures=None, rounds=1, threshold=THRESHOLD, seed
     one the old binary gave none, as one added with the change, is listed as
     not compared and decides nothing.
 
-    Each other metric is compared, old against new, and judged only if both
-    its controls (CONTROL_SPLITS) pass. A control that fails means two sets
-    of runs that a change cancels out of differed on that metric as much as
-    a regression would. On a metric with at least whole samples on every
-    side, the machine was then too noisy to judge any metric: load in some
-    runs and not others moves every figure, and a regression's seeming is
-    then the machine's. On a metric with fewer, whose p95 is one of its few
-    largest samples, it says more about the samples than about the machine:
-    that metric alone is not judged.
+    Each other metric is compared, old against new. Its ratio's lower bound
+    above THRESHOLD fails it when it is also above THRESHOLD times the
+    metric's noise; otherwise the rise is no more than the machine put
+    between two sets of runs a change cancels out of, and the metric is
+    unsettled. Passing the ceiling fails it when the noise is at most
+    THRESHOLD, and otherwise unsettles it; so does a control with a side
+    that has no samples. An unsettled metric with at least whole samples on
+    every side means the machine was too noisy to judge any metric: load in
+    some runs and not others moves every figure, and a regression's seeming
+    is then the machine's. On a metric with fewer, whose p95 is one of its
+    few largest samples, it says more about the samples than about the
+    machine: that metric alone is not judged.
 
     The verdict is the first of these that applies: "could not run", exit
     2, when a scenario failed in every run of both binaries; "fail", exit 1,
     when the new binary broke a scenario or gave a metric no samples; "not
     judged", exit 0, when the machine was too noisy; "fail", exit 1, when a
-    judged metric failed; "not judged", exit 0, when a metric's control
-    failed; otherwise "pass", exit 0."""
+    metric failed; "not judged", exit 0, when a metric was unsettled;
+    otherwise "pass", exit 0."""
     found = scenarios(failures or {}, rounds)
-    metrics, control_reasons, failed, missing, skipped = {}, [], [], [], []
+    metrics, unsettled_all, failed, missing, skipped = {}, [], [], [], []
     noisy = False
     for name in sorted(ceilings):
         o, n = pooled(samples, GATE_SPLIT[0], name), pooled(samples, GATE_SPLIT[1], name)
@@ -348,28 +354,46 @@ def decide(samples, ceilings, failures=None, rounds=1, threshold=THRESHOLD, seed
         if not n:
             missing.append("%s: the new binary gave no samples, the old one %d" % (name, len(o)))
             continue
-        verdict = judge(o, n, ceilings[name], threshold, seed, draws)
-        controls, lows, sizes = [], [], [len(o), len(n)]
+        ceiling = ceilings[name]
+        lows, sizes, empty = [], [len(o), len(n)], []
         for a_roles, b_roles in CONTROL_SPLITS:
             a, b = pooled(samples, a_roles, name), pooled(samples, b_roles, name)
-            label = "%s against %s" % ("+".join(a_roles), "+".join(b_roles))
             if not (a and b):
-                controls.append("%s: a side has no samples" % label)
+                empty.append("%s against %s" % ("+".join(a_roles), "+".join(b_roles)))
                 continue
             sizes += [len(a), len(b)]
-            for base, cand in ((a, b), (b, a)):
-                j = judge(base, cand, None, threshold, seed, draws)
-                lows.append(j["ratio_low"])
-                controls += ["%s: %s" % (label, r) for r in j["reasons"]]
-        verdict.update(n_old=len(o), n_new=len(n), ceiling_ms=ceilings[name],
+            lows += [ratio_low(a, b, seed, draws), ratio_low(b, a, seed, draws)]
+        # The noise: the most two sets of runs that no change separates
+        # differed by, and never less than none.
+        noise = math.inf if empty else max([1.0] + lows)
+        low = ratio_low(o, n, seed, draws)
+        reasons, unsettled = [], []
+        if low > threshold:
+            if low > threshold*noise:
+                reasons.append("p95 ratio's lower bound %.3f is above %.2f times the controls' %.3f" % (low, threshold, noise))
+            elif empty:
+                unsettled.append("p95 ratio's lower bound %.3f is above %.2f, and a control has a side with no samples" % (low, threshold))
+            else:
+                unsettled.append("p95 ratio's lower bound %.3f is above %.2f, but not above %.2f times the controls' %.3f" % (
+                    low, threshold, threshold, noise))
+        p95_o, p95_n = nearest_rank(o), nearest_rank(n)
+        if ceiling is not None and p95_n > ceiling >= p95_o:
+            if noise <= threshold or reasons:
+                reasons.append("p95 %.1f ms passed the ceiling of %g ms" % (p95_n, ceiling))
+            else:
+                unsettled.append("p95 %.1f ms passed the ceiling of %g ms, but the controls' %.3f is above %.2f" % (
+                    p95_n, ceiling, noise, threshold))
+        verdict = {"p95_base_ms": round(p95_o, 3), "p95_ms": round(p95_n, 3),
+                   "ratio": round(p95_n/p95_o, 3) if p95_o > 0 else None,
+                   "ratio_low": round(low, 3) if math.isfinite(low) else None}
+        verdict.update(n_old=len(o), n_new=len(n), ceiling_ms=ceiling,
                        n_roles={role: len(samples.get(role, {}).get(name) or []) for role in ROLES},
-                       control_ratio_low=max((x for x in lows if x is not None), default=None),
-                       control_reasons=controls, judged=not controls)
+                       noise=round(noise, 3) if math.isfinite(noise) else None, controls_without_samples=empty,
+                       reasons=reasons, unsettled=unsettled, judged=not unsettled)
         metrics[name] = verdict
-        control_reasons += ["%s: %s" % (name, r) for r in controls]
-        noisy = noisy or (bool(controls) and min(sizes) >= whole)
-        if verdict["judged"]:
-            failed += ["%s: %s" % (name, r) for r in verdict["reasons"]]
+        unsettled_all += ["%s: %s" % (name, r) for r in unsettled]
+        noisy = noisy or (bool(unsettled) and min(sizes) >= whole)
+        failed += ["%s: %s" % (name, r) for r in reasons]
     hard = ["the new binary failed the scenario %s in %d of %d runs, the old one in %d" % (
         s, found["failed_runs"][s]["new"], found["runs_per_binary"], found["failed_runs"][s]["old"])
         for s in found["broken"]] + missing
@@ -381,10 +405,10 @@ def decide(samples, ceilings, failures=None, rounds=1, threshold=THRESHOLD, seed
         verdict, code = "not judged", 0
     elif failed:
         verdict, code = "fail", 1
-    elif control_reasons:
+    elif unsettled_all:
         verdict, code = "not judged", 0
     else:
         verdict, code = "pass", 0
     return {"verdict": verdict, "exit": code, "threshold": threshold, "seed": seed, "draws": draws, "whole": whole,
-            "machine_too_noisy": noisy, "control_failures": control_reasons, "failures": hard+failed,
+            "machine_too_noisy": noisy, "unsettled": unsettled_all, "failures": hard+failed,
             "scenarios": found, "not_compared": skipped, "metrics": metrics}

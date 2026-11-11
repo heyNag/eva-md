@@ -98,7 +98,7 @@ class Decide(unittest.TestCase):
 
     def test_unchanged_passes(self):
         d = self.run_gate(samples(1, 150, 20), samples(2, 150, 20), samples(3, 150, 20), samples(4, 150, 20))
-        self.assertEqual((d["verdict"], d["exit"], d["failures"], d["control_failures"]), ("pass", 0, [], []))
+        self.assertEqual((d["verdict"], d["exit"], d["failures"], d["unsettled"]), ("pass", 0, [], []))
         m = d["metrics"]["capture"]
         self.assertEqual((m["n_old"], m["n_new"], m["ceiling_ms"]), (300, 300, 100))
         self.assertEqual(m["n_roles"], {"old": 150, "new": 150, "old_again": 150, "new_again": 150})
@@ -111,24 +111,42 @@ class Decide(unittest.TestCase):
         self.assertIn("capture: p95 ratio's lower bound", d["failures"][0])
         # The change cancels out of the controls: each side holds one set of
         # runs of each binary.
-        self.assertLess(d["metrics"]["capture"]["control_ratio_low"], 1.15)
+        self.assertLess(d["metrics"]["capture"]["noise"], 1.15)
 
     def test_a_noisy_control_is_not_judged(self):
-        # Two runs of one binary differ: either binary's, either way.
+        # One set of the new binary's runs was slowed by load: the gate's
+        # comparison rises, and so does a control, as far.
         quiet = [samples(k, 150, 20) for k in range(1, 5)]
-        for slow in core.ROLES:
+        for slow in ("new", "new_again"):
             parts = dict(zip(core.ROLES, quiet))
             parts[slow] = [x*2 for x in parts[slow]]
             d = self.run_gate(parts["old"], parts["new"], parts["old_again"], parts["new_again"])
-            self.assertEqual((d["verdict"], d["exit"]), ("not judged", 0), slow)
-            self.assertTrue(d["control_failures"])
-            self.assertFalse(d["metrics"]["capture"]["judged"])
-            # A run quicker than its twin moves no p95 of a side that holds
-            # the twin, and fails nothing either.
-            parts = dict(zip(core.ROLES, quiet))
-            parts[slow] = [x/2 for x in parts[slow]]
-            d = self.run_gate(parts["old"], parts["new"], parts["old_again"], parts["new_again"])
-            self.assertNotEqual(d["verdict"], "fail", slow)
+            self.assertEqual((d["verdict"], d["exit"], d["failures"]), ("not judged", 0, []), slow)
+            m = d["metrics"]["capture"]
+            self.assertTrue(m["unsettled"])
+            self.assertFalse(m["judged"])
+            self.assertGreater(m["ratio_low"], 1.15)
+            self.assertGreaterEqual(1.15*m["noise"], m["ratio_low"])
+        # Slowed runs of the old binary, or quicker runs of either, can only
+        # make the new binary look faster: nothing fails.
+        for slow in core.ROLES:
+            for factor in (2, 0.5):
+                if factor == 2 and slow.startswith("new"):
+                    continue
+                parts = dict(zip(core.ROLES, quiet))
+                parts[slow] = [x*factor for x in parts[slow]]
+                d = self.run_gate(parts["old"], parts["new"], parts["old_again"], parts["new_again"])
+                self.assertEqual((d["verdict"], d["failures"]), ("pass", []), (slow, factor))
+
+    def test_a_regression_beyond_the_noise_fails(self):
+        # The new binary's two sets of runs differ by a fifth, which the
+        # controls show; it is half as slow again as the old binary, which is
+        # well past 1.15 times that.
+        d = self.run_gate(samples(1, 150, 20), samples(2, 150, 30), samples(3, 150, 20), samples(4, 150, 36))
+        m = d["metrics"]["capture"]
+        self.assertGreater(m["noise"], 1.05)
+        self.assertEqual((d["verdict"], d["exit"]), ("fail", 1))
+        self.assertIn("times the controls'", d["failures"][0])
 
     def test_load_on_the_new_runs_alone_is_seen(self):
         # The load of the reviewed gate's second same-binary run fell on runs
@@ -146,13 +164,32 @@ class Decide(unittest.TestCase):
                 d = self.run_gate(parts["old"], parts["new"], parts["old_again"], parts["new_again"])
                 self.assertNotEqual(d["verdict"], "fail", loaded)
 
+    def test_the_second_control_sees_what_the_first_cannot(self):
+        # Load that sends an eighth of a run's samples to three times their
+        # time, on both runs of new, one of old_again and one of new_again,
+        # of the two runs each role has: the new binary's p95 rises, the
+        # first control's sides hold two loaded runs each, and only the
+        # second control sees the load.
+        def run(seed, loaded):
+            values = samples(seed, 100, 20)
+            return [x*3 if loaded and k % 8 == 0 else x for k, x in enumerate(values)]
+        parts = {"old": run(1, False)+run(2, False), "new": run(3, True)+run(4, True),
+                 "old_again": run(5, True)+run(6, False), "new_again": run(7, True)+run(8, False)}
+        d = self.run_gate(parts["old"], parts["new"], parts["old_again"], parts["new_again"])
+        self.assertGreater(d["metrics"]["capture"]["ratio_low"], 1.15)
+        self.assertEqual((d["verdict"], d["exit"], d["failures"]), ("not judged", 0, []))
+        first = core.ratio_low(parts["old"]+parts["new"], parts["old_again"]+parts["new_again"])
+        second = core.ratio_low(parts["old"]+parts["new_again"], parts["old_again"]+parts["new"])
+        self.assertLess(first, 1.15)
+        self.assertGreater(second, 1.15)
+
     def test_noise_never_fails_a_build(self):
         # New is slower than old, but one of its runs alone: the gate can't
         # tell the change from the machine, and does not fail.
         d = self.run_gate(samples(1, 150, 20), samples(2, 150, 40), samples(3, 150, 20), samples(4, 150, 20))
         self.assertEqual((d["verdict"], d["exit"], d["failures"]), ("not judged", 0, []))
         self.assertFalse(d["metrics"]["capture"]["judged"])
-        self.assertTrue(d["metrics"]["capture"]["reasons"])
+        self.assertTrue(d["metrics"]["capture"]["unsettled"])
 
     def test_a_noisy_control_on_a_well_sampled_metric_stops_the_verdict(self):
         # Load moved the startup figure between two runs of one binary: the
@@ -163,7 +200,8 @@ class Decide(unittest.TestCase):
         d = core.decide(merge(cap, start), {"capture": 100, "startup": 600})
         self.assertEqual((d["verdict"], d["exit"], d["machine_too_noisy"]), ("not judged", 0, True))
         self.assertEqual([f.split(":")[0] for f in d["failures"]], ["capture"])
-        self.assertTrue(all(f.startswith("startup: ") for f in d["control_failures"]))
+        self.assertTrue(d["unsettled"])
+        self.assertTrue(all(f.startswith("startup: ") for f in d["unsettled"]))
 
     def test_a_noisy_control_on_a_few_samples_leaves_that_metric_alone(self):
         # With 99 samples on a control's side, a noisy control leaves
@@ -195,6 +233,16 @@ class Decide(unittest.TestCase):
         self.assertEqual(self.run_gate(old, new, old[:], new[:], {"capture": None})["verdict"], "pass")
         self.assertEqual(self.run_gate(old, [100.0]*100, old[:], [100.0]*100)["verdict"], "pass")
 
+    def test_a_ceiling_passed_amid_noise_is_unsettled(self):
+        # One set of the new binary's runs passed the ceiling, the other did
+        # not: the machine put more than 1.15 between them.
+        d = self.run_gate([95.0]*100, [96.0]*100, [95.0]*100, [115.0]*100)
+        m = d["metrics"]["capture"]
+        self.assertGreater(m["noise"], 1.15)
+        self.assertEqual((d["verdict"], d["exit"], d["failures"], m["reasons"]), ("not judged", 0, [], []))
+        self.assertEqual(len(m["unsettled"]), 2)
+        self.assertIn("passed the ceiling of 100 ms, but the controls'", m["unsettled"][1])
+
     def test_a_ceiling_the_old_binary_was_over_already(self):
         d = self.run_gate([105.0]*100, [110.0]*100, [105.0]*100, [110.0]*100)
         self.assertEqual((d["verdict"], d["failures"]), ("pass", []))
@@ -203,7 +251,7 @@ class Decide(unittest.TestCase):
         # Two runs of the new binary on either side of the ceiling show where
         # the binary sits, not that the machine is noisy: the gate fails.
         d = self.run_gate([95.0]*100, [99.0]*100, [95.0]*100, [101.0]*100)
-        self.assertEqual((d["verdict"], d["exit"], d["control_failures"]), ("fail", 1, []))
+        self.assertEqual((d["verdict"], d["exit"], d["unsettled"]), ("fail", 1, []))
         self.assertEqual(d["failures"], ["capture: p95 101.0 ms passed the ceiling of 100 ms"])
 
     def test_a_large_rise_to_the_ceiling_fails(self):
@@ -214,7 +262,7 @@ class Decide(unittest.TestCase):
             prompt = four(samples(seed+4, 150, 10), samples(seed+5, 150, 20), samples(seed+6, 150, 10),
                           samples(seed+7, 150, 20), "prompt")
             d = core.decide(merge(cap, prompt), {"capture": 100, "prompt": 100})
-            self.assertEqual((d["verdict"], d["exit"], d["control_failures"]), ("fail", 1, []), seed)
+            self.assertEqual((d["verdict"], d["exit"], d["unsettled"]), ("fail", 1, []), seed)
             self.assertEqual(sorted({f.split(":")[0] for f in d["failures"]}), ["capture", "prompt"])
 
     def test_a_metric_the_old_binary_gave_no_samples_is_not_compared(self):
@@ -243,7 +291,9 @@ class Decide(unittest.TestCase):
         # The old binary's and the new one's first runs both failed.
         d = self.run_gate([], [], samples(3, 50, 20), [x*2 for x in samples(4, 50, 20)])
         self.assertEqual((d["verdict"], d["exit"], d["failures"]), ("not judged", 0, []))
-        self.assertIn("capture: old+new against old_again+new_again: a side has no samples", d["control_failures"])
+        self.assertEqual(d["unsettled"], ["capture: p95 ratio's lower bound %.3f is above 1.15, and a control has a side with no samples"
+                                          % d["metrics"]["capture"]["ratio_low"]])
+        self.assertEqual(d["metrics"]["capture"]["controls_without_samples"], ["old+new against old_again+new_again"])
 
     def test_the_same_samples_give_the_same_verdict(self):
         args = (samples(1, 60, 20), samples(2, 60, 23), samples(3, 60, 20), samples(4, 60, 23))
