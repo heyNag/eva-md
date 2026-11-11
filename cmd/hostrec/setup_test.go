@@ -296,7 +296,7 @@ func TestArmsLeavePluginBytesAndGiveTheStartWord(t *testing.T) {
 	armed := false
 	for _, a := range [][]string{{"arm", "start"}, {"disarm"}, {"arm", "start"}, {"arm", "pretool-word"}, {"disarm"}, {"arm", "start-9900"}, {"arm", "plugin-edit"}} {
 		code, _, _ := h.run(t, "", a...)
-		if after := treeHashes(t, watched...); !maps_equal(before, after) {
+		if after := treeHashes(t, watched...); !mapsEqual(before, after) {
 			t.Fatalf("%v changed a plugin's bytes", a)
 		}
 		if (code == 0) != (a[0] == "disarm" || a[1] == "start") {
@@ -311,13 +311,6 @@ func TestArmsLeavePluginBytesAndGiveTheStartWord(t *testing.T) {
 				t.Errorf("%v: %s's start answered %s", a, host, answer)
 			}
 			if armed {
-				var out struct {
-					Hook struct {
-						Event, Context string
-					}
-					System string `json:"systemMessage"`
-				}
-				_ = json.Unmarshal([]byte(answer), &out)
 				var v map[string]any
 				if json.Unmarshal([]byte(answer), &v) != nil || !strings.HasPrefix(v["systemMessage"].(string), "hf test") ||
 					v["hookSpecificOutput"].(map[string]any)["hookEventName"] != "SessionStart" {
@@ -349,7 +342,7 @@ func TestArmsLeavePluginBytesAndGiveTheStartWord(t *testing.T) {
 	}
 }
 
-func maps_equal(a, b map[string]string) bool {
+func mapsEqual(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
 	}

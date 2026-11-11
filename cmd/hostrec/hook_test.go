@@ -211,7 +211,7 @@ func TestTheHookKeepsASessionAndNothingOfItsText(t *testing.T) {
 	if answer := h.hook(t, "claude-code", "SessionStart", start); answer != "{}" {
 		t.Errorf("the hook answered %s with no sitting open", answer)
 	}
-	if after := h.recFiles(t); !maps_equal(before, after) {
+	if after := h.recFiles(t); !mapsEqual(before, after) {
 		t.Error("the hook wrote with no sitting open")
 	}
 }
