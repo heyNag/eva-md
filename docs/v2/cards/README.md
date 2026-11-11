@@ -33,6 +33,7 @@ Rules every card carries, so they are said once here:
 | [CT-3b](CT-3b.md) | Counters release: the capture audit pairs a session by its id too | merged |
 | [CT-4](CT-4.md) | Counters release: a content-free report | merged |
 | [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | card written; not started. Its Part 1 serves the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md), cut to a core path; Part 2 may come later |
+| [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | ready to build on a branch; merges only after the owner has cut the counters release, since it changes the binary |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | building since 2026-11-11 |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
