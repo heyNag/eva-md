@@ -154,6 +154,7 @@ func reportHome(t *testing.T) (paths.Dirs, string) {
 		update.Record{At: day, Host: "codex", Session: planted, Outcome: update.OutcomeFailed, Reason: update.ReasonInvalidOutput, Calls: 1,
 			Rejection: &update.Rejection{Rule: planted, Place: planted}},
 		update.Record{At: day, Host: "codex", Session: planted, Outcome: update.OutcomeSkipped, Reason: update.ReasonSmall, Trigger: update.TriggerSweep},
+		update.Record{At: day, Host: "codex", Session: planted, Outcome: update.OutcomeSkipped, Reason: planted},
 		update.Record{At: day, Host: "codex", Session: planted, Outcome: planted},
 	)
 	busy, err := json.Marshal(update.Record{At: day, Outcome: update.OutcomeBusy, Trigger: planted, SessionHashes: []string{planted}})
@@ -162,10 +163,12 @@ func reportHome(t *testing.T) (paths.Dirs, string) {
 	}
 	put(t, filepath.Join(d.State, "updates", "busy-"+day[:len(time.DateOnly)]+".jsonl"), append(busy, '\n'))
 
-	// The commit records: four runs in the 14 days, one of them in the
-	// month before, and one before them.
+	// The commit records: five runs in the 14 days, one of them in the
+	// month before and one with an outcome, a reason and a push result no
+	// release writes, and one before them.
 	plantCommits(t, d,
 		wikigit.Result{At: "2026-10-20T09:00:00Z", Outcome: wikigit.Committed, Pages: 1, Push: wikigit.PushOK},
+		wikigit.Result{At: "2026-11-08T09:00:00Z", Outcome: planted, Reason: planted, Push: planted},
 		wikigit.Result{At: "2026-10-30T09:00:00Z", Outcome: wikigit.Committed, Pages: 3, Push: wikigit.PushOK, Unstaged: []string{planted}},
 		wikigit.Result{At: "2026-11-09T09:00:00Z", Outcome: wikigit.Refused, Reason: "origin", Push: wikigit.PushSkipped},
 		wikigit.Result{At: "2026-11-10T09:00:00Z", Outcome: wikigit.Failed, Reason: planted, Push: wikigit.PushSkipped},
@@ -303,10 +306,10 @@ func TestFieldReportCountsTheFixture(t *testing.T) {
 	}
 	check("format, version and day", []any{r.Format, r.Version, r.Day}, []any{1, "test", "2026-11-11"})
 	check("parts", r.Parts, map[string]string{"operations": "counted", "hooks": "counted", "updates": "counted", "backlog": "counted", "record": "counted", "wiki": "counted"})
-	check("operations' days", []any{o.From, o.To, o.DailyJobDays, o.CommitDays}, []any{"2026-10-29", "2026-11-11", 3, 4})
-	check("commits", o.Commits, map[string]int{"committed": 1, "refused": 1, "failed": 1, "busy": 1, "nothing": 1})
-	check("commit reasons", o.Reasons, map[string]int{"refused.origin": 1, "failed.other": 1, "busy.wiki_lock": 1})
-	check("pushes", o.Pushes, map[string]int{"ok": 1, "skipped": 2, "pending": 1})
+	check("operations' days", []any{o.From, o.To, o.DailyJobDays, o.CommitDays}, []any{"2026-10-29", "2026-11-11", 3, 5})
+	check("commits", o.Commits, map[string]int{"committed": 1, "refused": 1, "failed": 1, "busy": 1, "nothing": 1, "other": 1})
+	check("commit reasons", o.Reasons, map[string]int{"refused.origin": 1, "failed.other": 1, "busy.wiki_lock": 1, "other.other": 1})
+	check("pushes", o.Pushes, map[string]int{"ok": 1, "skipped": 2, "pending": 1, "other": 1})
 	check("trust flag", o.Trust, TrustFlag{Present: true, AgeDays: 3, Awaited: true})
 	check("Stop's kept runs", o.HookRuns["claude-code"]["Stop"], HookRunsCounts{Runs: 2, Failed: 1})
 	check("notice", o.Notice, "config_unknown_keys")
@@ -319,7 +322,8 @@ func TestFieldReportCountsTheFixture(t *testing.T) {
 	check("delivered", []any{v.Kinds["prompt"], v.Added, v.Chars, v.Routes["recall"], v.Routes["state"], v.Briefs, v.WithState, v.Stale, v.Fallback}, []any{2, 2, 1200, 1, 1, 1, 1, 1, 1})
 
 	u := r.Updates
-	check("update outcomes", u.Outcome, map[string]int{"ok": 2, "failed": 2, "skipped": 1, "other": 1})
+	check("update outcomes", u.Outcome, map[string]int{"ok": 2, "failed": 2, "skipped": 2, "other": 1})
+	check("update skips", u.Skips, map[string]int{"small": 1, "other": 1})
 	check("update failures", u.Fails, map[string]int{"other": 1, "invalid_output": 1})
 	check("refused whole", u.Refused, map[string]int{"other": 1})
 	check("inside", u.Inside["bad_refs"]+u.Inside["rules.refused"], 3)
@@ -609,4 +613,41 @@ func TestFieldReportKeysArePinned(t *testing.T) {
 	if len(used) != len(typed) {
 		t.Errorf("the fixture's report uses %d of the format's %d keys", len(used), len(typed))
 	}
+}
+
+// The report keys the update figures again by the names this release
+// writes, whatever names the figures hold: any other outcome, reason,
+// rule, counter or trigger is counted as other, a refusal by its rule
+// alone, and a spread under a trigger no list holds is left out.
+func TestTheReportKeysTheUpdateFiguresAgain(t *testing.T) {
+	f := UpdateFigures{
+		Outcome:    map[string]int{update.OutcomeOK: 1, planted: 2},
+		Skips:      map[string]int{update.ReasonSmall: 1, planted: 3},
+		Fails:      map[string]int{update.ReasonTimeout: 1, planted: 4},
+		Refused:    map[string]int{update.RuleDates + " at output": 1, planted + " at " + planted: 5},
+		Inside:     map[string]int{"bad_refs": 1, planted: 6},
+		Busy:       BusyExits{ByTrigger: map[string]int{update.TriggerEnd: 1, planted: 7}},
+		ToMemoryMS: map[string]Spread{update.TriggerEnd: {N: 1}, update.TriggerOther: {N: 2}, TriggerUnknown: {N: 3}, planted: {N: 8}},
+	}
+	u := rekeyUpdates(f)
+	data, err := json.Marshal(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), planted) {
+		t.Errorf("the update part holds the planted marker: %s", data)
+	}
+	check := func(what string, got, want any) {
+		t.Helper()
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %v, want %v", what, got, want)
+		}
+	}
+	check("outcomes", u.Outcome, map[string]int{update.OutcomeOK: 1, other: 2})
+	check("skips", u.Skips, map[string]int{update.ReasonSmall: 1, other: 3})
+	check("failures", u.Fails, map[string]int{update.ReasonTimeout: 1, other: 4})
+	check("refused", u.Refused, map[string]int{update.RuleDates: 1, other: 5})
+	check("inside", u.Inside, map[string]int{"bad_refs": 1, other: 6})
+	check("busy", u.Busy.ByTrigger, map[string]int{update.TriggerEnd: 1, other: 7})
+	check("to memory", u.ToMemoryMS, map[string]Spread{update.TriggerEnd: {N: 1}, update.TriggerOther: {N: 2}, TriggerUnknown: {N: 3}})
 }

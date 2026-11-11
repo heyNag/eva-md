@@ -14,21 +14,24 @@
     "from": "2026-10-29",
     "to": "2026-11-11",
     "daily_job_days": 3,
-    "commit_days": 4,
+    "commit_days": 5,
     "commits": {
       "busy": 1,
       "committed": 1,
       "failed": 1,
       "nothing": 1,
+      "other": 1,
       "refused": 1
     },
     "commit_reasons": {
       "busy.wiki_lock": 1,
       "failed.other": 1,
+      "other.other": 1,
       "refused.origin": 1
     },
     "pushes": {
       "ok": 1,
+      "other": 1,
       "pending": 1,
       "skipped": 2
     },
@@ -608,14 +611,15 @@
   "updates": {
     "from": "2026-11-05",
     "to": "2026-11-11",
-    "passes": 6,
+    "passes": 7,
     "outcomes": {
       "failed": 2,
       "ok": 2,
       "other": 1,
-      "skipped": 1
+      "skipped": 2
     },
     "skips": {
+      "other": 1,
       "small": 1
     },
     "failures": {
