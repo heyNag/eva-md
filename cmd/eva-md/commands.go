@@ -28,14 +28,16 @@ import (
 // resumeTimeout bounds eva-md brief, show and search, installTimeout the
 // host commands of eva-md install, uninstall and setup's install, and
 // checkTimeout the checks of eva-md doctor, status and setup. Tests raise
-// them before any test runs. reportTimeout bounds eva-md doctor --report,
-// which reads the whole inbox; no test needs it raised.
+// them before any test runs.
 var (
 	resumeTimeout  = 5 * time.Second
 	installTimeout = 2 * time.Minute
 	checkTimeout   = 30 * time.Second
-	reportTimeout  = 10 * time.Minute
 )
+
+// reportTimeout bounds eva-md doctor --report, which reads the whole
+// inbox. A test gives runFieldReport a limit of its own instead.
+const reportTimeout = 10 * time.Minute
 
 func init() {
 	register(command{name: "install", file: "commands.go", place: 50,
@@ -354,7 +356,7 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 		return runUpdateFigures(d, *asJSON, out, errOut)
 	}
 	if *report {
-		return runFieldReport(ctx, d, out)
+		return runFieldReport(ctx, d, out, reportTimeout)
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
@@ -413,10 +415,10 @@ func runUpdateFigures(d paths.Dirs, asJSON bool, out, errOut io.Writer) int {
 // this Mac, as JSON of counts, durations, dates, eva-md's version and fixed
 // names only (see health.Field), the same for the same state and day. It
 // runs no command, makes no network or model call, repairs nothing and
-// writes no file. It reads the whole inbox, within reportTimeout; a part
-// cut short says so.
-func runFieldReport(ctx context.Context, d paths.Dirs, out io.Writer) int {
-	ctx, cancel := context.WithTimeout(ctx, reportTimeout)
+// writes no file. It reads the whole inbox within limit, reportTimeout for
+// the doctor; a part cut short says so, and the report still exits 0.
+func runFieldReport(ctx context.Context, d paths.Dirs, out io.Writer, limit time.Duration) int {
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	data, err := json.MarshalIndent(health.Field(ctx, d, time.Now()), "", "  ")
 	if err != nil {

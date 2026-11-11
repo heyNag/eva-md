@@ -563,7 +563,7 @@ func TestFieldReportOnHomesWithLittleRecorded(t *testing.T) {
 		if r.Parts["record"] != PartIncomplete || r.Parts["backlog"] != PartIncomplete || r.Parts["wiki"] != PartIncomplete {
 			t.Fatalf("%+v", r.Parts)
 		}
-		if r.Operations.Notice != "unknown" {
+		if r.Operations.Notice != "unknown" || r.Parts["operations"] != PartIncomplete {
 			t.Errorf("a report cut before the notice was read gives the notice %s", r.Operations.Notice)
 		}
 	})

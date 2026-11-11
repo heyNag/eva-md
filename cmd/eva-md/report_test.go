@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/health"
 	"github.com/heyNag/eva-md/internal/inbox"
@@ -128,6 +129,42 @@ func reportFile(t *testing.T, file, text string) {
 	}
 	if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The report reads within its limit. When the limit has run out, it still
+// prints its JSON and exits 0, and the parts it couldn't finish say they
+// are incomplete; within the doctor's 10 minutes, the same home is counted
+// in full.
+func TestFieldReportWithinItsLimit(t *testing.T) {
+	d := isolated(t)
+	store := inbox.Store{Root: d.Inbox()}
+	if err := store.Append(inbox.Entry{TS: "2026-11-10T09:00:00Z", Host: "codex", Session: "s-1", Role: "user", Kind: "prompt", Text: "hello", Project: "general", Origin: "hook"}); err != nil {
+		t.Fatal(err)
+	}
+	if reportTimeout != 10*time.Minute {
+		t.Fatalf("the report's limit is %v", reportTimeout)
+	}
+	for _, c := range []struct {
+		limit   time.Duration
+		parts   map[string]string
+		notice  string
+		entries int
+	}{
+		{0, map[string]string{"operations": "incomplete", "hooks": "none_recorded", "updates": "none_recorded", "backlog": "incomplete", "record": "incomplete", "wiki": "no_wiki"}, "unknown", 0},
+		{reportTimeout, map[string]string{"operations": "counted", "hooks": "none_recorded", "updates": "none_recorded", "backlog": "counted", "record": "counted", "wiki": "no_wiki"}, "none", 1},
+	} {
+		var out bytes.Buffer
+		if code := runFieldReport(context.Background(), d, &out, c.limit); code != 0 {
+			t.Fatalf("limit %v: exit %d", c.limit, code)
+		}
+		var r health.FieldReport
+		if err := json.Unmarshal(out.Bytes(), &r); err != nil {
+			t.Fatalf("limit %v: %v: %s", c.limit, err, out.String())
+		}
+		if fmt.Sprint(r.Parts) != fmt.Sprint(c.parts) || r.Operations.Notice != c.notice || r.Record.Entries["prompt"] != c.entries {
+			t.Errorf("limit %v: %v, notice %s, entries %v", c.limit, r.Parts, r.Operations.Notice, r.Record.Entries)
+		}
 	}
 }
 

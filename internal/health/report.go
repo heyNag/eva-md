@@ -226,7 +226,7 @@ func wikiRoots(wiki string) []string {
 // operations counts the operations part. complete is false when a record
 // it counts is there but couldn't be read: a folder of commit markers
 // that can't be listed, a month of commit records, the trust flag or a
-// heartbeat that can't be read.
+// heartbeat that can't be read; or when ctx ended before the notice was read.
 func operations(ctx context.Context, d paths.Dirs, c config.Config, cfgErr error, now time.Time) (o Operations, complete bool) {
 	first := now.AddDate(0, 0, 1-operationDays).Format(time.DateOnly)
 	today := now.Format(time.DateOnly)
@@ -309,7 +309,7 @@ func operations(ctx context.Context, d paths.Dirs, c config.Config, cfgErr error
 		if notice == "" && ctx.Err() != nil {
 			// QuickNotice gives none once ctx has ended, so whether a
 			// notice would show is not known.
-			o.Notice = "unknown"
+			o.Notice, complete = "unknown", false
 		}
 	}
 	return o, complete
