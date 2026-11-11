@@ -441,7 +441,13 @@ func (m *Model) plan(f *folder, txn store.Txn) (*planned, error) {
 		return p, nil
 	}
 	path := sessionPath(txn.Session)
-	b, _ := read(path)
+	b, ok := read(path)
+	if ok && m.shut(b) != "" {
+		// The store writes nothing into a locked or unreadable file, so
+		// its session takes no coverage, and the ranges stay in the queue
+		// until a person repairs the file.
+		return p, nil
+	}
 	have, log := parseSession(b)
 	if m.coverageOutside {
 		have = f.outside[txn.Session]
@@ -494,10 +500,8 @@ func (m *Model) planOp(txn store.Txn, i int, p *planned, read func(string) ([]by
 		}
 		path := sessionPath(txn.Session)
 		b, ok := read(path)
-		if prot := m.protection(b); ok && prot.Unreadable {
-			return refused(store.ReasonUnreadable, op.ID)
-		} else if ok && prot.Locked {
-			return refused(store.ReasonLocked, op.ID)
+		if reason := m.shut(b); ok && reason != "" {
+			return refused(reason, op.ID)
 		}
 		have, log := parseSession(b)
 		p.writes[path] = renderSession(txn.Session, have, log+"- did: "+text+"\n")
@@ -540,11 +544,9 @@ func (m *Model) change(op store.Op, p *planned, read func(string) ([]byte, bool)
 	prot := m.protection(b)
 	record, _ := read(recordPath)
 	unacked := unacknowledged(record, path)
-	switch {
-	case prot.Unreadable:
-		return refused(store.ReasonUnreadable, op.ID)
-	case prot.Locked:
-		return refused(store.ReasonLocked, op.ID)
+	switch reason := m.shut(b); {
+	case reason != "":
+		return refused(reason, op.ID)
 	case op.Authority != store.AuthorityUser && prot.Verified:
 		return refused(store.ReasonVerified, op.ID)
 	case op.Authority != store.AuthorityUser && unacked:
@@ -605,6 +607,18 @@ func (m *Model) protection(b []byte) codec.Protection {
 		p.Locked = bytes.HasPrefix(b, []byte("locked: true\n")) || bytes.Contains(b, []byte("\nlocked: true\n"))
 	}
 	return p
+}
+
+// shut is the reason a file refuses every operation, whatever its
+// authority: unreadable, then locked; "" when it refuses none.
+func (m *Model) shut(b []byte) string {
+	switch p := m.protection(b); {
+	case p.Unreadable:
+		return store.ReasonUnreadable
+	case p.Locked:
+		return store.ReasonLocked
+	}
+	return ""
 }
 
 // line is a value that is a string of one line, 1 to max bytes.

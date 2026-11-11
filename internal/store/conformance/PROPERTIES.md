@@ -68,4 +68,5 @@ Variants: `queueFromJobs` leaves out of the queue the ranges the local job list 
 - A range a pass covers again exactly is not covered anew, and makes no commit by itself; a range that overlaps a covered one but is not it refuses the whole pass.
 - An acknowledgement is an operation, `doc.acknowledge`, aimed at the item, under the user's authority. A lock refuses it too, as it refuses every operation.
 - A hand edit is adopted at every recovery: at open and at the start of each `Apply`. `Plan` recovers a copy of the folder, so it writes nothing.
+- A session file, which the format does not let a person lock (F6), still refuses a note when it holds a lock or cannot be read, and then takes no coverage: the store writes nothing into it, and its ranges stay in the queue until a person repairs it. A verified mark or an unacknowledged hand edit on a session file refuses nothing, as no operation can acknowledge one.
 - The model refuses as `invalid` any operation type but `item.create`, `item.revise`, `item.state`, `session.append` and `doc.acknowledge`, and scans no text for secrets.

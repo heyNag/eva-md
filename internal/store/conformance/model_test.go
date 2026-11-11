@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -231,21 +232,49 @@ func TestCoverageIsInTheTree(t *testing.T) {
 	}
 }
 
-func TestAProtectedSessionFileRefusesAppends(t *testing.T) {
-	for _, c := range []struct{ edit, reason string }{{EditLock, store.ReasonLocked}, {EditGarble, store.ReasonUnreadable}} {
+// A locked or unreadable session file refuses a note, whatever its
+// authority, and takes no coverage, so its ranges stay in the queue; the
+// pass's other operations go on. A session file a hand edit only changed
+// takes both.
+func TestAProtectedSessionFileRefusesAppendsAndCoverage(t *testing.T) {
+	for _, c := range []struct{ edit, reason string }{{EditLock, store.ReasonLocked}, {EditGarble, store.ReasonUnreadable}, {EditChange, ""}} {
 		m, st, _ := opened(t)
 		path := sessionPath("codex:b2")
-		st = edit(t, m, st, path, Edit{Kind: c.edit})
+		st = edit(t, m, st, path, Edit{Kind: c.edit, Text: "a line the person wrote"})
 		before := m.Files()[path]
-		res, err := st.Apply(store.Txn{Pass: pass(2), Kind: store.KindFast, Session: "codex:b2", Ops: []store.Op{
+		txn := store.Txn{Pass: pass(2), Kind: store.KindFast, Session: "codex:b2", Covers: []store.Range{{From: 3, To: 4, Outcome: "done", Contract: "1"}}, Ops: []store.Op{
 			{Type: store.OpSessionAppend, Authority: store.AuthorityUser, Fields: map[string]any{"text": "did a thing"}},
 			create("t2"),
-		}})
-		if err != nil || res.Outcomes[0].Reason != c.reason || res.Outcomes[1].Result != store.ResultApplied {
-			t.Fatalf("%s: %+v, %v", c.edit, res.Outcomes, err)
+		}}
+		plan, err := st.Plan(txn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := st.Apply(txn)
+		if err != nil || !reflect.DeepEqual(plan, res.Outcomes) || res.Outcomes[1].Result != store.ResultApplied || res.Commit == "" {
+			t.Fatalf("%s: Plan %+v, Apply %+v, %v", c.edit, plan, res, err)
+		}
+		cov, _ := st.Coverage("codex:b2")
+		covered := slices.ContainsFunc(cov, func(r store.Range) bool { return r.From == 3 })
+		last := m.History()[len(m.History())-1]
+		if c.reason == "" {
+			if o := res.Outcomes[0]; o.Result != store.ResultApplied || !covered || len(last.Covers) != 1 {
+				t.Fatalf("a hand-edited session file gave %+v and coverage %+v", o, cov)
+			}
+			if b := string(m.Files()[path]); !strings.Contains(b, "a line the person wrote") || !strings.Contains(b, "- did: did a thing") {
+				t.Fatalf("the session file lost the person's line or the note:\n%s", b)
+			}
+			st.Close()
+			continue
+		}
+		if o := res.Outcomes[0]; o.Result != store.ResultRefused || o.Reason != c.reason {
+			t.Fatalf("%s: the note gave %+v", c.edit, o)
 		}
 		if !bytes.Equal(m.Files()[path], before) {
 			t.Fatalf("%s: the session file changed", c.edit)
+		}
+		if covered || len(last.Covers) != 0 {
+			t.Fatalf("%s: the session took coverage: %+v, commit %+v", c.edit, cov, last.Covers)
 		}
 		st.Close()
 	}
