@@ -1,0 +1,203 @@
+{
+  "id": "v1.11",
+  "family": "v1",
+  "name": "two overlapping same-day sessions processed in the wrong order",
+  "split": "tuning",
+  "seed": 0,
+  "sessions": [
+    {
+      "host": "claude-code",
+      "session": "00001fba-2222-4000-8000-000000000000",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-13T10:10:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Cache entries for 1 minute, KITE-1.",
+          "plants": [
+            "f1"
+          ]
+        },
+        {
+          "at": "2026-01-13T10:55:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Let's also log cache misses, KITE-LOG.",
+          "plants": [
+            "f2"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "claude-code",
+      "session": "00001fbb-2222-4000-8000-000000000001",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-13T10:40:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Cache entries for 5 minutes, KITE-5.",
+          "plants": [
+            "f3"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "claude-code",
+      "session": "00001fbc-2222-4000-8000-000000000002",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-12T09:00:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Next, warm the cache at startup, KITE-WARM.",
+          "plants": [
+            "f4"
+          ]
+        },
+        {
+          "at": "2026-01-12T09:01:00+01:00",
+          "author": "tool",
+          "kind": "tool",
+          "text": "Bash go test ./internal/cache/... (exit 0)"
+        },
+        {
+          "at": "2026-01-12T09:02:00+01:00",
+          "author": "agent",
+          "kind": "reply",
+          "text": "A cold cache costs 3 s at startup, KITE-COLD.",
+          "plants": [
+            "f5"
+          ]
+        }
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "kinds": [
+        "decision"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "KITE-1"
+        },
+        {
+          "class": "quantity",
+          "value": "1 minute",
+          "forms": [
+            "1 min",
+            "60 s"
+          ]
+        }
+      ],
+      "until": {
+        "session": "00001fbb-2222-4000-8000-000000000001",
+        "seq": 1
+      },
+      "must": "store"
+    },
+    {
+      "id": "f2",
+      "kinds": [
+        "next"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "KITE-LOG"
+        },
+        {
+          "class": "phrase",
+          "value": "cache misses"
+        }
+      ],
+      "must": "store"
+    },
+    {
+      "id": "f3",
+      "kinds": [
+        "decision"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "KITE-5"
+        },
+        {
+          "class": "quantity",
+          "value": "5 minutes",
+          "forms": [
+            "5 min"
+          ]
+        }
+      ],
+      "supersedes": "f1",
+      "must": "store"
+    },
+    {
+      "id": "f4",
+      "kinds": [
+        "next",
+        "log"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "KITE-WARM"
+        },
+        {
+          "class": "phrase",
+          "value": "warm the cache"
+        }
+      ],
+      "log_date": "2026-01-12",
+      "must": "store"
+    },
+    {
+      "id": "f5",
+      "kinds": [
+        "log"
+      ],
+      "authority": "other",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "KITE-COLD"
+        },
+        {
+          "class": "quantity",
+          "value": "3 s",
+          "forms": [
+            "3 seconds"
+          ]
+        }
+      ],
+      "log_date": "2026-01-12",
+      "must": "store"
+    }
+  ],
+  "passes": [
+    {
+      "session": 1
+    },
+    {
+      "session": 0
+    },
+    {
+      "session": 2,
+      "kept": true
+    }
+  ]
+}
