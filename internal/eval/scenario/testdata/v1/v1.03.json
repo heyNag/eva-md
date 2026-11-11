@@ -1,0 +1,92 @@
+{
+  "id": "v1.03",
+  "family": "v1",
+  "name": "a reversal",
+  "split": "tuning",
+  "seed": 0,
+  "sessions": [
+    {
+      "host": "claude-code",
+      "session": "0000051e-2222-4000-8000-000000000000",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-13T10:01:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Store pages as YAML, OSPREY-Y.",
+          "plants": [
+            "f1"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "claude-code",
+      "session": "0000051f-2222-4000-8000-000000000001",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-14T10:01:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Actually no: store pages as JSONL after all, OSPREY-J.",
+          "plants": [
+            "f2"
+          ]
+        }
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "kinds": [
+        "decision"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "OSPREY-Y"
+        },
+        {
+          "class": "ident",
+          "value": "YAML"
+        }
+      ],
+      "until": {
+        "session": "0000051f-2222-4000-8000-000000000001",
+        "seq": 1
+      },
+      "must": "store"
+    },
+    {
+      "id": "f2",
+      "kinds": [
+        "decision"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "OSPREY-J"
+        },
+        {
+          "class": "ident",
+          "value": "JSONL"
+        }
+      ],
+      "supersedes": "f1",
+      "must": "store"
+    }
+  ],
+  "passes": [
+    {
+      "session": 0
+    },
+    {
+      "session": 1
+    }
+  ]
+}

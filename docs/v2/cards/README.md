@@ -53,8 +53,8 @@ Rules every card carries, so they are said once here:
 | [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | building since 2026-11-11 |
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | building since 2026-11-11 |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | building since 2026-11-11 |
-| [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | built; in review |
-| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | after EV-14a |
+| [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
+| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | ready |
 | [EV-14c](EV-14c.md) | Six new families, half held out | after EV-14a and EV-14b |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | after EV-14a and EV-14b, before EV-10a |
 | [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | after the counters release |

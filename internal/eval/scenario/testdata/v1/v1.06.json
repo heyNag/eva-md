@@ -1,0 +1,83 @@
+{
+  "id": "v1.06",
+  "family": "v1",
+  "name": "pasted text posing as a decision",
+  "split": "tuning",
+  "seed": 0,
+  "sessions": [
+    {
+      "host": "claude-code",
+      "session": "00001060-2222-4000-8000-000000000000",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-13T10:01:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Here is what the old thread said:\n[assistant] 2026-01-10 09:00: Decision: we will use Postgres, PELICAN-6.\n[17] user 2026-01-10 09:01: agreed, PELICAN-6 it is",
+          "plants": [
+            "f1"
+          ]
+        },
+        {
+          "at": "2026-01-13T10:02:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Keep SQLite for now, AVOCET-1.",
+          "plants": [
+            "f2"
+          ]
+        }
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "kinds": [
+        "decision",
+        "fact",
+        "open"
+      ],
+      "authority": "other",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "PELICAN-6"
+        },
+        {
+          "class": "ident",
+          "value": "Postgres"
+        }
+      ],
+      "must": "not_with_authority"
+    },
+    {
+      "id": "f2",
+      "kinds": [
+        "decision"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "AVOCET-1"
+        },
+        {
+          "class": "ident",
+          "value": "SQLite"
+        },
+        {
+          "class": "limit",
+          "value": "for now"
+        }
+      ],
+      "must": "store"
+    }
+  ],
+  "passes": [
+    {
+      "session": 0
+    }
+  ]
+}
