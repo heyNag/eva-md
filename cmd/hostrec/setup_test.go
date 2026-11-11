@@ -463,9 +463,9 @@ func TestRunBookScratchFilesAreThere(t *testing.T) {
 // writes nothing there.
 func TestTheRecorderRunsOnlyInAnEvaluationHome(t *testing.T) {
 	for _, c := range []struct {
-		name string
+		name  string
 		plant func(h *testHome) error
-		want string
+		want  string
 	}{
 		{"an install record", func(h *testHome) error { return writeFile(h.home, ".local/share/eva-md/install-record.json", "{}") }, "eva-md install or config"},
 		{"a config", func(h *testHome) error { return writeFile(h.home, ".config/eva-md/config.toml", "") }, "eva-md install or config"},

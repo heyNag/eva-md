@@ -28,7 +28,7 @@ func plantedRecording(t *testing.T) string {
 	files := map[string]string{
 		"events.jsonl": `{"cwd":"` + scanHome + `/scratch/alpha-orchard","session_id":"` + scanSession + `","answer":"done ` + scanLookup + `"}` + "\n" +
 			`{"text":"by quill o’wenderby on quills-plum-machine.local","email":"` + scanEmail + `"}` + "\n",
-		"notes.jsonl": `{"text":"token ` + scanToken + `","other":"hf-test@machines.eva-md.invalid ` + scanSession + `"}` + "\n",
+		"notes.jsonl":     `{"text":"token ` + scanToken + `","other":"hf-test@machines.eva-md.invalid ` + scanSession + `"}` + "\n",
 		"sub/marks.jsonl": `{"project":"-Users-quillowen-scratch"}` + "\n",
 	}
 	for name, text := range files {
