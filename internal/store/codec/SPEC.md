@@ -67,9 +67,10 @@ An unreadable document keeps its bytes: `Write` gives them back. It has no entri
 
 Read fail-closed, as the format's section 6 says. Over-protection is allowed; a misread that unlocks is not.
 
-- **Locked** when there is a `locked` entry in any form but the bare key with one of the values `false`, `False` or `FALSE`, unquoted, alone on its line. Spaces around the value and a comment after it (a space, then `#`) are allowed. Anything else locks: an empty value, a quoted `"false"`, `no`, `false#x`, a comment after a tab, a value on the next line, a list. Two `locked` entries lock, whatever their values.
-- **Verified** when there is a `verified` entry in any form but the bare key with a value, after a comment is dropped, of `[]`, `{}`, `""`, `null`, `~` or nothing, and no lines under it. A comment after `""` is not dropped, so it verifies.
+- **Locked** when there is a `locked` entry in any form but the bare key with one of the values `false`, `False` or `FALSE`, unquoted, after a space or a tab, alone on its line. Spaces and tabs around the value and a comment after it (a space, then `#`) are allowed; no other white space is, as YAML knows no other (a no-break space makes the value a string). Anything else locks: an empty value, a quoted `"false"`, `no`, `false#x`, a comment after a tab, `locked:false` (no key to YAML), a value on the next line, a list. Two `locked` entries lock, whatever their values.
+- **Verified** when there is a `verified` entry in any form but the bare key with a value, after a space or a tab and with a comment dropped, of `[]`, `{}`, `""`, `null`, `~` or nothing, and no lines under it. A comment after `""` is not dropped, so it verifies.
 - An entry read as the key `*` (an alias, or an explicit key that is no scalar) or `<<` (a merge) is both locked and verified.
+- A block whose first line that is neither blank nor a comment opens a flow mapping (`{`, after any tag or anchor) is both locked and verified: its keys are on lines the codec does not read as entries.
 - A key under another (`note:` then `  locked: true`) is not a top-level key and protects nothing; nor do `Locked`, `lockedness` or a comment that says `locked: true`.
 
 The codec reports a verified mark and refuses nothing for it. What a verified mark forbids depends on who asks, so the store core enforces it (ST-05).
@@ -98,7 +99,7 @@ So what the codec writes is in a written form by construction, and `Value` reads
 
 - **Keys.** `Set`, `SetBlock` and `Delete` take a key of `[a-z][a-z0-9_]*` that is not a YAML word. `Set` and `SetBlock` replace the entry for the key in whatever form it was written (quoted, explicit, a block scalar, a block list) with the written lines, where its first line was; every line of the old entry goes, and opaque lines between its lines stay. A key that is not there goes right after the last line of the last entry, before any trailing comments or blank lines; in a block with no entry, before the closing `---`. `Delete` removes every line of the entry.
 - **Body.** `SetPreamble` replaces the preamble's lines; `SetSection` replaces the lines under the heading, or adds `## heading` LF and the text at the end; `RemoveSection` removes the heading line and the lines under it. The caller's text is written as given. Where the document ended without a newline and something now follows, the line it ended on gets one; a caller's text that would be followed by more and does not end in a newline is refused.
-- **Only what it names.** An edit changes only the lines of the entry or section it names. Every edit is checked by reading its result again before it is kept: the result must be readable, every other frontmatter line must read as before (the same bytes, the same kind of line), and the edited entry must read back as one entry in a written form; a body edit must leave the frontmatter's lines as they were and read back as the preamble and sections it meant. When the check fails, the edit returns `ErrNotWritten` and changes nothing. That refuses, for example, a value whose line would be over 64 KiB, a text that holds a `## ` line, opens a fence or holds a conflict marker, and a `Delete` after which a `: value` line would attach to an explicit key above it.
+- **Only what it names.** An edit changes only the lines of the entry or section it names. Every edit is checked by reading its result again before it is kept: the result must be readable, every other frontmatter line must read as before (the same bytes, the same kind of line), and the edited entry must read back as one entry in a written form, and the document must protect as before (but for `verified`, when the edit is of `verified`); a body edit must leave the frontmatter's lines as they were and read back as the preamble and sections it meant. When the check fails, the edit returns `ErrNotWritten` and changes nothing. That refuses, for example, a value whose line would be over 64 KiB, a text that holds a `## ` line, opens a fence or holds a conflict marker, a `Delete` after which a `: value` line would attach to an explicit key above it, and a `Delete` after which an opaque `{…}` line would become the block's first.
 - **Refusals.** Every edit of a locked or unreadable document, and any `Set`, `SetBlock` or `Delete` of `locked`, returns `ErrProtected`. The engine never writes `locked` (the format's section 6). A repeated key or heading is `ErrRepeated`; deleting an absent key or removing an absent section is `ErrNoKey`. A frontmatter indented as a whole is refused with `ErrNotWritten`, as a line at column 0 would not join it. A key outside the grammar above is `ErrNotWritten`.
 
 ## 8. Bounded read
@@ -113,7 +114,7 @@ So what the codec writes is in a written form by construction, and `Value` reads
 | `Write(Read(b)) == b` for any bytes; nothing panics; a refused edit changes nothing; an edit that succeeds reads back | `FuzzRoundTrip` (its seeds run in `go test`) |
 | `locked: true  # x` is locked | `TestLockedWithAComment` |
 | Each corpus case protects as listed | `TestCorpusProtection` |
-| A generated value or key form the codec cannot read protects; no misread | `TestProtectionProperty` |
+| A generated value or key form the codec cannot read protects; no misread | `TestProtectionProperty`, `TestProtectionBeyondProfile` |
 | `Protection()` equals the profile checker's `Report.Protected`, on every document of the fixture store and on each corpus case placed in a copy of it | `TestProtectionAgreesWithProfile`, `TestProtectionProperty` |
 | After one edit of a readable, unlocked document, every byte outside the edited entry or section is unchanged, and `Read` gives back what was set | `TestEditProperty`, `TestSetKeepsOtherLines` |
 | Setting each key an item may hold leaves no `written-form` or `frontmatter` fault | `TestSetEachItemKey` |
@@ -135,7 +136,13 @@ So what the codec writes is in a written form by construction, and `Value` reads
 - **Protection**: section 4, value for value.
 - **The written forms**: what `Value` decodes is what the profile's `written-form` check accepts, and what `Set` and `SetBlock` write passes it.
 
-The reading code of both is the same today, held so by `TestProtectionAgreesWithProfile`, `TestProtectionProperty` and `TestSetEachItemKey`, which run the profile's `Check` on the codec's output and inputs. A change to either reader changes the other in the same commit, or those tests fail. When the profile checker reads through the codec, the copy goes.
+The reading code of both is the same today but for the cases below, held so by `TestProtectionAgreesWithProfile`, `TestProtectionProperty` and `TestSetEachItemKey`, which run the profile's `Check` on the codec's output and inputs. A change to either reader changes the other in the same commit, or those tests fail. When the profile checker reads through the codec, the copy goes.
+
+Where they differ today, the codec protects and the profile checker does not; the checker is to follow (`TestProtectionBeyondProfile`):
+
+- white space other than a space or a tab around a `locked` or `verified` value (the checker trims any Unicode space, so `locked: <no-break space>false` unlocks there);
+- `locked:false` and `verified:[]`, with no space after the colon;
+- a block that is one flow mapping, `{type: fact, locked: true}`.
 
 ## 11. Not here
 

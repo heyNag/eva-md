@@ -104,21 +104,27 @@ func (d *Doc) Protection() Protection {
 		return Protection{Unreadable: true}
 	}
 	var p Protection
+	if d.flowRoot() {
+		// The block is one flow mapping, whose keys the codec does not
+		// read: it may hold either.
+		p.Locked, p.Verified = true, true
+	}
 	n := 0
 	for _, e := range d.entries {
+		// Only the bare key, its value after a space or a tab, is read by
+		// its value; any other form a person wrote protects.
+		bare := e.canonical && len(e.cont) == 0 && (e.rest == "" || e.rest[0] == ' ' || e.rest[0] == '\t')
 		switch e.key {
 		case unknownKey, mergeKey:
 			// Either may stand for locked or verified.
 			p.Locked, p.Verified = true, true
 		case "locked":
 			n++
-			// Only the bare key is read by its value; any other form a
-			// person wrote locks.
 			raw := lenient(e.rest)
-			unlocked := e.canonical && !quoted(e.rest) && len(e.cont) == 0 && (raw == "false" || raw == "False" || raw == "FALSE")
+			unlocked := bare && !quoted(e.rest) && (raw == "false" || raw == "False" || raw == "FALSE")
 			p.Locked = p.Locked || !unlocked
 		case "verified":
-			empty := e.canonical && len(e.cont) == 0 && map[string]bool{"": true, "[]": true, "{}": true, `""`: true, "null": true, "~": true}[strings.TrimSpace(stripComment(e.rest))]
+			empty := bare && map[string]bool{"": true, "[]": true, "{}": true, `""`: true, "null": true, "~": true}[strings.Trim(stripComment(e.rest), " \t")]
 			p.Verified = p.Verified || !empty
 		}
 	}
@@ -350,6 +356,14 @@ func (d *Doc) put(key string, lines []string) error {
 	if !slices.Equal(d.others(key), nd.others(key)) {
 		return fmt.Errorf("%w: the edit would change how another line reads", ErrNotWritten)
 	}
+	// Only an edit of verified may change how the document protects.
+	was, is := d.Protection(), nd.Protection()
+	if key == "verified" {
+		was.Verified, is.Verified = false, false
+	}
+	if was != is {
+		return fmt.Errorf("%w: the edit would change how the document protects", ErrNotWritten)
+	}
 	got := nd.find(key)
 	if len(lines) == 0 && len(got) != 0 {
 		return fmt.Errorf("%w: the key would still be read", ErrNotWritten)
@@ -393,10 +407,36 @@ func (d *Doc) owned(key string) map[int]bool {
 	return own
 }
 
+// flowRoot reports a block whose first line that is neither blank nor a
+// comment opens a flow mapping, after any tag or anchor: the whole block
+// is then one mapping written on its lines.
+func (d *Doc) flowRoot() bool {
+	for i := 1; i < d.close; i++ {
+		s := strings.Trim(text(d.lines[i]), " \t")
+		if s == "" || strings.HasPrefix(s, "#") {
+			continue
+		}
+		for strings.HasPrefix(s, "!") || strings.HasPrefix(s, "&") {
+			j := strings.IndexAny(s, " \t")
+			if j < 0 {
+				// A tag or anchor alone on its line: the node is on the next.
+				s = ""
+				break
+			}
+			s = strings.TrimLeft(s[j:], " \t")
+		}
+		if s != "" {
+			return strings.HasPrefix(s, "{")
+		}
+	}
+	return false
+}
+
 // lenient reads a scalar as YAML would, for a line a person wrote: a
 // quoted string is unquoted, and a comment after a plain value is dropped.
+// Only a space or a tab is white space to YAML.
 func lenient(rest string) string {
-	s := strings.TrimSpace(rest)
+	s := strings.Trim(rest, " \t")
 	switch {
 	case strings.HasPrefix(s, `"`):
 		var v string
@@ -420,7 +460,7 @@ func lenient(rest string) string {
 		return s
 	}
 	if i := strings.Index(s, " #"); i >= 0 {
-		s = strings.TrimSpace(s[:i])
+		s = strings.TrimRight(s[:i], " \t")
 	}
 	if strings.HasPrefix(s, "#") {
 		return ""
@@ -430,7 +470,7 @@ func lenient(rest string) string {
 
 // quoted reports a value written in quotes.
 func quoted(rest string) bool {
-	s := strings.TrimSpace(rest)
+	s := strings.Trim(rest, " \t")
 	return strings.HasPrefix(s, `"`) || strings.HasPrefix(s, "'")
 }
 

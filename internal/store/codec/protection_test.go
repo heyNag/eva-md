@@ -144,3 +144,45 @@ func TestProtectionProperty(t *testing.T) {
 		}
 	}
 }
+
+// Where the codec reads protection more strictly than the profile checker
+// does today: each value is one YAML reads as a lock or a mark, or as a
+// value that is not a bare false or an empty mark, so each protects.
+// SPEC.md section 10 names these cases.
+func TestProtectionBeyondProfile(t *testing.T) {
+	cases := []struct {
+		front string
+		want  Protection
+	}{
+		// Only a space or a tab is white space to YAML: these values are
+		// strings holding a no-break space, an em space or a vertical tab.
+		{"locked:  false", Protection{Locked: true}},
+		{"locked: false ", Protection{Locked: true}},
+		{"locked: false  # c", Protection{Locked: true}},
+		{"locked: false\v", Protection{Locked: true}},
+		{"locked:  false", Protection{Locked: true}},
+		{"verified:  []", Protection{Verified: true}},
+		{"verified: ~ ", Protection{Verified: true}},
+		// With no space after the colon the line is no key to YAML: the
+		// codec cannot read it, so it protects.
+		{"locked:false", Protection{Locked: true}},
+		{"verified:[]", Protection{Verified: true}},
+		// A block that is one flow mapping holds its keys on its lines.
+		{"{type: fact, locked: false}", Protection{Locked: true, Verified: true}},
+		{"# a note\n!!map {locked: true}", Protection{Locked: true, Verified: true}},
+		{"&a\n{\n  locked: true\n}", Protection{Locked: true, Verified: true}},
+		{"  { type: fact }", Protection{Locked: true, Verified: true}},
+	}
+	for _, c := range cases {
+		if got := Read([]byte("---\n" + c.front + "\n---\nbody\n")).Protection(); got != c.want {
+			t.Errorf("%q: %+v, want %+v", c.front, got, c.want)
+		}
+	}
+	// What stays unprotected: a bare false and an empty mark with spaces
+	// or tabs around them, a flow mapping under a key, a comment.
+	for _, front := range []string{"locked:\tfalse\t", "locked: false  # c", "verified:\t[]\t", "title: {a: b}\nlocked: false", "# {locked: true}\ntype: fact"} {
+		if got := Read([]byte("---\n" + front + "\n---\n")).Protection(); got != (Protection{}) {
+			t.Errorf("%q: %+v, want none", front, got)
+		}
+	}
+}
