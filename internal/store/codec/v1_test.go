@@ -126,6 +126,7 @@ func TestV1Differences(t *testing.T) {
 		{"no-space-after-colon", `the title "Tide feed"`, refused(ErrNotWritten, Protection{})},
 		{"tab-indent", `the list ["tide-tables"]`, refused(ErrNotWritten, Protection{})},
 		{"text-after-quote", `the title "\"Tide\" feed"`, refused(ErrNotWritten, Protection{})},
+		{"hash-in-source-key", `a source with the key "note #1"`, refused(ErrNotWritten, Protection{})},
 		// The one row where v1 protected and the codec does not: an empty
 		// mapping is no verified mark (the format's section 6), though v1
 		// read it as a record with no one and no time.
@@ -181,6 +182,16 @@ func TestReadV1Refusals(t *testing.T) {
 		{"a line before the first key", page("secret_word_zq\ntitle: x\n"), ErrNotWritten},
 		{"text after a quoted value", page("secret_word_zq: \"a\" b\n"), ErrNotWritten},
 		{"text after a flow list", page("repos: [a] b\n"), ErrNotWritten},
+		{"a source line that is no pair", page("sources:\n  - resource: x\n    secret_word_zq\n"), ErrNotWritten},
+		{"a source pair before any item", page("sources:\n  secret_word_zq: x\n"), ErrNotWritten},
+		{"a verified line that is no pair", page("verified:\n  - by: a\n    secret_word_zq # x\n"), ErrNotWritten},
+		{"a generated line that is no pair", page("generated:\n  by: a\n  secret_word_zq\n"), ErrNotWritten},
+		{"text after a quoted source value", page("sources:\n  - resource: 'a\\' secret_word_zq'\n"), ErrNotWritten},
+		{"a source value that runs on", page("sources:\n  - resource: \"secret_word_zq\n"), ErrNotWritten},
+		{"text after a quoted value in a flow mapping", page("generated: { by: \"x\" secret_word_zq, at: y }\n"), ErrNotWritten},
+		{"a flow mapping item that is no pair", page("verified: { secret_word_zq }\n"), ErrNotWritten},
+		{"a verified item that is no mapping", page("verified: [secret_word_zq]\n"), ErrNotWritten},
+		{"a source item's flow mapping item that is no pair", page("sources:\n  - { resource: x, secret_word_zq }\n"), ErrNotWritten},
 	} {
 		p, err := ReadV1(c.in)
 		if !errors.Is(err, c.want) {

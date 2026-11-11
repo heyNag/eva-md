@@ -114,6 +114,10 @@ func named(key string) string {
 	return "a key"
 }
 
+// errNoPair is text under generated, verified or sources that holds no
+// pair of the mapping or list it is in.
+var errNoPair = errors.New("text that is no pair")
+
 // set reads one entry into p.
 func (p *V1Page) set(e *entry) error {
 	s := uncomment(e.rest)
@@ -151,31 +155,50 @@ func (p *V1Page) set(e *entry) error {
 			p.StaleAfter = v
 		}
 	case "generated":
-		var m map[string]string
+		m, ok := blockMap(lines)
 		if strings.HasPrefix(s, "{") {
-			m = flowMap(s)
-		} else if m = blockMap(lines); len(m) == 0 {
+			m, ok = flowMap(s)
+		}
+		switch {
+		case !ok:
+			return errNoPair
+		case len(m) == 0 && !strings.HasPrefix(s, "{"):
 			return nil
 		}
 		p.Generated = &V1Stamp{By: m["by"], At: m["at"]}
 	case "verified":
 		switch {
 		case strings.HasPrefix(s, "{"):
-			m := flowMap(s)
+			m, ok := flowMap(s)
+			if !ok {
+				return errNoPair
+			}
 			p.Verified = append(p.Verified, V1Stamp{By: m["by"], At: m["at"]})
 		case strings.HasPrefix(s, "["):
 			for _, it := range flowItems(s[1 : len(s)-1]) {
-				if m := flowMap(strings.TrimSpace(it)); m["by"] != "" || m["at"] != "" {
+				m, ok := flowMap(strings.TrimSpace(it))
+				if !ok {
+					return errNoPair
+				}
+				if m["by"] != "" || m["at"] != "" {
 					p.Verified = append(p.Verified, V1Stamp{By: m["by"], At: m["at"]})
 				}
 			}
 		default:
-			for _, m := range listOfMaps(lines) {
+			items, ok := listOfMaps(lines)
+			if !ok {
+				return errNoPair
+			}
+			for _, m := range items {
 				p.Verified = append(p.Verified, V1Stamp{By: m["by"], At: m["at"]})
 			}
 		}
 	case "sources":
-		for _, m := range listOfMaps(lines) {
+		items, ok := listOfMaps(lines)
+		if !ok {
+			return errNoPair
+		}
+		for _, m := range items {
 			src := V1Source{ID: m["id"], Resource: m["resource"], Title: m["title"], Author: m["author"], LastModified: m["last_modified"]}
 			if n, err := strconv.Atoi(m["usage_count"]); err == nil {
 				src.UsageCount = n
@@ -310,7 +333,8 @@ func flowItems(s string) []string {
 }
 
 // cutPair splits "key: value" at the first colon outside quotes, as v1
-// did, and unquotes both sides.
+// did, and unquotes both sides. A value that opens a quoted string or a
+// collection it does not end with is no pair: YAML reads it otherwise.
 func cutPair(s string) (key, value string, ok bool) {
 	prev := byte(' ')
 	for i := 0; i < len(s); i++ {
@@ -320,43 +344,59 @@ func cutPair(s string) (key, value string, ok bool) {
 				i = j
 			}
 		case c == ':':
-			return unquoteV1(s[:i]), unquoteV1(s[i+1:]), true
+			v := strings.TrimSpace(s[i+1:])
+			if closeOf(v) != len(v) {
+				return "", "", false
+			}
+			return unquoteV1(s[:i]), unquoteV1(v), true
 		}
 		prev = s[i]
 	}
 	return "", "", false
 }
 
-// flowMap reads a flow mapping, "{ by: x, at: y }", into its pairs.
-func flowMap(s string) map[string]string {
+// flowMap reads a flow mapping, "{ by: x, at: y }", into its pairs. It is
+// false when an item holds text but no pair.
+func flowMap(s string) (map[string]string, bool) {
 	out := map[string]string{}
 	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
 		s = s[1 : len(s)-1]
 	}
 	for _, it := range flowItems(s) {
-		if k, v, ok := cutPair(it); ok && k != "" {
+		k, v, ok := cutPair(it)
+		if !ok && strings.Trim(it, " \t") != "" {
+			return nil, false
+		}
+		if ok && k != "" {
 			out[k] = v
 		}
 	}
-	return out
+	return out, true
 }
 
 // blockMap reads the lines under a key as one mapping, a "- " before a
-// pair dropped.
-func blockMap(lines []string) map[string]string {
+// pair dropped. It is false when a line holds text but no pair, as
+// "note #1: x", which YAML reads as "note" and a comment.
+func blockMap(lines []string) (map[string]string, bool) {
 	out := map[string]string{}
 	for _, l := range lines {
 		t := strings.TrimPrefix(strings.Trim(uncomment(l), " \t"), "-")
-		if k, v, ok := cutPair(t); ok {
+		k, v, ok := cutPair(t)
+		if !ok && strings.Trim(t, " \t") != "" {
+			return nil, false
+		}
+		if ok {
 			out[k] = v
 		}
 	}
-	return out
+	return out, true
 }
 
 // listOfMaps reads the lines under a key as a block list of mappings, each
 // item a flow mapping on its "- " line or pairs on it and the lines under.
-func listOfMaps(lines []string) []map[string]string {
+// It is false when a line holds text but no pair of an item, words v1 kept
+// or dropped and YAML reads otherwise.
+func listOfMaps(lines []string) ([]map[string]string, bool) {
 	var out []map[string]string
 	var cur map[string]string
 	for _, l := range lines {
@@ -365,17 +405,25 @@ func listOfMaps(lines []string) []map[string]string {
 			cur = map[string]string{}
 			out = append(out, cur)
 			if t = strings.Trim(rest, " \t"); strings.HasPrefix(t, "{") {
-				for k, v := range flowMap(t) {
+				m, ok := flowMap(t)
+				if !ok {
+					return nil, false
+				}
+				for k, v := range m {
 					cur[k] = v
 				}
 				continue
 			}
 		}
-		if k, v, ok := cutPair(t); ok && cur != nil {
+		k, v, ok := cutPair(t)
+		switch {
+		case ok && cur != nil:
 			cur[k] = v
+		case t != "":
+			return nil, false
 		}
 	}
-	return out
+	return out, true
 }
 
 // blockList reads the lines under a key as a block list of scalars, all at

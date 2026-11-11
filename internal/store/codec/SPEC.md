@@ -177,14 +177,15 @@ They also differ on reading that does not change protection today:
 
 `ReadV1(b) (V1Page, error)` reads a page of a v1 wiki through `Read`, as v1 read it, for the migration (ST-07) and frozen system pages (DV-35). `V1Page` names its fields as v1's page model did: `Type`, `Title`, `Description`, `Status`, `StaleAfter`, `Generated`, `Verified`, `Sources`, `Extra` (every other key but `resource`, `tags`, `governance` and `code_refs`, unused), `Body` (the bytes after the closing line), and `Doc`. Protection is `Doc.Protection()`; `Extra["locked"]` is never read as a lock.
 
-It reads what v1 wrote (flow mappings with plain values, block lists of mappings, flow lists, JSON, plain scalars) as v1 did, white space trimmed and numbers as `float64`. Where v1 misread a hand edit it reads as YAML: a comment after a value is dropped, a single-quoted value unquoted, a comment line is no key. It refuses what it would guess at, returning only the Doc: `ErrUnreadable` (section 3: a byte-order mark, a line over 64 KiB), `ErrRepeated`, and `ErrNotWritten` for a block scalar, a scalar on the lines below its key, a tag, anchor or alias, a value that runs on, a key read as `*` or `<<`, a flow-mapping block. An error names only keys v1 wrote.
+It reads what v1 wrote (flow mappings with plain values, block lists of mappings, flow lists, JSON, plain scalars) as v1 did, white space trimmed and numbers as `float64`. Where v1 misread a hand edit it reads as YAML: a comment after a value is dropped, a single-quoted value unquoted, a comment line is no key. It refuses what it would guess at, returning only the Doc: `ErrUnreadable` (section 3: a byte-order mark, a line over 64 KiB), `ErrRepeated`, and `ErrNotWritten` for a block scalar, a scalar on the lines below its key, a tag, anchor or alias, a value that runs on, text after a quoted value or a collection, a key read as `*` or `<<`, a flow-mapping block, a line that is no key (`title:x`, a tab, less indented than the block), and text in `generated`, `verified` or `sources` that is no pair (`note #1: x`). An error names only keys v1 wrote.
 
 One difference protects less: `verified: {}` was verified to v1 and is not here (the format's section 6).
 
 | Invariant | Test |
 | --- | --- |
 | Each fixture page, one of each type v1 writes, reads as its golden, v1's reading | `TestV1Goldens` |
-| Each difference, and the codec's answer | `TestV1Differences`, `TestReadV1Forms`, `TestReadV1Refusals` |
+| Each form v1 read but did not write, in `forms/`, reads as its golden | `TestReadV1Forms` |
+| Each difference, and the codec's answer | `TestV1Differences`, `TestReadV1Refusals` |
 | No panic; a refusal holds only the Doc | `FuzzReadV1` |
 
 The tests in `v1oracle` hold the goldens, and the differences, against v1's own reader while it is in `go.mod`, with 10,000 pages from a seeded generator; ST-13 deletes that package.
