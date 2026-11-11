@@ -126,7 +126,6 @@ func Run(ctx context.Context, o Options) (Report, error) {
 				continue
 			}
 			counts[host+"/files/listed"]++
-			counts[facts024+"/"+host+"/files"]++
 			k := sessions[node(host, f.ID)]
 			if k == nil {
 				counts[facts024+"/"+host+"/no_eva_md_file"]++
@@ -351,6 +350,17 @@ func readFile(ctx context.Context, o Options, away func(string) bool, g *groups,
 		f.status = statusUnread
 	default:
 		f.status, f.f = statusRead, &got
+		if subagent {
+			got.t.add(facts027, k.host, "subagent_files", "read")
+			if slices.Contains(got.ids, k.id) {
+				got.t.add(facts027, k.host, "subagent_files", "of_another_chat")
+			}
+		} else {
+			got.t.add(facts013, k.host, "file_ids", idForm(id))
+			if strings.Contains(id, ".") {
+				got.t.add(facts013, k.host, "file_ids", "with_dot")
+			}
+		}
 	}
 	return f
 }
