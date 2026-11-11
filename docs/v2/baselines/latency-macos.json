@@ -1,0 +1,173 @@
+{
+  "v": 1,
+  "measured_on": "linux",
+  "machine": "x86_64, 4 CPUs",
+  "user": "not root",
+  "load_average_at_start": 2.85,
+  "commit": "eeb63ed9a6efa7867304c0a2b688ef7f932394e8",
+  "runs": 4,
+  "p95": "nearest rank, process start included",
+  "taken_at": "2026-11-11T00:41:03+00:00",
+  "metrics": {
+    "capture": {
+      "n": 400,
+      "p95_ms": 23.742,
+      "median_ms": 18.548,
+      "target_ms": 50
+    },
+    "capture_with_spawn": {
+      "n": 120,
+      "p95_ms": 23.539,
+      "median_ms": 18.664,
+      "target_ms": 50
+    },
+    "code_brief": {
+      "n": 40,
+      "p95_ms": 56.984,
+      "median_ms": 50.39,
+      "target_ms": 300
+    },
+    "code_prompt": {
+      "n": 100,
+      "p95_ms": 30.451,
+      "median_ms": 25.41,
+      "target_ms": 50
+    },
+    "process_start_claude_code": {
+      "n": 400,
+      "p95_ms": 14.851,
+      "median_ms": 10.748,
+      "target_ms": null
+    },
+    "process_start_codex": {
+      "n": 400,
+      "p95_ms": 15.59,
+      "median_ms": 12.298,
+      "target_ms": null
+    },
+    "prompt_after_brief": {
+      "n": 400,
+      "p95_ms": 23.343,
+      "median_ms": 18.245,
+      "target_ms": 50
+    },
+    "prompt_with_pointers": {
+      "n": 400,
+      "p95_ms": 29.112,
+      "median_ms": 23.513,
+      "target_ms": 50
+    },
+    "prompt_with_recall": {
+      "n": 400,
+      "p95_ms": 36.749,
+      "median_ms": 30.001,
+      "target_ms": 50
+    },
+    "real_install_capture": {
+      "n": 200,
+      "p95_ms": 23.161,
+      "median_ms": 18.887,
+      "target_ms": 50
+    },
+    "real_install_prompt": {
+      "n": 200,
+      "p95_ms": 26.023,
+      "median_ms": 20.82,
+      "target_ms": 50
+    },
+    "real_install_startup": {
+      "n": 80,
+      "p95_ms": 111.815,
+      "median_ms": 93.235,
+      "target_ms": 300
+    },
+    "session_end": {
+      "n": 120,
+      "p95_ms": 25.505,
+      "median_ms": 19.001,
+      "target_ms": 200
+    },
+    "startup": {
+      "n": 40,
+      "p95_ms": 143.34,
+      "median_ms": 67.802,
+      "target_ms": 300
+    },
+    "startup_with_programs": {
+      "n": 40,
+      "p95_ms": 137.078,
+      "median_ms": 111.838,
+      "target_ms": 300
+    },
+    "startup_with_records": {
+      "n": 40,
+      "p95_ms": 93.228,
+      "median_ms": 82.382,
+      "target_ms": 300
+    },
+    "transcript_capture": {
+      "n": 400,
+      "p95_ms": 24.479,
+      "median_ms": 18.795,
+      "target_ms": 50
+    },
+    "turn_claude_code_tool": {
+      "n": 200,
+      "p95_ms": 19.732,
+      "median_ms": 15.156,
+      "target_ms": 50
+    },
+    "turn_codex_tool": {
+      "n": 200,
+      "p95_ms": 19.202,
+      "median_ms": 16.51,
+      "target_ms": 50
+    }
+  },
+  "counts": {
+    "hook_launch_claude_code_processes": 1,
+    "hook_launch_codex_processes": 2,
+    "turn_claude_code_hooks": 52,
+    "turn_claude_code_processes": 56,
+    "turn_codex_hooks": 52,
+    "turn_codex_processes": 108
+  },
+  "per_run": {
+    "real_install_brief_command_median_ms": [
+      76.927,
+      81.406,
+      79.546,
+      82.184
+    ],
+    "real_install_brief_command_p95_ms": [
+      81.53,
+      97.796,
+      88.0,
+      87.975
+    ],
+    "turn_claude_code_ms_summed": [
+      790.322,
+      759.287,
+      854.137,
+      873.51
+    ],
+    "turn_claude_code_blocking_ms_summed": [
+      34.333,
+      31.248,
+      37.381,
+      32.784
+    ],
+    "turn_codex_ms_summed": [
+      892.726,
+      882.029,
+      902.78,
+      829.903
+    ],
+    "turn_codex_blocking_ms_summed": [
+      35.742,
+      40.562,
+      35.143,
+      32.61
+    ]
+  }
+}

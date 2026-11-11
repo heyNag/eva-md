@@ -231,6 +231,8 @@ The latency benchmark runs the built binary against an isolated temporary home. 
 python3 -I scripts/benchmark.py --binary bin/eva-md --cwd "$PWD"
 ```
 
+To compare two builds, `python3 -I scripts/benchmark.py --compare OLD NEW --cwd "$PWD"` runs both in alternating runs and exits 1 when the new one is slower than the machine's noise allows; CI's macOS job runs it on every change, as a report for now. Its rule is in [docs/v2/baselines/README.md](docs/v2/baselines/README.md).
+
 The live accuracy run, `go run ./cmd/live-accuracy --host claude-code --spend-model-quota` (or `--host codex`), sends the accuracy suite's 12 fact scripts through that host's real update command and prints the metrics against the Wiki updates stage's target. It makes 21 model calls on the host's subscription, and without `--spend-model-quota` it calls nothing. No release builds it; see [verification.md](docs/verification.md#live-accuracy-run).
 
 ### In a Linux cloud session

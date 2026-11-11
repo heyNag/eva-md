@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline capture and resume benchmark for a built eva-md binary.
 
-All state goes to an isolated temporary HOME; the real setup is never touched.
+All state goes to isolated temporary homes; the real setup is never touched.
 --cwd must be an existing folder outside temporary folders (hooks skip TMPDIR
 and /tmp). Use a git repository, such as this checkout, since that is the case
 the latency targets are for. The transcript-recovery figure is
@@ -10,16 +10,49 @@ installed binary the hooks spawn for an update or maintain is a stand-in that
 only counts its runs, so a benchmark never starts a real update, a model call
 or a commit. Two searches over the padded inbox, before and after eva-md
 index, are reported as figures only.
+
+The scenarios come from a list: the padded inbox below, and every file in
+scripts/bench/ (see core.py there), each in a home of its own. Every hook
+figure holds the start of its processes, on the host's launch path.
+
+With --compare OLD NEW, the gate: each round runs every scenario on OLD and
+NEW twice each, alternating, and the gate exits 1 when NEW is slower than
+OLD on a hook figure whose controls show the machine quiet enough to judge
+it, or fails a scenario clearly more often than OLD (see decide in
+scripts/bench/core.py), 0 otherwise, and 2 when it could not run.
 """
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
+import platform
 import select
 import subprocess
-import tempfile
+import sys
 import time
 from datetime import datetime, timedelta, timezone
+
+BENCH = Path(__file__).resolve().parent/"bench"
+
+
+def load_file(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load(folder=BENCH):
+    """Loads core.py, as evabench, then every scenario file in folder, by
+    their paths, since python3 -I ignores the script's own folder."""
+    sys.dont_write_bytecode = True
+    core = load_file("evabench", folder/"core.py")
+    for path in sorted(folder.glob("*.py")):
+        if path.name != "core.py" and not path.name.startswith("test_"):
+            load_file("evabench_"+path.stem, path)
+    return core
 
 
 class MCP:
@@ -107,42 +140,12 @@ def mcp_timings(binary, env, cwd):
     return starts, exits, searches, shows, statuses
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--binary", type=Path, required=True)
-    p.add_argument("--cwd", type=Path, required=True)
-    p.add_argument("--output", type=Path)
-    a = p.parse_args()
-    binary = a.binary.resolve(strict=True)
-    cwd = a.cwd.resolve(strict=True)
-    # A home under /tmp keeps the binary's path, which every pointer names,
-    # near the length of an installed one's.
-    with tempfile.TemporaryDirectory(prefix="eva-md-m1-", dir="/tmp") as home:
-        env = os.environ.copy()
-        env.update(HOME=home, GIT_CONFIG_GLOBAL=str(Path(home)/"gitconfig"), GIT_CONFIG_NOSYSTEM="1",
-                   EVA_MD_INNER="", CLAUDE_CODE_REMOTE="", CLAUDE_CODE_ENTRYPOINT="", TMPDIR="/tmp")
-        env.pop("GIT_DIR", None); env.pop("GIT_WORK_TREE", None)
-        # The installed binary the hooks spawn: the stand-in that counts its
-        # runs. Its first run is outside the timings, since macOS checks a new
-        # executable then.
-        standin=Path(home)/".local/share/eva-md/bin/eva-md"
-        standin.parent.mkdir(parents=True,mode=0o700)
-        standin.write_text('#!/bin/sh\necho "$*" >> "$HOME/spawned"\n');standin.chmod(0o700)
-        subprocess.run([str(standin),"warm-up"],env=env,check=True,timeout=10)
-        spawned=Path(home)/"spawned"
-
-        def hook(host, event, sid, **kwargs):
-            payload = dict(hook_event_name=event, session_id=sid, cwd=str(cwd), **kwargs)
-            start = time.perf_counter()
-            r = subprocess.run([str(binary), "hook", "--host", host], input=json.dumps(payload),
-                               text=True, capture_output=True, env=env, timeout=4)
-            elapsed = (time.perf_counter()-start)*1000
-            if r.returncode or r.stderr:
-                raise RuntimeError("hook failed or wrote diagnostics")
-            if event == "Stop" and r.stdout != ("{}" if host == "codex" else ""):
-                raise RuntimeError("invalid Stop output")
-            return r.stdout, elapsed
-
+def padded_inbox(run, evabench):
+    """The benchmark's first scenario: a 50 MB inbox, a wiki of 400 system
+    pages and a full recall index, with the records of busy days."""
+    binary, cwd = run.binary, run.cwd
+    with evabench.Home(binary, cwd, prefix="eva-md-m1-") as h:
+        home, env, spawned, hook = str(h.path), h.env, h.spawned, h.hook
         # With no config, a capture-only install, the day's first event
         # starts maintain, for its search index step: the stand-in's one
         # maintain run.
@@ -394,11 +397,173 @@ def main():
         for name,values,target in (("code_brief",code["brief"],300),("code_prompt",code["prompts"],50)):
             report.update({name+"_samples":len(values),name+"_p95_ms":round(p95(values),3) if values else None,
                            name+"_target_met":bool(values) and p95(values)<target})
-        encoded=json.dumps(report,indent=2)+"\n"
-        if a.output:
-            a.output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-            a.output.write_text(encoded);a.output.chmod(0o600)
-        print(encoded,end="")
+        for key,value in report.items():
+            run.put(key,value)
+        # The hook figures the gate compares, with their targets. The MCP
+        # server's and search's figures are not a hook's, and are reported
+        # only.
+        for name,values,target in (("capture",capture,50),("startup",startup,300),("startup_with_programs",startup_programs,300),
+                                   ("transcript_capture",recovery,50),("prompt_after_brief",prompts,50),
+                                   ("prompt_with_pointers",pointed,50),("prompt_with_recall",recalled["prompts"],50),
+                                   ("capture_with_spawn",stop_spawn,50),("session_end",ends,200),
+                                   ("startup_with_records",startup_records,300),("code_brief",code["brief"],300),
+                                   ("code_prompt",code["prompts"],50)):
+            run.metric(name,values,target)
+
+
+def run_once(core, binary, cwd, failures=None):
+    """Runs every scenario, in the order of their places, on binary; returns
+    the run with its report and the gate's samples. A scenario that fails
+    stops the run, unless failures is given, as by the gate: then any error
+    it raises is added there under the scenario's name, the samples it gave
+    are dropped, and the next scenario runs. The gate counts the failure
+    against the binary that had it."""
+    run = core.Run(binary, cwd)
+    for s in core.ordered():
+        if failures is None:
+            s.fn(run)
+            continue
+        before = set(run.metrics)
+        try:
+            s.fn(run)
+        except Exception as e:
+            failures.setdefault(s.name, []).append("%s: %s" % (type(e).__name__, e))
+            for name in set(run.metrics) - before:
+                del run.metrics[name]
+    return run
+
+
+def write(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_text(data); path.chmod(0o600)
+
+
+ROLE_NAMES = {"old": "old", "new": "new", "old_again": "old (again)", "new_again": "new (again)"}
+
+
+def compare(core, a):
+    """The gate: each round runs OLD and NEW twice each, as the roles old,
+    new, old_again and new_again, in the order core.schedule gives. Prints
+    the verdict and returns its exit code."""
+    old, new = a.compare[0].resolve(strict=True), a.compare[1].resolve(strict=True)
+    cwd = a.cwd.resolve(strict=True)
+    load = os.getloadavg()[0]
+    with core.Home(new, cwd) as h:
+        for binary in (old, new):
+            # Each binary's first start is outside the timings, since macOS
+            # checks a new executable then.
+            subprocess.run([str(binary), "version"], capture_output=True, env=h.env, timeout=30)
+    binaries = {role: (old if core.BINARY[role] == "old" else new) for role in core.ROLES}
+    samples = {role: {} for role in core.ROLES}
+    # A scenario that fails in a run leaves that run's figures of it out,
+    # and counts against the binary that failed it (core.scenarios).
+    targets, runs, failures = {}, [], {role: {} for role in core.ROLES}
+    for rnd, role in core.schedule(a.rounds):
+        print("benchmark: round %d of %d, %s" % (rnd, a.rounds, ROLE_NAMES[role]), file=sys.stderr, flush=True)
+        run = run_once(core, binaries[role], cwd, failures[role])
+        for name, values in run.metrics.items():
+            samples[role].setdefault(name, []).extend(values)
+        targets.update(run.targets)
+        runs.append({"round": rnd, "binary": role, "report": run.report})
+    # A ceiling factor of 0 turns the ceilings off.
+    ceilings = {name: (target*a.ceiling_factor if target is not None and a.ceiling_factor else None)
+                for name, target in targets.items()}
+    verdict = core.decide(samples, ceilings, failures, a.rounds)
+    gate = {"verdict": verdict["verdict"], "exit": verdict["exit"], "old": str(old), "new": str(new),
+            "rounds": a.rounds, "schedule": [role for _, role in core.schedule(a.rounds)],
+            "ceiling_factor": a.ceiling_factor, "launch_paths": core.LAUNCH_PATHS,
+            "load_average_at_start": round(load, 2), "decision": verdict, "scenario_failures": failures, "runs": runs,
+            # Every sample, so the verdict can be worked out again.
+            "samples": {role: {name: [round(v, 3) for v in values] for name, values in sorted(by.items())}
+                        for role, by in samples.items()},
+            "checked_at": datetime.now(timezone.utc).isoformat()}
+    if a.output:
+        write(a.output, json.dumps(gate, indent=2)+"\n")
+    if a.baseline:
+        write(a.baseline, json.dumps(baseline(core, a, samples, targets, runs, load), indent=2)+"\n")
+    for name, m in verdict["metrics"].items():
+        print("%-28s old %8.1f ms  new %8.1f ms  ratio %6s  lower bound %6s  noise %6s  %s" % (
+            name, m["p95_base_ms"], m["p95_ms"], m["ratio"], m["ratio_low"], m["noise"],
+            "; ".join(m["reasons"] + m["unsettled"]) or "ok"))
+    for name in verdict["not_compared"]:
+        print("%-28s not compared: the old binary gave it no samples" % name)
+    for role, by in failures.items():
+        for name, errors in sorted(by.items()):
+            print("the %s binary failed the scenario %s in %d of %d runs: %s" % (
+                ROLE_NAMES[role], name, len(errors), a.rounds, errors[0]))
+    for failure in verdict["failures"]:
+        print("fails: %s" % failure)
+    print("latency gate: %s" % verdict["verdict"] + {
+        "not judged": " (a figure rose no more than the machine put between two sets of runs that a change cancels out of, so it was too noisy to judge)",
+        "could not run": " (a scenario failed in every run of both binaries)",
+        "fail": "", "pass": ""}[verdict["verdict"]])
+    return verdict["exit"]
+
+
+def gate(prepare, a):
+    """Runs the gate on the scenarios prepare loads; anything that stops it,
+    of any kind, is exit 2, never the 1 of a regression."""
+    try:
+        return compare(prepare(), a)
+    except Exception as e:
+        print("latency gate: could not run: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+        print("latency gate: could not run")
+        return 2
+
+
+def baseline(core, a, samples, targets, runs, load):
+    """The baseline file: the new binary's figures over its runs, both its
+    roles, as docs/v2/baselines/README.md describes."""
+    counts, per_run = {}, {}
+    for run in runs:
+        if core.BINARY[run["binary"]] == "new":
+            for key, value in run["report"].items():
+                if key.endswith("_processes") or key.endswith("_hooks"):
+                    counts.setdefault(key, value)
+                elif key.endswith("_ms_summed") or (key.startswith("real_install_brief_command_") and key.endswith("_ms")):
+                    per_run.setdefault(key, []).append(value)
+    new = {name: core.pooled(samples, core.GATE_SPLIT[1], name) for name in sorted(targets)}
+    return {"v": 1, "measured_on": platform.system().lower(), "machine": "%s, %d CPUs" % (platform.machine(), os.cpu_count() or 0),
+            "user": "root" if os.geteuid() == 0 else "not root",
+            "load_average_at_start": round(load, 2), "commit": a.commit or "",
+            "runs": sum(1 for run in runs if core.BINARY[run["binary"]] == "new"),
+            "p95": "nearest rank, process start included", "taken_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "metrics": {name: {"n": len(v), "p95_ms": round(core.nearest_rank(v), 3), "median_ms": round(core.nearest_rank(v, 0.5), 3),
+                               "target_ms": targets.get(name)} for name, v in new.items() if v},
+            "counts": counts, "per_run": per_run}
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--binary", type=Path)
+    p.add_argument("--compare", type=Path, nargs=2, metavar=("OLD", "NEW"))
+    p.add_argument("--cwd", type=Path, required=True)
+    p.add_argument("--output", type=Path)
+    p.add_argument("--rounds", type=int, default=2, help="gate: rounds, each of which runs each binary twice")
+    p.add_argument("--ceiling-factor", type=float, default=2.0, help="gate: a hook's ceiling is its target times this; 0 for none")
+    p.add_argument("--baseline", type=Path, help="gate: write the new binary's figures as a baseline file here")
+    p.add_argument("--commit", help="gate: the new binary's commit, for the baseline file")
+    a = p.parse_args()
+    if (a.binary is None) == (a.compare is None):
+        p.error("give --binary, or --compare OLD NEW")
+    if a.binary and (a.baseline or a.commit):
+        p.error("--baseline and --commit are for --compare")
+    if a.rounds < 1 or a.ceiling_factor < 0:
+        p.error("--rounds must be 1 or more, and --ceiling-factor 0 or more")
+
+    def prepare():
+        core = load()
+        core.scenario(100, "padded-inbox")(lambda run: padded_inbox(run, core))
+        return core
+    if a.compare:
+        return gate(prepare, a)
+    core = prepare()
+    run = run_once(core, a.binary.resolve(strict=True), a.cwd.resolve(strict=True))
+    encoded = json.dumps(run.report, indent=2)+"\n"
+    if a.output:
+        write(a.output, encoded)
+    print(encoded, end="")
+    return 0
 
 
 def code_scenarios(hook, cwd, wiki, state, key):
@@ -502,4 +667,4 @@ def recall_scenario(hook, wiki, key):
 
 
 if __name__=="__main__":
-    main()
+    sys.exit(main())
