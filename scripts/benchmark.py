@@ -17,9 +17,8 @@ figure holds the start of its processes, on the host's launch path.
 
 With --compare OLD NEW, the gate: each round runs every scenario on OLD and
 NEW twice each, alternating, and the gate exits 1 when NEW is slower than
-OLD on a hook figure whose controls, splits of each binary's own runs, show
-the machine quiet enough to judge it, or fails a scenario clearly more often
-than OLD (see decide in
+OLD on a hook figure whose controls show the machine quiet enough to judge
+it, or fails a scenario clearly more often than OLD (see decide in
 scripts/bench/core.py), 0 otherwise, and 2 when it could not run.
 """
 import argparse
