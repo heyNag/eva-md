@@ -125,7 +125,7 @@ func TestEveryNoticeHasItsKind(t *testing.T) {
 func TestToolLinesOfTheWiki(t *testing.T) {
 	wiki := []string{"/w/wiki", "/real/wiki"}
 	for _, c := range []struct {
-		line                     string
+		line                    string
 		writes, edits, unplaced int
 	}{
 		{"Bash eva-md system write x (exit 0)", 1, 0, 0},
