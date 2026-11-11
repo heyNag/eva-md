@@ -28,9 +28,26 @@ const (
 func updatesOn(c config.Config) bool { return c.Updates && c.WikiPath != "" }
 
 // queueUpdate asks for a detached eva-md update of sessions, each
-// "<host>:<id>", unless updates are off.
-func queueUpdate(spawns *[][]string, env Env, sessions ...string) {
-	queueCatchUp(spawns, env, false, sessions...)
+// "<host>:<id>", unless updates are off, naming the trigger that event
+// fired (see eventTrigger).
+func queueUpdate(spawns *[][]string, env Env, event string, sessions ...string) {
+	queueJob(spawns, env, eventTrigger(event), false, sessions...)
+}
+
+// eventTrigger names the trigger an event fires, for the run log: an event
+// starts an update only for the reason its trigger names.
+func eventTrigger(event string) string {
+	switch event {
+	case "SessionEnd":
+		return update.TriggerEnd
+	case "PreCompact":
+		return update.TriggerCompact
+	case "Stop":
+		return update.TriggerStop
+	case "UserPromptSubmit":
+		return update.TriggerGap
+	}
+	return ""
 }
 
 // sweepFlag asks a catch-up job to take the day's sweep too (see eva-md
@@ -44,12 +61,23 @@ const sweepFlag = "--sweep"
 // taken it today, and the job with it when it has no session to update
 // (see withSweep).
 func queueCatchUp(spawns *[][]string, env Env, sweep bool, sessions ...string) {
+	queueJob(spawns, env, update.TriggerStart, sweep, sessions...)
+}
+
+// queueJob asks for an update of sessions, named for trigger with
+// update.TriggerFlag after them, and with sweep for the day's sweep. A job
+// for the sweep alone names no trigger: it records the sessions it picks as
+// the sweep's.
+func queueJob(spawns *[][]string, env Env, trigger string, sweep bool, sessions ...string) {
 	if !updatesOn(env.Config) {
 		return
 	}
 	args := []string{"update"}
 	for _, s := range sessions {
 		args = append(args, "--session", s)
+	}
+	if len(sessions) > 0 && trigger != "" {
+		args = append(args, update.TriggerFlag, trigger)
 	}
 	if sweep {
 		args = append(args, sweepFlag)

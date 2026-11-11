@@ -25,10 +25,10 @@ Rules every card carries, so they are said once here:
 | [EV-12](EV-12.md) | The results store and gates | merged |
 | [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 passes with no fail on macOS |
-| [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | built, reviewed and fixed on `pkg/ev-16b-r1`; the fix changed the rule, so it is verified by simulation before it merges; that is paused while the counters are fixed |
+| [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | built, reviewed and fixed on `pkg/ev-16b-r1`; the fix changed the rule, so two verifiers are measuring it by simulation before it merges |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | after EV-16b |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | built; in review |
-| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | built and reviewed; its fix is being made |
+| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | built; in review |
 | [CT-4](CT-4.md) | Counters release: a content-free report | building since 2026-11-11, on the three other parts as built; reviewed once they are merged |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | started 2026-11-11; paused while the counters are fixed |

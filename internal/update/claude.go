@@ -87,7 +87,7 @@ func claudeResult(c child, out *capped, effort string) attempt {
 		}
 		return attempt{reason: d.reason(), effortRefused: d.refusesEffort(), strictMCPRefused: d.refusesStrictMCP()}
 	}
-	a := attempt{}
+	a := attempt{model: claudeModel(e)}
 	a.tokensIn, a.tokensOut = claudeTokens(e)
 	switch {
 	case deniedTools(e.PermissionDenials):
@@ -144,6 +144,24 @@ func deniedTools(raw json.RawMessage) bool {
 		return len(denials) > 0
 	}
 	return len(bytes.TrimSpace(raw)) > 0
+}
+
+// claudeModel reads the model that answered from modelUsage, which names
+// each model the run called: the one that wrote the most output tokens,
+// the first by name of those that tie, and only a name a model flag could
+// take, so nothing else the envelope holds can reach the run log. "" when
+// it names none.
+func claudeModel(e envelope) string {
+	var models map[string]map[string]any
+	_ = json.Unmarshal(e.ModelUsage, &models)
+	best, most := "", -1
+	for name, u := range models {
+		n := count(u["outputTokens"])
+		if modelName.MatchString(name) && (n > most || n == most && name < best) {
+			best, most = name, n
+		}
+	}
+	return best
 }
 
 // claudeTokens reads the token counts. modelUsage covers every model call
