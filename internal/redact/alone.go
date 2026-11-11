@@ -85,16 +85,27 @@ func (t *trace) alone(out string, n int) int {
 		t.text = out
 		return n
 	}
+	// Where kept text could line up in more than one place, a range runs on
+	// over the next one's start; merge them, as unionRanges does.
+	var merged []removal
+	for _, r := range rs {
+		if n := len(merged); n > 0 && r.start < merged[n-1].end {
+			merged[n-1].end = max(merged[n-1].end, r.end)
+			merged[n-1].tier = min(merged[n-1].tier, r.tier)
+			continue
+		}
+		merged = append(merged, r)
+	}
 	k := 0
-	for i, r := range rs {
-		rs[i].current = true
-		rs[i].keep = isMarker(t.text[r.start:r.end])
-		if !rs[i].keep {
+	for i, r := range merged {
+		merged[i].current = true
+		merged[i].keep = isMarker(t.text[r.start:r.end])
+		if !merged[i].keep {
 			k++
 		}
 	}
 	if k > 0 {
-		t.replace(rs)
+		t.replace(merged)
 	}
 	return k
 }
