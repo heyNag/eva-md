@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -244,9 +245,38 @@ func fieldJSON(t *testing.T, d paths.Dirs) []byte {
 func TestFieldReportCountsTheFixture(t *testing.T) {
 	d, _ := reportHome(t)
 	got := fieldJSON(t, d)
+	if again := fieldJSON(t, d); !bytes.Equal(again, got) {
+		t.Errorf("a second report of the same state differs:\n%s", again)
+	}
+	var r FieldReport
+	if err := json.Unmarshal(got, &r); err != nil {
+		t.Fatal(err)
+	}
+
+	// The Codex session's lines name paths under the home folder, whose
+	// length differs from run to run, so its size is checked against the
+	// file's and left out of the golden file.
+	info, err := os.Stat(filepath.Join(d.Inbox(), planted+"-proj", "codex-"+planted+"-s1.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Record.Bytes["codex"] != int(info.Size()) || r.Backlog.Hosts["codex"].Bytes != info.Size() {
+		t.Errorf("the Codex session's bytes: %d and %d waiting, want %d", r.Record.Bytes["codex"], r.Backlog.Hosts["codex"].Bytes, info.Size())
+	}
+	sized := r
+	sized.Record.Bytes = map[string]int{"claude-code": r.Record.Bytes["claude-code"], "codex": -1}
+	sized.Backlog.Hosts = maps.Clone(r.Backlog.Hosts)
+	waits := sized.Backlog.Hosts["codex"]
+	waits.Bytes = -1
+	sized.Backlog.Hosts["codex"] = waits
+	stable, err := json.MarshalIndent(sized, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stable = append(stable, '\n')
 	golden := filepath.Join("testdata", "report.golden")
 	if *updateGolden {
-		if err := os.WriteFile(golden, got, 0o644); err != nil {
+		if err := os.WriteFile(golden, stable, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -254,16 +284,8 @@ func TestFieldReportCountsTheFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, want) {
-		t.Errorf("the report differs from %s (go test ./internal/health -run TestFieldReportCountsTheFixture -update-golden writes it again):\n%s", golden, got)
-	}
-	if again := fieldJSON(t, d); !bytes.Equal(again, got) {
-		t.Errorf("a second report of the same state differs:\n%s", again)
-	}
-
-	var r FieldReport
-	if err := json.Unmarshal(got, &r); err != nil {
-		t.Fatal(err)
+	if !bytes.Equal(stable, want) {
+		t.Errorf("the report differs from %s (go test ./internal/health -run TestFieldReportCountsTheFixture -update-golden writes it again):\n%s", golden, stable)
 	}
 	o := r.Operations
 	check := func(what string, got, want any) {

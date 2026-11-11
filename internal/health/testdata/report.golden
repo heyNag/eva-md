@@ -773,7 +773,7 @@
       },
       "codex": {
         "sessions": 1,
-        "bytes": 5227,
+        "bytes": -1,
         "oldest_day": "2026-11-09",
         "oldest_age_hours": 50,
         "untimed": 0,
@@ -790,7 +790,7 @@
     },
     "bytes": {
       "claude-code": 17775,
-      "codex": 5227
+      "codex": -1
     },
     "entries": {
       "event": 2,
