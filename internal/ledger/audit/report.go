@@ -19,6 +19,8 @@ func (r Report) Write(w io.Writer) error {
 	p := &printer{w: w}
 	p.f("capture audit: %d sessions in %d inbox files, %d more files unreadable; %d paired with the host's own record, %d by the recovery record and %d by the session's id\n",
 		r.Sessions, r.Files, r.Unread, r.Recovery.Paired+r.Lookup.Paired, r.Recovery.Paired, r.Lookup.Paired)
+	p.f("subagents' threads paired and not scored, as v1 keeps their lines under the subagent's id: %d by the recovery record, %d by the session's id\n",
+		r.Subagents[ByRecord], r.Subagents[ByID])
 	p.f("coverage of the paired sessions (found, missing from the inbox, extra in it):\n")
 	for k := range kinds {
 		c := r.Coverage[k]
@@ -34,6 +36,10 @@ func (r Report) Write(w io.Writer) error {
 	}
 	for i, row := range r.Rows {
 		p.f("  session %d (%s, paired %s):", i+1, row.Host, wayNames[row.Way])
+		if row.Subagent {
+			p.f(" a subagent's thread, not scored\n")
+			continue
+		}
 		for k := range kinds {
 			c := row.Coverage[k]
 			p.f(" %s %d/%d/%d", names[k], c.Found, c.Missing, c.Extra)

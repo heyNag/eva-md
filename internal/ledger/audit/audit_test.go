@@ -234,7 +234,12 @@ func cx(ts, typ string, payload map[string]any) map[string]any {
 // codexSession is a Codex chat with planted losses, a reply written in
 // three rows, tool calls by several names, an interrupt, a failed stop and
 // a tool line with no turn id.
-func (f *fixture) codexSession() {
+func (f *fixture) codexSession() { f.codexThread("") }
+
+// codexThread is codexSession with every stored line under the subagent's
+// id agent, as v1 stores a subagent's thread, or under none when agent is
+// "".
+func (f *fixture) codexThread(agent string) {
 	f.transcript("codex", codexID,
 		cx(at(0, 0), "session_meta", map[string]any{"id": codexID, "cwd": f.cwd}),
 		cx(at(0, 1), "turn_context", map[string]any{"turn_id": "U1", "cwd": f.cwd}),
@@ -259,7 +264,7 @@ func (f *fixture) codexSession() {
 	)
 	f.register("codex", codexID, filepath.Join(f.home, ".codex", "sessions", "2026", "11", "02", "rollout-2026-11-02T10-00-00-"+codexID+".jsonl"))
 	line := func(ts, turn, role, kind, txt string) inbox.Entry {
-		return inbox.Entry{TS: ts, Turn: turn, Role: role, Kind: kind, Text: txt}
+		return inbox.Entry{TS: ts, Turn: turn, Role: role, Kind: kind, Text: txt, Agent: agent}
 	}
 	f.store("codex", codexID,
 		line(at(0, 0), "", "event", "event", "session_start: startup"),
@@ -375,16 +380,31 @@ func TestTheReportHoldsNumbersOnly(t *testing.T) {
 	f.register("claude-code", byID, "")
 	f.store("claude-code", byID, inbox.Entry{TS: at(9, 1), Turn: "I1", Role: "user", Kind: "prompt", Text: marker + " by id"})
 	const codexByID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d"
+	var leaks []string
 	f.transcript("codex", codexByID, cx(at(9, 0), "session_meta", map[string]any{"id": codexByID, "cwd": f.cwd}),
 		cx(at(9, 2), "event_msg", map[string]any{"type": "user_message", "turn_id": "J1", "message": marker + " codex by id"}))
 	f.register("codex", codexByID, "")
 	f.store("codex", codexByID, inbox.Entry{TS: at(9, 2), Turn: "J1", Role: "user", Kind: "prompt", Text: marker + " codex by id"})
+	// Subagents' threads on Codex, paired by their records and by their ids,
+	// and not scored.
+	for i, sub := range []string{"6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e", "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f"} {
+		path := f.transcript("codex", sub, cx(at(9, 0), "session_meta", map[string]any{"id": sub, "cwd": f.cwd}),
+			cx(at(9, 3), "event_msg", map[string]any{"type": "user_message", "turn_id": "K1", "message": marker + " subagent's prompt"}),
+			cx(at(9, 4), "response_item", map[string]any{"type": "function_call", "name": "shell", "call_id": marker + "-call", "arguments": marker}))
+		if i == 1 {
+			path = ""
+		}
+		f.register("codex", sub, path)
+		f.store("codex", sub, inbox.Entry{TS: at(9, 3), Turn: "K1", Role: "user", Kind: "prompt", Text: marker + " subagent's prompt", Agent: marker + "-agent"},
+			inbox.Entry{TS: at(9, 4), Turn: "K1", Role: "tool", Kind: "tool", Text: "Bash " + marker, Agent: marker + "-agent"})
+		leaks = append(leaks, sub)
+	}
 	before := snapshot(t, f.home)
 	r, out := f.run("", 0)
-	if r.Lookup != (Lookup{Paired: 2}) || r.ByWay[ByID][Prompt] != (Coverage{Found: 2}) {
-		t.Errorf("by id: lookup %+v, coverage %+v", r.Lookup, r.ByWay[ByID])
+	if r.Lookup != (Lookup{Paired: 2}) || r.ByWay[ByID][Prompt] != (Coverage{Found: 2}) || r.Subagents != [ways]int{1, 1} {
+		t.Errorf("by id: lookup %+v, coverage %+v, subagents %v", r.Lookup, r.ByWay[ByID], r.Subagents)
 	}
-	for _, leak := range []string{marker, codexID, codexByID, f.home, "realtime", "rate_limit"} {
+	for _, leak := range append(leaks, marker, codexID, codexByID, f.home, "realtime", "rate_limit") {
 		if strings.Contains(out, leak) {
 			t.Errorf("the report holds %q:\n%s", leak, out)
 		}
@@ -392,8 +412,10 @@ func TestTheReportHoldsNumbersOnly(t *testing.T) {
 	if after := snapshot(t, f.home); !slices.Equal(before, after) {
 		t.Errorf("the audit changed the home:\n%q\n%q", before, after)
 	}
-	for _, want := range []string{"capture audit: 6 sessions in 6 inbox files, 0 more files unreadable; 4 paired with the host's own record, 2 by the recovery record and 2 by the session's id",
-		"(claude-code, paired by its recovery record)", "(codex, paired by its recovery record)", "(claude-code, paired by its id)", "(codex, paired by its id)", "path named and refused 1", "no recovery record 1"} {
+	for _, want := range []string{"capture audit: 8 sessions in 8 inbox files, 0 more files unreadable; 4 paired with the host's own record, 2 by the recovery record and 2 by the session's id",
+		"(claude-code, paired by its recovery record)", "(codex, paired by its recovery record)", "(claude-code, paired by its id)", "(codex, paired by its id)", "path named and refused 1", "no recovery record 1",
+		"(codex, paired by its recovery record): a subagent's thread, not scored\n", "(codex, paired by its id): a subagent's thread, not scored\n",
+		"subagents' threads paired and not scored, as v1 keeps their lines under the subagent's id: 1 by the recovery record, 1 by the session's id\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the report lacks %q:\n%s", want, out)
 		}

@@ -120,10 +120,12 @@ type Lookup struct {
 	OffUnplaced int
 }
 
-// Row is one paired session's coverage, and how it was paired.
+// Row is one paired session's coverage, and how it was paired. A
+// subagent's thread is not scored: its row holds no coverage.
 type Row struct {
 	Host     string
-	Way      int // ByRecord or ByID
+	Way      int  // ByRecord or ByID
+	Subagent bool // a subagent's thread, read and not scored
 	Coverage [kinds]Coverage
 }
 
@@ -150,7 +152,11 @@ type Report struct {
 	Classes       map[event.Class]int
 	Recovery      Recovery
 	Lookup        Lookup
-	Stores        []Store // nil unless every session was audited
+	// Subagents counts the subagents' threads paired, by the way they were
+	// paired: read, so that what was said off the record is honoured, and
+	// not scored. They are not in Recovery.Paired or Lookup.Paired.
+	Subagents [ways]int
+	Stores    []Store // nil unless every session was audited
 }
 
 // openTranscript opens the transcript a recovery record names, and
@@ -275,12 +281,23 @@ func span(events []event.Event) (first, last time.Time) {
 // chat that was off the record once, where neither side shows the range,
 // is not paired. A session paired by its id is audited as one paired by
 // its recovery record.
+//
+// A subagent's thread, a session whose every inbox file the reader classes
+// as a subagent's, is paired and read as any other, but not scored: v1
+// stores a subagent's lines under its id, which coverage leaves out, and on
+// Codex such a thread is a session of its own, whose every row the host's
+// record holds. It adds nothing to coverage, repeats, gaps, voice
+// hand-overs, the host's rows not compared or the turns with no stored
+// reply, only its ranges said off the record, and its pairing is counted
+// apart. A session that holds a subagent's lines among others is scored.
 func (r *Report) session(ctx context.Context, o Options, away func(string) bool, listed func() listing, host, id string, files []file) error {
 	var paused []interval
 	var first time.Time
 	inboxPaused := 0
+	sub := len(files) > 0
 	for _, f := range files {
 		r.Classes[f.session.Class]++
+		sub = sub && f.session.Class == event.ClassSubagent
 		p, n := pauses(f.events)
 		paused = append(paused, p...)
 		inboxPaused += n
@@ -308,13 +325,22 @@ func (r *Report) session(ctx context.Context, o Options, away func(string) bool,
 		}
 	}
 	if ok {
-		if way == ByID {
+		switch {
+		case sub:
+			r.Subagents[way]++
+		case way == ByID:
 			r.Lookup.Paired++
-		} else {
+		default:
 			r.Recovery.Paired++
 		}
 		r.PausedHost += rec.paused
 		paused = append(paused, rec.pauses...)
+	}
+	if sub {
+		if ok {
+			r.Rows = append(r.Rows, Row{Host: host, Way: way, Subagent: true})
+		}
+		return nil
 	}
 	var stored [kinds]map[string]int
 	for k := range stored {
