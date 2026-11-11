@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/inbox"
+	"github.com/heyNag/eva-md/internal/update"
 )
 
 // A person's chat start asks for the day's sweep with its catch-up, in the
@@ -34,7 +35,7 @@ func TestChatStartAsksForTheDaysSweep(t *testing.T) {
 			sessionFile(t, env, "codex", "idle-other", 1000, inbox.Mark{}, now.Add(-time.Hour))
 			p.Session = "second-chat"
 			invoke(t, host, p, env)
-			if got, want := updateSpawns(spawned())[1:], [][]string{{"update", "--session", "codex:idle-other", sweep}}; !reflect.DeepEqual(got, want) {
+			if got, want := updateSpawns(spawned())[1:], [][]string{{"update", "--session", "codex:idle-other", update.TriggerFlag, update.TriggerStart, sweep}}; !reflect.DeepEqual(got, want) {
 				t.Fatalf("with an idle session: spawned %q, want %q", got, want)
 			}
 			n := len(spawned())
@@ -53,7 +54,7 @@ func TestChatStartAsksForTheDaysSweep(t *testing.T) {
 			p.Session, p.Event = "third-chat", "SessionStart"
 			n = len(spawned())
 			invoke(t, host, p, env)
-			if got, want := spawned()[n:], [][]string{{"update", "--session", "codex:idle-other"}}; !reflect.DeepEqual(got, want) {
+			if got, want := spawned()[n:], [][]string{{"update", "--session", "codex:idle-other", update.TriggerFlag, update.TriggerStart}}; !reflect.DeepEqual(got, want) {
 				t.Fatalf("once the sweep was taken: spawned %q, want %q", got, want)
 			}
 			if err := os.Remove(inbox.Store{Root: env.Dirs.Inbox()}.Path("general", "codex", "idle-other")); err != nil {
@@ -94,14 +95,14 @@ func TestProgramRunChatAsksForNoSweep(t *testing.T) {
 	sessionFile(t, env, "codex", "idle-other", 1000, inbox.Mark{}, now.Add(-time.Hour))
 	p.Session = "second-worker"
 	invoke(t, "claude-code", p, env)
-	if got, want := spawned(), updateOf("codex:idle-other"); !reflect.DeepEqual(got, want) {
+	if got, want := spawned(), updateOf(update.TriggerStart, "codex:idle-other"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("a program's chat start: spawned %q, want %q", got, want)
 	}
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "")
 	env.Config.Updates = false
 	p.Session = "person-chat"
 	invoke(t, "claude-code", p, env)
-	if got, want := spawned(), updateOf("codex:idle-other"); !reflect.DeepEqual(got, want) {
+	if got, want := spawned(), updateOf(update.TriggerStart, "codex:idle-other"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("updates off: spawned %q", got)
 	}
 }

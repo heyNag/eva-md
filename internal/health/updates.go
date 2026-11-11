@@ -41,9 +41,9 @@ type UpdateFigures struct {
 	// Inside sums, over the accepted answers, what the checker changed or
 	// refused in each, by the name of its counter, as validation.refused.
 	Inside     map[string]int    `json:"inside_accepted"`
-	TokensIn   Spread            `json:"tokens_in"`   // over passes that made a model call
-	TokensOut  Spread            `json:"tokens_out"`  // the same
-	DurationMS Spread            `json:"duration_ms"` // the same: the call, its retries included
+	TokensIn   Spread            `json:"tokens_in"`    // over passes that made a model call
+	TokensOut  Spread            `json:"tokens_out"`   // the same
+	DurationMS Spread            `json:"duration_ms"`  // the same: the call, its retries included
 	ToMemoryMS map[string]Spread `json:"to_memory_ms"` // from a chunk's newest entry to its saved page, by trigger, the sweep apart
 	Busy       BusyExits         `json:"busy"`
 	Calls      []DayCalls        `json:"calls"`
