@@ -47,7 +47,7 @@ func init() {
 		synopsis: []string{"eva-md doctor [--json] [--live]"},
 		run:      doctor})
 	register(command{name: "status", file: "commands.go", place: 80,
-		synopsis: []string{"eva-md status [--json]"},
+		synopsis: []string{"eva-md status [--json] [--updates]"},
 		run:      doctor})
 	resume := func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
 		return runResume(ctx, args, out, errOut)
@@ -325,16 +325,23 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f.SetOutput(io.Discard)
 	asJSON := f.Bool("json", false, "")
 	live := f.Bool("live", false, "")
+	updates := f.Bool("updates", false, "")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return usage(errOut, "invalid arguments for "+args[0])
 	}
 	if *live && args[0] != "doctor" {
 		return usage(errOut, "status makes no model call; run eva-md doctor --live")
 	}
+	if *updates && args[0] != "status" {
+		return usage(errOut, "doctor takes no --updates; run eva-md status --updates")
+	}
 	d, err := paths.Default()
 	if err != nil {
 		fmt.Fprintln(errOut, "eva-md: home folder is unavailable")
 		return 1
+	}
+	if *updates {
+		return runUpdateFigures(d, *asJSON, out, errOut)
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
@@ -364,6 +371,27 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 	}
 	if r.Failed() {
 		return 1
+	}
+	return 0
+}
+
+// runUpdateFigures runs eva-md status --updates: what the background update
+// did and cost over the run log's last 7 days, and why work waited, in
+// counts and durations only (see health.Updates). It writes nothing.
+func runUpdateFigures(d paths.Dirs, asJSON bool, out, errOut io.Writer) int {
+	figures, err := health.Updates(d, time.Now())
+	if err != nil {
+		fmt.Fprintln(errOut, "eva-md: the run log is unreadable; inspect the files in eva-md's state folder, updates/")
+		return 1
+	}
+	if asJSON {
+		if err := json.NewEncoder(out).Encode(figures); err != nil {
+			return 1
+		}
+		return 0
+	}
+	for _, line := range figures.Lines() {
+		fmt.Fprintln(out, line)
 	}
 	return 0
 }

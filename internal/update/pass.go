@@ -391,6 +391,7 @@ func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 	rec := p.rec
 	rec.Model, rec.ModelNote, rec.Effort, rec.EffortUsed = res.Model, res.ModelNote, effort, res.Effort
 	rec.TokensIn, rec.TokensOut, rec.Degraded, rec.DurationMS = res.TokensIn, res.TokensOut, res.Degraded, took.Milliseconds()
+	rec.ModelReported = res.ModelReported
 	if rec.Calls = res.Attempts; rec.Calls == 0 && res.Reason != ReasonCLIMissing {
 		rec.Calls = 1
 	}
@@ -399,6 +400,7 @@ func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 	}
 	u, known, report, err := checkOutput(res.Output, p.batch, p.thread.page)
 	if err != nil {
+		rec.Rejection = rejectionOf(err)
 		return r.failed(c, p, rec, ReasonInvalidOutput, retry)
 	}
 	rec.Validation = &report
@@ -641,9 +643,11 @@ func (r *run) badMark(f sessionFile) {
 	r.record(Record{Host: f.host, Session: sid, Project: f.dir, Outcome: OutcomeFailed, Reason: ReasonWatermark, RulesVersion: RulesVersion, Manual: r.j.Manual})
 }
 
-// record appends rec to the run log and logs it.
+// record appends rec to the run log, with the trigger of the session file
+// being drained, and logs it.
 func (r *run) record(rec Record) {
 	rec.At = r.j.now().Format(time.RFC3339)
+	rec.Trigger = r.trigger
 	if err := appendRecord(r.j.Dirs.State, rec); err != nil {
 		r.fail(rec.Host+":"+prefix8(rec.Session), err)
 	}
