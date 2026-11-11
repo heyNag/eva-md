@@ -24,8 +24,8 @@ func putWeek(t *testing.T, d paths.Dirs, host, event string, at time.Time, week 
 	put(t, filepath.Join(d.State, "heartbeats", host, event+".json"), raw)
 }
 
-// day is a date days after now's, in UTC, as a week names it.
-func day(now time.Time, days int) string {
+// weekDay is a date days after now's, in UTC, as a week names it.
+func weekDay(now time.Time, days int) string {
 	return now.UTC().AddDate(0, 0, days).Format(time.DateOnly)
 }
 
@@ -91,20 +91,20 @@ func TestHeldAndDeliveredRows(t *testing.T) {
 	now := time.Now()
 	d := isolated(t)
 	fit := func(day HookDay) HookDay { return day.fit() }
-	prompt := fit(HookDay{Day: day(now, 0), Runs: 40, Behind: []int{3, 0, 0, 1}, OffRecord: []int{2},
+	prompt := fit(HookDay{Day: weekDay(now, 0), Runs: 40, Behind: []int{3, 0, 0, 1}, OffRecord: []int{2},
 		Kinds: []int{0, 0, 0, 0, 0, 30}, Added: 20, Chars: 4000, Routes: []int{1, 0, 1, 0, 6, 4, 10}, Starts: 2, Stale: 1, StaleOrPending: 1, Fallback: 2, Late: 1})
 	putWeek(t, d, "claude-code", "UserPromptSubmit", now, []HookDay{
-		fit(HookDay{Day: day(now, -7), Runs: 1000, Behind: []int{1000}}), // before the week
+		fit(HookDay{Day: weekDay(now, -7), Runs: 1000, Behind: []int{1000}}), // before the week
 		prompt,
-		fit(HookDay{Day: day(now, 0), Runs: 1000, Behind: []int{1000}}), // a second copy
+		fit(HookDay{Day: weekDay(now, 0), Runs: 1000, Behind: []int{1000}}), // a second copy
 	})
-	putWeek(t, d, "claude-code", "Stop", now, []HookDay{fit(HookDay{Day: day(now, -6), Runs: 50, Behind: []int{0, 4}})})
-	putWeek(t, d, "codex", "SessionStart", now, []HookDay{fit(HookDay{Day: day(now, -1), Runs: 10, Behind: []int{0, 0, 0, 2},
+	putWeek(t, d, "claude-code", "Stop", now, []HookDay{fit(HookDay{Day: weekDay(now, -6), Runs: 50, Behind: []int{0, 4}})})
+	putWeek(t, d, "codex", "SessionStart", now, []HookDay{fit(HookDay{Day: weekDay(now, -1), Runs: 10, Behind: []int{0, 0, 0, 2},
 		Kinds: []int{6, 2, 1, 0, 1, 0}, Added: 9, Chars: 30000, Routes: []int{5, 3, 8, 9, 0, 6, 0}, Starts: 9, Stale: 2, Pending: 3, StaleOrPending: 4, Late: 1})})
-	putWeek(t, d, "codex", "PostToolUse", now, []HookDay{fit(HookDay{Day: day(now, -2), Runs: 300, Behind: []int{0, 0, 7}})})
+	putWeek(t, d, "codex", "PostToolUse", now, []HookDay{fit(HookDay{Day: weekDay(now, -2), Runs: 300, Behind: []int{0, 0, 7}})})
 	// Not valid: a heartbeat of another host's event, and one from the future.
-	putWeek(t, d, "codex", "PostToolUseFailure", now, []HookDay{fit(HookDay{Day: day(now, 0), Runs: 1000, Behind: []int{1000}})})
-	putWeek(t, d, "codex", "Stop", now.Add(time.Hour), []HookDay{fit(HookDay{Day: day(now, 0), Runs: 1000, Behind: []int{1000}})})
+	putWeek(t, d, "codex", "PostToolUseFailure", now, []HookDay{fit(HookDay{Day: weekDay(now, 0), Runs: 1000, Behind: []int{1000}})})
+	putWeek(t, d, "codex", "Stop", now.Add(time.Hour), []HookDay{fit(HookDay{Day: weekDay(now, 0), Runs: 1000, Behind: []int{1000}})})
 
 	held, ok := heldCheck(d, now)
 	want := Check{Name: "hooks held back", Status: "PASS", Detail: "of 400 hook runs in the past 7 days: held back while transcript recovery was behind: 3 prompts, 4 replies, 7 tool lines, 3 briefs; while a chat was off the record: 2 prompts"}
@@ -145,25 +145,25 @@ func TestRowsWithLittleToSay(t *testing.T) {
 		t.Fatal("held row without a heartbeat")
 	}
 	putTimes(t, d, "codex", "Stop", now, 12, 15)
-	putWeek(t, d, "codex", "PreCompact", now, []HookDay{{Day: day(now, -7), Runs: 4}, {Day: day(now, 1), Runs: 4}})
+	putWeek(t, d, "codex", "PreCompact", now, []HookDay{{Day: weekDay(now, -7), Runs: 4}, {Day: weekDay(now, 1), Runs: 4}})
 	if _, ok := heldCheck(d, now); ok {
 		t.Fatal("held row without a week")
 	}
 	if _, ok := deliveredCheck(d, now); ok {
 		t.Fatal("delivered row without a week")
 	}
-	putWeek(t, d, "codex", "Stop", now, []HookDay{{Day: day(now, 0), Runs: 1}})
+	putWeek(t, d, "codex", "Stop", now, []HookDay{{Day: weekDay(now, 0), Runs: 1}})
 	if c, ok := heldCheck(d, now); !ok || c.Detail != "of 1 hook run in the past 7 days: none held anything back" {
 		t.Fatalf("held row %+v", c)
 	}
 	if _, ok := deliveredCheck(d, now); ok {
 		t.Fatal("delivered row without a run that could deliver")
 	}
-	putWeek(t, d, "codex", "Stop", now, []HookDay{{Day: day(now, 0), Runs: 2, OffRecord: []int{0, 2}}})
+	putWeek(t, d, "codex", "Stop", now, []HookDay{{Day: weekDay(now, 0), Runs: 2, OffRecord: []int{0, 2}}})
 	if c, ok := heldCheck(d, now); !ok || c.Detail != "of 2 hook runs in the past 7 days: nothing held back while transcript recovery was behind; held back while a chat was off the record: 2 replies" {
 		t.Fatalf("held row %+v", c)
 	}
-	putWeek(t, d, "codex", "UserPromptSubmit", now, []HookDay{{Day: day(now, 0), Runs: 1, Kinds: []int{0, 0, 0, 0, 0, 1}}})
+	putWeek(t, d, "codex", "UserPromptSubmit", now, []HookDay{{Day: weekDay(now, 0), Runs: 1, Kinds: []int{0, 0, 0, 0, 0, 1}}})
 	if c, ok := deliveredCheck(d, now); !ok || c.Detail != "of 1 hook run in the past 7 days that could add text to a chat (1 prompt), 0 added 0 characters" {
 		t.Fatalf("delivered row %+v", c)
 	}
