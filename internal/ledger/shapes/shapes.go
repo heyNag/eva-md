@@ -60,14 +60,15 @@ type Options struct {
 var open = catchup.OpenUnregistered
 
 // known is a session the inbox holds, with what eva-md's records show of
-// it: said off the record, in a folder left out, or not read whole; its
-// folders, its inbox's figures and its turn ids.
+// it: said off the record, in a folder left out, or not read whole, or
+// time ran out before its records were read; its folders, its inbox's
+// figures and its turn ids.
 type known struct {
-	host, id           string
-	off, away, unknown bool
-	cwds               []string
-	t                  *tally
-	tids               map[uint64]bool
+	host, id                string
+	off, away, unknown, cut bool
+	cwds                    []string
+	t                       *tally
+	tids                    map[uint64]bool
 }
 
 // A file's status, as the report counts files.
@@ -81,16 +82,27 @@ const (
 	statusGone     = "gone"
 	statusUnread   = "unreadable"
 	statusNotYet   = "not_reached"
+	// A Codex file recovery's opener refused because its first 64 KiB
+	// hold no first record that names the session and its folder.
+	statusNotIdentified = "not_identified"
 )
+
+// identityRefusal is the error recovery's opener gives for a Codex file
+// whose first record, in the file's first 64 KiB, does not name the
+// session and its folder. catchup exports no sentinel for it; a test
+// plants such a file, so a change of the message is noticed.
+const identityRefusal = "catchup: transcript identity mismatch"
 
 // file is one host file, read or not: its host, the node its name gives,
 // whether it is a subagent's file, why it was not read, and what reading
-// it found.
+// it found; while the report is made, its path and its session.
 type file struct {
 	host, name string
 	subagent   bool
 	status     string
 	f          *fileRead
+	path       string
+	k          *known
 }
 
 // Run makes the report. It returns an error only when the inbox cannot be
@@ -119,7 +131,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	for id, k := range sessions {
 		g.find(id)
 		switch {
-		case k.unknown:
+		case k.cut, k.unknown:
 			g.mark(id, notWhole)
 		case k.off:
 			g.mark(id, offRecord)
@@ -143,10 +155,37 @@ func Run(ctx context.Context, o Options) (Report, error) {
 				counts[host+"/files/not_known"]++
 				continue
 			}
-			files = append(files, readSession(ctx, o, away, g, k, f.ID, f.Path)...)
+			files = append(files, readFile(ctx, o, away, k, f.ID, f.Path, false))
 		}
 	}
+	// Each file's own rows put its chat out before anything its rows name
+	// joins it to another: here chats are joined by their files' names
+	// only, as a session's copies share its id.
+	for _, f := range files {
+		g.flagFile(f)
+	}
+	// On Claude Code, the subagents' files of a session that nothing has
+	// put out, each joined to the session by name. Of a session put out,
+	// its subagents' folder is not listed.
+	for _, f := range slices.Clone(files) {
+		if f.host != string(adapter.ClaudeCode) || f.status != statusRead || g.flag[g.find(f.name)] != 0 {
+			continue
+		}
+		for _, sub := range subagentFiles(f.path) {
+			s := readFile(ctx, o, away, f.k, strings.TrimSuffix(filepath.Base(sub), ".jsonl"), sub, true)
+			g.union(s.name, f.name)
+			g.flagFile(s)
+			files = append(files, s)
+		}
+	}
+	g.joinNamed(files)
 	merge(&r, counts, g, sessions, files)
+	if ctx.Err() != nil {
+		// Time ran out on the way: what was counted is a floor.
+		for p := range r.Parts {
+			r.Parts[p] = PartIncomplete
+		}
+	}
 	return r, nil
 }
 
@@ -172,7 +211,13 @@ func readInbox(ctx context.Context, o Options, away func(string) bool) (map[stri
 			k.records(ctx, o)
 		}
 		s, events, err := reader.Read(ctx, key)
-		if err != nil || ctx.Err() != nil {
+		if ctx.Err() != nil {
+			// Time ran out: the session's files are not reached.
+			k.cut = true
+			part = PartIncomplete
+			continue
+		}
+		if err != nil {
 			k.unknown = true
 			part = PartIncomplete
 			continue
@@ -291,28 +336,14 @@ func (k *known) inbox(o Options, s event.Session, events []event.Event) {
 	}
 }
 
-// readSession reads the session k's file at path, named for its id, and on
-// Claude Code its subagents' files, each once, unless eva-md's records say
-// it was off the record, ran in a folder the hooks leave out or could not
-// be read whole.
-func readSession(ctx context.Context, o Options, away func(string) bool, g *groups, k *known, id, path string) []file {
-	out := []file{readFile(ctx, o, away, k, id, path, false)}
-	if k.host != string(adapter.ClaudeCode) || out[0].status != statusRead {
-		return out
-	}
-	for _, sub := range subagentFiles(path) {
-		f := readFile(ctx, o, away, k, strings.TrimSuffix(filepath.Base(sub), ".jsonl"), sub, true)
-		g.union(f.name, node(k.host, k.id))
-		out = append(out, f)
-	}
-	return out
-}
-
 // readFile reads one file of the session k, the file at path named for id,
-// under recovery's rules, unless eva-md's records leave the session out.
+// under recovery's rules, unless eva-md's records leave the session out or
+// time ran out before it.
 func readFile(ctx context.Context, o Options, away func(string) bool, k *known, id, path string, subagent bool) file {
-	f := file{host: k.host, name: node(k.host, id), subagent: subagent}
+	f := file{host: k.host, name: node(k.host, id), subagent: subagent, path: path, k: k}
 	switch {
+	case k.cut:
+		f.status = statusNotYet
 	case k.unknown:
 		f.status = statusNotWhole
 	case k.off:
@@ -343,6 +374,12 @@ func readFile(ctx context.Context, o Options, away func(string) bool, k *known, 
 	case errors.Is(err, fs.ErrNotExist):
 		f.status = statusGone
 		return f
+	case err != nil && k.host == string(adapter.Codex) && err.Error() == identityRefusal:
+		// The opener found no first record in the file's first 64 KiB that
+		// names the session and its folder: one longer than that, or one of
+		// another session or folder.
+		f.status = statusNotIdentified
+		return f
 	case err != nil:
 		f.status = statusRefused
 		return f
@@ -356,7 +393,7 @@ func readFile(ctx context.Context, o Options, away func(string) bool, k *known, 
 	if limit <= 0 {
 		limit = audit.RowLimit
 	}
-	got, err := readRows(ctx, src, away, h, limit, written)
+	got, err := readRows(ctx, src, away, h, limit, written, o.Now)
 	switch {
 	case ctx.Err() != nil:
 		f.status = statusNotYet
@@ -486,30 +523,47 @@ func reason(flag int) string {
 	return ""
 }
 
-// merge joins each file to its chat and adds the figures of the chats
-// left in to counts, then fills the report. A file whose own rows say it
-// was off the record, ran in a folder left out, or could not be told, puts
-// its chat out, and joins no other chat by what its rows name.
-func merge(r *Report, counts map[string]int, g *groups, sessions map[string]*known, files []file) {
-	for _, f := range files {
-		g.find(f.name)
-		switch {
-		case f.f == nil:
-			if f.status != statusOff && f.status != statusLeftOut {
-				g.mark(f.name, notWhole)
-			}
-		case f.f.off:
-			g.mark(f.name, offRecord)
-		case f.f.away:
-			g.mark(f.name, leftOut)
-		case f.f.unknown:
+// flagFile puts the chat of a file out when the file was not read, or its
+// own rows say it was off the record, ran in a folder left out, or could
+// not be told.
+func (g *groups) flagFile(f file) {
+	g.find(f.name)
+	switch {
+	case f.f == nil:
+		if f.status != statusOff && f.status != statusLeftOut {
 			g.mark(f.name, notWhole)
-		default:
-			for _, n := range f.f.nodes {
-				g.union(f.name, n)
-			}
+		}
+	case f.f.off:
+		g.mark(f.name, offRecord)
+	case f.f.away:
+		g.mark(f.name, leftOut)
+	case f.f.unknown:
+		g.mark(f.name, notWhole)
+	}
+}
+
+// joinNamed joins each file to the chats its rows name, once every file
+// has put its chat out or not. A file whose chat is out by then, by any of
+// its files or by eva-md's records, joins nothing by what its rows name, so
+// that nothing inside a session left out reaches another chat's figures.
+func (g *groups) joinNamed(files []file) {
+	out := make([]bool, len(files))
+	for i, f := range files {
+		out[i] = g.flag[g.find(f.name)] != 0
+	}
+	for i, f := range files {
+		if out[i] || f.f == nil {
+			continue
+		}
+		for _, n := range f.f.nodes {
+			g.union(f.name, n)
 		}
 	}
+}
+
+// merge adds the figures of the chats left in to counts, then fills the
+// report. Each file is already joined to its chat.
+func merge(r *Report, counts map[string]int, g *groups, sessions map[string]*known, files []file) {
 	type chat struct {
 		host     string
 		files    []*fileRead

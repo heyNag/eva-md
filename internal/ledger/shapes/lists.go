@@ -99,11 +99,18 @@ var (
 // The facts of docs/v2/host-facts.md marked "by the field report", by
 // what shapes can do for them. Settled are the facts whose figures the
 // report gives under their number, in full or in part; the rest are left
-// to the sittings and the owner's answers.
+// to the sittings and the owner's answers. F-013 is settled in part: the
+// report sees a session id only in the names of a main session file and an
+// inbox file, never in a payload, nor in a subagent's file, and no name
+// can hold a "/". F-134 is settled in part: recovery's opener reads only a
+// Codex file's first 64 KiB for the first record that names the session,
+// so a file whose first record is longer than that is refused before it
+// is read; such files are counted, with any other first record that does
+// not name the session and its folder, as hosts.codex.files.not_identified.
 var (
-	settledInFull = []string{"F-013", "F-133", "F-134"}
-	settledInPart = []string{"F-001", "F-004", "F-005", "F-010", "F-018", "F-020", "F-021", "F-022", "F-024", "F-027", "F-034", "F-079", "F-084",
-		"F-085", "F-132", "F-136", "F-138", "F-141"}
+	settledInFull = []string{"F-133"}
+	settledInPart = []string{"F-001", "F-004", "F-005", "F-010", "F-013", "F-018", "F-020", "F-021", "F-022", "F-024", "F-027", "F-034", "F-079", "F-084",
+		"F-085", "F-132", "F-134", "F-136", "F-138", "F-141"}
 	notByShapes = []string{"F-025", "F-028", "F-029", "F-030", "F-031", "F-032", "F-038", "F-046", "F-047", "F-057", "F-087",
 		"F-126", "F-127", "F-137", "F-147", "F-148", "F-149", "F-150", "F-156", "F-160", "F-161", "F-173", "F-176", "F-177",
 		"F-178", "F-180", "F-182", "F-185", "F-189", "F-202"}
@@ -123,7 +130,7 @@ var figureWords = []string{
 	"branch_changed", "assistant_rows", "text_only", "tools_only", "text_and_tools", "neither", "tool_results",
 	"with_tool_use_result", "no_eva_md_file", "sidechain", "agent_id", "of_another_chat", "compact_summary", "compacted",
 	"summary_bytes", "with_ordinal", "ordinal_rising", "ordinal_not_rising", "with_a_turn", "end_with_no_start",
-	"end_with_no_start_and_a_turn", "wrapper_prompts", "inbox", "inbox_only", "no_folder", "in_full", "in_part", "not_by_shapes", "not_a_string",
+	"end_with_no_start_and_a_turn", "wrapper_prompts", "inbox", "inbox_only", "no_folder", "not_identified", "out_of_range", "in_full", "in_part", "not_by_shapes", "not_a_string",
 }
 
 // Words is every word the report may print but numbers, days and

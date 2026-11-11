@@ -168,15 +168,24 @@ type reader struct {
 	ordinal           float64
 	ordinals          bool
 	turned            bool // a turn was begun or a prompt given
+	lastYear          int  // the last year a row's time is taken in
 }
+
+// firstYear is the first year a row's time is taken in.
+const firstYear = 2000
 
 // readRows reads a host's file, the session file s names, row by row, each
 // at most limit bytes: a longer row is scanned for a record control, as
 // recovery scans one, and counted as too long. A last row with no newline
 // is left unread, as recovery leaves it. outside says which folders' chats
-// the hooks leave out.
-func readRows(ctx context.Context, s catchup.Source, outside func(string) bool, r io.Reader, limit int, written time.Time) (fileRead, error) {
-	h := &reader{host: s.Host, src: s, outside: outside, f: fileRead{t: newTally()}}
+// the hooks leave out. A row dated before firstYear, or after the year
+// after now's, is counted as out of range and its time is not used.
+func readRows(ctx context.Context, s catchup.Source, outside func(string) bool, r io.Reader, limit int, written, now time.Time) (fileRead, error) {
+	lastYear := 9999
+	if !now.IsZero() {
+		lastYear = min(now.UTC().Year()+1, lastYear)
+	}
+	h := &reader{host: s.Host, src: s, outside: outside, f: fileRead{t: newTally()}, lastYear: lastYear}
 	br := bufio.NewReaderSize(r, 64<<10)
 	var row []byte
 	var long catchup.LongRow
@@ -289,11 +298,7 @@ func (h *reader) long(l *catchup.LongRow, size int) {
 		}
 		at, _ = time.Parse(time.RFC3339Nano, ts)
 	}
-	if at.IsZero() {
-		t.add(h.host, "rows", "no_time")
-	} else {
-		h.at(at)
-	}
+	h.when(at)
 }
 
 // row counts one row read whole.
@@ -313,15 +318,23 @@ func (h *reader) row(line []byte, size int) {
 	if json.Unmarshal(row["timestamp"], &ts) == nil {
 		at, _ = time.Parse(time.RFC3339Nano, ts)
 	}
-	if at.IsZero() {
-		t.add(h.host, "rows", "no_time")
-	} else {
-		h.at(at)
-	}
+	h.when(at)
 	if h.host == string(adapter.Codex) {
 		h.codex(row, size)
 	} else {
 		h.claude(row, size)
+	}
+}
+
+// when counts a row's time: none, one out of range, or one taken.
+func (h *reader) when(at time.Time) {
+	switch y := at.UTC().Year(); {
+	case at.IsZero():
+		h.f.t.add(h.host, "rows", "no_time")
+	case y < firstYear || y > h.lastYear:
+		h.f.t.add(h.host, "rows", "out_of_range")
+	default:
+		h.at(at)
 	}
 }
 

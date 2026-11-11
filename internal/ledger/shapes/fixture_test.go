@@ -129,6 +129,54 @@ func (f *fixture) session(host, id, path string, lines ...inbox.Entry) {
 	}
 }
 
+// appendInbox adds lines to the session's inbox file as they are, with no
+// check of the writer's: a line may name another project than the file's
+// folder.
+func (f *fixture) appendInbox(host, id string, lines ...inbox.Entry) {
+	f.t.Helper()
+	path := inbox.Store{Root: f.dirs.Inbox()}.Path(marker+"-project", host, id)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	defer file.Close()
+	for _, e := range lines {
+		e.V, e.Host, e.Session, e.Origin = 1, host, id, "hook"
+		if e.Project == "" {
+			e.Project = marker + "-project"
+		}
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		if _, err := file.Write(append(data, '\n')); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+}
+
+// block marks the session's recovery record blocked as said off the
+// record, as recovery does when it cannot write the session's marker.
+func (f *fixture) block(host, id string) {
+	f.t.Helper()
+	path := filepath.Join(f.dirs.State, "catchup", host, id+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		f.t.Fatal(err)
+	}
+	record["blocked"], record["reason"] = true, "off_record"
+	if data, err = json.Marshal(record); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
 // mark sets a session marker, as the hooks do.
 func (f *fixture) mark(host, id, name string) {
 	f.t.Helper()
