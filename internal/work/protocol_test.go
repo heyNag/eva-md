@@ -2,15 +2,160 @@ package work
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/paths"
 )
+
+// A worker cut by its context does no last listing. If its waiter was cut
+// too, a mark written meanwhile by a wake that returned, since both locks
+// were held, waits with the cut run's own marks for the next wake or tick,
+// which runs them all.
+func TestMarksLeftByACutWorkerAndACutWaiterRunAtTheNextTick(t *testing.T) {
+	dirs := testDirs(t)
+	running := make(chan struct{})
+	var mu sync.Mutex
+	var ran []string
+	first := true
+	withJobs(t, Job{Kind: "sync", Run: func(ctx context.Context, marks []Mark, _ io.Writer) Outcome {
+		mu.Lock()
+		cut := first
+		first = false
+		mu.Unlock()
+		if cut {
+			close(running)
+			<-ctx.Done()
+			return Cut
+		}
+		mu.Lock()
+		ran = append(ran, keysOf(marks)...)
+		mu.Unlock()
+		return Done
+	}})
+	wctx, wcancel := context.WithCancel(context.Background())
+	defer wcancel()
+	w := make(chan error, 1)
+	go func() { w <- Wake(wctx, dirs, []Mark{{Kind: "sync", Key: "k1", Reason: "stop"}}, Options{}) }()
+	waitFor(t, running, "the worker did not start its job")
+	xctx, xcancel := context.WithCancel(context.Background())
+	defer xcancel()
+	xWaiter := make(chan struct{})
+	x := make(chan error, 1)
+	go func() {
+		x <- Wake(xctx, dirs, []Mark{{Kind: "sync", Key: "k2", Reason: "stop"}}, Options{hook: func(p string) {
+			if p == "waiter" {
+				close(xWaiter)
+			}
+		}})
+	}()
+	waitFor(t, xWaiter, "the second wake did not become the waiter")
+	// Both locks are held: the third wake leaves its mark and returns.
+	if err := Wake(context.Background(), dirs, []Mark{{Kind: "sync", Key: "k3", Reason: "stop"}}, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		cancel context.CancelFunc
+		done   chan error
+	}{{xcancel, x}, {wcancel, w}} {
+		c.cancel()
+		select {
+		case err := <-c.done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("a cut wake returned %v", err)
+			}
+		case <-time.After(hangGuard):
+			t.Fatal("a cut wake did not return")
+		}
+	}
+	if got := names(t, dirs, wakeDir); !slices.Equal(got, []string{"sync-k1", "sync-k2", "sync-k3"}) {
+		t.Fatalf("wake holds %q", got)
+	}
+	if len(ran) != 0 {
+		t.Fatalf("ran %q before the tick", ran)
+	}
+	if err := Wake(context.Background(), dirs, nil, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ran, []string{"k1", "k2", "k3"}) {
+		t.Fatalf("the tick ran %q", ran)
+	}
+	if got := names(t, dirs, wakeDir); len(got) != 0 {
+		t.Fatalf("marks left: %q", got)
+	}
+}
+
+// A run's folder is on disk before its start line, so that after a power
+// loss every start line with no finish has a folder recovery settles; and
+// marks put back are on disk in wake/ before they leave the run's folder.
+func TestARunsFolderIsSyncedBeforeItsStartLine(t *testing.T) {
+	dirs := testDirs(t)
+	work := filepath.Join(dirs.State, "work")
+	count := func(dir string) int {
+		entries, _ := os.ReadDir(filepath.Join(work, dir))
+		n := 0
+		for _, e := range entries {
+			if !strings.HasPrefix(e.Name(), paths.TempPrefix) {
+				n++
+			}
+		}
+		return n
+	}
+	var events []string
+	state := func() string {
+		inRuns := 0
+		runs, _ := os.ReadDir(filepath.Join(work, runDir))
+		for _, r := range runs {
+			inRuns += count(filepath.Join(runDir, r.Name()))
+		}
+		return fmt.Sprintf("starts=%d run=%d wake=%d", strings.Count(journalText(t, dirs), `"ev":"start"`), inRuns, count(wakeDir))
+	}
+	saved := syncDirAt
+	t.Cleanup(func() { syncDirAt = saved })
+	syncDirAt = func(root *os.Root, name string) error {
+		label := name
+		if strings.HasPrefix(name, runDir+"/") {
+			label = runDir + "/<id>"
+		}
+		events = append(events, "sync "+label+" "+state())
+		return saved(root, name)
+	}
+	withJobs(t, Job{Kind: "sync", Run: func(context.Context, []Mark, io.Writer) Outcome {
+		events = append(events, "job "+state())
+		return Busy
+	}})
+	leaveMarks(t, dirs, Mark{Kind: "sync", Key: "k1", Reason: "stop"})
+	events = nil
+	if err := Wake(context.Background(), dirs, nil, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"sync run/<id> starts=0 run=1 wake=0",
+		"sync run starts=0 run=1 wake=0",
+		"sync wake starts=0 run=1 wake=0",
+		"job starts=1 run=1 wake=0",
+		// Put back: linked into wake/, not yet removed from the run.
+		"sync wake starts=1 run=1 wake=1",
+	}
+	if !slices.Equal(events, want) {
+		t.Fatalf("events\n%s\nwant\n%s", strings.Join(events, "\n"), strings.Join(want, "\n"))
+	}
+	if got := names(t, dirs, wakeDir); !slices.Equal(got, []string{"sync-k1"}) {
+		t.Fatalf("wake holds %q", got)
+	}
+	if got := names(t, dirs, runDir); len(got) != 0 {
+		t.Fatalf("runs left: %q", got)
+	}
+}
 
 // waitFor fails the test when c is not closed within the hang guard.
 func waitFor(t *testing.T, c <-chan struct{}, what string) {

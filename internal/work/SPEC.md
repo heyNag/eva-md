@@ -1,8 +1,8 @@
 # The worker, its wake marks and its journal
 
-This is the contract of `internal/work` (plan section 6.3, design 1, and section 8, row DV-12; derive design sections 3.1 to 3.3 and 3.9). In v1 a job that finds `update.lock` held exits and its trigger is lost. Here a wake is a mark on disk that outlives its process, so a wake that finds the worker busy loses nothing.
+The contract of `internal/work` (plan 6.3, design 1, and 8, row DV-12; derive 3.1 to 3.3 and 3.9). In v1 a job that finds `update.lock` held loses its trigger. Here a wake is a mark on disk that outlives its process, so a wake that finds the worker busy loses nothing.
 
-The package has no caller yet. Nothing in it runs unless a caller calls it, and every caller checks `work.Switch`, the switch `worker` under `[switches]`, false by default: off is v1. Its code imports, from eva-md, only `internal/config` and `internal/paths`, never the update, the hook, health or a command, so the hook can import it at no cost.
+Nothing in it runs unless a caller calls it, and every caller checks `work.Switch`, the switch `worker` under `[switches]`, off by default: v1. Its code imports from eva-md only `internal/config` and `internal/paths`, so the hook can import it at no cost.
 
 ## 1. Jobs
 
@@ -32,15 +32,15 @@ Under `<state>/work/`, opened through `paths.OpenRoot`, folders 0700 and files 0
 
 | Path | Holds | Written by |
 | --- | --- | --- |
-| `wake/<kind>-<key>` | one mark: its reason, then a space and its host when it has one, and a newline | any caller, by atomic replace (`paths.WriteFileAtomicAt`) |
+| `wake/<kind>-<key>` | one mark: its reason, its host when it has one, and when it was first written in Unix milliseconds, spaced, and a newline | any caller, by atomic replace (`paths.WriteFileAtomicAt`) |
 | `run/<run>/<kind>-<key>` | the marks one run was given, moved out of `wake/` by rename | the worker |
 | `journal/<YYYY-MM>.jsonl` | the journal (section 4) | the worker only |
 
 The locks are `worker.lock` and `waiter.lock` in `dirs.Locks()`, flocks taken with `paths.TryLock`, or, by the waiter, with a blocking flock on the same file, so a dead process leaves nothing held.
 
-A **mark** is `Mark{Kind, Key, Reason, Host}`. `Kind` is a registered kind. `Key` is chosen by the job's caller and must be a name `paths.SafeName` leaves as it is (DV-12b uses `<host>-<id>`, `sweep-<day>`, `daily` and `push`). `Reason` is one word: lower-case letters, digits and `_`, starting with a letter, at most 32 bytes. `Host` is empty or one word of lower-case letters, digits and `-`. A file in `wake/` is read as a mark only if its name parses back to a registered kind and a valid key, and only the words of its content that match these patterns are read. `Wake` refuses a mark that breaks any of this before it writes anything.
+A **mark** is `Mark{Kind, Key, Reason, Host}`. `Kind` is a registered kind. `Key` is chosen by the job's caller and must be a name `paths.SafeName` leaves as it is, with no upper-case letter, since macOS does not tell letter case apart (DV-12b uses `<host>-<id>`, `sweep-<day>`, `daily` and `push`). `Reason` is one word: lower-case letters, digits and `_`, starting with a letter, at most 32 bytes. `Host` is empty or one word of lower-case letters, digits and `-`. A file in `wake/` is a mark only if its name parses back to a registered kind and a valid key; only the words of its content that match these patterns are read. `Wake` refuses a mark that breaks any of this before it writes anything.
 
-Writing the same mark twice leaves one file, holding the last write's words. A mark is removed only when a run that was given it ends `done` or `failed`. The worker renames a run's marks into `run/<run>/` before the run starts, so a mark written again while its job runs lands as a new file in `wake/`, and the run's end never removes it. Marks put back return to `wake/` by hard link; where the same mark was written again meanwhile, the newer one stays.
+Writing the same mark twice leaves one file, with the last write's words and the first write's time. A mark is removed only when a run that was given it ends `done` or `failed`. The worker renames a run's marks into `run/<run>/` before the run starts, so a mark written again while its job runs lands as a new file in `wake/`, with a new time, which the run's end never removes. The run gets the words of the files it moved, listed again in `run/<run>/`. Marks put back return to `wake/` by hard link; where the same mark was written again meanwhile, the newer one stays.
 
 ## 3. The lock protocol and the worker
 
@@ -52,11 +52,11 @@ Writing the same mark twice leaves one file, holding the last write's words. A m
 
 The worker first settles the runs a killed worker left (section 4) and, once a wake, removes old journal files. Then, until no mark it may run is left or `ctx` ends: it lists `wake/`, takes the kind with marks of the lowest priority (ties by kind name), moves every mark of that kind into `run/<run>/`, writes the `start` line, runs the job with those marks, writes the `finish` line, and removes or puts back the marks by the outcome. A kind whose run ended `busy` or `cut` is not run again in this wake; its marks wait for the next wake or tick.
 
-When none is left it releases `worker.lock` and lists the marks once more. If one it may run is there, it starts again at step 1. So a mark written while the worker was finishing always has a process to run it: a waiter, or this last listing. At most two callers are ever inside the worker or the waiter, however many wakes arrive.
+When none is left it releases `worker.lock` and lists the marks once more. If one it may run is there, it starts again at step 1. So a mark written while the worker was finishing has a process to run it: a waiter, or this last listing. At most two callers are ever inside the worker or the waiter, however many wakes arrive.
 
-A wake whose `ctx` ends returns `ctx`'s error. A waiter cut that way leaves its marks to the worker it waited on; a worker cut that way puts the running job's marks back for the next wake or tick.
+A wake whose `ctx` ends returns `ctx`'s error. A waiter cut that way leaves its marks to the worker it waited on; a worker cut that way puts the running job's marks back for the next wake or tick. A worker that is cut, or meets an error, does no last listing: if its waiter was cut too, marks written meanwhile by wakes that found both locks held wait, as the cut run's do, for the next wake or tick.
 
-`Options` has `Now`, the journal's clock (`time.Now` when nil), and `Log`, given to each job's `Run` (`io.Discard` when nil). Its unexported `hook` lets tests hold a caller at the points `marked`, `waiter`, `worker`, `taken`, `idle` (out of marks, the lock still held) and `last` (before the last listing).
+`Options` has `Now`, the clock of the journal and the marks (`time.Now` when nil), and `Log`, given to each `Run` (`io.Discard` when nil). Its unexported `hook` lets tests hold a caller at `marked`, `waiter`, `worker`, `listed` (before the take), `taken`, `idle` (out of marks, the lock held) and `last` (before the last listing).
 
 ## 4. The journal
 
@@ -75,7 +75,9 @@ A wake whose `ctx` ends returns `ctx`'s error. A waiter cut that way leaves its 
 
 Never a mark's key, a session id, a path, an error's text or any captured text.
 
-**Recovery.** Every `run/<run>/` a worker finds when it takes the lock was left by a worker that died. By that run's journal lines: a `finish` with `done` or `failed` means the run used its marks, which are removed; a `start` with neither a `finish` nor an `interrupted` gains an `interrupted` line, with the start's run id, kind, priority, count and words, and its marks are put back; anything else (no line, a `finish` with `busy` or `cut`, an `interrupted` already written) puts the marks back. If the `finish` line can't be written, the worker leaves `run/<run>/` as it is and returns the error, so the next worker journals it as interrupted and runs its marks again: a mark is run at least once, never lost.
+**Recovery.** Every `run/<run>/` a worker finds when it takes the lock was left by a worker that died. By that run's journal lines: a `finish` with `done` or `failed` means its marks were used and are removed; a `start` with neither a `finish` nor an `interrupted` gains an `interrupted` line, with the start's run id, kind, priority, count and words, and its marks are put back; anything else puts the marks back. If the `finish` line can't be written, the worker leaves `run/<run>/` and returns the error, so the next worker journals it as interrupted and runs its marks again: a mark is run at least once, never lost.
+
+**Power loss.** Recovery reads `run/`, so the worker syncs `run/<run>/`, `run/` and `wake/` after the take and before the `start` line: a `start` on disk has its folder. Marks put back are synced into `wake/` before they leave `run/<run>/`.
 
 **Retention.** The worker removes a journal file whose month ended more than 13 months ago.
 
@@ -85,7 +87,7 @@ Never a mark's key, a session id, a path, an error's text or any captured text.
 
 ## 6. Why work waits
 
-`Status(ctx, dirs, now) Report` gathers what each job's `Waiting` returns and, for each mark in `wake/` of a registered kind, a `WaitBehind` item since the mark's file was written. It keeps an item only when `now` minus `Since` is longer than `Bar`, or its reason is `WaitHeld` or `WaitSignIn`. `Report.Items` are oldest first. `Status` reads the marks' names and words, no captured text, and creates no folder.
+`Status(ctx, dirs, now) Report` gathers what each job's `Waiting` returns and, for each mark in `wake/` of a registered kind, a `WaitBehind` item since the time the mark holds, when it was first written (a file holding none: the file's time). It keeps an item only when `now` minus `Since` is longer than `Bar`, or its reason is `WaitHeld` or `WaitSignIn`. `Report.Items` are oldest first. `Status` reads the marks' names and words, no captured text, and creates no folder.
 
 A `Waiting` is `{Kind, Host, Since, Reason, Class, NextTry}`; `Class` and `NextTry` are set for `WaitHeld`. It names no session.
 
@@ -102,24 +104,30 @@ A `Waiting` is `{Kind, Host, Since, Reason, Class, NextTry}`; `Class` and `NextT
 
 | Invariant | Test |
 | --- | --- |
-| No wake is lost: 50 wakes for 50 keys during a held job all reach a `Run`, and never more than two callers are inside | `TestNoWakeIsLostWhileAJobIsHeld` |
-| On 200 seeded schedules of wakes, ticks, job starts and ends, the worker idle with the lock and its last listing, and waiters cut by their context, every wake reaches a `Run` after it was written; no mark or run is left, no caller is inside, and `lost_wakes` is 0. No sleep or time window decides an outcome | `TestGeneratedSchedulesLoseNoWake` |
-| A mark written again during its own job's run is run again | `TestAMarkWrittenAgainDuringItsRunRunsAgain` |
-| A `busy` job keeps its marks and runs once in a worker's run; the next wake runs them | `TestABusyJobKeepsItsMarksAndRunsOnceInAWorkersRun` |
+| 50 wakes for 50 keys during a held job all reach a `Run`; never more than two callers inside | `TestNoWakeIsLostWhileAJobIsHeld` |
+| 200 seeded schedules of wakes, ticks, job ends, holds at each point the worker passes, and cut waiters: every wake reaches a `Run` after it was written and takes the role its locks give it; nothing is left; `lost_wakes` is 0; no sleep decides | `TestGeneratedSchedulesLoseNoWake` |
+| The waiter drops `waiter.lock` before it lists a mark | `TestTheWaiterDropsItsLockBeforeItWorks` |
+| A run gets the words of the mark it moved | `TestARunGetsTheWordsOfTheMarkItMoved` |
+| Marks a cut worker and a cut waiter leave run at the next tick | `TestMarksLeftByACutWorkerAndACutWaiterRunAtTheNextTick` |
+| The syncs for a power loss, in order | `TestARunsFolderIsSyncedBeforeItsStartLine` |
+| A mark written again during its run runs again | `TestAMarkWrittenAgainDuringItsRunRunsAgain` |
+| A `busy` job keeps its marks and runs once in a worker's run | `TestABusyJobKeepsItsMarksAndRunsOnceInAWorkersRun` |
 | A `cut` run puts its marks back | `TestACutRunPutsItsMarksBack` |
-| A worker killed with SIGKILL after its `start` is journaled `interrupted` with its run id and kind, and its marks run again | `TestAKilledWorkersRunIsJournaledAsInterrupted` |
-| Each kind of run a killed worker left is settled as section 4 says | `TestAWorkerSettlesTheRunsAKilledWorkerLeft` |
-| A waiter cut by its context leaves its mark to the worker | `TestAWaiterCutByItsContextLeavesItsMarkToTheWorker` |
+| A worker killed with SIGKILL is journaled `interrupted` with its run id and kind; its marks run again | `TestAKilledWorkersRunIsJournaledAsInterrupted` |
+| Runs a killed worker left are settled as section 4 says | `TestAWorkerSettlesTheRunsAKilledWorkerLeft` |
+| A cut waiter leaves its mark to the worker | `TestAWaiterCutByItsContextLeavesItsMarkToTheWorker` |
 | The journal holds no key and no job's error or panic text | `TestNoJournalLineHoldsAKeyOrAJobsErrorText` |
-| The journal's keys, time format and month file; the start line is on disk before the job runs | `TestTheJournalLinesAndTheirKeys` |
+| The journal's keys, times and month file; the start line is on disk before the job runs | `TestTheJournalLinesAndTheirKeys` |
 | A line left unfinished can't swallow the next | `TestTheJournalEndsALineAKilledWorkerLeftUnfinished` |
 | Journal files older than 13 months are removed | `TestTheWorkerRemovesJournalFilesOlderThanThirteenMonths` |
 | Lowest priority first; a kind's run gets all its marks | `TestTheLowestPriorityRunsFirstAndEachKindGetsAllItsMarks` |
 | An unknown outcome or a panic is `failed` | `TestAnUnknownOutcomeOrAPanicIsFailedAndUsesItsMarks` |
-| The same mark twice leaves one | `TestTheSameMarkTwiceLeavesOne` |
+| The same mark twice leaves one, with the last words and the first time | `TestTheSameMarkTwiceLeavesOne` |
+| A file whose key has an upper-case letter is not a mark | `TestAFileWithAnUpperCaseKeyIsNotAMark` |
 | Folders 0700, files 0600 | `TestFoldersAndFilesArePrivate` |
 | A bad job or mark is refused, and a refused wake writes nothing | `TestRegisterRefusesABadJob`, `TestWakeRefusesABadMarkAndWritesNothing` |
 | Each of the six reasons and the bar reach `Status`, with the clock injected; the words are the plan's | `TestStatusGivesEachReasonPastTheBar`, `TestEachReasonHasThePlansWords` |
+| A wait is measured from a mark's first write; one written during its run starts anew | `TestStatusMeasuresAMarkFromItsFirstWrite` |
 | `Status` creates nothing | `TestStatusCreatesNothing` |
 | The switch is off by default | `TestTheSwitchIsOffByDefault` |
 | The package imports nothing the hook would pay for | `TestThePackageImportsNothingTheHookWouldPayFor` |
