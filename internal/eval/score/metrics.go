@@ -26,8 +26,9 @@ const (
 type Metrics struct {
 	FactRecall float64 `json:"fact_recall"` // facts found or holding
 	FactHolds  float64 `json:"fact_holds"`  // facts holding
-	// WrongWrite counts active items with a wrong or dropped value, or that
-	// cite no line of the scenario.
+	// WrongWrite counts items in force, active items and dated lines, with
+	// a wrong or dropped value, or that cite no line of the scenario. A
+	// retired item is a record of what no longer holds, and is left out.
 	WrongWrite int `json:"wrong_write"`
 	// Noise counts items that cite only lines that plant nothing.
 	Noise int `json:"noise"`
@@ -76,7 +77,7 @@ func (s *scorer) metrics(ex Export, reads []read, res Result) Metrics {
 		active := it.State == StateActive
 		switch r.outcome {
 		case ValueWrong, ValueDropped, DateDropped, CondDropped, LimitDropped, Unsupported:
-			if active {
+			if active || it.State == StateLog {
 				m.WrongWrite++
 			}
 		case Noise:
