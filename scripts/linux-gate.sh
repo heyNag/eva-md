@@ -75,7 +75,9 @@ echo "Building $(git rev-parse --short "$base") and the working tree"
   set -o pipefail
   git archive "$base" | tar -C "$work/base" -xf -
 ) || { echo "linux-gate.sh: reading the files of $base failed" >&2; exit 2; }
-(cd "$work/base" && go build -mod=readonly -o "$work/eva-md-old" ./cmd/eva-md) || exit 2
+cd "$work/base" || exit 2
+go build -mod=readonly -o "$work/eva-md-old" ./cmd/eva-md || exit 2
+cd "$repo" || exit 2
 go build -mod=readonly -o "$work/eva-md-new" ./cmd/eva-md || exit 2
 
 # The snapshot the hooks run in: a repository the user owns, with two
