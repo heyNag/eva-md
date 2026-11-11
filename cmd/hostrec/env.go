@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/hostfacts"
-	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
@@ -33,6 +32,11 @@ const (
 	publicKeyOut = "hf-scratch-deploy-key.pub"
 	scratchRepo  = "hf-scratch-plum"
 )
+
+// installRecord is eva-md's install record, in its data folder:
+// install.RecordFile, which a test holds equal, named here so the recorder
+// imports nothing of the install.
+const installRecord = "install-record.json"
 
 // sharedDir is where the owner's own account and the evaluation account
 // pass files. Tests point it at a folder of their own.
@@ -111,7 +115,7 @@ func homeChecks(home string, made time.Time) error {
 		Config: filepath.Join(home, ".config", "eva-md"),
 		Share:  filepath.Join(home, ".local", "share", "eva-md"),
 	}
-	for _, p := range []string{filepath.Join(dirs.Share, install.RecordFile), dirs.ConfigFile(), dirs.AnswersFile()} {
+	for _, p := range []string{filepath.Join(dirs.Share, installRecord), dirs.ConfigFile(), dirs.AnswersFile()} {
 		if _, err := os.Lstat(p); err == nil || !errors.Is(err, fs.ErrNotExist) {
 			return errors.New("this home holds an eva-md install or config, so it is not an evaluation home; nothing was done")
 		}
