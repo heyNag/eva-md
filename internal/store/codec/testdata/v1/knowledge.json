@@ -1,0 +1,49 @@
+{
+  "type": "knowledge",
+  "title": "Station ids are five digits",
+  "description": "Harbour station ids are five digits, zero-padded: 00412, not 412.",
+  "status": "stable",
+  "stale_after": "",
+  "generated": {
+    "by": "claude-code/model-a",
+    "at": "2026-11-06T10:02:33Z"
+  },
+  "verified": null,
+  "sources": [
+    {
+      "id": "",
+      "resource": "s:9c41aa07#14",
+      "title": "",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    },
+    {
+      "id": "",
+      "resource": "s:51d0e2b4#3",
+      "title": "",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    },
+    {
+      "id": "",
+      "resource": "code:internal/feed/station.go",
+      "title": "",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    }
+  ],
+  "extra": {
+    "as_of": "2026-11-06",
+    "kind": "fact",
+    "project": "git.example.test:example-org/tide-tables",
+    "scope": "project",
+    "state": "active"
+  },
+  "body": "\n## Statement\nHarbour station ids are five digits, zero-padded: 00412, not 412. [observed] s:9c41aa07#14 s:51d0e2b4#3 <!-- t:2026-11-06T09:58:12.25+01:00 -->\n\n## History\n- 2026-11-05: Station ids were read as numbers. s:51d0e2b4#3\n\nPart of the [knowledge map](map.md).\n"
+}
