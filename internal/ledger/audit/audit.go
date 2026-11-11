@@ -85,7 +85,7 @@ const (
 // Recovery counts the sessions whose host record was not read by the
 // transcript their recovery record names, by why, and those paired so.
 type Recovery struct {
-	Paired       int // by the recovery record
+	Paired       int // by the recovery record; a subagent's thread is counted in Report.Subagents
 	NoRecord     int // no recovery record, as for a record pruned
 	NoneNamed    int // no hook named a transcript
 	NamedRefused int // a hook named one and recovery refused it
@@ -106,7 +106,7 @@ type Recovery struct {
 // names no transcript, as none was named, it was not written yet or for a
 // reason an older record does not keep, or names one that is gone.
 type Lookup struct {
-	Paired int // one file, admitted, the session's, and read
+	Paired int // one file, admitted, the session's, and read; a subagent's thread is counted in Report.Subagents
 	None   int // no file by that id
 	Many   int // more than one
 	// Refused counts one file the rules refuse: a symlink, one outside
@@ -286,10 +286,11 @@ func span(events []event.Event) (first, last time.Time) {
 // as a subagent's, is paired and read as any other, but not scored: v1
 // stores a subagent's lines under its id, which coverage leaves out, and on
 // Codex such a thread is a session of its own, whose every row the host's
-// record holds. It adds nothing to coverage, repeats, gaps, voice
-// hand-overs, the host's rows not compared or the turns with no stored
-// reply, only its ranges said off the record, and its pairing is counted
-// apart. A session that holds a subagent's lines among others is scored.
+// record holds. Paired or not, it adds nothing to coverage, repeats, gaps,
+// voice hand-overs, the host's rows not compared or the turns with no
+// stored reply; its ranges said off the record are counted as paused, and
+// its pairing apart, in Subagents. A session that holds a subagent's lines
+// among others is scored.
 func (r *Report) session(ctx context.Context, o Options, away func(string) bool, listed func() listing, host, id string, files []file) error {
 	var paused []interval
 	var first time.Time
