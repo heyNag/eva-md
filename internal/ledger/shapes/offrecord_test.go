@@ -139,15 +139,22 @@ func specials() []special {
 // facts are those of the same home without it, and whose hosts' part
 // differs from that home's only by the session's file and chat, counted
 // under why it was left out. Nothing it names joins it to another chat.
+// It is so with a link where macOS or a person may put one.
 func TestASessionLeftOutAddsOnlyItsCount(t *testing.T) {
-	base := newFixture(t, noLink)
+	for _, link := range links {
+		t.Run(link, func(t *testing.T) { aSessionLeftOutAddsOnlyItsCount(t, link) })
+	}
+}
+
+func aSessionLeftOutAddsOnlyItsCount(t *testing.T, link string) {
+	base := newFixture(t, link)
 	oneChatEach(base)
 	rb, _ := base.run()
 	for _, sp := range specials() {
 		t.Run(sp.host+" "+sp.why+" "+sp.name, func(t *testing.T) {
 			var outs [2]string
 			for inside := range 2 {
-				f := newFixture(t, noLink)
+				f := newFixture(t, link)
 				oneChatEach(f)
 				sp.build(f, inside)
 				r, out := f.run()

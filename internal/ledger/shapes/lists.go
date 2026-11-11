@@ -101,9 +101,9 @@ var (
 // report gives under their number, in full or in part; the rest are left
 // to the sittings and the owner's answers.
 var (
-	settledInFull = []string{"F-013", "F-020", "F-021", "F-024", "F-079", "F-133", "F-134"}
-	settledInPart = []string{"F-001", "F-004", "F-005", "F-010", "F-018", "F-022", "F-027", "F-034", "F-084", "F-085", "F-132",
-		"F-136", "F-138", "F-141"}
+	settledInFull = []string{"F-013", "F-133", "F-134"}
+	settledInPart = []string{"F-001", "F-004", "F-005", "F-010", "F-018", "F-020", "F-021", "F-022", "F-024", "F-027", "F-034", "F-079", "F-084",
+		"F-085", "F-132", "F-136", "F-138", "F-141"}
 	notByShapes = []string{"F-025", "F-028", "F-029", "F-030", "F-031", "F-032", "F-038", "F-046", "F-047", "F-057", "F-087",
 		"F-126", "F-127", "F-137", "F-147", "F-148", "F-149", "F-150", "F-156", "F-160", "F-161", "F-173", "F-176", "F-177",
 		"F-178", "F-180", "F-182", "F-185", "F-189", "F-202"}
