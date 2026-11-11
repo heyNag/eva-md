@@ -39,7 +39,7 @@ type UpdateFigures struct {
 	Checked int            `json:"checked"`
 	Refused map[string]int `json:"refused_whole"`
 	// Inside sums, over the accepted answers, what the checker changed or
-	// refused in each, by the name of its counter, as validation.refused.
+	// refused in each, by the name of its counter, as refused or rules.refused.
 	Inside     map[string]int    `json:"inside_accepted"`
 	TokensIn   Spread            `json:"tokens_in"`    // over passes that made a model call
 	TokensOut  Spread            `json:"tokens_out"`   // the same
