@@ -135,7 +135,7 @@ func TestTwoMachinesGiveOneTree(t *testing.T) {
 // step's.
 func TestStoreIDAndEpochKept(t *testing.T) {
 	isolate(t)
-	for _, tc := range []struct {
+	for i, tc := range []struct {
 		old       string
 		minReader int
 		want      string
@@ -146,7 +146,11 @@ func TestStoreIDAndEpochKept(t *testing.T) {
 	} {
 		dir := v1Wiki(t, map[string]string{".eva-md/store.toml": tc.old, ".eva-md/schema.toml": "schema_version = 2\n", "index.md": "# Memory\n"})
 		step := Step{From: 2, To: 3, MinReader: tc.minReader, Plan: func(Tree) (Change, error) { return Change{}, nil }}
-		if _, err := Run(bg(), dir, step, machine(t, writerA, "laptop", passA)); err != nil {
+		o := machine(t, writerA, "laptop", passA)
+		if i == 2 {
+			o.StoreID = "" // a store with an id needs none from the machine
+		}
+		if _, err := Run(bg(), dir, step, o); err != nil {
 			t.Fatal(err)
 		}
 		if got := gitT(t, dir, "show", "HEAD:.eva-md/store.toml") + "\n"; got != tc.want {
@@ -322,6 +326,7 @@ func TestOptionsAndStepChecked(t *testing.T) {
 		"bad writer":     {StateDir: good.StateDir, LocksDir: good.LocksDir, StoreID: storeID, Writer: "Person Name", Label: "laptop", Pass: passA},
 		"bad label":      {StateDir: good.StateDir, LocksDir: good.LocksDir, StoreID: storeID, Writer: writerA, Label: "Jane's laptop", Pass: passA},
 		"bad pass":       {StateDir: good.StateDir, LocksDir: good.LocksDir, StoreID: storeID, Writer: writerA, Label: "laptop", Pass: "pass"},
+		"no store id":    {StateDir: good.StateDir, LocksDir: good.LocksDir, Writer: writerA, Label: "laptop", Pass: passA},
 	} {
 		if _, err := Run(bg(), dir, synthetic, o); err == nil {
 			t.Errorf("%s: Run took it", name)

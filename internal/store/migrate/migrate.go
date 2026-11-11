@@ -183,6 +183,8 @@ func Run(ctx context.Context, root string, step Step, o Options) (Result, error)
 		return r, ErrUnaccounted
 	case p.counts.HeldBack > 0:
 		return r, ErrHeldBack
+	case p.old.storeID == "" && o.StoreID == "":
+		return Result{}, errors.New("migrate: a store without an id needs one")
 	}
 	if j == nil {
 		if err := writeJournal(o.StateDir, journal{Pass: pass, From: step.From, To: step.To, Before: head}); err != nil {
