@@ -42,7 +42,8 @@ func render(host, binary string) (map[string][]byte, error) {
 		return nil, fmt.Errorf("install: no plugin for host %q", host)
 	}
 	files := map[string][]byte{managed: []byte(managedContents)}
-	marketManifest, pluginManifest := h.Plugin().MarketplaceManifest, h.Plugin().PluginManifest
+	plugin := h.Plugin()
+	marketManifest, pluginManifest := plugin.MarketplaceManifest, plugin.PluginManifest
 	for key, name := range map[string]string{marketManifest: "marketplace", "plugins/eva-md/" + pluginManifest: "plugin"} {
 		data, err := templates.ReadFile("templates/" + h.Names.InstallName + "-" + name + ".json")
 		if err != nil {
