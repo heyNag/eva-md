@@ -99,8 +99,18 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		Days: map[string][2]string{}, Settled: map[string][]string{"in_full": settledInFull, "in_part": settledInPart, "not_by_shapes": notByShapes}}
 	away := audit.Outside(audit.Options{Dirs: o.Dirs, Home: o.Home, TempDir: o.TempDir, Config: o.Config})
 	sessions, part, err := readInbox(ctx, o, away)
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
 		return Report{}, err
+	}
+	if err != nil {
+		// Time ran out before the inbox was listed: nothing is known to
+		// eva-md, so no host file is read.
+		merge(&r, map[string]int{}, newGroups(), nil, nil)
+		for p := range r.Parts {
+			r.Parts[p] = PartIncomplete
+		}
+		r.Parts["inbox"] = PartIncomplete
+		return r, nil
 	}
 	r.Parts["inbox"] = part
 	counts := map[string]int{}
