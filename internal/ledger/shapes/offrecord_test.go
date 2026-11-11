@@ -23,6 +23,7 @@ type special struct {
 	name, host, why string
 	build           func(f *fixture, inside int)
 	files           int // the session's files the hosts list
+	subagents       int // its subagents' files, read and counted under why
 }
 
 // inside are two contents of a special session's host file: in the first,
@@ -75,43 +76,43 @@ func specials() []special {
 			id := marker + "-off-inbox"
 			path := f.claudeFile("", id, insideRows(f, claude, id, inside)...)
 			f.session(claude, id, path, prompt(inside), control, prompt(inside+2))
-		}, 1},
+		}, 1, 0},
 		{"a marker says it", claude, statusOff, func(f *fixture, inside int) {
 			id := marker + "-off-marker"
 			path := f.claudeFile("", id, insideRows(f, claude, id, inside)...)
 			f.session(claude, id, path, prompt(inside))
 			f.mark(claude, id, session.WasOff)
-		}, 1},
+		}, 1, 0},
 		{"the host's record says it", claude, statusOff, func(f *fixture, inside int) {
 			id := marker + "-off-host"
 			rows := append(insideRows(f, claude, id, inside), cUser(f, id, "p8", at(32, 0), "Off the record."))
 			path := f.claudeFile("", id, rows...)
 			f.session(claude, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 		{"a row's own content says it", claude, statusOff, func(f *fixture, inside int) {
 			id := marker + "-off-queued"
 			rows := append(insideRows(f, claude, id, inside), map[string]any{"type": marker + "-queued", "sessionId": id, "timestamp": at(32, 0), "content": "off the record"})
 			path := f.claudeFile("", id, rows...)
 			f.session(claude, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 		{"a row too long says it", claude, statusOff, func(f *fixture, inside int) {
 			f.rowLimit = 4096
 			id := marker + "-off-long"
 			rows := append(insideRows(f, claude, id, inside), cUser(f, id, "p8", at(32, 0), "off the record\n"+strings.Repeat("w", 5000)))
 			path := f.claudeFile("", id, rows...)
 			f.session(claude, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 		{"the inbox says it", codex, statusOff, func(f *fixture, inside int) {
 			id := codexIDs(20)[19]
 			path := f.codexFile(3, id, insideRows(f, codex, id, inside)...)
 			f.session(codex, id, path, prompt(inside), control)
-		}, 1},
+		}, 1, 0},
 		{"the host's record says it", codex, statusOff, func(f *fixture, inside int) {
 			id := codexIDs(20)[18]
 			rows := append(insideRows(f, codex, id, inside), xRow(at(33, 0), "event_msg", map[string]any{"type": "user_message", "message": "off the record"}))
 			path := f.codexFile(3, id, rows...)
 			f.session(codex, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 		{"eva-md's records say it", claude, statusLeftOut, func(f *fixture, inside int) {
 			id := marker + "-away-inbox"
 			dir := tmp(f)
@@ -124,13 +125,13 @@ func specials() []special {
 			}
 			e.Cwd = rel
 			f.session(claude, id, path, e)
-		}, 1},
+		}, 1, 0},
 		{"the host's record says it", codex, statusLeftOut, func(f *fixture, inside int) {
 			id := codexIDs(20)[17]
 			rows := append(insideRows(f, codex, id, inside), xRow(at(33, 0), "turn_context", map[string]any{"turn_id": "t2", "cwd": tmp(f)}))
 			path := f.codexFile(3, id, rows...)
 			f.session(codex, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 		{"a line the inbox withholds says it", claude, statusOff, func(f *fixture, inside int) {
 			// A pause of another project's, which v1's reader does not
 			// trust and never returns as a pause, then a prompt it
@@ -141,19 +142,19 @@ func specials() []special {
 			pause := control
 			pause.Project = marker + "-elsewhere"
 			f.appendInbox(claude, id, pause, prompt(inside+2))
-		}, 1},
+		}, 1, 0},
 		{"its recovery record says it", claude, statusOff, func(f *fixture, inside int) {
 			id := marker + "-off-record"
 			path := f.claudeFile("", id, insideRows(f, claude, id, inside)...)
 			f.session(claude, id, path, prompt(inside))
 			f.block(claude, id)
-		}, 1},
+		}, 1, 0},
 		{"the off_record marker says it", claude, statusOff, func(f *fixture, inside int) {
 			id := marker + "-off-marker-now"
 			path := f.claudeFile("", id, insideRows(f, claude, id, inside)...)
 			f.session(claude, id, path, prompt(inside))
 			f.mark(claude, id, session.OffRecord)
-		}, 1},
+		}, 1, 0},
 		{"a row too long says it of a session an earlier row named", claude, statusOff, func(f *fixture, inside int) {
 			f.rowLimit = 4096
 			id, named := marker+"-off-long-named", marker+"-named"
@@ -161,7 +162,7 @@ func specials() []special {
 				cUser(f, named, "p8", at(32, 0), "off the record\n"+strings.Repeat("w", 5000)))
 			path := f.claudeFile("", id, rows...)
 			f.session(claude, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 		{"the host's record says it, with subagents' files", claude, statusOff, func(f *fixture, inside int) {
 			// Its subagents' files differ in number, and one names the
 			// other chat.
@@ -178,7 +179,23 @@ func specials() []special {
 				row["isSidechain"], row["agentId"] = true, marker
 				f.subagentFile(id, fmt.Sprintf("agent-%s-%d", marker, i), row)
 			}
-		}, 1},
+		}, 1, 0},
+		{"a subagent's file says it", claude, statusOff, func(f *fixture, inside int) {
+			// The session's own file is a single clean row, so nothing
+			// puts it out before its subagents' files are read; one of
+			// them is said off the record, and names the other chat or
+			// not.
+			id := marker + "-off-subagent"
+			path := f.claudeFile("", id, cUser(f, id, "p9", at(30, 0), "one row"))
+			f.session(claude, id, path, prompt(inside))
+			control := cUser(f, id, "p8", at(32, 0), "Off the record.")
+			control["isSidechain"], control["agentId"] = true, marker
+			rows := []any{control}
+			if inside == 0 {
+				rows = append(insideRows(f, claude, id, inside), control)
+			}
+			f.subagentFile(id, "agent-"+marker+"-off", rows...)
+		}, 1, 1},
 		{"the host's record says it, in one of two copies", claude, statusOff, func(f *fixture, inside int) {
 			// The file in the chats' folder is said off the record; its
 			// copy in another folder names the other chat, or itself.
@@ -191,7 +208,7 @@ func specials() []special {
 			}
 			f.claudeFile("-"+marker+"-elsewhere", id, cUser(f, id, "p1", at(31, 0), "one row"), cUser(f, named, "p1", at(31, 1), "two rows"))
 			f.session(claude, id, path, prompt(inside))
-		}, 2},
+		}, 2, 0},
 		{"the host's record says it, in the copy listed last", claude, statusOff, func(f *fixture, inside int) {
 			// The file in the chats' folder names the other chat, or not;
 			// its copy in a folder listed after it is said off the record.
@@ -199,7 +216,7 @@ func specials() []special {
 			path := f.claudeFile("", id, insideRows(f, claude, id, inside)...)
 			f.claudeFile("-"+marker+"-elsewhere", id, cUser(f, id, "p1", at(31, 0), "Off the record."))
 			f.session(claude, id, path, prompt(inside))
-		}, 2},
+		}, 2, 0},
 		{"a row of the host's says it", claude, statusLeftOut, func(f *fixture, inside int) {
 			// eva-md's records give the chats' folder; one of the host's
 			// rows gives a folder the hooks leave out.
@@ -208,18 +225,18 @@ func specials() []special {
 			row["cwd"] = tmp(f)
 			path := f.claudeFile("", id, append(insideRows(f, claude, id, inside), row)...)
 			f.session(claude, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 		{"a row is not JSON", claude, statusNotWhole, func(f *fixture, inside int) {
 			id := marker + "-not-json"
 			path := f.claudeFile("", id, append(insideRows(f, claude, id, inside), "{"+marker)...)
 			f.session(claude, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 		{"a row too long to follow", claude, statusNotWhole, func(f *fixture, inside int) {
 			f.rowLimit = 4096
 			id := marker + "-long-not-json"
 			path := f.claudeFile("", id, append(insideRows(f, claude, id, inside), strings.Repeat(marker, 2000))...)
 			f.session(claude, id, path, prompt(inside))
-		}, 1},
+		}, 1, 0},
 	}
 }
 
@@ -254,7 +271,10 @@ func aSessionLeftOutAddsOnlyItsCount(t *testing.T, link string) {
 				}
 				want := leaves(rb.Hosts)
 				want[sp.host+"/files/listed"] += sp.files
-				want[sp.host+"/files/"+sp.why] += sp.files
+				want[sp.host+"/files/"+sp.why] += sp.files + sp.subagents
+				if sp.subagents > 0 {
+					want[sp.host+"/files/subagent_files"] += sp.subagents
+				}
 				want[sp.host+"/chats/"+sp.why]++
 				if got := leaves(r.Hosts); !maps.Equal(got, want) {
 					t.Errorf("inside %d: hosts\n%v\nwant\n%v", inside, got, want)
