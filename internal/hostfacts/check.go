@@ -212,7 +212,7 @@ func CheckSurvival(rec, fixtures string) ([]Problem, error) {
 		for i, l := range lines {
 			at := func(what string) { problems = append(problems, Problem{name, i + 1, what}) }
 			look := func(s string) {
-				if kept(s) {
+				if kept(s) || keptPath(s) {
 					return
 				}
 				// The recorded value is not shown: a check's output may be

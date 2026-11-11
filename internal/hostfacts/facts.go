@@ -133,9 +133,10 @@ func Words(text string) []string {
 	})
 }
 
-// ClosestLine gives the script line whose words a request keeps most of,
-// and how many of that line's words it keeps. Nothing of the request's text
-// is returned.
+// ClosestLine gives the script line that shares the most words with a
+// request, measured against the words of both so a short line does not win
+// on a few common words, and how many of that line's words the request
+// keeps. Nothing of the request's text is returned.
 func ClosestLine(request string) (label string, kept, of int) {
 	have := map[string]bool{}
 	for _, w := range Words(request) {
@@ -143,15 +144,18 @@ func ClosestLine(request string) (label string, kept, of int) {
 	}
 	best := -1.0
 	for _, l := range VoiceScript {
-		words := Words(l.Text)
+		words := map[string]bool{}
+		for _, w := range Words(l.Text) {
+			words[w] = true
+		}
 		n := 0
-		for _, w := range words {
+		for w := range words {
 			if have[w] {
 				n++
 			}
 		}
-		if share := float64(n) / float64(len(words)); share > best {
-			best, label, kept, of = share, l.Label, n, len(words)
+		if score := 2 * float64(n) / float64(len(words)+len(have)); score > best {
+			best, label, kept, of = score, l.Label, n, len(words)
 		}
 	}
 	return label, kept, of

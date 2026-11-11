@@ -79,8 +79,9 @@ func Scan(dir string, words []ScanWord, known Known) (ScanResult, error) {
 			finders = append(finders, finder{regexp.MustCompile("(?i)" + p), w.Kind})
 		}
 	}
+	scrubbed := scrubbedValues(dir)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || !d.Type().IsRegular() {
+		if err != nil || !d.Type().IsRegular() || path == filepath.Join(dir, ScrubbedFile) {
 			return err
 		}
 		rel, _ := filepath.Rel(dir, path)
@@ -101,6 +102,12 @@ func Scan(dir string, words []ScanWord, known Known) (ScanResult, error) {
 				}
 			}
 			rest := text
+			for _, v := range scrubbed {
+				if strings.Contains(rest, v) {
+					res.Counts["value scrub wrote"] += strings.Count(rest, v)
+					rest = strings.ReplaceAll(rest, v, " ")
+				}
+			}
 			for _, k := range known.Keys {
 				if k != "" && strings.Contains(rest, k) {
 					res.Counts["key hostrec made"] += strings.Count(rest, k)
@@ -197,8 +204,9 @@ func Scrub(dir, text string) (int, error) {
 		made = draw(randomBytes(32), shape, 1, nil)
 	}
 	total := 0
+	list := filepath.Join(dir, ScrubbedFile)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || !d.Type().IsRegular() {
+		if err != nil || !d.Type().IsRegular() || path == list {
 			return err
 		}
 		data, err := os.ReadFile(path)
@@ -216,7 +224,37 @@ func Scrub(dir, text string) (int, error) {
 		}
 		return os.WriteFile(path, re.ReplaceAllLiteral(data, []byte(made)), info.Mode().Perm())
 	})
+	if err == nil && total > 0 {
+		// scan counts what scrub wrote, so a value of an address's or a
+		// token's shape is not shown again.
+		f, ferr := os.OpenFile(list, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+		if ferr == nil {
+			_, ferr = f.WriteString(made + "\n")
+			if cerr := f.Close(); ferr == nil {
+				ferr = cerr
+			}
+		}
+		err = ferr
+	}
 	return total, err
+}
+
+// ScrubbedFile, in a recording folder, lists the made-up values scrub
+// wrote, one a line.
+const ScrubbedFile = "scrubbed.txt"
+
+func scrubbedValues(dir string) []string {
+	data, err := os.ReadFile(filepath.Join(dir, ScrubbedFile))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(string(data), "\n") {
+		if l = strings.TrimSpace(l); len(l) >= 4 {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // ScanTestdata runs the email, home-path and token patterns over every file

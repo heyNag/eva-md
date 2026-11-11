@@ -29,7 +29,8 @@ func (x xform) value(v any, key, parent string) any {
 	switch t := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(t))
-		for k, e := range t {
+		for _, k := range slices.Sorted(maps.Keys(t)) {
+			e := t[k]
 			nk := k
 			switch {
 			case key == "payload_hashes":
@@ -50,7 +51,9 @@ func (x xform) value(v any, key, parent string) any {
 		switch {
 		case key == "path" && parent == "fields":
 			return x.path(t)
-		case kept(t):
+		case kept(t) && !hashedPath([]string{key}):
+			// A model, an effort level, a plan or tier, or a version is
+			// replaced even when it reads as a host word, such as "default".
 			return t
 		}
 		return x.str(t)
@@ -392,7 +395,7 @@ func recordedValues(rec string) (forbidden, error) {
 		return fb, err
 	}
 	addStr := func(s string) {
-		if len(s) < 4 || kept(s) {
+		if len(s) < 4 || kept(s) || keptPath(s) {
 			return
 		}
 		if shape, _ := shapeOf(s); !hasClass(shape) {
@@ -542,3 +545,17 @@ func InsideCheckout(path string) (bool, error) {
 
 // maxDraws bounds the draws for one value before a used one is taken.
 const maxDraws = 64
+
+// keptPath reports a field path whose every part the fixtures keep: a host
+// word, the recorder's own word or a short index, as message.content.0.type.
+func keptPath(s string) bool {
+	if !strings.Contains(s, ".") {
+		return false
+	}
+	for _, seg := range strings.Split(s, ".") {
+		if !kept(seg) && !(isIndex(seg) && len(seg) < 4) {
+			return false
+		}
+	}
+	return true
+}
