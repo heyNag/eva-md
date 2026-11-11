@@ -1246,6 +1246,13 @@ class GateLoops(unittest.TestCase):
                 and any(isinstance(c, ast.Call) and getattr(c.func, "id", None) == "hook" and
                         any(isinstance(k, ast.Constant) and k.value == "SessionStart" for k in c.args) for c in ast.walk(n))]
         self.assertEqual(len(warm), 1)
+        # And between the chat starts and those with chats a program ran,
+        # they remove their extra chat starts' files, lest those push the
+        # person's chat out of the 64 a brief reads.
+        lines = sorted(line for line, _ in self.timed(fn, self.env(True)))
+        removes = [n for n in ast.walk(fn) if isinstance(n, ast.If) and ast.unparse(n.test) == "run.gate" and lines[0] < n.lineno < lines[1]
+                   and any(isinstance(c, ast.Call) and getattr(c.func, "attr", None) == "unlink" for c in ast.walk(n))]
+        self.assertEqual(len(removes), 1)
 
 
 class Scenarios(unittest.TestCase):

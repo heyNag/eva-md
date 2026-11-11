@@ -180,6 +180,14 @@ def padded_inbox(run, evabench):
             if "MARIGOLD" not in context or "eva-memory" not in context or len(context)>7000:
                 raise RuntimeError("cross-host startup failed")
             startup.append(elapsed)
+        # Each chat start leaves its chat's file, and a brief reads the 64
+        # newest besides the chats a program ran: the gate's runs remove
+        # those of their extra chat starts, so that the chat starts below
+        # find the files the plain benchmark leaves, and do not push the
+        # person's chat out of the 64.
+        if run.gate:
+            for sid in ["m1-warm"]+["m1-new-"+str(i) for i in range(10,len(startup))]:
+                (files[0].parent/("codex-"+sid+".jsonl")).unlink(missing_ok=True)
         # Chats a program ran, newer than the person's: 64 files of 32 KiB of
         # short tool lines and replies with quotes and line breaks, as an
         # agent loop leaves them, 2 MiB in all, the most the brief reads
