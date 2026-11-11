@@ -33,7 +33,7 @@ const (
 var (
 	keyRefusal       = regexp.MustCompile(`(?i)permission denied|publickey|host key verification failed|could not read from remote|access denied|not authorized|unauthorized|deploy key`)
 	noAnswer         = regexp.MustCompile(`(?i)could not resolve|connection (timed out|refused|reset|closed)|no route to host|network is unreachable|operation timed out|kex_exchange|broken pipe`)
-	signatureRefusal = regexp.MustCompile(`(?i)signature|signed|gpg|verif`)
+	signatureRefusal = regexp.MustCompile(`(?i)signature|signed|gpg`)
 	committerRefusal = regexp.MustCompile(`(?i)committer|author|e-?mail|identity`)
 	protectedRefusal = regexp.MustCompile(`(?i)protected`)
 	branchRefusal    = regexp.MustCompile(`(?i)branch name|ref ?name|naming|not allowed to (create|push) (a )?branch|refs/heads.*(not allowed|forbidden)`)
@@ -51,10 +51,10 @@ func pushClass(exit int, output string) string {
 		return pushKey
 	case protectedRefusal.MatchString(output):
 		return pushProtected
-	case signatureRefusal.MatchString(output):
-		return pushSignature
 	case committerRefusal.MatchString(output):
 		return pushCommitter
+	case signatureRefusal.MatchString(output):
+		return pushSignature
 	case branchRefusal.MatchString(output):
 		return pushBranchRule
 	case strings.Contains(output, "rejected") || strings.Contains(output, "denied") || strings.Contains(output, "declined"):

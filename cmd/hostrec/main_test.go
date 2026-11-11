@@ -284,7 +284,8 @@ func fakeSSH(args []string) int {
 	if len(args) == 0 {
 		return 255
 	}
-	cmd := args[len(args)-1]
+	// git's helpers by their dashed names need not be on PATH.
+	cmd := strings.NewReplacer("git-upload-pack", "git upload-pack", "git-receive-pack", "git receive-pack").Replace(args[len(args)-1])
 	sh := execCommand("sh", "-c", cmd)
 	sh.Dir = os.Getenv("HOSTREC_FAKE_SERVER")
 	sh.Stdin, sh.Stdout, sh.Stderr = os.Stdin, os.Stdout, os.Stderr
