@@ -485,8 +485,9 @@ def compare(core, a):
     ceilings = {name: (target*a.ceiling_factor if target is not None and a.ceiling_factor else None)
                 for name, target in targets.items()}
     verdict = core.decide(samples, ceilings, failures, a.rounds, sources=sources)
-    gate = {"verdict": verdict["verdict"], "exit": verdict["exit"], "old": str(old), "new": str(new),
-            "rounds": a.rounds, "schedule": [role for _, role in core.schedule(a.rounds)],
+    # The binaries' paths are not kept: wherever the gate runs they lie
+    # under a home folder, and name its user.
+    gate = {"verdict": verdict["verdict"], "exit": verdict["exit"], "rounds": a.rounds, "schedule": [role for _, role in core.schedule(a.rounds)],
             "ceiling_factor": a.ceiling_factor, "launch_paths": core.LAUNCH_PATHS,
             "load_average_at_start": round(load, 2), "decision": verdict, "scenario_failures": failures, "runs": runs,
             # Every sample by run, unrounded, and the ceilings, so that
@@ -518,10 +519,11 @@ def compare(core, a):
         print("not judged: %s" % lost)
     for binary in verdict["one_quick_run"]:
         print("not judged: one run of the %s binary was more than %.2f times as quick as its next, over the figures judged: "
-              "load on its other runs looks like a change" % (binary, verdict["threshold"]))
+              "load on its other runs looks like a change" % (binary, verdict["quick"]))
     if verdict["machine_too_noisy"]:
-        why = (" (runs differed by more than %.2f in %d figures or more, or one run was that much quicker than the rest: "
-               "the machine was too noisy to judge)" % (verdict["threshold"], verdict["noisy_figures"]))
+        why = (" (runs differed by more than %.2f in %d figures or more, or one run was more than %.2f times as quick as "
+               "the binary's next: the machine was too noisy to judge)" % (
+                   verdict["threshold"], verdict["noisy_figures"], verdict["quick"]))
     elif verdict["lost"]:
         why = " (a scenario may have been lost to load: run the gate again)"
     elif verdict["too_noisy"]:

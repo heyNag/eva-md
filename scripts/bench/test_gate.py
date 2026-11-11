@@ -498,6 +498,10 @@ class Controls(unittest.TestCase):
         # A binary that lost runs: the lower median of the rest.
         self.assertAlmostEqual(core.aligned(o, [[], [16.0]*10, [12.0]*10, []]), 1.2/1.15)
         self.assertEqual(core.aligned(o, [[], [], [], []]), 1.0)
+        # A run's typical value is its median, not its tail: medians 12
+        # against 10, though the old runs' tails are longer.
+        tailed = [[10.0]*9+[50.0] for _ in range(4)]
+        self.assertAlmostEqual(core.aligned(tailed, [[12.0]*9+[13.0] for _ in range(4)]), 1.2/1.15)
 
     def test_the_runs_levels_and_one_quick_run(self):
         # Two figures; the new binary's run 2 is quick in both, by 1.25.
@@ -508,9 +512,13 @@ class Controls(unittest.TestCase):
         # In one figure only, the median over figures does not see it.
         c = [[30.0]*5, [30.0]*5, [31.0]*5, [29.0]*5]
         self.assertFalse(core.one_quick_run(core.run_levels([a, c, c])))
-        # 1.15 is not more than 1.15.
-        self.assertFalse(core.one_quick_run([1.0, 1.15, 1.2, 1.3]))
-        self.assertTrue(core.one_quick_run([1.0, 1.151, 1.2, 1.3]))
+        # The gap that calls a run quick is QUICK, 1.07, below the
+        # threshold, and 1.07 is not more than 1.07.
+        self.assertEqual((core.QUICK, core.THRESHOLD), (1.07, 1.15))
+        self.assertFalse(core.one_quick_run([1.0, 1.07, 1.2, 1.3]))
+        self.assertTrue(core.one_quick_run([1.0, 1.071, 1.2, 1.3]))
+        self.assertTrue(core.one_quick_run([1.0, 1.1, 1.1, 1.1]))
+        self.assertFalse(core.one_quick_run([1.0, 1.1, 1.1, 1.1], 1.15))
         # A figure a run of which gave nothing counts for no run.
         self.assertEqual(core.run_levels([[[10.0], [], [10.0], [10.0]]]), None)
 
@@ -536,6 +544,49 @@ class Controls(unittest.TestCase):
         parts = runs_of("capture", {"old": (1.4, 1.4, 1, 1.4)}, spread=0.05)
         d = core.decide(parts, {"capture": 100})
         self.assertEqual((d["verdict"], d["one_quick_run"]), ("not judged", ["old"]))
+
+    def figures(self, *figures, spread=0.3):
+        """Each figure (name, the old binary's levels, the new one's, its
+        centre): one list of samples, times each run's level."""
+        out = {role: [{}, {}] for role in core.ROLES}
+        for k, (name, old, new, centre) in enumerate(figures):
+            rng = random.Random(4+k)
+            s = [centre*(1+rng.uniform(-spread, spread)) for _ in range(100)]
+            for binary, levels in (("old", old), ("new", new)):
+                for i, role in enumerate(core.ROLES_OF[binary]):
+                    for j in range(2):
+                        out[role][j][name] = [v*levels[2*i+j] for v in s]
+        return out
+
+    def test_mild_load_on_three_runs_with_the_fourth_slow_by_chance_is_not_judged(self):
+        # An unchanged binary, three of the new binary's runs loaded by 1.2
+        # and its fourth 8% slow by chance: that run is only 1.11 times as
+        # quick as its next, under the threshold, while both figures' pooled
+        # samples are past it and no control sees the load. A quick run is
+        # one more than QUICK, 1.07, times as quick as its next, so the
+        # gate is not judged; were it the threshold, the gate would fail.
+        levels = (1.08, 1.2, 1.2, 1.2)
+        s = self.figures(("capture", (1,)*4, levels, 20), ("prompt", (1,)*4, levels, 30))
+        d = core.decide(s, {"capture": None, "prompt": None})
+        self.assertEqual((d["verdict"], d["one_quick_run"], d["machine_too_noisy"], d["quick"]), ("not judged", ["new"], True, 1.07))
+        self.assertEqual(d["run_levels"]["new"], [0.9, 1.0, 1.0, 1.0])
+        self.assertEqual(sorted({f.split(":")[0] for f in d["failures"]}), ["capture", "prompt"])
+        self.assertEqual(core.decide(s, {"capture": None, "prompt": None}, quick=core.THRESHOLD)["verdict"], "fail")
+
+    def test_a_figure_too_noisy_to_judge_counts_in_the_runs_levels(self):
+        # a and c have the new binary's first run quicker by 1.1, b and d
+        # do not, and d is 50% slower in every run, which fails. c is too
+        # noisy to judge, but its runs still say how quick each run was:
+        # with it the new binary's first run is quick, and the gate is not
+        # judged; without it, the run levels would see no quick run, and
+        # the gate would fail on load that may have hidden in c.
+        one, mild = (1, 1, 1, 1), (1, 1.1, 1.1, 1.1)
+        s = self.figures(("a", one, mild, 20), ("b", one, one, 30), ("c", (1, 1.6, 1, 1.6), mild, 40), ("d", one, (1.5,)*4, 50))
+        d = core.decide(s, dict.fromkeys("abcd"))
+        self.assertEqual((d["too_noisy"], d["one_quick_run"], d["verdict"]), (["c"], ["new"], "not judged"))
+        self.assertEqual(d["run_levels"]["new"], [0.909, 1.0, 1.0, 1.0])
+        self.assertEqual([f.split(":")[0] for f in d["failures"]], ["d"])
+        self.assertEqual([d["metrics"][n]["judged"] for n in "abcd"], [True, True, False, True])
 
 
 class LostRuns(unittest.TestCase):
@@ -621,6 +672,38 @@ class LostRuns(unittest.TestCase):
         d = core.decide(parts, {"capture": 100, "startup": 600}, failures)
         self.assertEqual((d["verdict"], d["failures"]), ("not judged", []))
 
+    def test_a_figure_missing_from_every_new_run_when_its_scenario_was_lost_in_only_three(self):
+        # recall gives startup, and the new binary lost recall in three of
+        # its four runs, the old one in one: two more, so recall itself is
+        # only "lost". But the fourth run, which recall did not fail, gave
+        # no startup either: that is a regression, and fails.
+        parts = merge(runs_of("capture"), runs_of("startup", n=34, centre=100, seed=70))
+        for role in core.ROLES_OF["new"]:
+            for run in parts[role]:
+                del run["startup"]
+        failures = {"old": {"recall": self.e}, "old_again": {}, "new": {"recall": self.e*2}, "new_again": {"recall": self.e}}
+        sources = {"capture": "padded-inbox", "startup": "recall"}
+        d = core.decide(parts, {"capture": 100, "startup": 600}, failures, sources=sources)
+        self.assertEqual(d["scenarios"]["lost"], ["recall"])
+        self.assertEqual((d["verdict"], d["failures"]), ("fail", ["startup: the new binary gave no samples, the old one 136"]))
+
+    def test_a_figure_short_though_its_own_scenario_never_failed_is_only_listed(self):
+        # startup gave 30, 30, 30 and 5 a binary without its scenario
+        # failing, while another scenario failed in one run: startup is
+        # short, but not by a failed run, so it is only listed.
+        parts = merge(runs_of("capture"),
+                      runs_of("startup", n={"old": (30, 30, 30, 5), "new": (30, 30, 30, 5)}, centre=100, seed=70))
+        failures = {"old": {}, "old_again": {}, "new": {"recall": self.e}, "new_again": {}}
+        sources = {"capture": "padded-inbox", "startup": "padded-inbox"}
+        d = core.decide(parts, {"capture": 100, "startup": 600}, failures, sources=sources)
+        self.assertEqual((d["verdict"], d["too_few_samples"], d["short_by_failures"], d["lost"]), ("pass", ["startup"], [], []))
+        self.assertEqual(d["metrics"]["startup"]["judged"], False)
+        # Had startup's own scenario failed in that run, it would be short
+        # by it, and the gate not judged.
+        failures["new"] = {"padded-inbox": self.e}
+        d = core.decide(parts, {"capture": 100, "startup": 600}, failures, sources=sources)
+        self.assertEqual((d["verdict"], d["short_by_failures"]), ("not judged", ["startup"]))
+
     def test_the_gate_records_the_scenario_of_each_figure(self):
         run = core.Run(None, None, gate=True)
         run.scenario = "padded-inbox"
@@ -673,6 +756,17 @@ class Bootstrap(unittest.TestCase):
         draws = sorted(sorted(values)[i] for i in rv)
         self.assertEqual(core.p95_low(values), draws[50])
         self.assertNotEqual(draws[50], draws[100])
+        # Real ranks tie, so pin the quantile on draws that do not: ranks
+        # 1999 down to 0 of 2,000 distinct values, whose draws, sorted, are
+        # the values themselves. The 2.5% of 2,000 is the 51st, 50.
+        values = list(range(core.DRAWS))
+        random.Random(8).shuffle(values)
+        saved = core.ranks
+        core.ranks = lambda sizes, seed, draws: (tuple(reversed(range(sizes[0]))),)
+        try:
+            self.assertEqual(core.p95_low(values), 50)
+        finally:
+            core.ranks = saved
 
 
 class Splits(unittest.TestCase):
@@ -998,7 +1092,60 @@ class Compare(unittest.TestCase):
         code, out, report = self.gate()
         self.assertEqual((code, report["verdict"], report["decision"]["machine_too_noisy"]), (0, "not judged", True), out)
         self.assertTrue(out.endswith("latency gate: not judged (runs differed by more than 1.15 in 2 figures or more, or one run "
-                                     "was that much quicker than the rest: the machine was too noisy to judge)\n"), out)
+                                     "was more than 1.07 times as quick as the binary's next: the machine was too noisy to judge)\n"), out)
+
+    def test_one_quick_run_is_printed_with_its_gap(self):
+        # The new binary's runs 2 to 4 are 10% slower than its first, in
+        # both figures, and no control can see it.
+        slow = lambda which, k: samples(k % 2, 100, 20*(1.1 if which == "new" and k > 2 else 1), 0.05)
+        self.scenario(slow)
+        self.scenario(slow, place=200, name="startup")
+        code, out, report = self.gate()
+        self.assertEqual((code, report["verdict"], report["decision"]["one_quick_run"]), (0, "not judged", ["new"]), out)
+        self.assertIn("not judged: one run of the new binary was more than 1.07 times as quick as its next, over the figures judged: "
+                      "load on its other runs looks like a change\n", out)
+
+    def test_the_figures_scenarios_decide_and_are_worked_out_again(self):
+        # capture, from the scenario fake, is missing from every run of the
+        # new binary, though fake never failed; recall failed in every run
+        # of the new binary and three of the old one's. Only the scenario
+        # each figure comes from says capture is a regression: the gate
+        # fails, and works out the same verdict again from gate.json.
+        self.scenario(lambda which, k: [] if which == "new" else samples(k, 100, 20))
+        self.scenario(lambda which, k: RuntimeError("load") if which == "new" or k < 9 else samples(k, 100, 30),
+                      place=200, name="recall")
+        self.scenario(lambda which, k: samples(k, 100, 40), place=300, name="startup")
+        code, out, report = self.gate()
+        self.assertEqual(report["figure_scenarios"], {"capture": "fake", "recall": "recall", "startup": "startup"})
+        self.assertEqual((code, report["verdict"]), (1, "fail"), out)
+        self.assertEqual(report["decision"]["failures"], ["capture: the new binary gave no samples, the old one 400"])
+        self.assertEqual(report["decision"]["scenarios"]["failed_runs"], {"recall": {"old": 3, "new": 4}})
+        self.assertIn("fails: capture: the new binary gave no samples, the old one 400\n", out)
+        self.assertTrue(out.endswith("latency gate: fail\n"), out)
+        again = core.redecide(report)
+        self.assertEqual(json.loads(json.dumps(again)), report["decision"])
+        # Without them, recall lost in every run of the new binary would
+        # excuse capture.
+        del report["figure_scenarios"]
+        self.assertEqual(core.redecide(report)["verdict"], "not judged")
+
+    def test_a_figure_short_by_a_lost_run_says_so(self):
+        # 25 a run, and one run of the new binary lost: 75.
+        self.scenario(lambda which, k: RuntimeError("load") if (which, k) == ("new", 1) else samples(k, 25, 20))
+        code, out, report = self.gate()
+        self.assertEqual((code, report["verdict"], report["decision"]["short_by_failures"]), (0, "not judged", ["capture"]), out)
+        self.assertIn("too few samples to judge, fewer than 100 a binary, as a scenario failed in some runs\n", out)
+        self.assertIn("not judged: capture has too few samples because a scenario failed in some runs: run the gate again\n", out)
+
+    def test_gate_json_names_no_path(self):
+        # The binaries lie under a home folder wherever the gate runs:
+        # gate.json keeps neither path.
+        self.scenario(lambda which, k: samples(k, 100, 20))
+        code, out, report = self.gate()
+        self.assertNotIn("old", report)
+        self.assertNotIn("new", report)
+        self.assertNotIn(self.dir.name, (self.path/"gate.json").read_text())
+        self.assertNotIn(self.dir.name, (self.path/"base.json").read_text())
 
     def test_the_order_turns_each_round(self):
         self.scenario(lambda which, k: samples(k, 100, 20))
@@ -1069,7 +1216,7 @@ class Hooks(unittest.TestCase):
                 return False
             time.sleep(0.01)
 
-    def test_stop_kills_every_process_a_hook_started(self):
+    def test_stop_kills_every_process_in_the_hooks_group(self):
         for host in ("claude-code", "codex"):
             self.pids.unlink(missing_ok=True)
             p = core.start(core.launch(self.stub, host), self.env)
@@ -1108,6 +1255,20 @@ class Hooks(unittest.TestCase):
         argv = ["/bin/sh", "-c", "cat; echo note >&2; exit 3"]
         self.assertEqual(core.run_hook(argv, '{"a": 1}', self.env), (3, '{"a": 1}', "note\n"))
 
+    def test_every_hook_has_the_same_limit_of_4_seconds(self):
+        # The README's 4 seconds, and no scenario gives a hook longer.
+        self.assertEqual(core.HOOK_LIMIT, 4)
+        import inspect
+        self.assertEqual(inspect.signature(core.run_hook).parameters["limit"].default, core.HOOK_LIMIT)
+        calls = 0
+        for path in [HERE.parent/"benchmark.py"] + sorted(HERE.glob("*.py")):
+            for n in ast.walk(ast.parse(path.read_text())):
+                if isinstance(n, ast.Call) and getattr(n.func, "id", getattr(n.func, "attr", None)) == "run_hook":
+                    if path.name != "test_gate.py":
+                        calls += 1
+                        self.assertEqual((len(n.args), [k.arg for k in n.keywords]), (3, []), (path.name, n.lineno))
+        self.assertGreaterEqual(calls, 2)
+
 
 class Simulation(unittest.TestCase):
     """The simulation's own pieces; the simulation itself is run by hand."""
@@ -1130,15 +1291,39 @@ class Simulation(unittest.TestCase):
         for name, n, *_ in sim.FIGURES:
             self.assertEqual([len(run[name]) for role in core.ROLES for run in samples_by_role[role]], [n]*8, name)
             self.assertGreaterEqual(3*n, core.WHOLE, name)
-        self.assertEqual(sorted(sim.CHANGES), ["all-x1.2", "all-x1.3", "all-x1.5", "all-x2", "all-x3", "capture+20ms",
-                                               "startup-x1.5", "startup-x2", "unchanged"])
-        self.assertEqual(sorted(sim.LOADS), ["drift", "heavy", "light", "new-3", "new-4", "new-pair", "none", "runs"])
+        self.assertEqual(sorted(sim.CHANGES), sorted(["all-x1.2", "all-x1.3", "all-x1.5", "all-x2", "all-x3", "capture+20ms",
+                                                      "startup-x1.5", "startup-x2", "unchanged", "capture-varies", "all-x1.3-in-3"] +
+                                                     [name+"-x1.3" for name, *_ in sim.FIGURES]))
+        self.assertEqual(sorted(sim.LOADS), ["drift", "heavy", "light", "new-3", "new-3-mild", "new-4", "new-pair", "none", "runs"])
         # A change falls on the new binary's runs alone.
         base = sim.made_up(random.Random(2))
         x = sim.one(base, sim.LOADS["none"], sim.CHANGES["all-x1.5"], random.Random(3))
         y = sim.one(base, sim.LOADS["none"], sim.CHANGES["unchanged"], random.Random(3))
         self.assertEqual(x["old"], y["old"])
         self.assertEqual(x["new"][0]["capture"], [v*1.5 for v in y["new"][0]["capture"]])
+        # One hook alone; a factor each new run draws; three runs of four.
+        z = sim.one(base, sim.LOADS["none"], sim.CHANGES["session_end-x1.3"], random.Random(3))
+        self.assertEqual((z["new"][1]["capture"], z["new"][1]["session_end"]), (y["new"][1]["capture"], [v*1.3 for v in y["new"][1]["session_end"]]))
+        v = sim.one(base, sim.LOADS["none"], sim.CHANGES["capture-varies"], random.Random(3))
+        f = [v[role][i]["capture"][0]/y[role][i]["capture"][0] for role in core.ROLES_OF["new"] for i in range(2)]
+        self.assertTrue(all(1.2 <= x <= 2.0 for x in f) and len(set(f)) == 4, f)
+        w = sim.one(base, sim.LOADS["none"], sim.CHANGES["all-x1.3-in-3"], random.Random(3))
+        f = sorted(round(w[role][i]["startup"][0]/y[role][i]["startup"][0], 9) for role in core.ROLES_OF["new"] for i in range(2))
+        self.assertEqual(f, [1.0, 1.3, 1.3, 1.3])
+        # Each run shares a factor with every figure.
+        self.assertGreater(sim.COMMON, 0)
+
+    def test_more_rounds(self):
+        try:
+            sim.set_rounds(3)
+            runs = sim.made_up(random.Random(1))
+            self.assertEqual(len(runs), 12)
+            s = sim.one(runs, sim.LOADS["new-pair"], sim.CHANGES["unchanged"], random.Random(2))
+            self.assertEqual([len(s[role]) for role in core.ROLES], [3]*4)
+            self.assertIn(core.decide(s, sim.CEILINGS, rounds=3)["verdict"], ("pass", "not judged", "fail"))
+        finally:
+            sim.set_rounds(core.ROUNDS)
+        self.assertEqual(len(sim.ORDER), 8)
 
     def test_a_saved_gate_that_lost_a_run_is_not_drawn(self):
         whole = {role: [{"capture": [1.0]}, {"capture": [2.0]}] for role in core.ROLES}
@@ -1254,6 +1439,46 @@ class GateLoops(unittest.TestCase):
                    and any(isinstance(c, ast.Call) and getattr(c.func, "attr", None) == "unlink" for c in ast.walk(n))]
         self.assertEqual(len(removes), 1)
 
+    def test_the_gates_runs_remove_exactly_their_extra_chat_starts_files(self):
+        # The removal, run on a folder with the files the chat starts before
+        # it leave, each named as the inbox names a chat's file: the host,
+        # then the session. It leaves the person's chat and the files of
+        # the plain benchmark's 10 chat starts, and nothing else of theirs.
+        fn = self.function(self.tree("benchmark.py"), "padded_inbox")
+        lines = sorted(line for line, _ in self.timed(fn, self.env(True)))
+        gated = [n for n in ast.walk(fn) if isinstance(n, ast.If) and ast.unparse(n.test) == "run.gate"]
+        warm = next(n for n in gated if n.lineno < lines[0])
+        removal = next(n for n in gated if lines[0] < n.lineno < lines[1])
+        (call,) = [c for c in ast.walk(warm) if isinstance(c, ast.Call) and getattr(c.func, "id", None) == "hook"]
+        timed = next(st for st in ast.walk(fn) if isinstance(st, ast.For) and st.lineno < lines[0] <= st.end_lineno)
+        (chat,) = [c for c in ast.walk(timed) if isinstance(c, ast.Call) and getattr(c.func, "id", None) == "hook"]
+        self.assertEqual((ast.literal_eval(call.args[0]), ast.literal_eval(chat.args[0])), ("codex", "codex"))
+        warm_sid = ast.literal_eval(call.args[2])
+        self.assertEqual((warm_sid, ast.unparse(chat.args[2])), ("m1-warm", "'m1-new-' + str(i)"))
+        n = self.env(True)["run"].loops(10)
+        with tempfile.TemporaryDirectory() as d:
+            inbox = Path(d)
+            person = inbox/"claude-code-m1-previous.jsonl"
+            for sid in [warm_sid] + ["m1-new-%d" % i for i in range(n)]:
+                (inbox/("codex-%s.jsonl" % sid)).write_text("{}\n")
+            person.write_text("{}\n")
+            exec(compile(ast.Module(body=removal.body, type_ignores=[]), "<removal>", "exec"),
+                 {"files": [person], "startup": [0.0]*n})
+            left = sorted(p.name for p in inbox.iterdir())
+        self.assertEqual(left, sorted(["claude-code-m1-previous.jsonl"] + ["codex-m1-new-%d.jsonl" % i for i in range(10)]))
+
+    def test_the_gates_code_prompts_name_systems_the_wiki_has(self):
+        # The wiki has systems 0 to 399; each code prompt names three in a
+        # row from its n, which must stay among them however many chats a
+        # run takes.
+        fn = self.function(self.tree("benchmark.py"), "code_scenarios")
+        (assign,) = [st for st in ast.walk(fn) if isinstance(st, ast.Assign) and ast.unparse(st.targets[0]) == "n"]
+        for gate in (False, True):
+            chats = self.env(gate)["prompts_timed"]
+            names = [eval(compile(ast.Expression(assign.value), "<n>", "eval"), {"c": c}) for c in range(chats)]
+            self.assertTrue(all(300 <= n and n+2 <= 399 for n in names), (gate, names))
+        self.assertEqual(chats, core.GATE_RUN_SAMPLES)
+
 
 class Scenarios(unittest.TestCase):
     def setUp(self):
@@ -1295,11 +1520,16 @@ class Scenarios(unittest.TestCase):
     def test_the_benchmark_loads_every_scenario_file(self):
         # The files in this folder, loaded as the benchmark loads them.
         bench = load("benchmark_under_test", HERE.parent/"benchmark.py")
+        for name in [n for n in sys.modules if n.startswith("evabench_")]:
+            del sys.modules[name]
         try:
             names = [s.name for s in bench.load().ordered()]
         finally:
             sys.modules["evabench"] = core
         self.assertEqual(names, ["process-start", "real-install", "turn-of-50-tool-calls"])
+        # Tests and simulations in the folder are not loaded as scenarios.
+        self.assertEqual(sorted(n for n in sys.modules if n.startswith("evabench_")),
+                         ["evabench_process_start", "evabench_real_install", "evabench_turn"])
 
     def test_launch_paths(self):
         self.assertEqual(core.launch(Path("/opt/it's/eva-md"), "codex"),

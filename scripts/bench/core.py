@@ -138,8 +138,10 @@ HOOK_LIMIT = 4
 
 def start(argv, env):
     """Starts a hook's launch in a process group of its own, so that stop
-    reaches every process it started: on Codex's path the shell does not
-    replace itself with the binary, and the binary is its child."""
+    reaches every process in that group: on Codex's path the shell does not
+    replace itself with the binary, and the binary is its child. A process
+    the hook puts in a session or group of its own on purpose, as eva-md's
+    detached spawns and its git calls are, is not in it."""
     return subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, env=env, start_new_session=True)
 
@@ -156,7 +158,8 @@ def stop(p):
 def run_hook(argv, payload, env, limit=HOOK_LIMIT):
     """Runs one hook's launch with payload on its input; returns its exit
     code, output and diagnostics. One still running after limit seconds is
-    killed with every process it started, and TimeoutExpired is raised."""
+    killed with every process in its process group (start), and
+    TimeoutExpired is raised."""
     with start(argv, env) as p:
         try:
             out, err = p.communicate(payload, timeout=limit)
@@ -281,8 +284,8 @@ def context(output):
 # whose noise is above THRESHOLD is too noisy to judge, and cannot fail.
 # When NOISY_FIGURES or more judged figures are too noisy to judge, the
 # machine was too noisy, and the whole verdict stops. So it does when one of
-# a binary's runs was more than THRESHOLD times as quick as its next, over
-# all the judged figures (run_levels): load on all of a binary's runs but
+# a binary's runs was more than QUICK times as quick as its next, over all
+# the judged figures (run_levels): load on all of a binary's runs but
 # one is what no control can tell from a change, since every split has a
 # loaded run on each side. Only the runs themselves call the machine noisy.
 # Otherwise a figure fails when its lower bound is above THRESHOLD times its
@@ -309,6 +312,14 @@ GATE_RUN_SAMPLES = -(-WHOLE // (2*ROUNDS-1))
 SPLITS = 36  # the most controls a figure has
 NOISE_QUANTILE = 0.89  # of the controls' lower bounds: the fourth largest of 36
 NOISY_FIGURES = 2  # the figures too noisy to judge that call the machine too noisy
+# A binary's run more than QUICK times as quick as its next calls the
+# machine too noisy (one_quick_run). It is below THRESHOLD: load on three of
+# a binary's four runs of a little over THRESHOLD leaves the run it missed
+# less than THRESHOLD quicker once the runs differ by chance as well, while
+# the pooled samples still put a figure past THRESHOLD. The runs of an
+# unchanged binary on a quiet machine differ by far less: by 1.043 at most
+# in the 20 such gates of the proof.
+QUICK = 1.07
 # A scenario the new binary failed in at least BROKEN of its runs more than
 # the old one fails the gate; in at least LOST of them, the verdict is "not
 # judged" and the gate is to be run again.
@@ -479,7 +490,7 @@ def run_levels(figures):
     return [nearest_rank([r[i] for r in rel], 0.5) for i in range(len(rel[0]))]
 
 
-def one_quick_run(levels, threshold=THRESHOLD):
+def one_quick_run(levels, threshold=QUICK):
     """Whether a binary's quickest run, by run_levels, was more than
     threshold times as quick as its next: load on all its other runs, which
     no control can tell from a change, or a run the machine sped up."""
@@ -506,13 +517,15 @@ def control_bounds(o_runs, n_runs, controls, seed=SEED, draws=DRAWS):
 
 
 def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD, seed=SEED, draws=DRAWS,
-           whole=WHOLE, quantile=NOISE_QUANTILE, noisy_figures=NOISY_FIGURES, sources=None):
+           whole=WHOLE, quantile=NOISE_QUANTILE, noisy_figures=NOISY_FIGURES, sources=None, quick=QUICK):
     """The gate's verdict. samples maps each role (ROLES) to its runs, in
     order, each a map of each figure to its samples from that run; ceilings
     maps each gated figure to its ceiling in milliseconds, or None;
     failures holds the scenarios that failed, as scenarios() takes them;
-    sources maps a figure to the scenario that gives it, when known. Each
-    role ran rounds times. The rule is the one above ROLES.
+    sources maps a figure to the scenario that gives it, when known; quick
+    is the gap between a binary's quickest run and its next that calls the
+    machine too noisy. Each role ran rounds times. The rule is the one
+    above ROLES.
 
     A figure the old binary gave no samples, as one added with the change,
     is listed as not compared. One the new binary gave none fails, unless
@@ -524,7 +537,8 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     2, when a scenario failed in every run of both binaries; "fail", exit 1,
     when the new binary broke a scenario or gave a figure no samples; "not
     judged", exit 0, when noisy_figures or more figures were too noisy to
-    judge; "fail", exit 1, when a figure failed; "not judged", exit 0, when
+    judge, or one of a binary's runs was more than quick times as quick as
+    its next; "fail", exit 1, when a figure failed; "not judged", exit 0, when
     a figure was too noisy to judge or unsettled, a scenario was lost, or a
     figure was short because a scenario failed in some runs; otherwise
     "pass", exit 0."""
@@ -600,8 +614,8 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
         for s in found["lost"]]
     lost += ["%s has too few samples because a scenario failed in some runs: run the gate again" % name for name in short]
     levels = {b: run_levels(f) for b, f in judged_runs.items()}
-    quick = [b for b in ("old", "new") if one_quick_run(levels[b], threshold)]
-    machine = len(noisy) >= noisy_figures or bool(quick)
+    quick_runs = [b for b in ("old", "new") if one_quick_run(levels[b], quick)]
+    machine = len(noisy) >= noisy_figures or bool(quick_runs)
     if found["unrunnable"]:
         verdict, code = "could not run", 2
     elif hard:
@@ -615,8 +629,8 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     else:
         verdict, code = "pass", 0
     return {"verdict": verdict, "exit": code, "rounds": rounds, "threshold": threshold, "seed": seed, "draws": draws,
-            "whole": whole, "noise_quantile": quantile, "noisy_figures": noisy_figures, "controls": len(controls),
-            "machine_too_noisy": machine, "too_noisy": noisy, "one_quick_run": quick,
+            "whole": whole, "noise_quantile": quantile, "noisy_figures": noisy_figures, "quick": quick,
+            "controls": len(controls), "machine_too_noisy": machine, "too_noisy": noisy, "one_quick_run": quick_runs,
             "run_levels": {b: [round(x, 3) for x in v] if v else None for b, v in levels.items()}, "unsettled": unsettled_all, "lost": lost,
             "failures": hard+failed, "too_few_samples": too_few, "short_by_failures": short, "scenarios": found,
             "not_compared": skipped, "metrics": metrics}
@@ -625,7 +639,9 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
 def redecide(gate):
     """The verdict worked out again from a gate.json: its samples by run,
     its ceilings, its scenarios' failures, the scenario that gave each
-    figure and the rule's parameters it recorded."""
+    figure and the rule's parameters it recorded. A gate.json from before
+    the quick run had a gap of its own took the threshold for it."""
     d = gate["decision"]
     return decide(gate["samples"], gate["ceilings"], gate["scenario_failures"], gate["rounds"], d["threshold"],
-                  d["seed"], d["draws"], d["whole"], d["noise_quantile"], d["noisy_figures"], gate.get("figure_scenarios"))
+                  d["seed"], d["draws"], d["whole"], d["noise_quantile"], d["noisy_figures"], gate.get("figure_scenarios"),
+                  d.get("quick", d["threshold"]))
