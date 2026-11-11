@@ -11,6 +11,9 @@ Rules every card carries, so they are said once here:
 - Every rule of [AGENTS.md](../../../AGENTS.md) holds. In particular: `internal/redact/baseline` is never edited; tests never touch the real machine and never depend on its speed; a hook never calls a model or the network; only eva's name is shown; no new dependency.
 - Before a builder reports, `scripts/linux-check.sh` passes from the root of its worktree.
 - No secret, and nothing from a real chat, goes into a fixture. Test values are made up.
+- A package that changes a hook, or anything a hook runs, reports the latency gate's comparison with the commit it started from: `scripts/linux-gate.sh` on Linux. `not judged` is not a result: it is run again when the machine is quiet.
+- CI's macOS job is the run of record and no builder can run macOS, so tests are written for it: a test that compares a path with one that git or the system resolved resolves its own first (`filepath.EvalSymlinks` on `t.TempDir()`), since macOS reaches its temporary folders through an alias, and no test leans on a file system that tells letter case apart.
+- `AGENTS.md` and `README.md` are the lead's. A builder changes only the lines its card names in them; for anything else it gives the words in its report and the lead writes them at the merge.
 
 | Card | Package | State |
 | --- | --- | --- |
@@ -22,11 +25,25 @@ Rules every card carries, so they are said once here:
 | [EV-12](EV-12.md) | The results store and gates | merged |
 | [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 of 20 on macOS |
-| [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | after EV-16 |
-| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | after EV-16 |
-| [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | after EV-16 and LG-10 |
+| [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | ready |
+| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | ready |
+| [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | ready |
 | [CT-4](CT-4.md) | Counters release: a content-free report | after CT-1 to CT-3 |
+| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | ready |
+| [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | ready |
+| [HO-10a](HO-10a.md) | The host adapter and its table | ready |
+| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | ready |
+| [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | ready |
+| [SEAM-0b](SEAM-0b.md) | The hook's handler list | after CT-1 and CT-2 |
+| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
+| [HO-10b](HO-10b.md) | Install and setup ask the adapter | after HO-10a |
+| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | after the counters release |
+| [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
 
 SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner.
 
 The counters release of the plan (LG-01, LG-02, DV-01, DL-02, HO-02) is built as four parts, CT-1 to CT-4, so that they touch different files. The second report's prompt, and three sentences for v1's documents, are the lead's and are written with CT-4.
+
+Three rows of the plan's Stage 1 are built in parts, for the same reason. DV-12: a is the worker as a package with no caller, which can start at once; b puts v1's two background jobs under it behind the switch `worker`, and waits for SEAM-0b and for the counters release, which change the same files of the hook. HO-10: a is the adapter and its table, with no caller; b moves install and setup onto it; health and the doctor's command file move with HO-12, which rebuilds those files, and not as a part of their own. EV-10: a splits v1's two large documents into specs and dated records, after the counters release has written its last sentences into them; b lists, in each spec, the must-keep items and the tests that hold them.
+
+`eva-eval`'s commands are added as `eva-md`'s are: an instrument registers its command from its own file (`register` in `cmd/eva-eval/main.go`), so the cards that add an instrument do not edit that file.
