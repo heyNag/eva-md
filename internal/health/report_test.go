@@ -155,8 +155,12 @@ func reportHome(t *testing.T) (paths.Dirs, string) {
 			Rejection: &update.Rejection{Rule: planted, Place: planted}},
 		update.Record{At: day, Host: "codex", Session: planted, Outcome: update.OutcomeSkipped, Reason: update.ReasonSmall, Trigger: update.TriggerSweep},
 		update.Record{At: day, Host: "codex", Session: planted, Outcome: planted},
-		update.Record{At: day, Outcome: update.OutcomeBusy, Trigger: planted, SessionHashes: []string{planted}},
 	)
+	busy, err := json.Marshal(update.Record{At: day, Outcome: update.OutcomeBusy, Trigger: planted, SessionHashes: []string{planted}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(d.State, "updates", "busy-"+day[:len(time.DateOnly)]+".jsonl"), append(busy, '\n'))
 
 	// The commit records: four runs in the 14 days, one of them in the
 	// month before, and one before them.
@@ -211,7 +215,10 @@ func reportHome(t *testing.T) (paths.Dirs, string) {
 // beatFile writes an event's heartbeat at, with its week and its last runs.
 func beatFile(t *testing.T, d paths.Dirs, host, event string, at time.Time, week []HookDay, runs []hookRun) {
 	t.Helper()
-	raw, err := json.Marshal(beat{At: at, Host: host, Event: event, Runs: runs, Week: week, Entrypoint: planted})
+	raw, err := json.Marshal(struct {
+		beat
+		Week []HookDay `json:"week"`
+	}{beat{At: at, Host: host, Event: event, Runs: runs, Entrypoint: planted}, week})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +316,7 @@ func TestFieldReportCountsTheFixture(t *testing.T) {
 	check("Stop's week", []any{stop.Days, stop.Runs, stop.Failed, stop.MS[1], stop.MS[5], stop.MS[len(stop.MS)-1], stop.P50, stop.P95}, []any{2, 3, 1, 1, 1, 1, 50.0, -1.0})
 	check("held back", []any{h.Behind["reply"], h.OffRecord["reply"], h.Behind["prompt"]}, []any{1, 1, 0})
 	v := h.Delivered
-	check("delivered", []any{v.Kinds["prompt"], v.Added, v.Chars, v.Routes["recall"], v.Routes["state"], v.Starts, v.Stale, v.Fallback}, []any{2, 2, 1200, 1, 1, 1, 1, 1})
+	check("delivered", []any{v.Kinds["prompt"], v.Added, v.Chars, v.Routes["recall"], v.Routes["state"], v.Briefs, v.WithState, v.Stale, v.Fallback}, []any{2, 2, 1200, 1, 1, 1, 1, 1, 1})
 
 	u := r.Updates
 	check("update outcomes", u.Outcome, map[string]int{"ok": 2, "failed": 2, "skipped": 1, "other": 1})
@@ -317,7 +324,7 @@ func TestFieldReportCountsTheFixture(t *testing.T) {
 	check("refused whole", u.Refused, map[string]int{"other": 1})
 	check("inside", u.Inside["bad_refs"]+u.Inside["rules.refused"], 3)
 	check("busy", []any{u.Busy.Jobs, u.Busy.Sessions, u.Busy.ByTrigger}, []any{1, 1, map[string]int{"other": 1}})
-	check("to memory", []any{len(u.ToMemoryMS), u.ToMemoryMS[update.TriggerEnd].N, u.Unnamed}, []any{1, 1, 1})
+	check("to memory", []any{len(u.ToMemoryMS), u.ToMemoryMS[update.TriggerEnd].N, u.ToMemoryMS[other].N}, []any{2, 1, 1})
 
 	b := r.Backlog.Hosts
 	check("Codex backlog", []any{b["codex"].Sessions, b["codex"].OldestDay, b["codex"].OldestHours, b["codex"].Untimed}, []any{1, "2026-11-09", 50, 0})
@@ -483,7 +490,7 @@ var reportKeys = []string{
 	"day", "format",
 	"hooks", "hooks.delivered", "hooks.delivered.added", "hooks.delivered.chars", "hooks.delivered.fallback", "hooks.delivered.kinds",
 	"hooks.delivered.kinds.*", "hooks.delivered.late", "hooks.delivered.pending", "hooks.delivered.routes", "hooks.delivered.routes.*",
-	"hooks.delivered.stale", "hooks.delivered.stale_or_pending", "hooks.delivered.starts", "hooks.events", "hooks.events.*", "hooks.events.*.*",
+	"hooks.delivered.stale", "hooks.delivered.stale_or_pending", "hooks.delivered.briefs", "hooks.delivered.with_state", "hooks.events", "hooks.events.*", "hooks.events.*.*",
 	"hooks.events.*.*.days", "hooks.events.*.*.failed", "hooks.events.*.*.ms", "hooks.events.*.*.ms.[]", "hooks.events.*.*.p50_ms_within",
 	"hooks.events.*.*.p95_ms_within", "hooks.events.*.*.runs", "hooks.from", "hooks.held_behind", "hooks.held_behind.*", "hooks.held_off_record",
 	"hooks.held_off_record.*", "hooks.ms_bounds", "hooks.ms_bounds.[]", "hooks.to",
@@ -499,12 +506,12 @@ var reportKeys = []string{
 	"updates", "updates.busy", "updates.busy.by_trigger", "updates.busy.by_trigger.*", "updates.busy.jobs", "updates.busy.sessions", "updates.calls",
 	"updates.calls.[]", "updates.calls.[].cap", "updates.calls.[].day", "updates.calls.[].hosts", "updates.calls.[].hosts.*", "updates.checked",
 	"updates.duration_ms", "updates.duration_ms.max", "updates.duration_ms.median", "updates.duration_ms.n", "updates.duration_ms.p95",
-	"updates.failures", "updates.failures.*", "updates.from", "updates.inside_accepted", "updates.inside_accepted.*", "updates.model_other",
+	"updates.failures", "updates.failures.*", "updates.from", "updates.inside_accepted", "updates.inside_accepted.*", "updates.model_default", "updates.model_other",
 	"updates.model_reported", "updates.outcomes", "updates.outcomes.*", "updates.passes", "updates.refused_whole", "updates.refused_whole.*",
 	"updates.skips", "updates.skips.*", "updates.to", "updates.to_memory_ms", "updates.to_memory_ms.*", "updates.to_memory_ms.*.max",
 	"updates.to_memory_ms.*.median", "updates.to_memory_ms.*.n", "updates.to_memory_ms.*.p95", "updates.tokens_in", "updates.tokens_in.max",
 	"updates.tokens_in.median", "updates.tokens_in.n", "updates.tokens_in.p95", "updates.tokens_out", "updates.tokens_out.max",
-	"updates.tokens_out.median", "updates.tokens_out.n", "updates.tokens_out.p95", "updates.unnamed",
+	"updates.tokens_out.median", "updates.tokens_out.n", "updates.tokens_out.p95",
 	"version",
 	"wiki", "wiki.code_status", "wiki.code_status.entries", "wiki.code_status.entries.*", "wiki.code_status.found", "wiki.code_status.pages",
 	"wiki.code_status.pages_citing_code", "wiki.code_status.pages_no_clone", "wiki.complete", "wiki.edits", "wiki.edits_unplaced", "wiki.pages",

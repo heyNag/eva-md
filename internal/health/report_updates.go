@@ -2,6 +2,7 @@ package health
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,38 +12,19 @@ import (
 
 // The report's use of what the background update records (updates.go):
 // Updates, UpdateFigures and its Spread and BusyExits, TriggerUnknown, and
-// update's names of triggers, outcomes, reasons and rules. Nothing else of
+// update's lists of the names this release writes, update.Outcomes,
+// update.Reasons, update.RefusalRules and update.Triggers. Nothing else of
 // the run log is read here.
 //
-// UpdateFigures keys its counts by the names the run log holds, which a
-// damaged or edited run log could make any short lower-case text, such as
-// a project's name. The report keys them again by the names eva-md's own
-// code writes, and counts any other under other, or, for a spread, which
-// can't be merged, drops it and counts it in Unnamed.
-
-// updateOutcomes are the outcomes of a pass; a busy exit is counted apart.
-var updateOutcomes = []string{update.OutcomeOK, update.OutcomeNoChange, update.OutcomeSkipped, update.OutcomeFailed}
-
-// updateReasons are the reasons a pass is skipped or fails for.
-var updateReasons = []string{
-	update.ReasonPageRefused, update.ReasonWikiError, update.ReasonConflict, update.ReasonWatermark, update.ReasonLeft,
-	update.ReasonLocked, update.ReasonVerified, update.ReasonDamaged, update.ReasonQuarantined, update.ReasonSmall,
-	update.ReasonHeadless, update.ReasonCLIMissing, update.ReasonAuth, update.ReasonRateLimit, update.ReasonHostError,
-	update.ReasonModelRejected, update.ReasonTimeout, update.ReasonInvalidOutput, update.ReasonToolUsed, update.ReasonMCPFailed,
-}
-
-// rejectionRules are the rules that refuse an answer whole.
-var rejectionRules = []string{
-	update.RuleNotObject, update.RuleMissingKey, update.RuleExtraKey, update.RuleNotString, update.RuleNotNull, update.RuleNotEnum,
-	update.RuleNotArray, update.RuleArraySize, update.RuleNotInteger, update.RuleDates, update.RuleCarried, update.RuleOther,
-}
+// UpdateFigures already keys its counts by those lists, any other name
+// under other. The report keys them again by the same lists (see
+// rekeyUpdates), so that what it prints rests on its own filter as well as
+// on UpdateFigures'; and it counts the whole refusals by rule alone.
 
 // UpdateReport is UpdateFigures as the report gives it: keyed only by the
-// names eva-md's code writes, its refusals by rule alone, with Unnamed
-// counting the spreads dropped for a name it doesn't know.
+// names eva-md's code writes, its refusals by rule alone.
 type UpdateReport struct {
 	UpdateFigures
-	Unnamed int `json:"unnamed"`
 }
 
 // reportUpdates reads the run log's figures (see Updates) and keys them
@@ -52,22 +34,31 @@ func reportUpdates(d paths.Dirs, now time.Time) (u UpdateReport, recorded bool, 
 	if err != nil {
 		return UpdateReport{}, false, err
 	}
-	triggers := append(append([]string{}, update.Triggers...), TriggerUnknown)
+	return rekeyUpdates(f), f.Passes > 0 || f.Busy.Jobs > 0, nil
+}
+
+// rekeyUpdates is f keyed again by the names this release writes, as the
+// report gives it: any other outcome, reason, rule, counter or trigger is
+// counted under other, a whole refusal by its rule alone, and a spread
+// under a trigger no list holds, which can't be merged into other's, is
+// left out. UpdateFigures gives no such trigger.
+func rekeyUpdates(f UpdateFigures) UpdateReport {
+	triggers := append(slices.Clone(update.Triggers), TriggerUnknown)
 	counters := counterNames()
-	f.Outcome = rekey(f.Outcome, func(k string) string { return known(k, updateOutcomes) })
-	f.Skips = rekey(f.Skips, func(k string) string { return known(k, updateReasons) })
-	f.Fails = rekey(f.Fails, func(k string) string { return known(k, updateReasons) })
-	f.Refused = rekey(f.Refused, func(k string) string { rule, _, _ := strings.Cut(k, " at "); return known(rule, rejectionRules) })
+	f.Outcome = rekey(f.Outcome, func(k string) string { return known(k, update.Outcomes) })
+	f.Skips = rekey(f.Skips, func(k string) string { return known(k, update.Reasons) })
+	f.Fails = rekey(f.Fails, func(k string) string { return known(k, update.Reasons) })
+	f.Refused = rekey(f.Refused, func(k string) string { rule, _, _ := strings.Cut(k, " at "); return known(rule, update.RefusalRules) })
 	f.Inside = rekey(f.Inside, func(k string) string { return known(k, counters) })
 	f.Busy.ByTrigger = rekey(f.Busy.ByTrigger, func(k string) string { return known(k, triggers) })
-	for k := range f.ToMemoryMS {
-		if known(k, triggers) != k {
-			delete(f.ToMemoryMS, k)
-			u.Unnamed++
+	spreads := map[string]Spread{}
+	for k, s := range f.ToMemoryMS {
+		if slices.Contains(triggers, k) {
+			spreads[k] = s
 		}
 	}
-	u.UpdateFigures = f
-	return u, f.Passes > 0 || f.Busy.Jobs > 0, nil
+	f.ToMemoryMS = spreads
+	return UpdateReport{UpdateFigures: f}
 }
 
 // zeroUpdates is the update part of a run log that can't be read: its

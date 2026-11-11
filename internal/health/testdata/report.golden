@@ -596,7 +596,8 @@
         "rules": 0,
         "state": 1
       },
-      "starts": 1,
+      "briefs": 1,
+      "with_state": 1,
       "stale": 1,
       "pending": 0,
       "stale_or_pending": 1,
@@ -685,6 +686,12 @@
       "max": 90000
     },
     "to_memory_ms": {
+      "other": {
+        "n": 1,
+        "median": 600000,
+        "p95": 600000,
+        "max": 600000
+      },
       "session_end": {
         "n": 1,
         "median": 120000,
@@ -758,8 +765,8 @@
       }
     ],
     "model_reported": 1,
-    "model_other": 1,
-    "unnamed": 1
+    "model_default": 0,
+    "model_other": 1
   },
   "backlog": {
     "hosts": {

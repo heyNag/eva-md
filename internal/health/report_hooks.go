@@ -38,13 +38,19 @@ type EventWeek struct {
 	P95    float64 `json:"p95_ms_within"`
 }
 
-// Delivered is what the hooks of both hosts added to chats in the week.
+// Delivered is what the hooks of both hosts added to chats in the week:
+// runs by kind, those that added text and the characters they added, the
+// runs each route added to, the briefs of a new chat or a compaction given
+// in time (see Delivery.briefed) and of those the ones that showed the
+// thread's state, a stale state, a pending update or either, the briefs the
+// chat's first prompt carried, and the runs that passed their deadline.
 type Delivered struct {
 	Kinds          map[string]int `json:"kinds"`
 	Added          int            `json:"added"`
 	Chars          int            `json:"chars"`
 	Routes         map[string]int `json:"routes"`
-	Starts         int            `json:"starts"`
+	Briefs         int            `json:"briefs"`
+	WithState      int            `json:"with_state"`
 	Stale          int            `json:"stale"`
 	Pending        int            `json:"pending"`
 	StaleOrPending int            `json:"stale_or_pending"`
@@ -72,7 +78,7 @@ func hookFigures(d paths.Dirs, now time.Time) (HookFigures, bool) {
 	}
 	f.Behind, f.OffRecord = byName(sum.Behind, HeldKinds), byName(sum.OffRecord, HeldKinds)
 	f.Delivered = Delivered{Kinds: byName(sum.Kinds, DeliveryKinds), Added: sum.Added, Chars: sum.Chars, Routes: byName(sum.Routes, Routes),
-		Starts: sum.Starts, Stale: sum.Stale, Pending: sum.Pending, StaleOrPending: sum.StaleOrPending, Fallback: sum.Fallback, Late: sum.Late}
+		Briefs: sum.Briefs, WithState: sum.WithState, Stale: sum.Stale, Pending: sum.Pending, StaleOrPending: sum.StaleOrPending, Fallback: sum.Fallback, Late: sum.Late}
 	return f, sum.Runs > 0
 }
 

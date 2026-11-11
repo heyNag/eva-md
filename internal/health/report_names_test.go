@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/heyNag/eva-md/internal/update"
 )
 
 // sourceNames are the names the source files of dir, tests left out, give
@@ -51,8 +49,9 @@ func sorted(names ...[]string) []string {
 
 // The names the report counts by are the names eva-md's code writes, read
 // from that code, so a name added there and not here fails: the marker
-// kinds of both rule sets, the run log's outcomes, reasons and rules, the
-// commit records' reasons, and the inbox's kinds of entry.
+// kinds of both rule sets, the commit records' reasons, and the inbox's
+// kinds of entry. The run log's outcomes, reasons and rules are update's
+// own lists, which its tests hold to its code.
 func TestTheReportsNamesAreTheCodes(t *testing.T) {
 	check := func(what string, got, want []string) {
 		t.Helper()
@@ -62,10 +61,6 @@ func TestTheReportsNamesAreTheCodes(t *testing.T) {
 	}
 	marker := []string{`kind:\s*"([a-z_]+)"`, `Kind:\s*"([a-z_]+)"`, `replace\([^()\n]*,\s*"([a-z_]+)"\)`}
 	check("marker kinds", sorted(markerKinds), sorted(sourceNames(t, "../redact", marker...), sourceNames(t, "../redact/baseline", marker...)))
-	outcomes := sourceNames(t, "../update", `\bOutcome[A-Z]\w*\s*=\s*"([a-z_]+)"`)
-	check("update outcomes", sorted(updateOutcomes, []string{update.OutcomeBusy}), outcomes)
-	check("update reasons", sorted(updateReasons), sourceNames(t, "../update", `\bReason[A-Z]\w*\s*=\s*"([a-z_]+)"`))
-	check("rejection rules", sorted(rejectionRules), sourceNames(t, "../update", `\bRule[A-Z]\w*\s*=\s*"([a-z_]+)"`))
 	classes := sourceNames(t, "../wikigit", `\bClass[A-Z]\w*\s*=\s*"([a-z_]+)"`)
 	for i, c := range classes {
 		classes[i] = "commit_" + c
