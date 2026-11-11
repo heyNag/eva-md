@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/heyNag/eva-md/internal/inbox"
+	"github.com/heyNag/eva-md/internal/session"
 )
 
 // Words in scripts other than Latin, planted as a key, a row type and a
@@ -284,6 +285,73 @@ func TestAChatIsCountedOnce(t *testing.T) {
 		if got := get(r.Facts, path); got != want {
 			t.Errorf("%s is %d, want %d", path, got, want)
 		}
+	}
+}
+
+// A Codex fork's file begins with a first record of its own, which names
+// the session it was forked from in forked_from_id and need not repeat
+// any of that session's rows: one chat with five such forks counts once,
+// a fork of a chat off the record adds to no figure, and a marker planted
+// as a fork's parent id, as a string or an object, reaches no output.
+func TestACodexForkCountsWithItsChat(t *testing.T) {
+	ids := codexIDs(8)
+	home := func(off bool) (Report, string) {
+		f := newFixture(t, noLink)
+		chat := func(id string, extra map[string]any) {
+			meta := map[string]any{"source": "cli"}
+			for k, v := range extra {
+				meta[k] = v
+			}
+			path := f.codexFile(2, id, xMeta(f, id, meta),
+				xRow(at(0, 2), "event_msg", map[string]any{"type": "user_message", "message": marker + " prompt"}))
+			f.session(codex, id, path)
+		}
+		parent := ids[0]
+		chat(parent, nil)
+		for _, fork := range ids[1:6] {
+			chat(fork, map[string]any{"forked_from_id": parent})
+		}
+		if off {
+			f.mark(codex, parent, session.OffRecord)
+		} else {
+			chat(ids[6], map[string]any{"forked_from_id": marker + "-parent"})
+			chat(ids[7], map[string]any{"forked_from_id": map[string]any{marker + "-parentkey": marker + "-parent"}})
+		}
+		return f.run()
+	}
+
+	r, out := home(false)
+	if found := leaked(out); len(found) > 0 {
+		t.Errorf("the report holds %q:\n%s", found, out)
+	}
+	for path, want := range map[string]int{
+		"codex/chats/read": 3, "codex/chats/files_per_chat/6 to 10": 1, "codex/chats/files_per_chat/1": 2,
+		"codex/files/read": 8,
+	} {
+		if got := get(r.Hosts, path); got != want {
+			t.Errorf("%s is %d, want %d", path, got, want)
+		}
+	}
+	for path, want := range map[string]int{
+		"F-018/codex/source/chats/cli": 3, "F-018/codex/source/rows/cli": 8,
+		"F-134/codex/payload_fields/rows/forked_from_id": 7, "F-134/codex/payload_fields/chats/forked_from_id": 3,
+		"F-134/codex/payload_fields/rows/other": 0,
+	} {
+		if got := get(r.Facts, path); got != want {
+			t.Errorf("%s is %d, want %d", path, got, want)
+		}
+	}
+
+	r, _ = home(true)
+	for path, want := range map[string]int{
+		"codex/chats/read": 0, "codex/chats/off_the_record": 1, "codex/files/off_the_record": 6, "codex/files/read": 0,
+	} {
+		if got := get(r.Hosts, path); got != want {
+			t.Errorf("a fork of a chat off the record: %s is %d, want %d", path, got, want)
+		}
+	}
+	if got := get(r.Facts, "F-018/codex/source/rows/cli"); got != 0 {
+		t.Errorf("a fork of a chat off the record adds %d rows to F-018", got)
 	}
 }
 

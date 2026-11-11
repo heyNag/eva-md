@@ -613,7 +613,11 @@ func (h *reader) codex(row map[string]json.RawMessage, size int) {
 		h.cwd = cwd
 	}
 	if typ == "session_meta" {
+		// A session's first record names its own id, and a fork's names
+		// the session it was forked from too: a fork's file may hold none
+		// of that session's rows, so the fork joins its chat by that id.
 		h.id(str(p["id"]))
+		h.id(str(p["forked_from_id"]))
 		if raw, ok := p["source"]; ok {
 			t.value(codexSources, raw, facts018, host, "source")
 		}

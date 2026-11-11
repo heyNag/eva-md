@@ -12,70 +12,115 @@ import (
 const other = "other"
 
 // The names counted by their own name. Each list is the card's (HF-01)
-// list, shortened to the names this repository already gives as the
-// host's: in internal/catchup/parser.go or internal/ledger/audit/host.go,
-// which read the records, else where the comment says. A name on no list
-// is counted under other. The card's names dropped, as nothing here gives
-// them: Claude Code's row types summary, file-history-snapshot and
-// queue-operation, its system subtype compact_boundary, its row fields
-// requestId, summary and leafUuid, its message field usage, its content
-// item types thinking and redacted_thinking and item fields is_error and
-// signature; Codex's payload types context_compacted,
-// function_call_output, custom_tool_call_output, reasoning, token_count
-// and exec_command_end, its payload fields forked_from_id, status and
-// exit_code, its sources mcp and unknown, and every originator.
+// list, shortened to the names a source gives as the host's: each name is
+// in a from with its source, and the lists' test holds every name to one.
+// A name on no list is counted under other. The card's names dropped, as
+// no source here gives them: Claude Code's row types summary,
+// file-history-snapshot and queue-operation, its system subtype
+// compact_boundary, its row fields requestId, summary and leafUuid, its
+// message field usage, its content item types thinking and
+// redacted_thinking and item fields is_error and signature; Codex's
+// payload types context_compacted, function_call_output,
+// custom_tool_call_output, reasoning, token_count and exec_command_end,
+// its payload fields status and exit_code, its sources mcp and unknown,
+// and every originator.
 var (
-	// Claude Code's row types: user and assistant (parser.go), system
-	// (the HF-00 card's "user and system rows"), progress (catchup's
-	// drift test), attachment (the Claude Code research paper's
-	// "attachment ... rows").
-	claudeRowTypes = []string{"user", "assistant", "system", "progress", "attachment"}
-	// Claude Code's row fields. uuid, parentUuid and version are named by
-	// the recovery audit paper (working-papers/audit/catchup.md) with the
-	// branch field; userType, subtype, level and entrypoint by the HF-00
-	// card; toolUseResult by catchup's tests; the rest by parser.go.
-	claudeRowFields = []string{"type", "uuid", "parentUuid", "sessionId", "promptId", "prompt_id", "timestamp", "cwd", branchField,
-		"version", "userType", "entrypoint", "isMeta", "isSidechain", "isCompactSummary", "repeatsCompactSummary", "isApiErrorMessage",
-		"isVisibleInTranscriptOnly", "agentId", "agent_id", "turnOrigin", "origin", "subtype", "level", "message", "toolUseResult", "content"}
-	// A Claude Code message's fields (parser.go, host.go).
-	claudeMessageFields = []string{"role", "model", "content", "stop_reason", "stop_sequence", "id", "type"}
-	// A content item's types: text, tool_use and tool_result (host.go),
-	// image and document (parser.go's "an image or document attachment").
-	claudeItemTypes = []string{"text", "tool_use", "tool_result", "image", "document"}
-	// A content item's fields: type, text, id and name (host.go), input
-	// and tool_use_id (the audit's and catchup's tests), content
-	// (parser.go).
-	claudeItemFields = []string{"type", "text", "id", "name", "input", "tool_use_id", "content"}
+	// Claude Code's row types.
+	claudeRowTypes = slices.Concat(
+		from(parserGo, "user", "assistant"),
+		from(hf00Card, "system"), // its "user and system rows"
+		from(driftTestGo, "progress"),
+		from(claudePaper, "attachment"))
+	// Claude Code's row fields.
+	claudeRowFields = slices.Concat(
+		from(parserGo, "type", "sessionId", "promptId", "prompt_id", "timestamp", "cwd", "isMeta", "isSidechain", "isCompactSummary",
+			"repeatsCompactSummary", "isApiErrorMessage", "isVisibleInTranscriptOnly", "agentId", "agent_id", "turnOrigin", "origin",
+			"message", "content"),
+		from(catchupPaper, "uuid", "parentUuid", branchField, "version"),
+		from(hf00Card, "userType", "entrypoint", "subtype", "level"),
+		from(scanTestGo, "toolUseResult"))
+	// A Claude Code message's fields.
+	claudeMessageFields = from(auditHostGo, "role", "model", "content", "stop_reason", "stop_sequence", "id", "type")
+	// A content item's types.
+	claudeItemTypes = slices.Concat(
+		from(auditHostGo, "text", "tool_use", "tool_result"),
+		from(parserGo, "image", "document")) // its "an image or document attachment"
+	// A content item's fields.
+	claudeItemFields = slices.Concat(
+		from(auditHostGo, "type", "text", "id", "name", "content"),
+		from(auditTestGo, "input", "tool_use_id"))
 	// Claude Code's system subtypes: none is given here.
 	claudeSubtypes = []string{}
-	// Claude Code's entrypoints: internal/hook's headless list and its
-	// test.
-	claudeEntrypoints = []string{"cli", "sdk-cli", "sdk-ts", "sdk-py", "claude-desktop", "claude-vscode"}
-	// turnOrigin's values (parser.go).
-	turnOrigins = []string{"human"}
+	// Claude Code's entrypoints: the hook's headless list and its test.
+	claudeEntrypoints = from(headlessTestGo, "cli", "sdk-cli", "sdk-ts", "sdk-py", "claude-desktop", "claude-vscode")
+	// turnOrigin's values.
+	turnOrigins = from(parserGo, "human")
 
-	// Codex's row types: parser.go, and compacted (the Codex research
-	// paper's Compacted item).
-	codexRowTypes = []string{"session_meta", "turn_context", "event_msg", "response_item", "compacted"}
-	// Codex's row fields: parser.go, and ordinal (the Codex research
-	// paper's {timestamp, ordinal?, <item>}).
-	codexRowFields = []string{"timestamp", "type", "payload", "ordinal"}
-	// Codex's payload types: parser.go and host.go, and turn_started (the
-	// HF-00 card).
-	codexPayloadTypes = []string{"task_started", "turn_started", "user_message", "agent_message", "task_complete", "turn_aborted",
-		"message", "function_call", "custom_tool_call", "local_shell_call"}
-	// Codex's payload fields: parser.go and host.go; source, originator,
-	// turn_attribution and outcome (the HF-00 card); arguments (the
-	// audit's tests); output (internal/hook, Codex's tool response);
-	// cli_version (the second field report's prompt).
-	codexPayloadFields = []string{"type", "id", "cwd", "source", "originator", "turn_id", "turn_attribution", "message", "phase",
-		"last_agent_message", "role", "content", "name", "call_id", "arguments", "output", "outcome", "cli_version"}
-	// Codex's sources (the Codex research paper's interactive sources,
-	// "not exec").
-	codexSources = []string{"cli", "vscode", "atlas", "chatgpt", "exec"}
+	// Codex's row types.
+	codexRowTypes = slices.Concat(
+		from(parserGo, "session_meta", "turn_context", "event_msg", "response_item"),
+		from(codexRolloutItem, "compacted"))
+	// Codex's row fields.
+	codexRowFields = slices.Concat(
+		from(parserGo, "timestamp", "type", "payload"),
+		from(codexPaper, "ordinal")) // its {timestamp, ordinal?, <item>}
+	// Codex's payload types.
+	codexPayloadTypes = slices.Concat(
+		from(parserGo, "task_started", "user_message", "agent_message", "task_complete", "message"),
+		from(auditHostGo, "turn_aborted", "function_call", "custom_tool_call", "local_shell_call"),
+		from(hf00Card, "turn_started"))
+	// Codex's payload fields. forked_from_id names, in a forked session's
+	// first record, the session it was forked from: a fork's file need not
+	// repeat that session's rows, so the report joins a fork to its chat by
+	// it.
+	codexPayloadFields = slices.Concat(
+		from(parserGo, "type", "id", "cwd", "turn_id", "message", "phase", "last_agent_message", "role", "content"),
+		from(auditHostGo, "name", "call_id"),
+		from(hf00Card, "source", "originator", "turn_attribution", "outcome"),
+		from(auditTestGo, "arguments"),
+		from(hookGo, "output"), // Codex's tool response
+		from(fieldPrompt2, "cli_version"),
+		from(codexSessionMeta, "forked_from_id"))
+	// Codex's sources: the paper's interactive sources, "not exec".
+	codexSources = from(codexPaper, "cli", "vscode", "atlas", "chatgpt", "exec")
 	// Codex's originators: none is given here.
 	codexOriginators = []string{}
 )
+
+// source is where names on a list come from: a file of this repository,
+// by its path from the repository's root, which holds each name taken
+// from it as a word; or a host's published source or documents, outside
+// the repository, after "published: ".
+type source string
+
+// The lists' sources.
+const (
+	parserGo       source = "internal/catchup/parser.go"
+	auditHostGo    source = "internal/ledger/audit/host.go"
+	auditTestGo    source = "internal/ledger/audit/audit_test.go"
+	scanTestGo     source = "internal/catchup/scan_test.go"
+	driftTestGo    source = "internal/catchup/drift_test.go"
+	hookGo         source = "internal/hook/hook.go"
+	headlessTestGo source = "internal/hook/headless_test.go"
+	hf00Card       source = "docs/v2/cards/HF-00.md"
+	catchupPaper   source = "docs/v2/working-papers/audit/catchup.md"
+	claudePaper    source = "docs/v2/working-papers/research/claude-surface.md"
+	codexPaper     source = "docs/v2/working-papers/research/codex-surface.md"
+	fieldPrompt2   source = "docs/v2/field-report-2-prompt.md"
+	// A session file's first record, as Codex's published source declares
+	// it (SessionMeta in codex-rs/protocol/src/protocol.rs) and writes it
+	// (codex-rs/rollout/src/recorder.rs).
+	codexSessionMeta source = "published: Codex's source, codex-rs/protocol/src/protocol.rs"
+	// A row's type, as Codex's published source names a rollout item's
+	// kinds, in snake case (codex-rs/history/src/rollout_payload.rs).
+	codexRolloutItem source = "published: Codex's source, codex-rs/history/src/rollout_payload.rs"
+)
+
+// from is names, which its source gives as the host's. The lists' test reads
+// the source of each list's names from its calls.
+func from(_ source, names ...string) []string {
+	return names
+}
 
 // branchField is the name of Claude Code's row field for the git branch.
 const branchField = "git" + "Branch"
