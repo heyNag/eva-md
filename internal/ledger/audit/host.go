@@ -51,11 +51,13 @@ type hostItem struct {
 }
 
 // hostRecord is what the audit counts of one host transcript: its items,
-// outside every range said off the record, how many such ranges it holds,
-// and how many rows were too long to read.
+// outside every range said off the record, how many such ranges it holds
+// and the stretches of time they cover, and how many rows were too long to
+// read.
 type hostRecord struct {
 	items   []hostItem
 	paused  int
+	pauses  []interval
 	tooLong int
 }
 
@@ -63,8 +65,9 @@ type hostRecord struct {
 type hostReader struct {
 	host, session string
 	rec           hostRecord
-	turn          string // the current turn's id
-	off           bool   // in a range said off the record
+	turn          string    // the current turn's id
+	off           bool      // in a range said off the record
+	offAt         time.Time // when it began, zero when not known
 	tools         map[string]bool
 	replied       map[string]bool // Codex turns whose final reply is counted
 }
@@ -94,6 +97,9 @@ func readHost(ctx context.Context, host, id string, r io.Reader, limit int) (hos
 		case errors.Is(err, bufio.ErrBufferFull):
 			continue
 		case errors.Is(err, io.EOF):
+			if h.off {
+				h.rec.pauses = append(h.rec.pauses, interval{start: h.offAt})
+			}
 			return h.rec, nil
 		case err != nil:
 			return hostRecord{}, err
@@ -120,16 +126,26 @@ func (h *hostReader) add(kind int, turn, ts string, voice bool) {
 
 // prompt counts a prompt that reached the agent, unless it is a record
 // control, which opens or closes a range said off the record and is
-// counted as neither, or a text v1's hooks never take for a prompt.
+// counted as neither, or a text v1's hooks never take for a prompt. A
+// range's stretch of time runs from its control's row to a second after
+// the row that closed it, and is open where a row has no time.
 func (h *hostReader) prompt(text, turn, ts string) {
+	at, _ := time.Parse(time.RFC3339Nano, ts)
 	switch session.RecordControl(text) {
 	case "off_record":
 		if !h.off {
-			h.off = true
+			h.off, h.offAt = true, at
 			h.rec.paused++
 		}
 		return
 	case "on_record":
+		if h.off {
+			end := at
+			if !end.IsZero() {
+				end = end.Add(time.Second)
+			}
+			h.rec.pauses = append(h.rec.pauses, interval{start: h.offAt, end: end})
+		}
 		h.off = false
 		return
 	}

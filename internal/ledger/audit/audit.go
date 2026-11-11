@@ -23,6 +23,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/ledger"
 	"github.com/heyNag/eva-md/internal/ledger/event"
 	"github.com/heyNag/eva-md/internal/ledger/inboxv1"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -130,12 +131,18 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	// A session is named by its whole id, or by the first 8 characters a
+	// ref keeps when no session's whole id is that.
+	whole := slices.ContainsFunc(keys, func(k ledger.Key) bool { return k.Session == o.Session })
+	named := func(s string) bool {
+		return o.Session == "" || s == o.Session || !whole && len(o.Session) == 8 && strings.HasPrefix(s, o.Session)
+	}
 	type id struct{ host, session string }
 	groups := map[id][]file{}
 	var order []id
 	var first time.Time // the inbox's oldest stored line
 	for _, k := range keys {
-		if o.Session != "" && k.Session != o.Session {
+		if !named(k.Session) {
 			continue
 		}
 		s, events, err := reader.Read(ctx, k)
@@ -206,17 +213,15 @@ func span(events []event.Event) (first, last time.Time) {
 	return first, last
 }
 
-// session audits one session, its inbox files and its host's record.
+// session audits one session, its inbox files and its host's record. The
+// stretches of time either says were off the record are left out of every
+// count on both sides, but as paused ranges: what the host's record says
+// was paused is not counted from the inbox either, where a hook stored it.
 func (r *Report) session(ctx context.Context, o Options, host, id string, files []file) error {
-	var stored [kinds]map[string]int
-	for k := range stored {
-		stored[k] = map[string]int{}
-	}
 	var paused []interval
 	var first time.Time
 	for _, f := range files {
 		r.Classes[f.session.Class]++
-		r.inboxFile(f.events, &stored)
 		p, n := pauses(f.events)
 		paused = append(paused, p...)
 		r.PausedInbox += n
@@ -224,14 +229,31 @@ func (r *Report) session(ctx context.Context, o Options, host, id string, files 
 			first = a
 		}
 	}
-	r.repeats(files)
 	rec, ok, err := r.hostRecord(ctx, o, host, id)
-	if err != nil || !ok {
-		r.noReply(files, nil)
+	if err != nil {
 		return err
 	}
-	r.PausedHost += rec.paused
-	r.TooLong += rec.tooLong
+	if ok {
+		r.PausedHost += rec.paused
+		r.TooLong += rec.tooLong
+		paused = append(paused, rec.pauses...)
+	}
+	var stored [kinds]map[string]int
+	for k := range stored {
+		stored[k] = map[string]int{}
+	}
+	for i := range files {
+		files[i].events = slices.DeleteFunc(slices.Clone(files[i].events), func(e event.Event) bool {
+			t, err := time.Parse(time.RFC3339Nano, e.T)
+			return err == nil && within(t, paused)
+		})
+		r.inboxFile(files[i].events, &stored)
+	}
+	r.repeats(files)
+	if !ok {
+		r.noReply(files, nil)
+		return nil
+	}
 	var found [kinds]map[string]int
 	for k := range found {
 		found[k] = map[string]int{}
