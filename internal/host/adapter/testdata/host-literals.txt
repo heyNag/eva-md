@@ -1,0 +1,14 @@
+cmd/eva-md 10
+cmd/live-accuracy 1
+internal/catchup 13
+internal/config 1
+internal/health 28
+internal/hook 7
+internal/inbox 2
+internal/install 23
+internal/ledger/audit 5
+internal/ledger/inboxv1 1
+internal/mcp 6
+internal/resume 4
+internal/systempage 1
+internal/update 7

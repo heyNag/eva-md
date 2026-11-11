@@ -1,0 +1,94 @@
+{
+  "id": "v1.04",
+  "family": "v1",
+  "name": "a correction",
+  "split": "tuning",
+  "seed": 0,
+  "sessions": [
+    {
+      "host": "claude-code",
+      "session": "00000624-2222-4000-8000-000000000000",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-13T10:01:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "The token variable is EVA_TOKEN, WREN-2.",
+          "plants": [
+            "f1"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "claude-code",
+      "session": "00000625-2222-4000-8000-000000000001",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-13T11:00:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Correction: the token variable is EVA_MD_TOKEN, WREN-5.",
+          "plants": [
+            "f2"
+          ]
+        }
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "kinds": [
+        "decision",
+        "fact"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "WREN-2"
+        },
+        {
+          "class": "ident",
+          "value": "EVA_TOKEN"
+        }
+      ],
+      "until": {
+        "session": "00000625-2222-4000-8000-000000000001",
+        "seq": 1
+      },
+      "must": "store"
+    },
+    {
+      "id": "f2",
+      "kinds": [
+        "decision",
+        "fact"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "WREN-5"
+        },
+        {
+          "class": "ident",
+          "value": "EVA_MD_TOKEN"
+        }
+      ],
+      "supersedes": "f1",
+      "must": "store"
+    }
+  ],
+  "passes": [
+    {
+      "session": 0
+    },
+    {
+      "session": 1
+    }
+  ]
+}

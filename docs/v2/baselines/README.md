@@ -52,3 +52,10 @@ A scenario that fails in a run, as when load runs a hook past its time limit, le
 6. `pass`, exit 0.
 
 A metric the old binary gave no samples, as one added with the change, is listed as not compared. `gate.json` keeps every sample, by role, so a verdict can be worked out again. The step is advisory until an unchanged binary has passed it twenty times in twenty; then the lead removes `continue-on-error` from it.
+
+## Passes toward blocking
+
+The gate may block a merge once an unchanged binary has passed it 20 times with no fail between them, in runs that count, with fewer than one in four of those runs not judged. A run counts when it is the `latency` job's run of a push to `main`, and no file under `cmd/` or `internal/`, nor `go.mod` or `go.sum`, changed between the base its step names ("Comparing BASE with SHA") and its commit (`git diff --quiet BASE SHA -- cmd internal go.mod go.sum`), so that the two binaries it compared are alike. Its verdict is read in the step's log or in its artifact's `gate.json`, never from the run's colour, since the step is advisory. A pass adds one to the count and a `fail` starts it again. A `not judged` does neither, since it blocks nothing, but it goes into the table: a gate that cannot judge one run in four or more is not ready to block. A run of a commit that changed any of them counts neither way. A change to the gate's rule (`scripts/benchmark.py`, `scripts/bench/`) starts the count again. The lead fills the table at each merge.
+
+| Run | Commit | Verdict |
+| --- | --- | --- |

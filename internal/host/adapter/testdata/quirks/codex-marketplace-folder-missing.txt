@@ -1,0 +1,2 @@
+Error: failed to load marketplace(s):
+- `eva-md` at /Users/example/Library/Application Support/eva-md/marketplace/codex: marketplace root does not contain a supported manifest
