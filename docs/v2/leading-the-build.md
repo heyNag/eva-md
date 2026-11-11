@@ -66,7 +66,7 @@ Each of these happened. Items 3 to 8 and 11 are now rules in `AGENTS.md` or in a
 ## What is the owner's alone
 
 - Every release, and the upgrade of the real install.
-- Every live run on their machines or accounts: the host sittings, the live gates, the field evaluations.
+- Every live run on their machines or accounts: the host sittings, the live gates, the field evaluations. The host sittings follow [host-sitting-runbook.md](host-sitting-runbook.md), whose Part 1 is the core (about three hours of steps in three sittings) and whose Part 2 is asked for group by group; [host-facts.md](host-facts.md) says for each fact how it is settled, and the lead writes each result into it. The sittings wait for the recorder ([cards/HF-00.md](cards/HF-00.md)).
 - The decisions of section 7 of the plan that wait for the Stage 0 readout, and the answers only they can give (section 13.6).
 - The two API keys of decision 28. Until the owner says they exist, no live evaluation runs in containers.
 
