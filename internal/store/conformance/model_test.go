@@ -231,6 +231,26 @@ func TestCoverageIsInTheTree(t *testing.T) {
 	}
 }
 
+func TestAProtectedSessionFileRefusesAppends(t *testing.T) {
+	for _, c := range []struct{ edit, reason string }{{EditLock, store.ReasonLocked}, {EditGarble, store.ReasonUnreadable}} {
+		m, st, _ := opened(t)
+		path := sessionPath("codex:b2")
+		st = edit(t, m, st, path, Edit{Kind: c.edit})
+		before := m.Files()[path]
+		res, err := st.Apply(store.Txn{Pass: pass(2), Kind: store.KindFast, Session: "codex:b2", Ops: []store.Op{
+			{Type: store.OpSessionAppend, Authority: store.AuthorityUser, Fields: map[string]any{"text": "did a thing"}},
+			create("t2"),
+		}})
+		if err != nil || res.Outcomes[0].Reason != c.reason || res.Outcomes[1].Result != store.ResultApplied {
+			t.Fatalf("%s: %+v, %v", c.edit, res.Outcomes, err)
+		}
+		if !bytes.Equal(m.Files()[path], before) {
+			t.Fatalf("%s: the session file changed", c.edit)
+		}
+		st.Close()
+	}
+}
+
 func TestApplyRefusesAPassThatIsNotWellFormed(t *testing.T) {
 	_, st, _ := opened(t)
 	for _, txn := range []store.Txn{

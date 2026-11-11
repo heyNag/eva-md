@@ -493,7 +493,12 @@ func (m *Model) planOp(txn store.Txn, i int, p *planned, read func(string) ([]by
 			return refused(store.ReasonInvalid, op.ID)
 		}
 		path := sessionPath(txn.Session)
-		b, _ := read(path)
+		b, ok := read(path)
+		if prot := m.protection(b); ok && prot.Unreadable {
+			return refused(store.ReasonUnreadable, op.ID)
+		} else if ok && prot.Locked {
+			return refused(store.ReasonLocked, op.ID)
+		}
 		have, log := parseSession(b)
 		p.writes[path] = renderSession(txn.Session, have, log+"- did: "+text+"\n")
 		return store.Outcome{Result: store.ResultApplied, ID: op.ID}
