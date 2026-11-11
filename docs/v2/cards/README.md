@@ -31,7 +31,7 @@ Rules every card carries, so they are said once here:
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | building since 2026-11-11 |
 | [CT-4](CT-4.md) | Counters release: a content-free report | after CT-1 to CT-3 |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | ready |
-| [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | built and reviewed; its fix is next |
+| [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | built; in review |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | ready |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | ready |
