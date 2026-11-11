@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/heyNag/eva-md/internal/inbox"
 )
 
 // Words in scripts other than Latin, planted as a key, a row type and a
@@ -109,6 +111,12 @@ func plantedHome(f *fixture) {
 		t.Fatal(err)
 	}
 	f.session(claude, linked, lp)
+	// An inbox file of a host eva-md does not know.
+	stray := inbox.Entry{V: 1, TS: at(0, 0), Host: marker + "-host", Session: marker + "-stray", Role: "user", Kind: "prompt",
+		Text: marker, Project: marker + "-project", Cwd: marker + "-cwd", Origin: "hook"}
+	if err := (inbox.Store{Root: f.dirs.Inbox()}).Append(stray); err != nil {
+		t.Fatal(err)
+	}
 
 	ids := codexIDs(17)
 	for i := 1; i <= 6; i++ {

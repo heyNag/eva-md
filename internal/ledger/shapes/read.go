@@ -146,7 +146,8 @@ func gapBucket(d time.Duration) string {
 // told, and the first and last time a row gives.
 type fileRead struct {
 	t           *tally
-	ids         []string
+	ids         []string // while the file is read
+	nodes       []string // the nodes of those ids, once it is read
 	off, away   bool
 	unknown     bool
 	first, last time.Time
@@ -424,6 +425,11 @@ func (h *reader) claude(row map[string]json.RawMessage, size int) {
 		t.version(raw, facts084, host, "versions")
 	}
 	h.id(str(row["sessionId"]))
+	// A row's own content, as a queued prompt's, is checked for a record
+	// control too.
+	if text, ok := row["content"]; ok {
+		h.control(str(text))
+	}
 	cwd, branch := str(row["cwd"]), str(row[branchField])
 	h.folder(cwd)
 	if str(row["timestamp"]) != "" {

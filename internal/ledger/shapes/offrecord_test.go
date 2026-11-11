@@ -87,6 +87,12 @@ func specials() []special {
 			path := f.claudeFile("", id, rows...)
 			f.session(claude, id, path, prompt(inside))
 		}},
+		{"a row's own content says it", claude, statusOff, func(f *fixture, inside int) {
+			id := marker + "-off-queued"
+			rows := append(insideRows(f, claude, id, inside), map[string]any{"type": marker + "-queued", "sessionId": id, "timestamp": at(32, 0), "content": "off the record"})
+			path := f.claudeFile("", id, rows...)
+			f.session(claude, id, path, prompt(inside))
+		}},
 		{"a row too long says it", claude, statusOff, func(f *fixture, inside int) {
 			f.rowLimit = 4096
 			id := marker + "-off-long"

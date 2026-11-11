@@ -29,6 +29,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,6 +161,9 @@ func readInbox(ctx context.Context, o Options, away func(string) bool) (map[stri
 	part := PartNone
 	sessions := map[string]*known{}
 	for _, key := range keys {
+		if _, ok := adapter.ByID(key.Host); !ok {
+			continue
+		}
 		id := node(key.Host, key.Session)
 		k := sessions[id]
 		if k == nil {
@@ -360,16 +364,22 @@ func readFile(ctx context.Context, o Options, away func(string) bool, g *groups,
 		f.status = statusUnread
 	default:
 		f.status, f.f = statusRead, &got
+		// The ids its rows name are kept as nodes, hashed, from here on.
+		for _, named := range got.ids {
+			got.nodes = append(got.nodes, node(k.host, named))
+		}
 		if subagent {
 			got.t.add(facts027, k.host, "subagent_files", "read")
 			if slices.Contains(got.ids, k.id) {
 				got.t.add(facts027, k.host, "subagent_files", "of_another_chat")
 			}
+			got.ids = nil
 		} else {
 			got.t.add(facts013, k.host, "file_ids", idForm(id))
 			if strings.Contains(id, ".") {
 				got.t.add(facts013, k.host, "file_ids", "with_dot")
 			}
+			got.ids = nil
 		}
 	}
 	return f
@@ -406,7 +416,7 @@ func subagentFiles(path string) []string {
 }
 
 // node names a session, or a file's session, by host and id.
-func node(host, id string) string { return host + "\x00" + id }
+func node(host, id string) string { return host + "\x00" + strconv.FormatUint(hash(id), 16) }
 
 // idForm is the form of a session id: a UUID's, or another.
 func idForm(id string) string {
@@ -495,8 +505,8 @@ func merge(r *Report, counts map[string]int, g *groups, sessions map[string]*kno
 		case f.f.unknown:
 			g.mark(f.name, notWhole)
 		default:
-			for _, id := range f.f.ids {
-				g.union(f.name, node(f.host, id))
+			for _, n := range f.f.nodes {
+				g.union(f.name, n)
 			}
 		}
 	}
