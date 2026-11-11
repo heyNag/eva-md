@@ -18,6 +18,10 @@ import (
 // fixture run log, which the report must never show.
 const updatesMarker = "zq-planted-marker-7f3k"
 
+// namedMarker is a made-up marker in the shape of a name the job writes,
+// planted where the report shows names, which it must never show either.
+const namedMarker = "zqplanted_marker"
+
 // updatesFixture writes a week's run log, and a day before it, and a config
 // with a daily cap of 12, and returns the time the report is made at and
 // the session ids the log holds.
@@ -40,7 +44,7 @@ func updatesFixture(t *testing.T, d paths.Dirs) (time.Time, []string) {
 	days := map[string][]update.Record{
 		"2026-01-14": {
 			text(update.Record{At: at(14, 1), Host: update.HostClaude, Outcome: update.OutcomeOK, Calls: 1, TokensIn: 1000, TokensOut: 100, DurationMS: 30000, Pages: 2, BoundaryToSavedMS: 600000,
-				Trigger: update.TriggerEnd, Model: "claude-a", ModelReported: "claude-a", Validation: &update.Report{Refused: 2, Rules: update.RuleCounts{Refused: 1}}}),
+				Trigger: update.TriggerEnd, Model: "claude-a[1m]", ModelReported: "claude-a", Validation: &update.Report{Refused: 2, Rules: update.RuleCounts{Refused: 1}}}),
 			text(update.Record{At: at(14, 2), Host: update.HostCodex, Outcome: update.OutcomeNoChange, Calls: 1, TokensIn: 2000, TokensOut: 200, DurationMS: 60000,
 				Trigger: update.TriggerGap, Model: m, Validation: &update.Report{Duplicates: 1, KeptNow: true}}),
 			text(update.Record{At: at(14, 3), Host: update.HostClaude, Outcome: update.OutcomeFailed, Reason: update.ReasonInvalidOutput, Calls: 1, TokensIn: 3000, TokensOut: 300, DurationMS: 90000,
@@ -57,6 +61,16 @@ func updatesFixture(t *testing.T, d paths.Dirs) (time.Time, []string) {
 		},
 		"2026-01-12": {
 			text(update.Record{At: at(12, 1), Host: update.HostClaude, Outcome: update.OutcomeSkipped, Reason: m}),
+			// Two calls in one pass count once against the cap, as the
+			// budget counts them, and a pass that saved no page has no time
+			// to memory. It asked for the host's default.
+			text(update.Record{At: at(12, 2), Host: update.HostClaude, Outcome: update.OutcomeOK, Calls: 2, TokensIn: 500, TokensOut: 50, DurationMS: 20000, BoundaryToSavedMS: 999,
+				Trigger: update.TriggerGap, ModelReported: "claude-q", Validation: &update.Report{}}),
+			// Names in the shape of the job's own, which it never writes.
+			text(update.Record{At: at(12, 3), Host: update.HostClaude, Outcome: update.OutcomeFailed, Reason: update.ReasonInvalidOutput, Calls: 1, DurationMS: 10000,
+				Trigger: namedMarker, Rejection: &update.Rejection{Rule: namedMarker, Place: "items[]." + namedMarker}}),
+			text(update.Record{At: at(12, 4), Host: update.HostClaude, Outcome: update.OutcomeSkipped, Reason: namedMarker}),
+			{At: at(12, 5), Outcome: update.OutcomeBusy, Trigger: namedMarker},
 		},
 		// The day before the week: not read.
 		"2026-01-07": {
@@ -64,13 +78,21 @@ func updatesFixture(t *testing.T, d paths.Dirs) (time.Time, []string) {
 		},
 	}
 	for day, records := range days {
-		var b strings.Builder
+		// Busy exits go to the day's file of them.
+		var b, busy strings.Builder
 		for _, r := range records {
 			data, err := json.Marshal(r)
 			if err != nil {
 				t.Fatal(err)
 			}
+			if r.Outcome == update.OutcomeBusy {
+				busy.Write(append(data, '\n'))
+				continue
+			}
 			b.Write(append(data, '\n'))
+		}
+		if busy.Len() > 0 {
+			put(t, filepath.Join(d.State, "updates", "busy-"+day+".jsonl"), []byte(busy.String()))
 		}
 		if day == "2026-01-13" {
 			// A record of an older release: no trigger, no reported model.
@@ -102,21 +124,21 @@ func TestTheUpdateReportCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"updates from 2026-01-08 to 2026-01-14: 8 passes recorded",
-		"outcomes: 3 ok, 1 no_change, 2 skipped, 2 failed",
-		"skips by reason: 1 other, 1 small",
-		"failures by reason: 1 invalid_output, 1 rate_limit",
-		"answers refused whole: 1 of 4 checked; by rule: 1 missing_key at output.last_chat",
+		"updates from 2026-01-08 to 2026-01-14: 11 passes recorded",
+		"outcomes: 4 ok, 1 no_change, 3 skipped, 3 failed",
+		"skips by reason: 2 other, 1 small",
+		"failures by reason: 2 invalid_output, 1 rate_limit",
+		"answers refused whole: 2 of 6 checked; by rule: 1 missing_key at output.last_chat, 1 other at other",
 		"inside accepted answers: 1 duplicates, 1 kept_now, 2 refused, 1 rules.refused",
-		"tokens in per call: median 2000, p95 5000, max 5000 (6)",
-		"tokens out per call: median 200, p95 500, max 500 (6)",
-		"time per call: median 60.0 s, p95 150.0 s, max 150.0 s (6)",
+		"tokens in per call: median 1000, p95 5000, max 5000 (8)",
+		"tokens out per call: median 100, p95 500, max 500 (8)",
+		"time per call: median 30.0 s, p95 150.0 s, max 150.0 s (8)",
 		"chat boundary to memory on file, by trigger: session_end median 10.0 min, p95 10.0 min, max 10.0 min (1); unknown median 90.0 min, p95 90.0 min, max 90.0 min (1)",
 		"chat boundary to memory on file, the day's sweep: median 60.0 min, p95 60.0 min, max 60.0 min (1)",
-		"busy exits: 3, for 2 sessions; by trigger: 1 chat_start, 1 other, 1 sweep",
+		"busy exits: 4, for 2 sessions; by trigger: 1 chat_start, 2 other, 1 sweep",
 		"model calls a day, each host against the cap: 2026-01-08 claude-code 0, codex 0 of 12; 2026-01-09 claude-code 0, codex 0 of 12; 2026-01-10 claude-code 0, codex 0 of 12; " +
-			"2026-01-11 claude-code 0, codex 0 of 12; 2026-01-12 claude-code 0, codex 0 of 12; 2026-01-13 claude-code 2, codex 1 of 12; 2026-01-14 claude-code 2, codex 1 of 12",
-		"model reported: 2 calls named the model that answered, 1 of them one other than asked",
+			"2026-01-11 claude-code 0, codex 0 of 12; 2026-01-12 claude-code 2, codex 0 of 12; 2026-01-13 claude-code 2, codex 1 of 12; 2026-01-14 claude-code 2, codex 1 of 12",
+		"model reported: 3 passes named the model that answered; of them 1 asked for the host's default and 1 named a model other than the one asked for",
 	}
 	got := f.Lines()
 	if !reflect.DeepEqual(got, want) {
@@ -127,7 +149,7 @@ func TestTheUpdateReportCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, out := range []string{strings.Join(got, "\n"), string(data)} {
-		for _, s := range append([]string{updatesMarker, "3f2a91c0", "claude-a", "claude-b", "github.com", "feature/", d.State, os.Getenv("HOME")}, sessions...) {
+		for _, s := range append([]string{updatesMarker, namedMarker, "zqplanted", "3f2a91c0", "claude-a", "claude-b", "claude-q", "github.com", "feature/", d.State, os.Getenv("HOME")}, sessions...) {
 			if strings.Contains(out, s) {
 				t.Errorf("the report shows %q:\n%s", s, out)
 			}
@@ -138,7 +160,7 @@ func TestTheUpdateReportCounts(t *testing.T) {
 	if err := json.Unmarshal(data, &back); err != nil || !reflect.DeepEqual(back, f) {
 		t.Fatalf("JSON %s: %v", data, err)
 	}
-	if f.Busy.Jobs != 3 || f.Busy.Sessions != 2 || f.ToMemoryMS[update.TriggerSweep] != (Spread{N: 1, Median: 3600000, P95: 3600000, Max: 3600000}) || f.Calls[6].Hosts[update.HostClaude] != 2 {
+	if f.Busy.Jobs != 4 || f.Busy.Sessions != 2 || f.ToMemoryMS[update.TriggerSweep] != (Spread{N: 1, Median: 3600000, P95: 3600000, Max: 3600000}) || f.Calls[6].Hosts[update.HostClaude] != 2 {
 		t.Fatalf("figures %+v", f)
 	}
 }
@@ -179,14 +201,31 @@ func TestSpread(t *testing.T) {
 	}
 }
 
-// Only names of the shape the job writes reach the report.
+// Only the names and places this release writes reach the report, each
+// where it belongs.
 func TestSafeName(t *testing.T) {
-	for _, tc := range []struct{ in, want string }{
-		{"session_end", "session_end"}, {"items[].kind", "items[].kind"}, {"output.last_chat", "output.last_chat"},
-		{"", "other"}, {"Has Space", "other"}, {"/Users/x", "other"}, {strings.Repeat("a", 65), "other"},
+	for _, tc := range []struct {
+		in    string
+		known []string
+		want  string
+	}{
+		{"session_end", update.Triggers, "session_end"}, {"small", update.Reasons, "small"}, {"busy", update.Outcomes, "busy"},
+		{"carried", update.RefusalRules, "carried"}, {"small", update.Triggers, "other"}, {"session_end", update.Reasons, "other"},
+		{"", update.Triggers, "other"}, {namedMarker, update.Reasons, "other"}, {"acme_payments", update.Reasons, "other"},
+		{"customer.portal", update.Outcomes, "other"}, {"Has Space", update.Reasons, "other"}, {"/Users/x", update.Triggers, "other"},
 	} {
-		if got := safeName(tc.in); got != tc.want {
+		if got := safeName(tc.in, tc.known); got != tc.want {
 			t.Errorf("safeName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	for _, tc := range []struct{ in, want string }{
+		{"output", "output"}, {"items[].kind", "items[].kind"}, {"output.last_chat", "output.last_chat"}, {"knowledge[].paths[]", "knowledge[].paths[]"},
+		{"timeline[].refs[]", "timeline[].refs[]"}, {"items", "items"},
+		{"", "other"}, {"items[]." + namedMarker, "other"}, {"customer.portal", "other"}, {"items[3].kind", "other"}, {"output.output", "other"},
+		{"items[].kind.", "other"}, {"items]", "other"}, {"items[]x", "other"},
+	} {
+		if got := safePlace(tc.in); got != tc.want {
+			t.Errorf("safePlace(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

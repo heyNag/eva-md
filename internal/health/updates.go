@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -47,9 +46,12 @@ type UpdateFigures struct {
 	ToMemoryMS map[string]Spread `json:"to_memory_ms"` // from a chunk's newest entry to its saved page, by trigger, the sweep apart
 	Busy       BusyExits         `json:"busy"`
 	Calls      []DayCalls        `json:"calls"`
-	// Reported is how many model calls reported the model that answered,
-	// and Other how many of them a model other than the one asked for.
+	// Reported is how many passes named the model that answered. Default
+	// is how many of them asked for the host's default, so asked for no
+	// name, and Other how many asked for a name and were answered under
+	// another, a suffix in brackets, as [1m], aside.
 	Reported int `json:"model_reported"`
+	Default  int `json:"model_default"`
 	Other    int `json:"model_other"`
 }
 
@@ -102,7 +104,7 @@ func updateFigures(records []update.Record, now time.Time, dailyCap int) UpdateF
 	sessions := map[string]bool{}
 	calls := map[string]map[string]int{}
 	for _, r := range records {
-		trigger := safeName(r.Trigger)
+		trigger := safeName(r.Trigger, update.Triggers)
 		if r.Trigger == "" {
 			trigger = TriggerUnknown
 		}
@@ -115,12 +117,12 @@ func updateFigures(records []update.Record, now time.Time, dailyCap int) UpdateF
 			continue
 		}
 		f.Passes++
-		f.Outcome[safeName(r.Outcome)]++
+		f.Outcome[safeName(r.Outcome, update.Outcomes)]++
 		switch r.Outcome {
 		case update.OutcomeSkipped:
-			f.Skips[safeName(r.Reason)]++
+			f.Skips[safeName(r.Reason, update.Reasons)]++
 		case update.OutcomeFailed:
-			f.Fails[safeName(r.Reason)]++
+			f.Fails[safeName(r.Reason, update.Reasons)]++
 		}
 		if r.Validation != nil {
 			f.Checked++
@@ -128,7 +130,7 @@ func updateFigures(records []update.Record, now time.Time, dailyCap int) UpdateF
 		}
 		if r.Rejection != nil {
 			f.Checked++
-			f.Refused[safeName(r.Rejection.Rule)+" at "+safeName(r.Rejection.Place)]++
+			f.Refused[safeName(r.Rejection.Rule, update.RefusalRules)+" at "+safePlace(r.Rejection.Place)]++
 		}
 		if r.Calls > 0 {
 			in, out, took = append(in, int64(r.TokensIn)), append(out, int64(r.TokensOut)), append(took, r.DurationMS)
@@ -139,7 +141,10 @@ func updateFigures(records []update.Record, now time.Time, dailyCap int) UpdateF
 		}
 		if r.ModelReported != "" {
 			f.Reported++
-			if r.ModelReported != r.Model {
+			switch {
+			case r.Model == "":
+				f.Default++
+			case modelBase(r.ModelReported) != modelBase(r.Model):
 				f.Other++
 			}
 		}
@@ -163,15 +168,28 @@ func updateFigures(records []update.Record, now time.Time, dailyCap int) UpdateF
 	return f
 }
 
-// fixedName is the shape of the names the job writes: outcomes, reasons,
-// triggers, rules, places in the answer's schema and counters.
-var fixedName = regexp.MustCompile(`^[a-z][a-z0-9_.\[\]]{0,63}$`)
+// safeName is s, a name the run log holds, when it is one of known, the
+// outcomes, reasons, rules or triggers this release writes, and otherwise
+// other, so whatever a damaged or edited run log holds, the report shows
+// no text of it.
+func safeName(s string, known []string) string {
+	if slices.Contains(known, s) {
+		return s
+	}
+	return update.TriggerOther
+}
 
-// safeName is s, a name the run log holds, when it has the shape of one the job
-// writes, and otherwise other, so whatever a damaged or edited run log
-// holds, the report shows no text of it.
-func safeName(s string) string {
-	if fixedName.MatchString(s) {
+// modelBase is a model's name without a suffix in brackets, as [1m], which
+// a name asked for may carry and the name the host reports doesn't.
+func modelBase(model string) string {
+	base, _, _ := strings.Cut(model, "[")
+	return base
+}
+
+// safePlace is s, the place of a whole refusal, when it is one this
+// release can name, and otherwise other, as safeName.
+func safePlace(s string) string {
+	if update.KnownPlace(s) {
 		return s
 	}
 	return update.TriggerOther
@@ -187,7 +205,9 @@ func day(at string) string {
 
 // addCounters adds the counts of v, a validation report, to sums, by the
 // JSON name of each, with its section in front, as rules.refused; a true
-// flag counts one.
+// flag counts one. The names are those of update.Report's fields, which
+// the record's report was decoded into and is encoded from here, never a
+// key the run log holds.
 func addCounters(sums map[string]int, prefix string, v any) {
 	data, err := json.Marshal(v)
 	var m map[string]any
@@ -195,7 +215,6 @@ func addCounters(sums map[string]int, prefix string, v any) {
 		return
 	}
 	for key, value := range m {
-		key = safeName(key)
 		switch value := value.(type) {
 		case float64:
 			sums[prefix+key] += int(value)
@@ -255,7 +274,8 @@ func (f UpdateFigures) Lines() []string {
 		days = append(days, fmt.Sprintf("%s %s of %d", d.Day, strings.Join(hosts, ", "), d.Cap))
 	}
 	lines = append(lines, "model calls a day, each host against the cap: "+strings.Join(days, "; "))
-	lines = append(lines, fmt.Sprintf("model reported: %d %s named the model that answered, %d of them one other than asked", f.Reported, plural(f.Reported, "call", "calls"), f.Other))
+	lines = append(lines, fmt.Sprintf("model reported: %d %s named the model that answered; of them %d asked for the host's default and %d named a model other than the one asked for",
+		f.Reported, plural(f.Reported, "pass", "passes"), f.Default, f.Other))
 	return lines
 }
 

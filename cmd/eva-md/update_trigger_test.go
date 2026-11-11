@@ -23,9 +23,15 @@ const triggerMarker = "zq-planted-marker-7f3k"
 // eva-md update records the trigger --trigger names on each record of its
 // job: each name the hooks pass, a name it doesn't know as other, none
 // without the flag, as from a hook of 2026.11.7 or earlier, whose command
-// it still takes, and manual for a person's --foreground run.
+// it still takes, and manual for a person's --foreground run. The job's
+// clock is pinned, so its records and the reading of them share a day
+// however long the test runs.
 func TestUpdateRecordsItsTrigger(t *testing.T) {
 	d, fake := updateFixture(t, tangerine)
+	at := time.Now()
+	saved := updateClock
+	updateClock = func() time.Time { return at }
+	t.Cleanup(func() { updateClock = saved })
 	// Each pass's answer keeps the page's items and adds one of its own.
 	ids := regexp.MustCompile(`(?m)^- (n[0-9]+) (next|question|decision) `)
 	fake.Respond = func(r update.Request) (update.Result, error) {
@@ -60,7 +66,7 @@ func TestUpdateRecordsItsTrigger(t *testing.T) {
 		if code := run(context.Background(), args, strings.NewReader(""), &out, &errOut); code != 0 || out.String() != "update: 1 pass: 1 ok\n" {
 			t.Fatalf("%q: %d %q %q", args, code, out.String(), errOut.String())
 		}
-		records, err := update.Days(d.State, time.Now(), 1)
+		records, err := update.Days(d.State, at, 1)
 		if err != nil || len(records) == 0 {
 			t.Fatalf("%q: run log %v", args, err)
 		}
@@ -69,7 +75,7 @@ func TestUpdateRecordsItsTrigger(t *testing.T) {
 			t.Fatalf("%q: recorded %q for %s, want %q", args, last.Trigger, last.Session, tc.want)
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(d.State, "updates", time.Now().Format(time.DateOnly)+".jsonl"))
+	data, err := os.ReadFile(filepath.Join(d.State, "updates", at.Format(time.DateOnly)+".jsonl"))
 	if err != nil || strings.Contains(string(data), triggerMarker) {
 		t.Fatalf("the run log holds the flag's text: %v", err)
 	}
@@ -81,20 +87,19 @@ func TestUpdateRecordsItsTrigger(t *testing.T) {
 func TestStatusUpdates(t *testing.T) {
 	d := isolated(t)
 	now := time.Now()
-	var log strings.Builder
-	for _, r := range []update.Record{
-		{At: now.Format(time.RFC3339), Host: update.HostClaude, Session: "3f2a91c0-" + triggerMarker, Project: triggerMarker, Thread: triggerMarker, Outcome: update.OutcomeOK,
-			Calls: 1, TokensIn: 1200, TokensOut: 90, DurationMS: 42000, Pages: 1, BoundaryToSavedMS: 300000, Trigger: update.TriggerEnd, Model: triggerMarker},
-		{At: now.Format(time.RFC3339), Outcome: update.OutcomeBusy, Trigger: update.TriggerStart, SessionHashes: []string{"0123456789abcdef"}},
-	} {
-		data, _ := json.Marshal(r)
-		log.Write(append(data, '\n'))
-	}
 	if err := os.MkdirAll(filepath.Join(d.State, "updates"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(d.State, "updates", now.Format(time.DateOnly)+".jsonl"), []byte(log.String()), 0o600); err != nil {
-		t.Fatal(err)
+	// A pass in the day's run log, and a busy exit in its file of them.
+	for name, r := range map[string]update.Record{
+		now.Format(time.DateOnly) + ".jsonl": {At: now.Format(time.RFC3339), Host: update.HostClaude, Session: "3f2a91c0-" + triggerMarker, Project: triggerMarker, Thread: triggerMarker, Outcome: update.OutcomeOK,
+			Calls: 1, TokensIn: 1200, TokensOut: 90, DurationMS: 42000, Pages: 1, BoundaryToSavedMS: 300000, Trigger: update.TriggerEnd, Model: triggerMarker},
+		"busy-" + now.Format(time.DateOnly) + ".jsonl": {At: now.Format(time.RFC3339), Outcome: update.OutcomeBusy, Trigger: update.TriggerStart, SessionHashes: []string{"0123456789abcdef"}},
+	} {
+		data, _ := json.Marshal(r)
+		if err := os.WriteFile(filepath.Join(d.State, "updates", name), append(data, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var out, errOut bytes.Buffer
 	if code := run(context.Background(), []string{"status", "--updates"}, strings.NewReader(""), &out, &errOut); code != 0 || errOut.Len() != 0 {

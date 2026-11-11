@@ -45,10 +45,10 @@ func TriggerName(s string) string {
 }
 
 // OutcomeBusy is the outcome of a job that left because another held the
-// update lock. Its record names no host, so every reader of the run log
-// but the report of eva-md status --updates passes over it, as over any
-// line without one, and the budget, holds, backoffs and quarantines are
-// what they were.
+// update lock. Its record names no host and goes to a file of its own
+// beside the run log (see busyFile), which only the report of eva-md
+// status --updates reads, so the budget, holds, backoffs, quarantines and
+// every reader of the run log are what they were.
 const OutcomeBusy = "busy"
 
 // sessionHash is the busy record's name for a session: the first 16 hex
@@ -72,7 +72,7 @@ func (j Job) busy(refs []Ref, sweep bool) {
 	for _, ref := range refs {
 		rec.SessionHashes = append(rec.SessionHashes, sessionHash(ref.Host, ref.ID))
 	}
-	if err := appendRecord(j.Dirs.State, rec); err != nil {
+	if err := appendTo(j.Dirs.State, busyFile(day(rec.At)), rec); err != nil {
 		j.logf("the busy exit was not recorded: %v", err)
 	}
 }

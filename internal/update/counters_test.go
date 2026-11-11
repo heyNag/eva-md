@@ -21,9 +21,24 @@ const countersMarker = "zq-planted-marker-7f3k"
 // runLogLines reads the run log of the env's day as raw lines.
 func runLogLines(t *testing.T, e *env) []string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(e.dirs.State, "updates", e.clock.Format(time.DateOnly)+".jsonl"))
+	return fileLines(t, filepath.Join(e.dirs.State, "updates", e.clock.Format(time.DateOnly)+".jsonl"))
+}
+
+// busyLines reads the busy exits of the env's day as raw lines.
+func busyLines(t *testing.T, e *env) []string {
+	t.Helper()
+	return fileLines(t, filepath.Join(e.dirs.State, "updates", busyFile(e.clock.Format(time.DateOnly))))
+}
+
+// fileLines reads a file's lines; a missing file has none.
+func fileLines(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
+	}
+	if len(data) == 0 {
+		return nil
 	}
 	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 }
@@ -111,9 +126,10 @@ func snapshot(t *testing.T, root, skip string) map[string]string {
 
 // A job that finds the update lock held leaves exactly one record, busy,
 // with its trigger and its sessions as hashes the ids can't be read back
-// from, and changes nothing else: no watermark, page, sweep or other file.
-// The record names no host, so the budget, holds and the doctor's rows
-// pass over it, and a later job runs as if it weren't there.
+// from, in the day's file of busy exits, and changes nothing else: no
+// watermark, page, sweep, run log or other file. So the budget, holds and
+// the doctor's rows never see it, and a later job runs as if it weren't
+// there.
 func TestABusyExitLeavesOneRecord(t *testing.T) {
 	e := newEnv(t)
 	c := newChat("3f2a91c0-busy-"+countersMarker, start)
@@ -121,7 +137,7 @@ func TestABusyExitLeavesOneRecord(t *testing.T) {
 	file := e.write(c)
 	idleChat(t, e, "idle", 2*time.Hour)
 	home := os.Getenv("HOME")
-	runLog := filepath.Join(e.dirs.State, "updates", e.clock.Format(time.DateOnly)+".jsonl")
+	runLog := filepath.Join(e.dirs.State, "updates", busyFile(e.clock.Format(time.DateOnly)))
 	unlock, held, err := TryLock(e.dirs.Locks(), "update.lock")
 	if err != nil || held {
 		t.Fatalf("lock: %v %v", held, err)
@@ -141,9 +157,9 @@ func TestABusyExitLeavesOneRecord(t *testing.T) {
 				t.Errorf("%s changed", path)
 			}
 		}
-		t.Fatal("a busy job changed more than the run log")
+		t.Fatal("a busy job changed more than its file of busy exits")
 	}
-	lines := runLogLines(t, e)
+	lines := busyLines(t, e)
 	if len(lines) != 1 || strings.Contains(lines[0], countersMarker) || strings.Contains(lines[0], "3f2a91c0") {
 		t.Fatalf("run log %q", lines)
 	}
@@ -180,10 +196,13 @@ func TestABusyExitLeavesOneRecord(t *testing.T) {
 	_, _ = j.CatchUp(context.Background(), nil, true)
 	_, _ = j.Pending(context.Background())
 	unlock()
-	lines = runLogLines(t, e)
+	lines = busyLines(t, e)
 	var sweep, pending Record
-	if len(lines) != 5 || json.Unmarshal([]byte(lines[3]), &sweep) != nil || json.Unmarshal([]byte(lines[4]), &pending) != nil {
-		t.Fatalf("run log %q", lines)
+	if len(lines) != 3 || json.Unmarshal([]byte(lines[1]), &sweep) != nil || json.Unmarshal([]byte(lines[2]), &pending) != nil {
+		t.Fatalf("busy exits %q", lines)
+	}
+	if passes := runLogLines(t, e); len(passes) != 2 || strings.Contains(strings.Join(passes, "\n"), `"outcome":"busy"`) {
+		t.Fatalf("run log %q", passes)
 	}
 	if sweep.Outcome != OutcomeBusy || sweep.Trigger != TriggerSweep || sweep.SessionHashes != nil || pending.Outcome != OutcomeBusy || pending.Trigger != "" {
 		t.Fatalf("sweep %+v, pending %+v", sweep, pending)
@@ -200,8 +219,8 @@ func TestAnOldRecordStillReads(t *testing.T) {
 	if len(records) != 1 || records[0].Trigger != "" || records[0].Rejection != nil || records[0].ModelReported != "" || records[0].BoundaryToSavedMS != 60000 {
 		t.Fatalf("parsed %+v", records)
 	}
-	if all := parseLines([]byte(old+"\n"+busy+"\n"), true); len(all) != 2 || all[1].Trigger != TriggerStart || all[1].SessionHashes[0] != "0123456789abcdef" {
-		t.Fatalf("with busy records: %+v", all)
+	if all := parseLines([]byte(old+"\n"+busy+"\n"), true); len(all) != 1 || all[0].Trigger != TriggerStart || all[0].SessionHashes[0] != "0123456789abcdef" {
+		t.Fatalf("busy records: %+v", all)
 	}
 	// What an older release reads of a new record: the fields it knows.
 	type v1Record struct {
@@ -357,8 +376,36 @@ func TestSessionHash(t *testing.T) {
 	var buf bytes.Buffer
 	j := Job{Dirs: newEnv(t).dirs, Log: &buf, Now: func() time.Time { return time.Date(2026, 1, 14, 9, 0, 0, 0, paris) }, Trigger: TriggerEnd}
 	j.busy([]Ref{{Host: HostClaude, ID: "3f2a91c0-aaaa"}}, false)
-	data, err := os.ReadFile(filepath.Join(j.Dirs.State, "updates", "2026-01-14.jsonl"))
+	data, err := os.ReadFile(filepath.Join(j.Dirs.State, "updates", "busy-2026-01-14.jsonl"))
 	if err != nil || strings.Contains(string(data), "3f2a91c0") || !strings.Contains(string(data), a) {
 		t.Fatalf("%s %v", data, err)
+	}
+}
+
+// However many jobs find the lock held in a day, the run log's newest 64
+// KB, which the start-of-chat notice reads, still hold the day's hold: the
+// busy exits go to a file of their own.
+func TestBusyExitsHideNoHold(t *testing.T) {
+	e := newEnv(t)
+	now := e.clock
+	if err := appendRecord(e.dirs.State, Record{At: now.Format(time.RFC3339), Host: HostClaude, Session: "s1", Outcome: OutcomeFailed, Reason: ReasonAuth, Calls: 1}); err != nil {
+		t.Fatal(err)
+	}
+	j := Job{Dirs: e.dirs, Log: &bytes.Buffer{}, Now: func() time.Time { return now }, Trigger: TriggerStop}
+	refs := []Ref{{Host: HostClaude, ID: "3f2a91c0-aaaa"}}
+	for range 250 {
+		j.busy(refs, false)
+	}
+	busy, err := os.Stat(filepath.Join(e.dirs.State, "updates", busyFile(now.Format(time.DateOnly))))
+	if err != nil || busy.Size() <= 64<<10 {
+		t.Fatalf("busy exits: %v %v", busy, err)
+	}
+	records, err := Recent(e.dirs.State, now, 64<<10)
+	if err != nil || Host(records, HostClaude, now).Held != ReasonAuth {
+		t.Fatalf("after 250 busy exits the notice's reading holds %+v: %v", records, err)
+	}
+	all, err := Days(e.dirs.State, now, 1)
+	if err != nil || len(all) != 251 || all[0].Reason != ReasonAuth || all[250].Outcome != OutcomeBusy {
+		t.Fatalf("Days read %d records: %v", len(all), err)
 	}
 }
