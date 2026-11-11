@@ -50,7 +50,7 @@ def load(folder=BENCH):
     sys.dont_write_bytecode = True
     core = load_file("evabench", folder/"core.py")
     for path in sorted(folder.glob("*.py")):
-        if path.name != "core.py" and not path.name.startswith("test_"):
+        if path.name != "core.py" and not path.name.startswith(("test_", "sim_")):
             load_file("evabench_"+path.stem, path)
     return core
 
@@ -168,7 +168,7 @@ def padded_inbox(run, evabench):
                 out.write(line)
             out.write(original)
         startup=[]
-        for i in range(10):
+        for i in range(run.loops(10)):
             output, elapsed=hook("codex", "SessionStart", "m1-new-"+str(i), source="startup")
             value=json.loads(output)
             context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
@@ -193,7 +193,7 @@ def padded_inbox(run, evabench):
             path.write_bytes(body);path.chmod(0o600)
             programs.append(path)
         startup_programs=[]
-        for i in range(10):
+        for i in range(run.loops(10)):
             output,elapsed=hook("codex","SessionStart","m1-programs-"+str(i),source="startup")
             value=json.loads(output)
             context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
@@ -274,7 +274,7 @@ def padded_inbox(run, evabench):
         for month in sorted({c["at"][:7] for c in commits}):
             plant(state/"commits"/(month+".jsonl"),[c for c in commits if c["at"].startswith(month)])
         startup_records=[]
-        for i in range(10):
+        for i in range(run.loops(10)):
             _,elapsed=hook("codex","SessionStart","m1-records-"+str(i),source="startup")
             startup_records.append(elapsed)
             if i==0:
@@ -359,7 +359,7 @@ def padded_inbox(run, evabench):
         # with the padded inbox, the wiki and the records above in place.
         mcp_starts,mcp_exits,mcp_searches,mcp_shows,mcp_statuses=mcp_timings(binary,env,cwd)
         p95=lambda values: sorted(values)[int((len(values)-1)*.95)]
-        code=code_scenarios(hook,cwd,wiki,state,sample["project"])
+        code=code_scenarios(hook,cwd,wiki,state,sample["project"],run.loops(10))
         recalled=recall_scenario(hook,wiki,sample["project"])
         report={"offline":True,"isolated_home":True,"cross_host_resume":True,"inbox_bytes":files[0].stat().st_size,
                 "capture_samples":len(capture),"capture_p95_ms":round(p95(capture),3),
@@ -417,8 +417,9 @@ def run_once(core, binary, cwd, failures=None):
     stops the run, unless failures is given, as by the gate: then any error
     it raises is added there under the scenario's name, the samples it gave
     are dropped, and the next scenario runs. The gate counts the failure
-    against the binary that had it."""
-    run = core.Run(binary, cwd)
+    against the binary that had it, and its runs time some hooks more often
+    (core.Run.loops)."""
+    run = core.Run(binary, cwd, gate=failures is not None)
     for s in core.ordered():
         if failures is None:
             s.fn(run)
@@ -454,15 +455,15 @@ def compare(core, a):
             # checks a new executable then.
             subprocess.run([str(binary), "version"], capture_output=True, env=h.env, timeout=30)
     binaries = {role: (old if core.BINARY[role] == "old" else new) for role in core.ROLES}
-    samples = {role: {} for role in core.ROLES}
+    # Each role's samples by run, in the order its runs came.
+    samples = {role: [] for role in core.ROLES}
     # A scenario that fails in a run leaves that run's figures of it out,
     # and counts against the binary that failed it (core.scenarios).
     targets, runs, failures = {}, [], {role: {} for role in core.ROLES}
     for rnd, role in core.schedule(a.rounds):
         print("benchmark: round %d of %d, %s" % (rnd, a.rounds, ROLE_NAMES[role]), file=sys.stderr, flush=True)
         run = run_once(core, binaries[role], cwd, failures[role])
-        for name, values in run.metrics.items():
-            samples[role].setdefault(name, []).extend(values)
+        samples[role].append(dict(sorted(run.metrics.items())))
         targets.update(run.targets)
         runs.append({"round": rnd, "binary": role, "report": run.report})
     # A ceiling factor of 0 turns the ceilings off.
@@ -473,10 +474,9 @@ def compare(core, a):
             "rounds": a.rounds, "schedule": [role for _, role in core.schedule(a.rounds)],
             "ceiling_factor": a.ceiling_factor, "launch_paths": core.LAUNCH_PATHS,
             "load_average_at_start": round(load, 2), "decision": verdict, "scenario_failures": failures, "runs": runs,
-            # Every sample, so the verdict can be worked out again.
-            "samples": {role: {name: [round(v, 3) for v in values] for name, values in sorted(by.items())}
-                        for role, by in samples.items()},
-            "checked_at": datetime.now(timezone.utc).isoformat()}
+            # Every sample by run, unrounded, and the ceilings, so that
+            # core.redecide works the verdict out again exactly.
+            "ceilings": ceilings, "samples": samples, "checked_at": datetime.now(timezone.utc).isoformat()}
     if a.output:
         write(a.output, json.dumps(gate, indent=2)+"\n")
     if a.baseline:
@@ -484,7 +484,11 @@ def compare(core, a):
     for name, m in verdict["metrics"].items():
         print("%-28s old %8.1f ms  new %8.1f ms  ratio %6s  lower bound %6s  noise %6s  %s" % (
             name, m["p95_base_ms"], m["p95_ms"], m["ratio"], m["ratio_low"], m["noise"],
-            "; ".join(m["reasons"] + m["unsettled"]) or "ok"))
+            "; ".join(m["reasons"] + m["unsettled"]) or
+            ("too few samples to judge, fewer than %d a binary" % verdict["whole"] if m["too_few_samples"] else "ok")))
+    for name in verdict["too_few_samples"]:
+        if name not in verdict["metrics"]:
+            print("%-28s too few samples to judge: the new binary gave none, and lost a scenario in every run" % name)
     for name in verdict["not_compared"]:
         print("%-28s not compared: the old binary gave it no samples" % name)
     for role, by in failures.items():
@@ -493,9 +497,17 @@ def compare(core, a):
                 ROLE_NAMES[role], name, len(errors), a.rounds, errors[0]))
     for failure in verdict["failures"]:
         print("fails: %s" % failure)
+    for lost in verdict["lost"]:
+        print("not judged: %s" % lost)
+    if verdict["machine_too_noisy"]:
+        why = " (runs of both binaries that a change cancels out of differed by more than %.2f: the machine was too noisy to judge)" % (
+            verdict["threshold"])
+    elif verdict["lost"]:
+        why = " (a scenario may have been lost to load: run the gate again)"
+    else:
+        why = " (a figure rose, but no more than %.2f times what the machine put between runs: run the gate again)" % verdict["threshold"]
     print("latency gate: %s" % verdict["verdict"] + {
-        "not judged": " (a figure rose no more than the machine put between two sets of runs that a change cancels out of, so it was too noisy to judge)",
-        "could not run": " (a scenario failed in every run of both binaries)",
+        "not judged": why, "could not run": " (a scenario failed in every run of both binaries)",
         "fail": "", "pass": ""}[verdict["verdict"]])
     return verdict["exit"]
 
@@ -522,7 +534,8 @@ def baseline(core, a, samples, targets, runs, load):
                     counts.setdefault(key, value)
                 elif key.endswith("_ms_summed") or (key.startswith("real_install_brief_command_") and key.endswith("_ms")):
                     per_run.setdefault(key, []).append(value)
-    new = {name: core.pooled(samples, core.GATE_SPLIT[1], name) for name in sorted(targets)}
+    new = {name: [v for role in core.ROLES_OF["new"] for run in samples[role] for v in run.get(name, [])]
+           for name in sorted(targets)}
     return {"v": 1, "measured_on": platform.system().lower(), "machine": "%s, %d CPUs" % (platform.machine(), os.cpu_count() or 0),
             "user": "root" if os.geteuid() == 0 else "not root",
             "load_average_at_start": round(load, 2), "commit": a.commit or "",
@@ -566,7 +579,7 @@ def main():
     return 0
 
 
-def code_scenarios(hook, cwd, wiki, state, key):
+def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10):
     """Times the code notes. Startup briefs in --cwd, whose project key the
     inbox recorded, point at 3 systems that cite its repo at HEAD~1, so each
     brief counts the commits since, 3 git calls, and every pointer must say
@@ -585,7 +598,7 @@ def code_scenarios(hook, cwd, wiki, state, key):
             (systems/("code-"+letter+".md")).write_text('---\ntype: system\ntitle: Code %s\nas_of: "2026-10-30"\n---\n\n## Summary\nCode.\n'%letter.upper())
             text+="- [Code %s](code-%s.md): Code of this repo · repos: %s · code: %s@%s · as of 2026-10-30\n"%(letter.upper(),letter,key,key,head1.stdout.strip())
         mapfile.write_text(text)
-        for i in range(10):
+        for i in range(briefs_timed):
             out,elapsed=hook("codex","SessionStart","m1-code-"+str(i),source="startup")
             value=json.loads(out)
             context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
