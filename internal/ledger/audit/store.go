@@ -199,6 +199,9 @@ func leftOut(o Options) func(string) bool {
 // folder's remote, which needs git: an excluded folder, a temporary
 // folder, Claude Code's spares, Codex's memories, eva-md's state or the
 // wiki, or a folder inside one, by its path and where its symlinks lead.
+// The hook judges a folder while it exists; the audit may come after a
+// temporary folder is gone, so each of those places counts under the name
+// it is written by as well as the one its symlinks lead to.
 func outside(o Options) func(string) bool {
 	var roots []string
 	for _, d := range []string{o.TempDir, "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp",
@@ -206,10 +209,13 @@ func outside(o Options) func(string) bool {
 		if !filepath.IsAbs(d) {
 			continue
 		}
-		if r, err := filepath.EvalSymlinks(d); err == nil {
-			d = r
-		}
+		// Both as written and where its symlinks lead: a folder that is
+		// gone by now cannot be resolved, and is judged by its path as the
+		// host wrote it, as /tmp/x is on macOS, where /tmp is a link.
 		roots = append(roots, filepath.Clean(d))
+		if r, err := filepath.EvalSymlinks(d); err == nil && filepath.Clean(r) != filepath.Clean(d) {
+			roots = append(roots, filepath.Clean(r))
+		}
 	}
 	fold := func(p string) string {
 		if runtime.GOOS == "darwin" {

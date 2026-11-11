@@ -221,10 +221,13 @@ func TestOutside(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 	wiki := filepath.Join(home, "wiki")
-	mkdirs(t, wiki, filepath.Join(home, "project"))
+	mkdirs(t, wiki, filepath.Join(home, "project"), filepath.Join(home, "tmp", "here"))
 	link := filepath.Join(home, "to-wiki")
 	symlink(t, wiki, link)
-	o := Options{Home: home, TempDir: filepath.Join(home, "tmp"), Dirs: paths.Dirs{State: filepath.Join(home, "state")},
+	// The temporary folder is named through a link, as /tmp is on macOS.
+	tmpLink := filepath.Join(home, "tmp-link")
+	symlink(t, filepath.Join(home, "tmp"), tmpLink)
+	o := Options{Home: home, TempDir: tmpLink, Dirs: paths.Dirs{State: filepath.Join(home, "state")},
 		Config: config.Config{WikiPath: wiki, Exclude: []string{"~/secret-*", "remote:github.com/x/*"}}}
 	away := outside(o)
 	for dir, want := range map[string]bool{
@@ -232,6 +235,10 @@ func TestOutside(t *testing.T) {
 		filepath.Join(home, "secret-1"):                        true,
 		filepath.Join(home, "secret-1", "deeper"):              true,
 		filepath.Join(home, "tmp", "x"):                        true,
+		filepath.Join(home, "tmp", "gone"):                     true,
+		filepath.Join(tmpLink, "here"):                         true,
+		filepath.Join(tmpLink, "x"):                            true,
+		filepath.Join(tmpLink, "gone"):                         true,
 		"/tmp/x":                                               true,
 		filepath.Join(home, ".claude", "spares", "s"):          true,
 		filepath.Join(home, ".codex", "memories"):              true,
