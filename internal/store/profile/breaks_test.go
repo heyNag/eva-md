@@ -155,6 +155,8 @@ var moreBreaks = []struct {
 		appendTo(t, r, edits, ses+"\t2026-11-10T10:00:00+01:00\tunacknowledged\n")
 		edit(t, r, ses, "type: session\n", "type: session\n*k : true\n")
 	}},
+	{"unreadable", "a static file", func(t *testing.T, r string) { put(t, r, ".gitignore", bom+".tmp-*\n") }},
+	{"unreadable", "a record file", func(t *testing.T, r string) { appendTo(t, r, cover, "<<<<<<< ours\n") }},
 	// A mark on a line the codec reads as no key still protects, and is
 	// still carried where none may be.
 	{"locked", "on a session, with no space after the colon", func(t *testing.T, r string) {
