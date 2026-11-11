@@ -71,7 +71,7 @@
           "failed": 0
         },
         "Stop": {
-          "runs": 2,
+          "runs": 3,
           "failed": 1
         },
         "StopFailure": {

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ const (
 	PartCounted    = "counted"       // the part counts what was found
 	PartNone       = "none_recorded" // nothing it counts was recorded: its figures are zeros
 	PartUnreadable = "unreadable"    // its records couldn't be read: its figures are zeros
-	PartIncomplete = "incomplete"    // time ran out before it read everything: its figures are a floor
+	PartIncomplete = "incomplete"    // it couldn't read all it counts, as time ran out or a folder or file couldn't be read: its figures are a floor
 	PartNoWiki     = "no_wiki"       // no wiki is set up: the part is left out
 )
 
@@ -134,8 +135,12 @@ const maxCommitRecords = 8 << 20
 func Field(ctx context.Context, d paths.Dirs, now time.Time) FieldReport {
 	r := FieldReport{Format: ReportFormat, Version: Version, Day: now.Format(time.DateOnly), Parts: map[string]string{}}
 	c, cfgErr := config.Load(d.ConfigFile())
-	r.Operations = operations(ctx, d, c, cfgErr, now)
+	o, complete := operations(ctx, d, c, cfgErr, now)
+	r.Operations = o
 	r.Parts["operations"] = PartCounted
+	if !complete {
+		r.Parts["operations"] = PartIncomplete
+	}
 
 	var recorded bool
 	r.Hooks, recorded = hookFigures(d, now)
@@ -209,15 +214,22 @@ func wikiRoots(wiki string) []string {
 	return roots
 }
 
-// operations counts the operations part.
-func operations(ctx context.Context, d paths.Dirs, c config.Config, cfgErr error, now time.Time) Operations {
+// operations counts the operations part. complete is false when a record
+// it counts is there but couldn't be read: a folder of commit markers
+// that can't be listed, a month of commit records, the trust flag or a
+// heartbeat that can't be read.
+func operations(ctx context.Context, d paths.Dirs, c config.Config, cfgErr error, now time.Time) (o Operations, complete bool) {
 	first := now.AddDate(0, 0, 1-operationDays).Format(time.DateOnly)
 	today := now.Format(time.DateOnly)
 	in := func(day string) bool { return day >= first && day <= today }
-	o := Operations{From: first, To: today, Commits: map[string]int{}, Reasons: map[string]int{}, Pushes: map[string]int{},
+	o = Operations{From: first, To: today, Commits: map[string]int{}, Reasons: map[string]int{}, Pushes: map[string]int{},
 		HookRuns: map[string]map[string]HookRunsCounts{}}
+	complete = true
 
-	markers, _ := os.ReadDir(filepath.Join(d.State, "commit"))
+	markers, err := os.ReadDir(filepath.Join(d.State, "commit"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		complete = false
+	}
 	for _, m := range markers {
 		day, ok := strings.CutPrefix(m.Name(), "attempt-")
 		if t, err := time.Parse(time.DateOnly, day); ok && err == nil && t.Format(time.DateOnly) == day && in(day) {
@@ -226,7 +238,9 @@ func operations(ctx context.Context, d paths.Dirs, c config.Config, cfgErr error
 	}
 
 	days := map[string]bool{}
-	for _, rec := range commitRecordsSince(d.State, now, first) {
+	records, read := commitRecordsSince(d.State, now, first)
+	complete = complete && read
+	for _, rec := range records {
 		at := day(rec.At)
 		if !in(at) {
 			continue
@@ -248,16 +262,24 @@ func operations(ctx context.Context, d paths.Dirs, c config.Config, cfgErr error
 
 	if info, err := os.Lstat(filepath.Join(d.State, "needs-trust.json")); err == nil {
 		o.Trust = TrustFlag{Present: true, AgeDays: max(int(now.Sub(info.ModTime())/(24*time.Hour)), 0), Awaited: TrustAwaited(d, now)}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		complete = false
 	}
 
-	since := now.AddDate(0, 0, -operationDays)
+	// The runs counted are those from the start of the first day counted,
+	// in now's time zone, as From names it, to a minute past now.
+	since, _ := time.ParseInLocation(time.DateOnly, first, now.Location())
 	for _, host := range updateHosts {
 		o.HookRuns[host] = map[string]HookRunsCounts{}
 		for _, event := range hostEvents(host) {
 			var n HookRunsCounts
-			if b, valid := readBeat(d, host, event, now); valid {
+			b, valid := readBeat(d, host, event, now)
+			if !valid && beatUnreadable(d, host, event) {
+				complete = false
+			}
+			if valid {
 				for _, run := range b.Runs {
-					if run.At.After(since) && !run.At.After(now.Add(time.Minute)) {
+					if !run.At.Before(since) && !run.At.After(now.Add(time.Minute)) {
 						n.Runs++
 						if run.Failed {
 							n.Failed++
@@ -273,24 +295,40 @@ func operations(ctx context.Context, d paths.Dirs, c config.Config, cfgErr error
 	case cfgErr != nil && !errors.Is(cfgErr, fs.ErrNotExist):
 		o.Notice = "config_unreadable"
 	default:
-		o.Notice = noticeKind(QuickNotice(ctx, d, c))
+		notice := QuickNotice(ctx, d, c)
+		o.Notice = noticeKind(notice)
+		if notice == "" && ctx.Err() != nil {
+			// QuickNotice gives none once ctx has ended, so whether a
+			// notice would show is not known.
+			o.Notice = "unknown"
+		}
 	}
-	return o
+	return o, complete
+}
+
+// beatUnreadable reports whether the heartbeat of host's event is there
+// but can't be read, as against missing: a file or folder that can't be
+// opened or read, or that is no regular file or too large.
+func beatUnreadable(d paths.Dirs, host, event string) bool {
+	_, err := readPrivate(filepath.Join(d.State, "heartbeats", host, event+".json"), 16384)
+	return err != nil && !errors.Is(err, fs.ErrNotExist)
 }
 
 // commitRecordsSince reads the daily commit records of the months from
 // first's to now's, at most maxCommitRecords bytes from the end of each
-// month's file, oldest first.
-func commitRecordsSince(state string, now time.Time, first string) []wikigit.Result {
-	var out []wikigit.Result
+// month's file, oldest first. read is false when a month's records are
+// there but can't be read.
+func commitRecordsSince(state string, now time.Time, first string) (out []wikigit.Result, read bool) {
 	start, err := time.ParseInLocation(time.DateOnly, first, now.Location())
 	if err != nil {
-		return nil
+		return nil, true
 	}
+	read = true
 	end := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	for m := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, now.Location()); !m.After(end); m = m.AddDate(0, 1, 0) {
 		data, err := update.ReadTail(filepath.Join(state, "commits"), m.Format("2006-01")+".jsonl", maxCommitRecords)
 		if err != nil {
+			read = false
 			continue
 		}
 		for _, line := range bytes.Split(data, []byte{'\n'}) {
@@ -300,28 +338,31 @@ func commitRecordsSince(state string, now time.Time, first string) []wikigit.Res
 			}
 		}
 	}
-	return out
+	return out, read
 }
 
-// notices name the start-of-chat notices by kind, each by words its text
-// holds (see QuickNotice and backgroundNotice), in the order they are
-// tried.
-var notices = [][2]string{
-	{"config has unknown keys", "config_unknown_keys"},
-	{"wiki index is unavailable", "wiki_index"},
-	{"wiki schema is newer", "wiki_schema"},
-	{"wiki instance differs", "wiki_instance"},
-	{"hook trust status is unavailable", "trust_unreadable"},
-	{"review its hooks in Codex", "trust_review"},
-	{"has no matching capture heartbeat", "capture_freshness"},
-	{"hook runs failed", "hook_failures"},
-	{"transcript recovery no longer recognizes", "recovery_drift"},
-	{"updates are paused today", "updates_paused"},
-	{"updates failed (", "update_failures"},
-	{"quarantined after 3 failed updates", "quarantined"},
-	{"has commits this clone lacks", "push_diverged"},
-	{"has not been committed for", "commit_late"},
-	{"has not been pushed for", "push_late"},
+// notices name the start-of-chat notices by kind (see QuickNotice and
+// backgroundNotice). Each pattern matches the start of a notice, after
+// "eva.md: ", up to words no record gives: the notices differ there, and
+// all that comes before those words is a number or a host's name, which
+// eva-md's code gives. So text a record puts later into a notice, as a
+// commit's or a failed update's reason, can't change the notice's kind.
+var notices = []struct{ pattern, kind string }{
+	{`config has unknown keys`, "config_unknown_keys"},
+	{`wiki index is unavailable`, "wiki_index"},
+	{`wiki schema is newer`, "wiki_schema"},
+	{`wiki instance differs`, "wiki_instance"},
+	{`hook trust status is unavailable`, "trust_unreadable"},
+	{`review its hooks in Codex`, "trust_review"},
+	{`recent [a-z-]+ activity has no matching capture heartbeat`, "capture_freshness"},
+	{`[0-9]+ of the last [0-9]+ [a-z-]+ hook runs failed`, "hook_failures"},
+	{`transcript recovery no longer recognizes`, "recovery_drift"},
+	{`[a-z-]+ updates are paused today`, "updates_paused"},
+	{`the last [0-9]+ [a-z-]+ updates failed \(`, "update_failures"},
+	{`[0-9]+ [a-z-]+ [a-z ]+ quarantined after 3 failed updates`, "quarantined"},
+	{`the wiki's remote has commits this clone lacks`, "push_diverged"},
+	{`the wiki has not been committed for`, "commit_late"},
+	{`the wiki has not been pushed for`, "push_late"},
 }
 
 // noticeKind is the kind of a start-of-chat notice: none for no notice,
@@ -330,9 +371,13 @@ func noticeKind(notice string) string {
 	if notice == "" {
 		return "none"
 	}
+	rest, ok := strings.CutPrefix(notice, "eva.md: ")
+	if !ok {
+		return other
+	}
 	for _, n := range notices {
-		if strings.Contains(notice, n[0]) {
-			return n[1]
+		if regexp.MustCompile(`^` + n.pattern).MatchString(rest) {
+			return n.kind
 		}
 	}
 	return other

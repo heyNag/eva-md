@@ -72,8 +72,9 @@ func TestTheReportsNamesAreTheCodes(t *testing.T) {
 }
 
 // Every start-of-chat notice has its kind, and each kind a notice: each
-// line of the notices' code that words one, its text pieces joined, is of
-// a kind other than other, and of its own kind.
+// line of the notices' code that words one, as it reads with a host's name
+// for each value the code puts in, is of a kind other than other, and of
+// its own kind.
 func TestEveryNoticeHasItsKind(t *testing.T) {
 	literal := regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
 	kinds := map[string]int{}
@@ -86,13 +87,19 @@ func TestEveryNoticeHasItsKind(t *testing.T) {
 			if !strings.Contains(l, `"eva.md: `) {
 				continue
 			}
-			var text string
+			var pieces []string
 			for _, q := range literal.FindAllString(l, -1) {
 				s, err := strconv.Unquote(q)
 				if err != nil {
 					t.Fatal(err)
 				}
-				text += s
+				pieces = append(pieces, s)
+			}
+			// A format's numbers are 3 and its strings a host's name;
+			// a value put between two pieces is a host's name too.
+			text := strings.Join(pieces, "codex")
+			if strings.Contains(l, "Sprintf(") {
+				text = strings.NewReplacer("%d", "3", "%s", "codex").Replace(pieces[0])
 			}
 			kinds[noticeKind(text)]++
 			if noticeKind(text) == other {
@@ -101,15 +108,36 @@ func TestEveryNoticeHasItsKind(t *testing.T) {
 		}
 	}
 	for _, n := range notices {
-		if kinds[n[1]] == 0 {
-			t.Errorf("no notice is of the kind %s", n[1])
+		if kinds[n.kind] == 0 {
+			t.Errorf("no notice is of the kind %s", n.kind)
 		}
 	}
 	if kinds["trust_unreadable"] != 2 || len(kinds) != len(notices) {
 		t.Errorf("the notices by kind: %v", kinds)
 	}
-	if noticeKind("") != "none" || noticeKind("eva.md: something new") != other {
+	if noticeKind("") != "none" || noticeKind("eva.md: something new") != other || noticeKind("config has unknown keys") != other {
 		t.Error("an empty or unknown notice")
+	}
+}
+
+// A notice's kind comes from its fixed words alone: the text a record puts
+// into a notice, as a commit's or a failed update's reason, or the push's
+// result, can't make it another kind, even when it holds another kind's
+// words.
+func TestANoticesKindIsNotTakenFromARecord(t *testing.T) {
+	for _, c := range []struct{ notice, kind string }{
+		{"eva.md: the wiki has not been committed for 4 days (has commits this clone lacks); run eva-md doctor.", "commit_late"},
+		{"eva.md: the wiki has not been pushed for 4 days (the wiki has not been committed for); run eva-md doctor.", "push_late"},
+		{"eva.md: the last 3 codex updates failed (config has unknown keys, hook runs failed); run eva-md doctor.", "update_failures"},
+		{"eva.md: codex updates are paused today: the wiki's remote has commits this clone lacks; run eva-md doctor.", "updates_paused"},
+		{"eva.md: 2 claude-code sessions are quarantined after 3 failed updates; run eva-md doctor.", "quarantined"},
+		{"eva.md: 1 codex session is quarantined after 3 failed updates; run eva-md doctor.", "quarantined"},
+		{"eva.md: 4 of the last 20 codex hook runs failed; run eva-md doctor.", "hook_failures"},
+		{"eva.md: something (the wiki has not been committed for 4 days); run eva-md doctor.", other},
+	} {
+		if got := noticeKind(c.notice); got != c.kind {
+			t.Errorf("%q: %s, want %s", c.notice, got, c.kind)
+		}
 	}
 }
 

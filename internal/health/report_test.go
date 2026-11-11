@@ -188,15 +188,17 @@ func reportHome(t *testing.T) (paths.Dirs, string) {
 		t.Fatal(err)
 	}
 
-	// The heartbeats: Claude Code's Stop kept three runs, one of them older
-	// than the 14 days and one failed, and a week of three runs; Codex's
-	// prompts a week of two.
+	// The heartbeats: Claude Code's Stop kept five runs, two of them before
+	// the first of the 14 days, one of those less than 14 times 24 hours
+	// ago, and one failed, and a week of three runs; Codex's prompts a week
+	// of two.
 	var stop []HookDay
 	stop = AddRun(stop, reportNow.Add(-48*time.Hour), HookRun{DurationMS: 4, Held: []string{"reply"}, HeldBy: HeldByRecovery})
 	stop = AddRun(stop, reportNow.Add(-2*time.Hour), HookRun{DurationMS: 40, Failed: true})
 	stop = AddRun(stop, reportNow.Add(-time.Hour), HookRun{DurationMS: 4000, Held: []string{"reply"}, HeldBy: HeldByOffRecord})
 	beatFile(t, d, "claude-code", "Stop", reportNow.Add(-time.Hour), stop, []hookRun{
-		{At: reportNow.Add(-20 * 24 * time.Hour)}, {At: reportNow.Add(-2 * time.Hour), Failed: true}, {At: reportNow.Add(-time.Hour)}})
+		{At: reportNow.Add(-20 * 24 * time.Hour)}, {At: time.Date(2026, 10, 28, 23, 59, 0, 0, time.UTC)}, {At: time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)},
+		{At: reportNow.Add(-2 * time.Hour), Failed: true}, {At: reportNow.Add(-time.Hour)}})
 	var prompts []HookDay
 	prompts = AddRun(prompts, reportNow.Add(-3*time.Hour), HookRun{DurationMS: 120, Delivered: &Delivery{Kind: "prompt", Routes: []string{"recall", "pointers"}, Chars: 300}})
 	prompts = AddRun(prompts, reportNow.Add(-time.Hour), HookRun{DurationMS: 90, Delivered: &Delivery{Kind: "prompt", Fallback: true, Stale: true, Routes: []string{"state"}, Chars: 900}})
@@ -311,7 +313,7 @@ func TestFieldReportCountsTheFixture(t *testing.T) {
 	check("commit reasons", o.Reasons, map[string]int{"refused.origin": 1, "failed.other": 1, "busy.wiki_lock": 1, "other.other": 1})
 	check("pushes", o.Pushes, map[string]int{"ok": 1, "skipped": 2, "pending": 1, "other": 1})
 	check("trust flag", o.Trust, TrustFlag{Present: true, AgeDays: 3, Awaited: true})
-	check("Stop's kept runs", o.HookRuns["claude-code"]["Stop"], HookRunsCounts{Runs: 2, Failed: 1})
+	check("Stop's kept runs", o.HookRuns["claude-code"]["Stop"], HookRunsCounts{Runs: 3, Failed: 1})
 	check("notice", o.Notice, "config_unknown_keys")
 
 	h := r.Hooks
@@ -482,6 +484,9 @@ func TestFieldReportOnHomesWithLittleRecorded(t *testing.T) {
 		r := Field(ctx, d, reportNow)
 		if r.Parts["record"] != PartIncomplete || r.Parts["backlog"] != PartIncomplete || r.Parts["wiki"] != PartIncomplete {
 			t.Fatalf("%+v", r.Parts)
+		}
+		if r.Operations.Notice != "unknown" {
+			t.Errorf("a report cut before the notice was read gives the notice %s", r.Operations.Notice)
 		}
 	})
 }
