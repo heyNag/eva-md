@@ -222,11 +222,11 @@ func TestThePlantedMarkersReachNoOutput(t *testing.T) {
 			"F-085/claude-code/subtypes/chats/other": 6, "F-085/claude-code/subtypes/other_names": 1,
 			"F-084/claude-code/fields/user/chats/other": 6, "F-084/claude-code/fields/user/other_names": 3,
 			"F-084/claude-code/fields/user/rows/uuid": 6, "F-084/claude-code/fields/user/rows/userType": 6,
-			"F-084/claude-code/fields/other/other_names": 1,
+			"F-084/claude-code/fields/other/other_names":   1,
 			"F-084/claude-code/message_fields/other_names": 2, "F-084/claude-code/item_types/other_names": 1,
 			"F-084/claude-code/item_fields/text/other_names": 1, "F-084/claude-code/item_fields/other/rows/source": 0,
 			"F-084/claude-code/item_fields/other/other_names": 1,
-			"F-084/claude-code/versions/chats/2.1.5": 4, "F-084/claude-code/versions/chats/other": 2,
+			"F-084/claude-code/versions/chats/2.1.5":          4, "F-084/claude-code/versions/chats/other": 2,
 			"F-079/claude-code/entrypoint/rows/other": 6, "F-079/claude-code/entrypoint/other_names": 6,
 			"F-018/claude-code/turn_origin/rows/other": 6, "F-018/claude-code/turn_origin/other_names": 1,
 			"F-132/codex/row_types/chats/other": 6, "F-132/codex/row_types/other_names": 1,
@@ -257,7 +257,7 @@ func TestAChatIsCountedOnce(t *testing.T) {
 		"claude-code/chats/read": 7, "claude-code/chats/files_per_chat/over 10": 1, "claude-code/chats/files_per_chat/1": 6,
 		"claude-code/files/read": 6 + 1 + 5 + 5 + 6, "claude-code/files/subagent_files": 6, "claude-code/files/refused": 1,
 		"claude-code/files/not_read_whole": 0,
-		"codex/chats/read": 7, "codex/chats/files_per_chat/over 10": 1, "codex/chats/files_per_chat/1": 6,
+		"codex/chats/read":                 7, "codex/chats/files_per_chat/over 10": 1, "codex/chats/files_per_chat/1": 6,
 		"codex/files/read": 6 + 1 + 5 + 5,
 	} {
 		if got := get(r.Hosts, path); got != want {
