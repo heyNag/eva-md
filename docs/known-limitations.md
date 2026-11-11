@@ -4,6 +4,7 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 
 ## Redaction
 
+- Redaction removes credentials, not personal details. A name, an address, a phone number and the like stay in the local record, can be sent to the model with a chat's entries, and can be written by it into pages that are committed and pushed.
 - About 1% of a deliberately hard set of generated passwords still keep a piece after redaction. The shapes are ambiguous by nature: a value containing `)` inside a call, `&k=` or `;k=` inside a URL query or connection-string value, and values that start with an unclosed bracket.
 - A UUID or a 40-character hex string after the word Bearer, without an Authorization header, is kept as in ordinary text.
 - The entropy rule erases ordinary camelCase identifiers that follow words such as token, secret or password, as in `token = maxCompletionTokensPerRequest`. Prose is over-redacted too: `Password: expired yesterday` loses its value.
@@ -17,6 +18,7 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 
 ## Capture, identity and config
 
+- A voice call in Codex's desktop app reaches the hooks only as hand-overs: the host passes the agent a request with the talk since the last one. eva-md stores a hand-over as the user's words, though the host's voice model may have worded its request, and talk that is not handed over is captured only if the host carries it in a later hand-over.
 - A project whose key a redaction rule change moves, as when an upgrade starts to read its folder's name as a token and keys it by a hash, starts a new inbox folder: its brief and a search of the project see only chats from then on, and `eva-md search --all` finds the earlier ones.
 - `origin` is read from `remote.origin.url` as configured, without `url.<base>.insteadOf` rewrites, so a clone through an alias and a clone through the full URL get two project keys. Write a remote exclusion in the form origin is configured with; for a repo cloned both ways, exclude both forms.
 - A config that fails to load stops capture and briefs on both hosts until it is fixed. Each chat start says so in one line, and `eva-md doctor` and `eva-md status` report it. A config read cut off by the hook's time limit says nothing. A remote exclusion written as a URL that can't be normalized, such as a `file://` URL or one with a query string, makes the config fail to load.
@@ -220,6 +222,7 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 
 ## Daily commit and push
 
+- The daily commit is made by the day's first hook event, so it saves what had been written by then. Pages the update writes later that day are committed by the next day's first event, or by a manual `eva-md commit`.
 - A hand edit pushed to the wiki from elsewhere stops every push as `diverged` until it is merged by hand; eva-md never pulls, rebases or forces.
 - A declined signature waits until the next day or a manual `eva-md commit`. A failed commit's reason is read from git's wording (as git 2.56 words it), so another git can sort a missing signer or a declined signature as a plain `commit`.
 - A day whose maintain spawn fails gets no commit until the next day or a manual run. A first event that misses its deadline starts nothing, so the next event of the day starts maintain.
@@ -318,6 +321,8 @@ These are what eva-md doesn't do, or doesn't do well, as the code stands: gaps s
 
 ## Health check
 
+- The week of counts in each hook heartbeat is not locked: two runs of one event that end at the same moment, as the async hooks of parallel tool calls do, may each keep only their own run, so the week can undercount tool events. A compaction summary held back while recovery is behind is not counted as held.
+- The share of briefs that were stale or had an update pending is read over the briefs of new chats, clears, compactions and first prompts; a resumed or forked chat's brief is not judged stale or pending. A chat start whose brief is empty but that carries the health notice, and a first prompt whose brief is empty but that got recall or pointer lines, are counted among the briefs given.
 - A save killed midway can leave a temporary file named `.tmp-okf-...` in the wiki folder. okf names its own temporary files, and renaming them would mean patching it, so okf's name shows there. git ignores these files, the daily commit never stages them, and the doctor counts them as interrupted-save temporary files. Such a save also leaves okf's lock file, `.okf-write.lock`, at the wiki's root, where it stays until the next save removes it. git doesn't ignore it, so `git status` lists it, but the daily commit never stages it, and setup and init remove it before they look for changes of yours. One eva-md can't remove, as in a wiki folder it can't write, fails each save, saying so, until it is removed, and setup and init refuse the wiki with that reason.
 - A chat whose hook stops before it can tell whether eva-md captures its folder, as in a folder that no longer exists, writes neither a heartbeat nor the stamp of an uncaptured folder, though the host keeps its transcript. The capture-freshness check can then report a false FAIL and a false "no matching capture heartbeat" notice.
 - The capture-freshness check sees a chat only when its file first appears in a folder: a chat resumed in an older file, or a subagent's transcript in a folder of its own, is no activity. In Claude Code's store it stats every project folder, so a store with more than 16,384 entries, or one too slow to list in 35 ms, leaves it UNKNOWN; in Codex's store it reads only the two newest date folders by name, so it misses a chat filed under an older date, as after the clock was set back.

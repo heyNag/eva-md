@@ -91,6 +91,19 @@ type Record struct {
 	ModelNote         string  `json:"model_note,omitempty"`
 	Degraded          string  `json:"degraded,omitempty"`
 	Validation        *Report `json:"validation,omitempty"`
+	// Trigger names what started the job that chose the session (see
+	// Triggers): empty in a record an older release wrote, and for a job
+	// started with no name.
+	Trigger string `json:"trigger,omitempty"`
+	// ModelReported is the model the host's output says answered, where it
+	// says, beside Model, the one asked for.
+	ModelReported string `json:"model_reported,omitempty"`
+	// Rejection is the rule that refused an answer whole, and where, for
+	// an invalid_output the checker found.
+	Rejection *Rejection `json:"rejection,omitempty"`
+	// SessionHashes are the sessions a busy job was started for (see
+	// sessionHash); only an OutcomeBusy record has them.
+	SessionHashes []string `json:"session_hashes,omitempty"`
 }
 
 // success reports a pass whose output validated.
@@ -206,18 +219,59 @@ func openRecords(dir, name string) (*os.File, error) {
 	return f, nil
 }
 
-// parseRecords decodes run-log lines. A line that doesn't decode is skipped.
+// parseRecords decodes run-log lines. A line that doesn't decode is
+// skipped, and so is one that names no host, as a busy record does.
 func parseRecords(data []byte) []Record {
+	return parseLines(data, false)
+}
+
+// parseLines decodes run-log lines: with busy, the busy records alone, and
+// otherwise those that name a host.
+func parseLines(data []byte, busy bool) []Record {
 	var out []Record
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
 		var r Record
-		if json.Unmarshal(sc.Bytes(), &r) == nil && r.Host != "" {
+		if json.Unmarshal(sc.Bytes(), &r) == nil && (!busy && r.Host != "" || busy && r.Host == "" && r.Outcome == OutcomeBusy) {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+// busyFile is the name of one day's file of busy exits, beside that day's
+// run log: <state>/updates/busy-<YYYY-MM-DD>.jsonl. They are kept apart so
+// that however many a day has, the newest 64 KB of the run log, which the
+// start-of-chat notice reads, still hold its passes, and every reader of
+// the run log, an older release's too, reads it as before.
+func busyFile(date string) string { return "busy-" + date + ".jsonl" }
+
+// Days reads the whole run log of the days days that end on now's day,
+// oldest day first, and each day's busy exits after its passes: what
+// eva-md status --updates reports on. It reads each file up to 32 MB, as
+// the job reads the run log.
+func Days(state string, now time.Time, days int) ([]Record, error) {
+	var out []Record
+	for i := days - 1; i >= 0; i-- {
+		date := now.AddDate(0, 0, -i).Format(time.DateOnly)
+		for _, name := range []string{date + ".jsonl", busyFile(date)} {
+			f, err := openRecords(filepath.Join(state, "updates"), name)
+			if err != nil {
+				return out, fmt.Errorf("update: run log: %w", err)
+			}
+			if f == nil {
+				continue
+			}
+			data, err := io.ReadAll(io.LimitReader(f, maxRunLog))
+			f.Close()
+			if err != nil {
+				return out, fmt.Errorf("update: run log: %w", err)
+			}
+			out = append(out, parseLines(data, name == busyFile(date))...)
+		}
+	}
+	return out, nil
 }
 
 // Recent reads the run log's newest records, of now's day and the day
@@ -302,6 +356,11 @@ func Host(records []Record, host string, now time.Time) HostState {
 // the file with mode 0600, and syncs it: the budget, holds and quarantines
 // are read back from it.
 func appendRecord(state string, r Record) error {
+	return appendTo(state, day(r.At)+".jsonl", r)
+}
+
+// appendTo appends r to <state>/updates/name, as appendRecord does.
+func appendTo(state, name string, r Record) error {
 	data, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("update: run log: %w", err)
@@ -311,7 +370,7 @@ func appendRecord(state string, r Record) error {
 		return fmt.Errorf("update: run log: %w", err)
 	}
 	defer root.Close()
-	f, err := paths.OpenOrCreate(root, day(r.At)+".jsonl", os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	f, err := paths.OpenOrCreate(root, name, os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		return fmt.Errorf("update: run log: %w", err)
 	}

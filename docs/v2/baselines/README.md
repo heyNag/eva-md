@@ -57,7 +57,7 @@ A scenario that fails in a run, as when load runs a hook past its time limit, le
 5. `not judged`, exit 0: a figure was too noisy to judge or unsettled, a scenario was lost in half the new binary's runs more, or a figure had too few samples because a scenario failed in some runs.
 6. `pass`, exit 0.
 
-A figure the old binary gave no samples, as one added with the change, is listed as not compared. `gate.json` keeps every sample by role and run, unrounded, with the ceilings and the scenario of each figure, so that `redecide` in `scripts/bench/core.py` works the verdict out again exactly. The step is advisory until an unchanged binary has passed it twenty times in twenty; then the lead removes `continue-on-error` from it.
+A figure the old binary gave no samples, as one added with the change, is listed as not compared. `gate.json` keeps every sample by role and run, unrounded, with the ceilings and the scenario of each figure, so that `redecide` in `scripts/bench/core.py` works the verdict out again exactly. The step is advisory until the count in "Passes toward blocking" below says it may block; then the lead removes `continue-on-error` from it.
 
 This rule differs from the card's rulings in three places, each for a reviewer's measurement. A single figure too noisy to judge no longer stops the whole verdict, as ruling 2 had it: two do, or the quick run above (on the saved gates' samples one noisy figure stopped about one gate in six, and with it a real rise was caught too seldom). The controls bring a large change to 1.15 first, which ruling 1 did not say. And a figure short of 100 only because a scenario failed in some runs leaves the gate not judged, where ruling 3 had it stop nothing.
 
@@ -96,3 +96,30 @@ What the gate cannot tell. Load on all four of the new binary's runs and none of
 The rule as it was merged first, measured by its reviewers: on the proof's samples an unchanged binary failed 4.7, 9.3 and 5 times in 100 under light bursts, heavy bursts and whole runs loaded, a rise of 20% failed 33 times in 100 and one of 30% 43.5, and two runs of a scenario lost failed the build. The rule of the first round of this card (one noisy figure stopping the verdict, controls of the raw samples, 25 chat starts a run) was measured on a made-up base without the spread from gate to gate: every aim met there. On the saved gates' samples it was not judged on an unchanged binary 16 to 19 times in 100, and caught a rise of 20% 65 times in 100, one of 30% 67 times and 20 ms added to capture 84 to 87 times; and a larger rise was caught less often than a smaller one (a tripled hook not judged where a rise of 20% failed), since the change itself made the controls noisy and one noisy figure stopped the verdict.
 
 The 21 gates of that proof, 20 of an unchanged binary and one with 20 ms added to capture, worked out again by this rule from their samples by run (`sim_gate.py --rework`): the unchanged ones passed 16 times and were not judged 4 times, and never failed; the one with 20 ms added failed, on 12 figures. Of the 4, `same-3` and `same-10` had one figure too noisy to judge (`transcript_capture`, `capture_with_spawn`) and `same-20` two (`transcript_capture` and `turn_claude_code_tool`); `same-19` and `same-20` each lost the scenario of the padded inbox in one run, which left 3 of its figures (`capture_with_spawn`, `code_prompt` and `session_end`, at 30 and 25 a run then) short of 100 a side, so the gate was not judged, to be run again. Their chat-start figures had 10 samples a run then: 5 figures were listed as having too few samples in each gate, and 8 in `same-19` and `same-20`.
+
+## Passes toward blocking
+
+The gate may block a merge once an unchanged binary has passed it 20 times with no fail among the runs that count, with fewer than one in four of those runs not judged. A run the gate could not judge counts neither way. A run counts when it is the `latency` job's run of a push to `main`, and no file under `cmd/` or `internal/`, nor `go.mod` or `go.sum`, changed between the base its step names ("Comparing BASE with SHA") and its commit (`git diff --quiet BASE SHA -- cmd internal go.mod go.sum`), so that the two binaries it compared are alike. Its verdict is read in the step's log or in its artifact's `gate.json`, never from the run's colour, since the step is advisory. A pass adds one to the count and a `fail` starts it again. A `not judged` does neither, since it blocks nothing, but it goes into the table: a gate that cannot judge one run in four or more is not ready to block. A run of a commit that changed any of them counts neither way. A change to the gate's rule (`scripts/benchmark.py`, `scripts/bench/`) starts the count again. The lead fills the table at each merge.
+
+| Run | Commit | Verdict |
+| --- | --- | --- |
+| 56 | ecd8507 | pass |
+| 57 | 84f0fc7 | pass |
+| 58 | f52289f | pass |
+| 59 | 361ed5c | fail |
+| 60 | 7d824ae | pass |
+| 61 | e19d195 | not judged |
+| 62 | 02b9096 | not judged |
+| 63 | accc638 | fail |
+| 65 | c3afbd9 | pass |
+| 66 | 86767db | pass |
+| 67 | 10024d0 | pass |
+| 69 | 8805e3c | not judged |
+| 70 | 3a6a444 | not judged |
+| 71 | 3997e78 | pass |
+| 72 | 484017a | pass |
+| 75 | c0e0eaa | not judged |
+| 76 | d1e2a39 | not judged |
+| 78 | 38256be | pass |
+
+These 18 runs are the first rule's (EV-16), from before the gate's second round: 10 passes, 2 fails and 6 not judged, on binaries that were alike. So the first rule fails an unchanged binary on CI's runner about one time in nine, and the count stands at 0. The runner was busy each time the gate began (a load of 10 to 30 on 3 CPUs, left by the two builds before it), so since 2026-11-11 the job waits, five minutes at most, for the load to fall under the CPUs before it times anything. Worked out again with the second round's rule, the same 23 saved runs (these 18 and 5 of changed binaries) give no fail, 2 passes and 21 not judged: that rule does not fail on noise, and this runner, as busy as it was, gave it almost nothing it could judge. Whether the wait changes that is read from the runs after it.
