@@ -1,6 +1,6 @@
 # The host sittings: a run-book
 
-**Where this stands (the lead's note, 2026-11-11).** Part 1, the core, takes 174 minutes of steps: three short sittings and a hand-over, about 205 minutes with the margin below, in place of the ten hours the first version asked. It cannot be followed until its recorder is built and checked: Part 1 of the card [HF-00](cards/HF-00.md). Part 2 is not a plan for anyone's day. It is asked for group by group, each when the package that needs it is about to be built, and a group whose facts the second field report or the hosts' published source has settled by then is dropped.
+**Where this stands (the lead's note, 2026-11-11).** Part 1, the core, takes 180 minutes of steps: three short sittings and a hand-over, about 220 minutes with the margin below, in place of the ten hours the first version asked. It cannot be followed until its recorder is built and checked: Part 1 of the card [HF-00](cards/HF-00.md). Part 2 is not a plan for anyone's day. It is asked for group by group, each when the package that needs it is about to be built, and a group whose facts the second field report or the hosts' published source has settled by then is dropped.
 
 This run-book is for the owner, at a Mac. It settles the host facts of [host-facts.md](host-facts.md) that only the hosts themselves can show. It is the first half of HF-00 in [the v2 plan](plan.md) (Stage 0); the recorder it uses is the second half, described in the card. Each fact the sheet marks for a sitting now also has a mark: **core**, settled in Part 1; **later**, settled by a Part 2 group; **by the field report**, read on the real install by the second report; or **from source**, read in the hosts' published source or documents. The tables at the end map each fact to its steps and each step to its facts.
 
@@ -10,39 +10,39 @@ This run-book is for the owner, at a Mac. It settles the host facts of [host-fac
 
 **What it is for.** Seven facts that the build cannot wait for, each of which only a recorded session can show:
 
-- **F-016, Claude Code's half**: what marks a prompt the host wrote rather than the person typed. LG-13 (Stage 1) files Claude Code prompts as typed on it, and its fallback would file a host-written prompt with no mark as typed.
+- **F-016, Claude Code's half**: what marks a prompt the host wrote rather than the person typed. LG-13 (Stage 1) files Claude Code prompts as typed on it, and its fallback would file a host-written prompt with no mark as typed. Part 1 makes the kinds that reach the prompt hook; the kinds found only in the record (a compaction summary, a subagent's report) wait for groups C and E of Part 2, before LG-21.
 - **F-033, Claude Code's half**: whether a resumed or forked chat names the chat it came from. Decision 19 is taken on it at the readout, and its fallback would capture the fork of a paused chat.
-- **F-121**: which mark in Codex's record means a typed prompt, a program's run, a scheduled run or a hand-over. The second report counts typed Codex prompts with it, and section 8's row on proven typing is read from that count.
+- **F-121**: which mark in Codex's record means a typed prompt, a program's run, a scheduled run or a hand-over. The second report counts typed Codex prompts with it, and section 8's row on proven typing is read from that count. Its fourth case, a subagent's turn, is read in Codex's published source (0.167.0): a subagent's turn carries its parent turn's mark, and is told apart by its parent turn's id and by its thread's source, which the second report counts by.
 - **F-142, F-143 and F-144**: in a voice call, whose words each line is stored as, whether a spoken pause is caught, and whether a thread voice starts begins inside the wrapper (decisions 29 and 30).
 - **F-175**: whether your git server takes commits from a machine identity, signed or not. Decision 3 waits on it.
 
-Every other fact the first version settled in a sitting is read by the second report, read in published source, or waits in Part 2 for its package. Three of them are named in the plan's HF-00 row. How often a reply's row is missing when Stop fires (F-019) is sampled by every Stop of Part 1. Whether a message typed while the agent works fires a prompt hook (F-010) is counted by the second report over a week of real use. Whether work the scheduler starts reaches the model and the git server (F-200, F-201) waits for group J: its fallback is the hook-started worker that DV-12b builds in Stage 1 anyway, HO-22 only adds to it, and v1's hook-started update already reaches the model on the real install, so decision 4 can be taken at the readout as "yes, confirmed before HO-22 is built". The dialog answers, plan approvals, compaction, timed hook runs and second voice call that the plan's HF-00 row lists are in Part 2 too (groups C, E, H and L).
+Every other fact the first version settled in a sitting is read by the second report, read in published source, or waits in Part 2 for its package. Three of them are named in the plan's HF-00 row. How often a reply's row is missing when Stop fires (F-019) is sampled by every Stop of Part 1. Whether a message typed while the agent works fires a prompt hook (F-010) is counted on Codex by the second report over a week of real use; Claude Code's half waits for group B, since the real install has no person's Claude Code chat to count. Whether work the scheduler starts reaches the model and the git server (F-200, F-201) waits for group J: its fallback is the hook-started worker that DV-12b builds in Stage 1 anyway, HO-22 only adds to it, and v1's hook-started update already reaches the model on the real install, so decision 4 can be taken at the readout as "yes, confirmed before HO-22 is built". The dialog answers, plan approvals, compaction, timed hook runs and second voice call that the plan's HF-00 row lists are in Part 2 too (groups C, E, H and L).
 
 **What you need.**
 
 - **An administrator's password for the Mac**, once, to add a user account in sitting 0. No later step asks for one.
 - **An evaluation home: a separate standard user account on the Mac.** That is the lightest home that is safe. A folder used as `HOME` inside your own account is not: the Codex desktop app, which the voice call needs, reads your own account's `~/.codex`, where your real install's hooks are, and a host may keep its sign-in in the login keychain, which a folder does not separate. A separate account needs no virtual machine and no second Mac.
-- **Both hosts' CLIs and the Codex desktop app.** The CLIs are installed in sitting 0, inside the evaluation account only. The desktop apps in `/Applications` are shared by all accounts and need no install; Part 1 uses only Codex's.
-- **A scratch repository on the git server your wiki uses**, which you create in sitting 1 with your own account's browser, private and empty, with a key for it made inside the evaluation account. It receives one push and is deleted at the hand-over. You need neither `gh` nor `glab`, and nothing signs either one in.
+- **Both hosts' CLIs and the Codex desktop app.** The CLIs are installed in sitting 0, inside the evaluation account only. The desktop apps in `/Applications` are shared by all accounts and need no install; Part 1 uses only Codex's, and S0-03 checks that it is there.
+- **A scratch repository on the git server your wiki uses**, which you create in sitting 1 with your own account's browser: private, beside your wiki (under the same user or group), and holding only a README, with a key for it made inside the evaluation account. It receives two pushes of one commit each, to new branches, and you delete it right after them, in the same sitting (G-05). You need neither `gh` nor `glab`, and nothing signs either one in.
 - **The recorder** (`hostrec`), built from a checkout of this public repository with Go, which sitting 0 installs inside the evaluation account. It is not built yet: it is Part 1 of the card [HF-00](cards/HF-00.md), and this part cannot be followed until that is merged.
 - **A microphone and a quiet room** for the one voice call in Codex's desktop app: no one else speaking, and no television, radio or phone playing. A call transcribes every voice it hears.
 - **No days between the sittings.** They go in order, on any days; sittings 1 and 2 and the hand-over can be on the same day.
 
-**What is never touched.** Your real install and its home: your own account's eva-md, its wiki, its inbox, its hooks, `~/.claude` and `~/.codex` in your own account, and the host versions it runs. In your own account you only use System Settings (S0-01), your browser on the git server (G-02 and E-04), where you create the scratch repository, add its key and later delete it, and TextEdit, for two files in `/Users/Shared`. Never use `sudo`, and never install, upgrade or sign in a host from your own account for these sittings. If a host's instructions need either, stop and tell the lead. eva-md itself is not installed in the evaluation home; only the scratch plugins are. Every prompt, name, word and value below is made up for this run-book and stands for nothing real.
+**What is never touched.** Your real install and its home: your own account's eva-md, its wiki, its inbox, its hooks, `~/.claude` and `~/.codex` in your own account, and the host versions it runs. In your own account you only use System Settings (S0-01); your browser on the git server (G-02 and G-05), where you create the scratch repository, add its key, look at how it shows one commit and delete it; your browser on the private file share the lead names (E-03), where you upload the recording; TextEdit, to save one file in `/Users/Shared` and read another (G-02); and Finder, to delete the file you saved (G-05). Each account deletes only the files it made in `/Users/Shared`: macOS lets no other account delete them. Never use `sudo`, and never install, upgrade or sign in a host from your own account for these sittings. If a host's instructions need either, stop and tell the lead. eva-md itself is not installed in the evaluation home; only the scratch plugins are. Every prompt, name, word and value below is made up for this run-book and stands for nothing real.
 
 **How long it takes.** Each step states its minutes. The sums below are the least each part takes, against the lead's target; plan for about a fifth more, for first-time screens and waits no step foresaw.
 
 | Part | What | Minutes, at least | Target | Plan for |
 | --- | --- | --- | --- | --- |
-| Sitting 0 | The evaluation home | 40 | 45 or less | about 50 |
-| Sitting 1 | The push for decision 3, then Claude Code | 56 | 90 or less | about 65 |
-| Sitting 2 | Codex: the CLI, then the desktop app with one voice call | 60 | 90 or less | about 70 |
-| The hand-over | Check, hand over, delete the scratch repository | 18 | 20 or less | about 20 |
-| Part 1 | | 174 | | about 205 |
+| Sitting 0 | The evaluation home | 41 | 45 or less | about 50 |
+| Sitting 1 | The push for decision 3, then Claude Code | 62 | 90 or less | about 75 |
+| Sitting 2 | Codex: the CLI, then the desktop app with one voice call | 62 | 90 or less | about 75 |
+| The hand-over | Check the recording, and hand it over | 15 | 20 or less | about 20 |
+| Part 1 | | 180 | | about 220 |
 
-The one push (G-01 to G-04, 18 minutes) needs no host. It opens sitting 1 because sitting 0 holds it only by passing its target: with it, sitting 0 would take 58 minutes.
+The push and the scratch repository's whole life (G-01 to G-05, 22 minutes) need no host. They open sitting 1 because sitting 0 holds them only by passing its target: with them, sitting 0 would take 63 minutes.
 
-**Where a sitting can stop.** Between any two steps: no step of Part 1 holds a chat open across steps. Before you stop, type `hostrec close` in the side window; the scratch hooks record nothing while the recording is closed, and the next `hostrec mark` opens it again. When you stop for the day, log out of `hfeval`.
+**Where a sitting can stop.** Between any two steps but G-04 and G-05, which go together, so that the scratch repository and its key are deleted in the sitting that made them. No step of Part 1 holds a chat open across steps. Before you stop, type `hostrec close` in the side window; the scratch hooks record nothing while the recording is closed, and the next `hostrec mark` opens it again. When you stop for the day, log out of `hfeval`.
 
 ### How to follow a step
 
@@ -51,14 +51,14 @@ The one push (G-01 to G-04, 18 minutes) needs no host. It opens sitting 1 becaus
 - `hostrec tail`, in the side window, prints one line for each hook event since the step's mark (its time, host and event name, never what it held), and returns.
 - Text in a box after **Type** is typed exactly, then Enter. Text after **Say** is spoken. **Type and say only the run-book's text.** If anything else was typed in a chat, or heard during a voice call (another voice, a television, a phone), type `hostrec note "off-script at <step>"`, so the lead drops that step's payloads.
 - **Expect** says what should happen. Where the screen cannot show it, it says so, and the recording checks it. **If not** says what to do. When something unexpected happens, write one line with `hostrec note "what you saw"` in the side window, and go on. Do not retry a step more than once, and never change a setting a step does not name.
-- **The hosts' own questions.** Answer them so the step can go on. When a host asks whether to trust a new folder, trust it: the scratch folders are made up. When a host asks to run a command or edit a file the prompt asked for, approve it, choosing the answer that stops it asking again for that command when one is offered; refuse anything the prompt did not ask for, and note it. When macOS asks for the microphone at the voice call, allow it. During a call, approve a command the agent asks for by clicking. When closing a window or quitting an app asks you to confirm, confirm. When a desktop app offers to update, choose Later.
+- **The hosts' own questions.** Answer them so the step can go on. When a host asks whether to trust a new folder, trust it: the scratch folders are made up. When a host asks to run a command or edit a file the prompt asked for, approve it, choosing the answer that stops it asking again for that command when one is offered; refuse anything the prompt did not ask for, and note it. When macOS asks for the microphone at the voice call, allow it. During a call, approve a command the agent asks for by clicking. When closing a window or quitting an app asks you to confirm, confirm. When a desktop app offers to update, choose Later; when a CLI offers to update, or shows an update screen at its start, skip it, so that each host keeps one version through the sittings (`hostrec mark` records each CLI's version, and `summary` says if one changed).
 - **Only the run-book's chats.** The desktop apps are signed in to your own subscription, so their lists may show chats, threads or tasks from elsewhere. Open only the chats and threads this run-book creates, and leave every other one closed.
 - **Settles** names the facts a step is there for, marked core, and then the facts it also gives evidence for at no added minute.
 - **Arms.** Before each step that needs one, `hostrec arm <name>` makes the scratch hooks return a planted word, sleep, or start a background job. Part 1 uses only `start`. Arming changes a file outside the plugins: no arm touches a plugin, on either host, so arming never costs a Codex review. Each `arm` replaces the one before. Every arm except the start-text probes of Part 2 (C-03 and X-03) gives each new, resumed or cleared chat the start word `MARIGOLD-TUESDAY`. `hostrec disarm` puts the hooks back to recording only, with no word.
 
 ### Sitting 0: the evaluation home
 
-40 minutes at least. It settles no fact on its own: every later sitting needs it. A break fits after any step.
+41 minutes at least. It settles no fact on its own: every later sitting needs it. A break fits after any step.
 
 #### S0-01. Make the evaluation account (10 min)
 
@@ -80,17 +80,19 @@ Everything here installs into the evaluation account's own home. Never use `sudo
    git --version
    command -v ssh-keygen
    uname -m
+   ls -d /Applications/Codex.app
    ```
 
    `uname -m` prints `arm64` on Apple silicon or `x86_64` on Intel; it decides two names below.
-2. Set this account's PATH:
+2. Set this account's PATH, and turn off Claude Code's background updates in this account only:
 
    ```
    mkdir -p ~/hf-tools ~/.local/bin
    echo 'export PATH="$HOME/hf-tools:$HOME/hf-tools/go/bin:$HOME/.local/bin:$PATH"' >> ~/.zshrc
+   echo 'export DISABLE_AUTOUPDATER=1' >> ~/.zshrc
    ```
 
-   Then open a new Terminal window, so the line takes effect, and close the old one.
+   Then open a new Terminal window, so the lines take effect, and close the old one.
 3. Go, unpacked inside this account (on Intel, write `amd64` in place of `arm64`):
 
    ```
@@ -115,29 +117,31 @@ Everything here installs into the evaluation account's own home. Never use `sudo
    codex --version
    ```
 
-**Expect:** `git` prints a version and `ssh-keygen` a path; each version command prints a version; nothing asks for an administrator's password.
-**If not:** if `git` asks to install the command line tools, cancel and stop: they are shared by every account on the Mac, so installing them changes what your real install runs; tell the lead. If anything asks for an administrator's password, cancel and stop, and tell the lead. If a download fails, tell the lead, who checks the hosts' install pages (the addresses are among the run-book's untried assumptions, in "For the lead, before sitting 0").
+**Expect:** `git` prints a version, `ssh-keygen` a path and `ls` the Codex app's path; each version command prints a version; nothing asks for an administrator's password.
+**If not:** if `git` asks to install the command line tools, cancel and stop: they are shared by every account on the Mac, so installing them changes what your real install runs; tell the lead. If `ls` finds no `/Applications/Codex.app`, stop and tell the lead: sitting 2's voice call needs the app, and installing it from here, or moving it, would change the copy your real install uses. If anything asks for an administrator's password, cancel and stop, and tell the lead. If a download fails, tell the lead, who checks the hosts' install pages (the addresses are among the run-book's untried assumptions, in "For the lead, before sitting 0").
 **Settles:** nothing on its own.
 
-#### S0-05. Build the recorder and the scratch folders (10 min)
+#### S0-05. Build the recorder and the scratch folders (11 min)
 
-Type:
+The lead gives you, before this sitting, the commit to build: the first 12 characters of its id, the reviewed one, never whatever `main` holds on the day. In the commands below, type them where `<commit>` stands. Type:
 
 ```
 git clone https://github.com/heyNag/eva-md.git ~/hf-src/eva-md
-cd ~/hf-src/eva-md && go build -o ~/hf-tools/hostrec ./cmd/hostrec
+cd ~/hf-src/eva-md && git checkout --detach <commit>
+git log -1 --format=%H
+go build -o ~/hf-tools/hostrec ./cmd/hostrec
 hostrec setup --rec ~/hf-rec
 ```
 
-**Expect:** `hostrec setup` says it found no eva-md install and no earlier session in this account, and makes the recording folder `~/hf-rec`; a private folder `~/hf-private`, which is never handed over; the scratch repositories `~/scratch/alpha-orchard` and `~/scratch/beta-lantern`, a plain folder `~/scratch/outside`, and `~/scratch/long-notes` with a long made-up `AGENTS.md`; and the scratch marketplaces under `~/hf`. All their content is made up: fruit, lanterns and orchards.
-**If not:** if `setup` refuses because it found an eva-md install or an earlier session, stop: this is not a fresh evaluation account. For any other error, copy it into `hostrec note` if that runs, or into a message to the lead, and stop.
+**Expect:** `git log` prints a 40-character id that begins with the 12 characters the lead gave. `hostrec setup` says it found no eva-md install and no earlier session in this account, and makes the recording folder `~/hf-rec`; a private folder `~/hf-private`, which is never handed over; the scratch repositories `~/scratch/alpha-orchard` and `~/scratch/beta-lantern`, a plain folder `~/scratch/outside`, and `~/scratch/long-notes` with a long made-up `AGENTS.md`; and the scratch marketplaces under `~/hf`. All their content is made up: fruit, lanterns and orchards.
+**If not:** if `git checkout` fails, or `git log` prints an id that begins otherwise, stop before `go build` and tell the lead. If `setup` refuses because it found an eva-md install or an earlier session, stop: this is not a fresh evaluation account. For any other error, copy it into `hostrec note` if that runs, or into a message to the lead, and stop.
 **Settles:** nothing on its own.
 
-That ends sitting 0. Switch back to your own account; nothing in `hfeval` runs while you are away.
+That ends sitting 0. Log out of `hfeval` (Apple menu, Log Out); nothing in it runs while it is logged out.
 
 ### Sitting 1: the push for decision 3, then Claude Code
 
-56 minutes at least: the push (G-01 to G-04) is 18, and the windows and Claude Code (C-00, and C-0a to C-42) 38. A break fits after G-04 and after C-04.
+62 minutes at least: the push and the scratch repository (G-01 to G-05) are 22, and the windows and Claude Code (C-00, and C-0a to C-42) 40. A break fits after G-05 and after C-04, never between G-04 and G-05.
 
 All steps run in `hfeval`, in `~/scratch/alpha-orchard` unless a step says otherwise.
 
@@ -151,40 +155,55 @@ Log in to `hfeval` (fast user switching). Open Terminal with two windows, the ch
 
 #### G-01. A key for the scratch repository (2 min)
 
-Side: `hostrec mark G-01`, then `hostrec key`. It makes a new key, `~/.ssh/hf_scratch_deploy`, in this account only, with no passphrase, and writes its public half to `/Users/Shared/hf-scratch-deploy-key.pub`.
+Side: `hostrec mark G-01`, then `hostrec key`. It makes a new key, `~/.ssh/hf_scratch_deploy`, in this account only, with no passphrase, and writes its public half to `/Users/Shared/hf-scratch-deploy-key.pub`, which G-03 deletes.
 
 **Expect:** `key` says where it wrote the public half.
-**If not:** copy the error into `hostrec note` and tell the lead. G-02 to G-04 then wait; go on with C-0a.
+**If not:** copy the error into `hostrec note` and tell the lead. G-02 to G-05 then wait; go on with C-0a.
 **Settles:** nothing on its own.
 
 #### G-02. The scratch repository and its key, on the git server (10 min)
 
-1. Switch to your own account. In your browser, on the git server your wiki uses, create a new private, empty repository named `hf-scratch-plum`, with no README.
+1. Switch to your own account. In your browser, on the git server your wiki uses, create a new private repository named `hf-scratch-plum`, in the same place as your wiki: under the same user or group, so that any rule that group gives its new repositories applies to it too. Choose to start it with a README, so that it has a default branch; the pushes go to new branches beside it.
 2. Copy its SSH address, which ends in `hf-scratch-plum.git`. Open TextEdit, make a new plain-text document (Format, Make Plain Text), paste the address alone, and save it as `hf-scratch-address.txt` in the folder `/Users/Shared` (in the save dialog, Cmd+Shift+G lets you type that folder).
-3. Open `/Users/Shared/hf-scratch-deploy-key.pub` with TextEdit and copy its one line. On `hf-scratch-plum`'s settings, add a deploy key: title `hf-eval-made-up`, the copied line as the key, and write access allowed. Close the file and move it to the Trash.
+3. Open `/Users/Shared/hf-scratch-deploy-key.pub` with TextEdit and copy its one line. On `hf-scratch-plum`'s settings, add a deploy key: title `hf-eval-made-up`, the copied line as the key, and write access allowed. Close the file, and leave it where it is: the evaluation account made it, so only that account can delete it, and G-03 does.
 4. Switch back to `hfeval`.
 
 Never copy a key, an SSH agent or a password manager from your own account into the evaluation account, and never add this key to your own user's keys on the server. The key reaches `hf-scratch-plum` and nothing else. Look at nothing else on the server: your real project's rules are asked in the second report's question 4, not here.
 
-**Expect:** the server lists the deploy key on `hf-scratch-plum`, with write access.
-**If not:** if you cannot create a repository there, stop this part and tell the lead: a repository elsewhere says nothing about your server. If the server offers no deploy keys, or none with write access, type, back in `hfeval`, a note of the class (for example `hostrec note "G-02: deploy keys switched off"`) and tell the lead: G-04 then cannot be made. Either way, go on with C-0a.
+**Expect:** the server lists the deploy key on `hf-scratch-plum`, with write access, and the repository holds the README on its default branch.
+**If not:** if you cannot create a repository there, stop this part and tell the lead: a repository elsewhere says nothing about your server. If you can create one only under your own user and not beside your wiki, do that and, back in `hfeval`, type `hostrec note "G-02: not beside the wiki"`. If the server offers no deploy keys, or none with write access, type, back in `hfeval`, a note of the class (for example `hostrec note "G-02: deploy keys switched off"`) and tell the lead: G-04 then cannot be made, and you go straight to G-05 to delete the repository. The public key's file then stays in `/Users/Shared` until Part 2's take-down; it holds nothing secret. Otherwise go on with G-03.
 **Settles:** nothing core. Gives evidence for F-182 (write deploy keys exist and can be added).
 
 #### G-03. The repository's address (2 min)
 
-Side: `hostrec mark G-03`, then `hostrec remote set`. It reads the address file, shows the repository's name, refuses any repository not named `hf-scratch-plum`, asks you to confirm with `y`, stores the address in `~/hf-private`, and deletes the file.
+Side: `hostrec mark G-03`, then `hostrec remote set`. It reads the address file, shows the repository's name, refuses any repository not named `hf-scratch-plum`, asks you to confirm with `y`, and stores the address in `~/hf-private`. It then deletes `/Users/Shared/hf-scratch-deploy-key.pub`, which this account wrote, and leaves the address file, which your own account saved and deletes in G-05.
 
-**Expect:** `remote set` shows `hf-scratch-plum` and stores its address.
+**Expect:** `remote set` shows `hf-scratch-plum`, stores its address and says it deleted the public key's file.
 **If not:** if it refuses the name, check that the file holds the scratch repository's address, never your real wiki's.
 **Settles:** nothing on its own.
 
-#### G-04. The push (4 min)
+#### G-04. The pushes (4 min)
 
-Side: `hostrec mark G-04`, then `hostrec push`. It makes the core sittings' one push to `hf-scratch-plum`: two commits authored and committed as `eva.md (hf-test) <hf-test@machines.eva-md.invalid>`, one signed with a fresh key no account knows and one unsigned, pushed with the deploy key given per call and no SSH agent. The first time it reaches the server it accepts the server's host key into the recorder's own known-hosts file in `~/hf-private`, never into this account's, and shows that key's fingerprint on screen only; if your server's help pages publish their fingerprints, you may compare. Then it reads the branch back and prints the outcome.
+Side: `hostrec mark G-04`, then `hostrec push`. It uses the deploy key given per call and no SSH agent throughout. It fetches the repository's default branch, makes two commits on top of it, both authored and committed as `eva.md (hf-test) <hf-test@machines.eva-md.invalid>`, one unsigned and one signed with a fresh key no account knows, and pushes each by itself to a new branch, never to the default branch: the unsigned one to `hf-check-unsigned`, then the signed one to `hf-check-signed`. The first time it reaches the server it accepts the server's host key into the recorder's own known-hosts file in `~/hf-private`, never into this account's, and shows that key's fingerprint on screen only; if your server's help pages publish their fingerprints, you may compare. Then it reads both branches back and prints each push's outcome.
 
-**Expect:** no dialog and no question; the push accepted, or refused with a class of refusal (the committer, the signature, a protected branch, the key). Either is the answer decision 3 waits for.
-**If not:** note any dialog with its wording, and answer nothing. If the push fails before the server answers (the network, the host key, the key), note the class and tell the lead; `hostrec push` may be tried once more at the start of sitting 2, after `hostrec mark G-04`.
-**Settles:** F-175 (core): whether the server takes commits from a machine identity, signed by a key it does not know, or unsigned. Also gives evidence for F-182 (a write deploy key pushes), F-185 and F-186 (a commit signed per call with a fresh key, with no prompt) and F-191 (a push with no agent).
+**Expect:** no dialog and no question; for each push, accepted, or refused because of the committer or because of the signature. Those are the answers decision 3 waits for.
+**If not:** note any dialog with its wording, and answer nothing. If a push is refused for another reason (a protected branch, a rule on branch names, the key), `push` prints that class: F-175 is then not settled. Tell the lead, and go on with G-05. If the pushes fail before the server answers (the network, the host key), note the class and tell the lead; `hostrec push` may be tried once more at the start of sitting 2, after `hostrec mark G-04`, and G-05 then waits for that try (see G-05).
+**Settles:** F-175 (core): whether the server takes commits from a machine identity, unsigned or signed by a key it does not know, each pushed by itself so that one refusal does not hide the other's outcome. Also gives evidence for F-182 (a write deploy key pushes), F-185 and F-186 (a commit signed per call with a fresh key, with no prompt) and F-191 (a push with no agent).
+
+#### G-05. Delete the scratch repository (4 min)
+
+Right after G-04, in the same sitting. Side: `hostrec mark G-05`.
+
+1. Switch to your own account. In your browser, if the server shows a branch `hf-check-signed` on `hf-scratch-plum`, open its newest commit and see how the server labels it: verified, unverified, or with no label.
+2. Delete `hf-scratch-plum` on the git server, which removes its deploy key with it. Check that no key titled `hf-eval-made-up` is left in your settings there.
+3. In Finder, choose Go, Go to Folder, type `/Users/Shared`, and move `hf-scratch-address.txt` to the Trash. Your own account saved it, so it can delete it with no password.
+4. Switch back to `hfeval`. Side: type `hostrec note "G-05: signed commit shown as <verified, unverified or no label>"`, or `hostrec note "G-05: no signed branch"` if the server showed none.
+
+Only if G-04's pushes failed before the server answered: leave `hf-scratch-plum` for now and do this step right after G-04's one more try at the start of sitting 2, whatever that try gives. Its key then lives until that sitting, and no longer.
+
+**Expect:** `hf-scratch-plum` is gone from the server, so no write key to your server outlives the sitting that made it.
+**If not:** if the server will not delete the repository, delete its deploy key by hand, note it, and tell the lead.
+**Settles:** F-175 (core): how the server labels a commit signed by a key it does not know, which bears on decision 3's "sign it if the server accepts".
 
 #### C-0a. Sign Claude Code in (4 min)
 
@@ -272,16 +291,20 @@ Side: `hostrec mark C-17`. Type `!ls orchard` and Enter. Then type `/hf-recorder
 **If not:** note it.
 **Settles:** F-016 (core): how a shell line and a plugin command's text reach the prompt hook. Also gives evidence for F-009.
 
-#### C-19. Prompts nobody typed (3 min)
+#### C-19. Prompts nobody typed (5 min)
 
-Side: `hostrec mark C-19`. If your Claude Code offers a way to schedule a prompt (such as `/loop`), type `/loop 1m Made-up test: say tick.`, wait for two ticks, and stop it. Then type:
+Side: `hostrec mark C-19`.
 
-```
-Made-up test. Start a background shell command `sleep 20 && echo done-made-up`, and tell me when it finishes.
-```
+1. Chat: type `/loop` without Enter. If the list of commands that appears offers no `/loop`, clear the line, type `hostrec note "no schedule offered"` in the side window, and go on to part 2.
+2. Otherwise finish the line as `/loop 1m Made-up test: say tick.` and press Enter. Wait for two ticks, at most 3 minutes. Then press Esc to stop the loop. If a tick still arrives after Esc, type `/exit`, then `claude --continue`, and note it.
+3. Then type:
+
+   ```
+   Made-up test. Start a background shell command `sleep 20 && echo done-made-up`, and tell me when it finishes.
+   ```
 
 **Expect:** the ticks arrive as prompts nobody typed; the finished background command arrives as a notice.
-**If not:** if there is no way to schedule, note "no schedule offered" and do only the second part.
+**If not:** if no tick arrived within the 3 minutes, note "loop did not tick", stop the loop as above, and go on with part 3.
 **Settles:** F-016 (core): loop prompts and a background task's notice, which nobody typed. Also gives evidence for F-080.
 
 #### C-27. Resume and fork (4 min)
@@ -304,17 +327,17 @@ Made-up test: say hello from the fork.
 
 #### C-42. End of sitting 1 (5 min)
 
-Side: `hostrec mark C-42`, `hostrec disarm`, `hostrec summary claude-code`.
+Side: `hostrec mark C-42`, `hostrec disarm`, `hostrec summary sitting-1`.
 
-**Expect:** a list of every Claude Code event that fired, and of each core fact of this sitting (F-016, F-033, and F-175 from G-04) with what was recorded for it.
-**If not:** `summary` names, for each core fact it lists as missing, the steps that settle it. If the sitting has time, redo those steps now, each starting with its own `hostrec mark`, then type `hostrec summary claude-code` again. If not, leave them and tell the lead.
+**Expect:** a list of every Claude Code event that fired; each core fact of this sitting (F-016, F-033, and F-175 from G-04 and G-05) with what was recorded for it; and each CLI's version at each mark, with a warning if one changed.
+**If not:** `summary` names, for each core fact it lists as missing, the steps that settle it. If the sitting has time, redo those steps now, each starting with its own `hostrec mark`, then type `hostrec summary sitting-1` again. If not, leave them and tell the lead. G-04 is never redone here: one more try is made only as G-04 and G-05 say.
 
 Then type `hostrec close`, and log out of `hfeval` (Apple menu, Log Out).
 **Settles:** nothing core. Gives evidence for F-075 (which events fired).
 
 ### Sitting 2: Codex
 
-60 minutes at least: the CLI part (X-00 to X-26) is 28 and the desktop app part (X-39 to X-50) 32. A break fits after X-26, before the desktop app part.
+62 minutes at least: the CLI part (X-00 to X-26) is 28 and the desktop app part (X-39 to X-50) 34. A break fits after X-26, before the desktop app part. If G-04's pushes are to be tried once more (G-05 says when), do G-04 and then G-05 right after X-00; they add 8 minutes.
 
 All steps run in `hfeval`, in `~/scratch/alpha-orchard` unless a step says otherwise.
 
@@ -427,15 +450,19 @@ Note how the `hf test` text showed in the app.
 **If not:** note it.
 **Settles:** F-121 (core): the mark a prompt typed in the app leaves; the app's hooks must fire for X-43 and X-44. Also gives evidence for F-011, F-046 and F-137.
 
-#### X-43. A scheduled run in the app (3 min)
+#### X-43. A scheduled run in the app (4 min)
 
-Side: `hostrec mark X-43`. If the app offers scheduled tasks, make one for `alpha-orchard` that runs once, a minute from now, with the prompt `Made-up test: say tick.` Wait for it to run, then delete it.
+Side: `hostrec mark X-43`. If the app offers scheduled tasks, make one for `alpha-orchard` that runs once, at the earliest time the app allows, with the prompt `Made-up test: say tick.` Never use a "run now" choice in its place: a run started by hand may carry another mark than a scheduled one.
+
+- If it runs within about a minute: wait for it, at most 3 minutes past its time, then delete it.
+- If the earliest time is later, but within about 25 minutes, so before X-50: note it with `hostrec note "X-43: earliest schedule <minutes> min"`, leave it, and go on with X-44. X-50 waits for it.
+- If the earliest time is later than that: note the smallest delay the app offers in the same way, make none, and go on.
 
 **Expect:** the run arrives as a turn nobody typed.
-**If not:** if the app offers no schedule, note "no schedule offered".
+**If not:** if the app offers no schedule, note "no schedule offered". If a run has not arrived 3 minutes past its time, note "scheduled run did not arrive" and delete it.
 **Settles:** F-121 (core): the mark a scheduled run leaves, the one prompt nobody typed that Codex's published source cannot show. Also gives evidence for Codex's half of F-016.
 
-#### X-44. Voice call one: hand-overs, a correction, a yes, the pause phrase (12 min)
+#### X-44. Voice call one: hand-overs, a correction, a yes, the pause phrase (13 min)
 
 Side: `hostrec mark X-44`. Make sure the room is quiet, with no other voice, television or phone. In the app, choose `alpha-orchard`, start a new thread, and type nothing. Start a voice call with the app's voice button; if macOS asks for the microphone, allow it. Speak at your normal pace. Wait for each reply before the next line unless a line says otherwise. If the agent asks to run a command, approve it by clicking.
 
@@ -452,13 +479,14 @@ Side: `hostrec mark X-44`. Make sure the room is quiet, with no other voice, tel
    **Pause** until the agent is working. Then **say:** "Sorry, I said that wrong. The right number is four seven two three one. Ask the agent to fix port dot t x t."
    **Pause** until the agent has finished.
 6. **Say:** "Off the record." **Pause** 3 seconds. **Say:** "Ask the agent to create a file named pebble dot t x t containing the word pebble."
-   **Pause** until the agent has finished. **Say:** "Back on the record."
+   **Pause** until the agent has finished. **Say:** "Back on the record." **Pause** 3 seconds. **Say:** "Ask the agent to list the files in the orchard folder."
+   **Pause** until the agent has finished.
 7. **Say:** "This last line is made-up and is not for the agent: the lantern is blue."
    **Pause** 5 seconds. End the call with the app's end button. Wait 10 seconds.
 
 **Expect:** a hand-over for each request; the voice model answers line 3 itself.
 **If not:** if the voice model hands over a line you meant to keep from the agent, or will not hand over a request, note which line, and go on.
-**Settles:** F-143 (core): whose words each spoken line, the spoken yes, the correction and the spoken pause arrive as; F-144 (core): whether a thread voice starts begins inside the wrapper (line 1); F-142 (core): whether each request is the front model's wording; F-121 (core): the mark a hand-over leaves. Also gives evidence for F-141, F-145, F-147, F-148 and F-149.
+**Settles:** F-143 (core): whose words each spoken line, the spoken yes, the correction and the spoken pause arrive as, and whether a request handed over after "Back on the record." carries the resume phrase inside its wrapper (line 6); F-144 (core): whether a thread voice starts begins inside the wrapper (line 1); F-142 (core): whether each request is the front model's wording; F-121 (core): the mark a hand-over leaves. Also gives evidence for F-141, F-145, F-147, F-148 and F-149.
 
 #### X-46. After the call (3 min)
 
@@ -470,23 +498,23 @@ Side: `hostrec mark X-46`, `hostrec voice-check`. It counts the rows of the call
 
 #### X-50. End of sitting 2 (5 min)
 
-Side: `hostrec mark X-50`, `hostrec disarm`, `hostrec summary codex`.
+If X-43 left a scheduled run waiting, wait for it first, at most 3 minutes past its time, and then delete it in the app; if it has not arrived by then, note "scheduled run did not arrive". Then side: `hostrec mark X-50`, `hostrec disarm`, `hostrec summary sitting-2`.
 
-**Expect:** every Codex event that fired, and each core fact of this sitting (F-121, F-142, F-143, F-144) with what was recorded.
-**If not:** `summary` names, for each core fact it lists as missing, the steps that settle it. If the sitting has time, redo those steps now, each starting with its own `hostrec mark`, then type `hostrec summary codex` again. If not, leave them and tell the lead.
+**Expect:** every Codex event that fired; each core fact of this sitting (F-121, F-142, F-143, F-144) with what was recorded; and each CLI's version at each mark, with a warning if one changed.
+**If not:** `summary` names, for each core fact it lists as missing, the steps that settle it. If the sitting has time, redo those steps now, each starting with its own `hostrec mark`, then type `hostrec summary sitting-2` again. If not, leave them and tell the lead.
 
 Then type `hostrec close`. If the hand-over follows now, stay in `hfeval`; otherwise log out of it.
 **Settles:** nothing core. Gives evidence for F-120 (which events fired).
 
 ### The hand-over
 
-18 minutes at least, on the day of sitting 2 or later. You bring back one thing: the recording folder, `~/hf-rec` in the evaluation account. Never the hosts' own folders (`~/.claude`, `~/.codex`, the desktop apps' folders), never `~/hf-private`, and never a screenshot of anything but the made-up content above.
+15 minutes at least, on the day of sitting 2 or later. In `hfeval` (log in with fast user switching if you logged out), open Terminal; one window is enough. You bring back one thing: the recording folder, `~/hf-rec` in the evaluation account. Never the hosts' own folders (`~/.claude`, `~/.codex`, the desktop apps' folders), never `~/hf-private`, and never a screenshot of anything but the made-up content above.
 
-The recorder keeps every hook payload whole, since their content is made up. Of the hosts' own files it keeps only row types, field names, sizes, a few short values such as `true` or `user` from a fixed list of fields, ids, and for every other value its length and a hash, which says nothing of the text without the key kept in `~/hf-private`, and that key is never handed over. It never keeps a row's text.
+The recorder keeps every hook payload whole, since their content is made up. Of the hosts' own files it keeps only row types, field names, sizes, short values such as `true` or `user` from a fixed list of fields and from the few row types the core facts read, ids, and for every other value its length and a hash, which says nothing of the text without the key kept in `~/hf-private`, and that key is never handed over. It never keeps a row's text.
 
 #### E-02. Check the recording (10 min)
 
-Type `hostrec scan ~/hf-rec`. It asks you once, never storing the answers: the email address you sign in with; your full name; your own account's short name (it shows its guess from the Mac's list of users, for you to confirm); and any other word you want to be sure is absent, such as a project's name. It then searches every file of the recording.
+Type `hostrec scan ~/hf-rec`. It asks you once, never storing the answers: the email address you sign in with; your full name; your own account's short name (it shows its guess from the Mac's list of users, for you to confirm); your git server's host name, and your user or group name there; and any other word you want to be sure is absent, such as a project's name. It then searches every file of the recording.
 
 It sorts what it finds. Values the hosts and the recorder make (session ids, turn and tool-use ids, commit hashes, `hf_lookup`'s `r:` tokens, the keys `hostrec` made) are only counted, by kind, and need nothing from you. It shows you only the hits to judge, each with its file and line: anything that matches what you typed, an account's name on this Mac, the computer's name, an email address, or a string shaped like a key or a token that it cannot explain.
 
@@ -496,29 +524,21 @@ It sorts what it finds. Values the hosts and the recorder make (session ids, tur
 
 #### E-03. Pack and hand over (5 min)
 
-Type `hostrec pack ~/hf-rec`. It makes `~/hf-rec.tar.gz`, without `~/hf-private`, and prints its size and a checksum. Hand that file to the lead through the private file share the lead named before sitting 0, and give the checksum in the same message. Never hand it over by a commit, an issue, a pull request, or a message anyone else can read.
+1. In `hfeval`, type `hostrec pack ~/hf-rec --to /Users/Shared`. It writes `/Users/Shared/hf-rec.tar.gz`, without `~/hf-private`, and beside it `/Users/Shared/hf-rec.tar.gz.sha256`, its checksum, both readable by your own account so that it can upload them, and prints the archive's size.
+2. Switch to your own account. In your browser, open the private file share the lead named before sitting 0 and upload both files (in the file chooser, Cmd+Shift+G lets you type `/Users/Shared`). Tell the lead they are there, by the way the lead named. Never hand them over by a commit, an issue, a pull request, or a message anyone else can read.
+3. Switch back to `hfeval` and type `hostrec pack --clean`, which deletes both files from `/Users/Shared`; this account made them, so only it can. Then log out of `hfeval` (Apple menu, Log Out).
 
-**Expect:** the lead confirms it has the file and that the checksum matches.
-**If not:** keep the file and the folder, and do not go on to E-04, until the lead confirms.
-**Settles:** nothing on its own.
-
-#### E-04. Delete the scratch repository (3 min)
-
-Only after the lead has confirmed the hand-over.
-
-Switch to your own account. In your browser, delete `hf-scratch-plum` on the git server, which removes its deploy key with it. Check that no key titled `hf-eval-made-up` is left in your settings there. Delete `/Users/Shared/hf-scratch-address.txt` and `/Users/Shared/hf-scratch-deploy-key.pub` if either is still there. Switch back to `hfeval` and log out of it.
-
-**Expect:** the scratch repository is gone from the server, so no write key to your server outlives Part 1. The evaluation account stays, with the recorder, its plugins and the recording folder, for Part 2; nothing in it runs while it is logged out.
-**If not:** note what is left in a message to the lead, and remove it by hand.
+**Expect:** both files uploaded, and `--clean` says it deleted them. The hand-over ends here. The lead answers within a day that it has the archive and that its checksum matches. Until then, leave `~/hf-rec` as it is; nothing in Part 1 deletes it. The evaluation account stays, with the recorder, its plugins and the recording folder, for Part 2; nothing in it runs while it is logged out.
+**If not:** if an upload fails, or the lead finds that the checksum does not match, do E-03 again.
 **Settles:** nothing on its own.
 
 The lead turns the recording into fixtures with every value replaced (the card's check fails if any value from the recording survives), writes each core fact's result into [host-facts.md](host-facts.md) with the date and each host's version, keeps the recording outside any checkout and deletes it once the fixtures and results are in, and never commits it.
 
 ### For the lead, before sitting 0
 
-- **Name the hand-over channel.** Before sitting 0, tell the owner which private file share E-03 uses. It is never the repository, an issue or a pull request.
-- **Check Part 1's untried assumptions** against the host versions current when the sittings run, and correct the run-book first. None has been tried by the writer: S0-03's download addresses and archive names (Go's archive, Claude Code's installer, Codex's release asset and the folder it unpacks to); `--json` on `claude plugin marketplace add` and `claude plugin install`; the forms of `codex plugin marketplace add` and `codex plugin add`; `/hooks` and `/plugins` in Codex and `/plugin` in Claude Code; `/loop`; `claude --continue --fork-session`; and the Codex desktop app's About window, voice setting, scheduled tasks and voice button. `hostrec register` tries the main fallbacks for the plugin commands itself.
-- **Build and check the recorder** (Part 1 of the card's acceptance) before sitting 0, and give the owner the commit to build.
+- **Name the hand-over channel.** Before sitting 0, tell the owner which private file share E-03 uploads to, from the owner's own account's browser, and how the owner tells you the files are there. It is never the repository, an issue or a pull request. Answer within a day of the upload.
+- **Check Part 1's untried assumptions** against the host versions current when the sittings run, and correct the run-book first. None has been tried by the writer: S0-03's download addresses and archive names (Go's archive, Claude Code's installer, Codex's release asset and the folder it unpacks to); `--json` on `claude plugin marketplace add` and `claude plugin install`; the forms of `codex plugin marketplace add` and `codex plugin add`; `/hooks` and `/plugins` in Codex and `/plugin` in Claude Code; `DISABLE_AUTOUPDATER` and the Codex CLI's update screen; `/loop` and Esc to stop it; `claude --continue --fork-session`; the Codex desktop app's name in `/Applications`, its About window, voice setting and voice button; its scheduled tasks, the earliest run they allow, and X-43's fallback when that is later than a minute; and, on the git server, a new repository with a README, and a deploy key that may create a new branch. `hostrec register` tries the main fallbacks for the plugin commands itself.
+- **Build and check the recorder** (Part 1 of the card's acceptance) before sitting 0, approve the enum-field allowlist of the card's item 2, and give the owner the first 12 characters of the reviewed commit, which S0-05 checks out. Give a new commit for each Part 2 group, for U-01.
 - **The second report reads what Part 1 no longer does.** The facts marked "by the field report" stay open until the second report's prompt reads them. Add those readings to the prompt, as shapes and counts only, before the owner runs it.
 
 ## Part 2: later, when a package needs it
@@ -535,18 +555,20 @@ Nothing here is asked for now. Each group belongs to the package or decision tha
 
 #### U-01. Bring the recorder up to date (5 min)
 
-After C-00 or X-00, in the side window:
+After C-00 or X-00, in the side window, with the first 12 characters of the commit the lead gives for this group where `<commit>` stands:
 
 ```
-cd ~/hf-src/eva-md && git pull --ff-only && go build -o ~/hf-tools/hostrec ./cmd/hostrec
+cd ~/hf-src/eva-md && git fetch origin && git checkout --detach <commit>
+git log -1 --format=%H
+go build -o ~/hf-tools/hostrec ./cmd/hostrec
 hostrec setup --rec ~/hf-rec --more
 hostrec register --check
 ```
 
 `setup --more` adds to the evaluation home what Part 2's recorder needs (the scratch MCP server's entry in `hf-recorder`, the Codex plugin `hf-tools`, and the files Part 2's arms use), and prints the hosts' update commands for what it changed; type each, then `hostrec register`, which adds only what a host does not list yet.
 
-**Expect:** the first time, `setup --more` lists what it added; later, nothing. `--check` lists `hf-recorder` for Claude Code, and `hf-hooks` and `hf-tools` for Codex.
-**If not:** if `go build` fails, stop and tell the lead. For a plugin `register` cannot add, follow C-0b's "If not". If Codex asks for a hook review at its next start, approve the scratch hooks in `/hooks` and note it.
+**Expect:** `git log` prints a 40-character id that begins with the lead's 12 characters. The first time, `setup --more` lists what it added; later, nothing. `--check` lists `hf-recorder` for Claude Code, and `hf-hooks` and `hf-tools` for Codex.
+**If not:** if `git log` prints an id that does not begin with the lead's 12 characters, or `go build` fails, stop and tell the lead. For a plugin `register` cannot add, follow C-0b's "If not". If Codex asks for a hook review at its next start, approve the scratch hooks in `/hooks` and note it.
 **Settles:** nothing core. Gives evidence for F-158 (a second plugin from the same marketplace).
 
 #### U-02. End of a group (3 min)
@@ -722,7 +744,7 @@ Side: `hostrec mark X-42`. Open the Codex desktop app. In its thread list, open 
 
 **For:** LG-23. **Asked:** When LG-23 is about to be built. **Needs, beyond Part 1:** Nothing more. **Minutes:** 43 of its own steps, 68 with its frame.
 
-**Facts it gives evidence for:** F-002, F-003, F-007, F-025, F-026, F-027, F-077, F-078, F-091, F-121.
+**Facts it gives evidence for:** F-002, F-003, F-007, F-016, F-025, F-026, F-027, F-077, F-078, F-091, F-121.
 
 #### C-05. A command that fails (2 min)
 
@@ -764,7 +786,7 @@ Side: `hostrec mark C-10`. Press Shift+Tab until the footer shows plan mode. Typ
 Made-up test. Plan how you would create the file orchard/apple.txt containing the single word `crisp`. Do not do it yet.
 ```
 
-When the plan is shown with its choices, pick the one that approves the plan and still asks before each edit (worded like "Yes, and manually approve edits"), then approve the write when it asks. After the rename, enter plan mode again and type:
+When the plan is shown with its choices, pick the one that approves the plan and still asks before each edit (worded like "Yes, and manually approve edits"), then approve the write when it asks. After the write, enter plan mode again and type:
 
 ```
 Made-up test. Plan how you would delete orchard/apple.txt.
@@ -798,7 +820,7 @@ Made-up test. First tell me the codeword you were given at the start of this cha
 
 **Expect:** you get `MARIGOLD-TUESDAY` and `WILLOW-CANDLE` first; a subagent runs; it reports `SILVER-OTTER`, most likely does not know `MARIGOLD-TUESDAY`, and most likely knows `WILLOW-CANDLE`; the file gains the line.
 **If not:** note the words it gave.
-**Settles:** F-003, F-025, F-026, F-027, F-091.
+**Settles:** F-003, F-016 (the subagent's report, which only the record holds), F-025, F-026, F-027, F-091.
 
 #### C-13. A custom agent (3 min)
 
@@ -1374,7 +1396,7 @@ Side: `hostrec mark X-48`. Type `codex plugin disable hf-hooks@hf-scratch --json
 
 #### J-01. A scratch repository again (14 min)
 
-Part 1's scratch repository was deleted at its end (E-04). Make a new one in the same way, with G-01, G-02 and G-03 of Part 1, each starting with its own mark. It has the same name, `hf-scratch-plum`; `hostrec key` makes a new key in place of the old one.
+Part 1's scratch repository was deleted right after its pushes (G-05). Make a new one in the same way, with G-01, G-02 and G-03 of Part 1, each starting with its own mark. It has the same name, `hf-scratch-plum`; `hostrec key` makes a new key in place of the old one.
 
 **Expect:** as in those steps.
 **If not:** as in those steps. Without the repository, S0-12, S0-13, C-40 and X-30 cannot run; the group's other steps can.
@@ -1425,10 +1447,10 @@ Side: `hostrec mark S0-12`.
 
 #### S0-13. The scheduled job's push (8 min)
 
-Side: `hostrec mark S0-13`, then `hostrec agent kick`. It starts the scheduled job now and waits for that run to end (up to 5 minutes). This run reads the scratch repository in batch mode with its own SSH setup again, now that the host key is accepted. For this run only, it adds a line to this account's SSH config naming a made-up agent for the server. It then reads and pushes with the deploy key passed per call and no agent socket: the group's one push to `hf-scratch-plum`, two commits authored as `eva.md (hf-test) <hf-test@machines.eva-md.invalid>`, one signed with a fresh key no account knows and one unsigned. Last it removes the config line and prints each part's outcome.
+Side: `hostrec mark S0-13`, then `hostrec agent kick`. It starts the scheduled job now and waits for that run to end (up to 5 minutes). This run reads the scratch repository in batch mode with its own SSH setup again, now that the host key is accepted. For this run only, it adds a line to this account's SSH config naming a made-up agent for the server. It then reads and pushes with the deploy key passed per call and no agent socket: the group's pushes to `hf-scratch-plum`, two commits authored as `eva.md (hf-test) <hf-test@machines.eva-md.invalid>`, one unsigned and one signed with a fresh key no account knows, each pushed by itself to a new branch, as in G-04. Last it removes the config line and prints each part's outcome.
 
-**Expect:** the read with the job's own setup gets past the host-key check (it may then fail for want of a key, which is expected); the read with the deploy key succeeds; the push is accepted, or refused with a class of refusal; no dialog; on the server, `hf-scratch-plum` holds two commits if it was accepted.
-**If not:** note each dialog with its wording. If the job did not run at all, type `hostrec push` once in the side window: it makes the same push from this window with the same key, and it is still the group's one push.
+**Expect:** the read with the job's own setup gets past the host-key check (it may then fail for want of a key, which is expected); the read with the deploy key succeeds; each push is accepted, or refused because of the committer or the signature (any other class of refusal leaves F-175 open, as in G-04); no dialog; on the server, `hf-scratch-plum` holds a new branch for each push accepted.
+**If not:** note each dialog with its wording. If the job did not run at all, type `hostrec push` once in the side window: it makes the same pushes from this window with the same key, and they are still the group's pushes.
 **Settles:** F-175, F-180, F-182, F-191, F-201.
 
 #### S0-15. The deploy-key commands (2 min)
@@ -1457,7 +1479,7 @@ Side: `hostrec mark X-30`, `hostrec arm net-job`. Chat: `codex`, `Made-up test: 
 
 #### J-02. Delete the scratch repository again (3 min)
 
-As E-04 of Part 1: in your own account's browser, delete `hf-scratch-plum` (and its deploy key with it), and check that no key titled `hf-eval-made-up` is left. If group M's S0-16 is asked for in the same sitting, do it before this step.
+As steps 2 to 4 of G-05 in Part 1: in your own account's browser, delete `hf-scratch-plum` (and its deploy key with it), and check that no key titled `hf-eval-made-up` is left; in Finder, delete `/Users/Shared/hf-scratch-address.txt`, which your own account saved in J-01. If group M's S0-16 is asked for in the same sitting, do it before this step.
 
 **Expect:** the scratch repository is gone from the server.
 **If not:** note what is left in a message to the lead, and remove it by hand.
@@ -1723,8 +1745,8 @@ Then type `hostrec close`.
 
 Only after the lead has confirmed the last hand-over.
 
-1. In `hfeval`'s side window, type `hostrec agent remove` if group J installed the scheduled job and its X-49 did not remove it. Then type `hostrec teardown`. It removes `~/home-b`, `~/hf-alt-claude`, `~/hf-alt-codex`, `~/.local/share/hf-test`, the deploy key and its public half, `~/hf-private`, `~/hf-rec`, `~/hf-rec.tar.gz`, the scratch folders and marketplaces, and the setup marker, whichever of them exist, and lists what it removed.
-2. Switch to your own account. In your browser, check that the git server holds no repository named `hf-scratch-plum` (delete one if it is there, which removes its deploy key) and that no key titled `hf-eval-made-up` is left in your settings. Delete `/Users/Shared/hf-scratch-address.txt` and `/Users/Shared/hf-scratch-deploy-key.pub` if either is still there.
+1. In `hfeval`'s side window, type `hostrec agent remove` if group J installed the scheduled job and its X-49 did not remove it. Then type `hostrec teardown`. It removes `~/home-b`, `~/hf-alt-claude`, `~/hf-alt-codex`, `~/.local/share/hf-test`, the deploy key and its public half, `~/hf-private`, `~/hf-rec`, the files this account left in `/Users/Shared` (the public key's file and the archive with its checksum), the scratch folders and marketplaces, and the setup marker, whichever of them exist, and lists what it removed.
+2. Switch to your own account. In your browser, check that the git server holds no repository named `hf-scratch-plum` (delete one if it is there, which removes its deploy key) and that no key titled `hf-eval-made-up` is left in your settings. In Finder, delete `/Users/Shared/hf-scratch-address.txt` if it is still there; your own account saved it, so only your own account can delete it.
 3. Either delete the evaluation account (System Settings, Users & Groups, delete the user and its home folder), or keep it for DV-02's live gates, which use the same home: the recorder, its plugins and its recording are gone either way.
 
 **Expect:** `teardown` lists each folder it removed; nothing of the sittings is left on the server.
@@ -1746,13 +1768,13 @@ Each fact the sheet marks for a sitting, with its mark and the steps that give e
 | F-007 A failed tool call's payload holds the error and the exit status | Both | from source | none | C-05 (C), X-06 (C) |
 | F-008 An interrupted or failed turn is marked as ended | Both | from source | C-15 | C-36 (B), X-14 (B) |
 | F-009 A typed slash command or skill reaches the prompt hook before the model | Both | later, group D | C-17 | C-18 (D), X-16 (D) |
-| F-010 A message typed while the agent works fires a prompt hook | Both | by the field report | none | C-14 (B), X-13 (B) |
+| F-010 A message typed while the agent works fires a prompt hook | Both | by the field report for Codex's half; later, group B, for Claude Code's | none | C-14 (B), X-13 (B) |
 | F-011 The desktop app's spare session starts again in the real folder | Both | later, group A | X-40 | C-38 (A) |
 | F-012 Each host reports its own version | Both | from source | C-02, X-02 | none |
 | F-013 A session id is safe in a file name | Both | by the field report | C-04, X-04 | none |
 | F-014 The session id survives a clear | Both | later, group E | none | C-26 (E), X-23 (E) |
 | F-015 A read or search in another repository names that repository | Both | later, group G | none | C-23 (G), X-20 (G) |
-| F-016 A prompt the host writes is marked as the host's | Both | core for Claude Code's half; Codex's half from source and the field report | C-04 (core), C-15 (core), C-17 (core), C-19 (core), C-27 (core), X-43 | X-14 (B), X-21 (B), X-16 (D), C-25 (E) |
+| F-016 A prompt the host writes is marked as the host's | Both | core for Claude Code's half, the kinds that reach the hook; the kinds only in the record later, groups C and E; Codex's half from source and the field report | C-04 (core), C-15 (core), C-17 (core), C-19 (core), C-27 (core), X-43 | X-14 (B), X-21 (B), C-12 (C), X-16 (D), C-25 (E) |
 | F-017 Pasted text is marked on Claude Code and not on Codex | Both | later, group D | none | C-16 (D), X-15 (D) |
 | F-018 A program's session can be told from a person's chat | Both | by the field report | X-26 | C-37 (A) |
 | F-019 The reply row is on disk when Stop fires | Both | later | C-04, X-04 | none |
@@ -1819,7 +1841,7 @@ Each fact the sheet marks for a sitting, with its mark and the steps that give e
 | F-104 Hooks run in exec form with the plugin root expanded | Claude Code | later, group I | none | C-29 (I) |
 | F-105 The desktop app's Code tab runs its own Claude Code | Claude Code | later, group A | none | C-38 (A) |
 | F-120 A plugin can declare every event v2 uses | Codex | from source | X-04, X-50 | X-14 (B) |
-| F-121 The typed-prompt mark in the record | Codex | core | X-04 (core), X-26 (core), X-40 (core), X-43 (core), X-44 (core) | X-12 (C) |
+| F-121 The typed-prompt mark in the record | Codex | core; its subagent case from source | X-04 (core), X-26 (core), X-40 (core), X-43 (core), X-44 (core) | X-12 (C) |
 | F-122 That row is on disk when the prompt hook fires | Codex | from source | X-04 | none |
 | F-123 PreToolUse adds context, and an edit matcher matches `apply_patch` | Codex | later, group H | none | X-07 (H) |
 | F-124 An async PostToolUse's context arrives before the next request | Codex | later, group H | none | X-08 (H) |
@@ -1857,7 +1879,7 @@ Each fact the sheet marks for a sitting, with its mark and the steps that give e
 | F-162 Hook commands run through a non-login shell | Codex | from source | none | X-28 (H) |
 | F-173 One hook start costs 100 ms or less at the 95th percentile | Codex | by the field report | none | X-28 (H) |
 | F-174 SessionStart `compact` runs before the next request, also mid-turn | Codex | later, group E | none | X-22 (E) |
-| F-175 The server takes a push of machine commits | Sitting 0 | core | G-04 (core) | S0-13 (J) |
+| F-175 The server takes a push of machine commits | Sitting 0 | core | G-04 (core), G-05 (core) | S0-13 (J) |
 | F-176 The real wiki's project has no push rule against them | Sitting 0 | by the field report | none | none |
 | F-177 The real wiki's git server is reachable without a private network | Sitting 0 | by the field report | none | none |
 | F-178 A read with prompts off never waits | Sitting 0 | by the field report | none | S0-12 (J) |
@@ -1887,12 +1909,13 @@ Every step, where it is, its minutes, and the facts it gives evidence for; core 
 | --- | --- | --- | --- |
 | S0-01 Make the evaluation account | Part 1, sitting 0 | 10 | none |
 | S0-03 Tools for the account | Part 1, sitting 0 | 20 | none |
-| S0-05 Build the recorder and the scratch folders | Part 1, sitting 0 | 10 | none |
+| S0-05 Build the recorder and the scratch folders | Part 1, sitting 0 | 11 | none |
 | C-00 Open the windows | Part 1, sitting 1 | 2 | none |
 | G-01 A key for the scratch repository | Part 1, sitting 1 | 2 | none |
 | G-02 The scratch repository and its key, on the git server | Part 1, sitting 1 | 10 | F-182 |
 | G-03 The repository's address | Part 1, sitting 1 | 2 | none |
-| G-04 The push | Part 1, sitting 1 | 4 | F-175 (core), F-182, F-185, F-186, F-191 |
+| G-04 The pushes | Part 1, sitting 1 | 4 | F-175 (core), F-182, F-185, F-186, F-191 |
+| G-05 Delete the scratch repository | Part 1, sitting 1 | 4 | F-175 (core) |
 | C-0a Sign Claude Code in | Part 1, sitting 1 | 4 | none |
 | C-0b Register the Claude Code scratch plugin | Part 1, sitting 1 | 4 | F-056 |
 | C-01 Start | Part 1, sitting 1 | 3 | F-046, F-047, F-073 |
@@ -1900,7 +1923,7 @@ Every step, where it is, its minutes, and the facts it gives evidence for; core 
 | C-04 A turn with two tools and words between | Part 1, sitting 1 | 4 | F-001, F-002, F-004, F-005, F-013, F-016 (core), F-019, F-020, F-021, F-022, F-084, F-085 |
 | C-15 An interrupt | Part 1, sitting 1 | 2 | F-004, F-008, F-016 (core) |
 | C-17 A shell line and a plugin command | Part 1, sitting 1 | 3 | F-009, F-016 (core) |
-| C-19 Prompts nobody typed | Part 1, sitting 1 | 3 | F-016 (core), F-080 |
+| C-19 Prompts nobody typed | Part 1, sitting 1 | 5 | F-016 (core), F-080 |
 | C-27 Resume and fork | Part 1, sitting 1 | 4 | F-006, F-016 (core), F-033 (core), F-083 |
 | C-42 End of sitting 1 | Part 1, sitting 1 | 5 | F-075 |
 | X-00 Open the windows | Part 1, sitting 2 | 2 | none |
@@ -1912,13 +1935,12 @@ Every step, where it is, its minutes, and the facts it gives evidence for; core 
 | X-26 A run a program drives | Part 1, sitting 2 | 3 | F-018, F-028, F-032, F-121 (core) |
 | X-39 The desktop app's version and voice setting | Part 1, sitting 2 | 3 | F-142 (core), F-156 |
 | X-40 A short chat in the app | Part 1, sitting 2 | 6 | F-011, F-046, F-121 (core), F-137 |
-| X-43 A scheduled run in the app | Part 1, sitting 2 | 3 | F-016, F-121 (core) |
-| X-44 Voice call one: hand-overs, a correction, a yes, the pause phrase | Part 1, sitting 2 | 12 | F-121 (core), F-141, F-142 (core), F-143 (core), F-144 (core), F-145, F-147, F-148, F-149 |
+| X-43 A scheduled run in the app | Part 1, sitting 2 | 4 | F-016, F-121 (core) |
+| X-44 Voice call one: hand-overs, a correction, a yes, the pause phrase | Part 1, sitting 2 | 13 | F-121 (core), F-141, F-142 (core), F-143 (core), F-144 (core), F-145, F-147, F-148, F-149 |
 | X-46 After the call | Part 1, sitting 2 | 3 | F-142 (core), F-147, F-149 |
 | X-50 End of sitting 2 | Part 1, sitting 2 | 5 | F-120 |
 | E-02 Check the recording | Part 1, hand-over | 10 | none |
 | E-03 Pack and hand over | Part 1, hand-over | 5 | none |
-| E-04 Delete the scratch repository | Part 1, hand-over | 3 | none |
 | U-01 Bring the recorder up to date | Part 2, every group | 5 | F-158 |
 | U-02 End of a group | Part 2, every group | 3 | none |
 | C-0c Sign the Claude desktop app in | Part 2, group A | 3 | none |
@@ -1937,7 +1959,7 @@ Every step, where it is, its minutes, and the facts it gives evidence for; core 
 | C-09 A multiple-choice question | Part 2, group C | 5 | F-003 |
 | C-10 A plan approved and a plan rejected | Part 2, group C | 5 | F-003 |
 | C-11 A task list | Part 2, group C | 3 | F-078 |
-| C-12 A subagent | Part 2, group C | 6 | F-003, F-025, F-026, F-027, F-091 |
+| C-12 A subagent | Part 2, group C | 6 | F-003, F-016, F-025, F-026, F-027, F-091 |
 | C-13 A custom agent | Part 2, group C | 3 | F-026 |
 | C-24 A model change | Part 2, group C | 2 | F-077 |
 | X-06 A command that fails | Part 2, group C | 2 | F-007 |
