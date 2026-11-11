@@ -60,7 +60,7 @@ func synopses(doc string, line *regexp.Regexp) map[string][]string {
 
 // usageBeforeTheTable is what eva-md printed with no arguments before
 // commands registered themselves in the command table, byte for byte.
-const usageBeforeTheTable = "usage: eva-md setup | version | upgrade | init | install | uninstall | doctor | status | brief | show | search | index | inbox | update | commit | maintain | system | validate | hook | mcp\n"
+const usageBeforeTheTable = "usage: eva-md setup | version | upgrade | init | install | uninstall | doctor | status | brief | show | search | index | inbox | audit | update | commit | maintain | system | validate | hook | mcp\n"
 
 // eva-md with no arguments prints the usage line the command table builds,
 // the same bytes it printed before the table, on stderr, and exits 2.

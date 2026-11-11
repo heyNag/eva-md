@@ -68,6 +68,19 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           mkdir -p "$RUNNER_TEMP/latency"
           uptime
+          # The builds above leave the runner busy, and a busy runner cannot
+          # be timed: in the first 23 runs its load was 10 to 30 here, and
+          # the gate could not judge a third of them. Wait, five minutes at
+          # most, until its load over the last minute is under its CPUs.
+          cpus=$(sysctl -n hw.ncpu)
+          for _ in $(seq 1 30); do
+            load=$(sysctl -n vm.loadavg | awk '{ print $2 }')
+            if awk -v l="$load" -v c="$cpus" 'BEGIN { exit !(l < c) }'; then
+              break
+            fi
+            sleep 10
+          done
+          uptime
           python3 -I scripts/benchmark.py --compare "$RUNNER_TEMP/eva-md-base" bin/eva-md --cwd "$GITHUB_WORKSPACE" \
             --output "$RUNNER_TEMP/latency/gate.json" --baseline "$RUNNER_TEMP/latency/latency-macos.json" --commit "$SHA"
       - name: Save the latency report

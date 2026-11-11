@@ -24,37 +24,39 @@ Rules every card carries, so they are said once here:
 | [SEAM-0c](SEAM-0c.md) | Registries for status rows and switches | merged |
 | [EV-12](EV-12.md) | The results store and gates | merged |
 | [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
-| [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 of 20 on macOS |
-| [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | building |
+| [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 passes with no fail on macOS |
+| [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | built, reviewed and fixed on `pkg/ev-16b-r1`; the fix changed the rule, so two verifiers are measuring it by simulation before it merges |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | after EV-16b |
-| [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | building since 2026-11-11 |
-| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | building since 2026-11-11 |
-| [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | building since 2026-11-11 |
-| [CT-4](CT-4.md) | Counters release: a content-free report | after CT-1 to CT-3 |
-| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | ready |
+| [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
+| [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
+| [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
+| [CT-3b](CT-3b.md) | Counters release: the capture audit pairs a session by its id too | merged |
+| [CT-4](CT-4.md) | Counters release: a content-free report | merged |
+| [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | card written; not started. Its Part 1 serves the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md), cut to a core path; Part 2 may come later |
+| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | started 2026-11-11; paused while the counters are fixed |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
-| [HO-10a](HO-10a.md) | The host adapter and its table | built; in review |
-| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | ready |
+| [HO-10a](HO-10a.md) | The host adapter and its table | merged |
+| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | started 2026-11-11; paused while the counters are fixed |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | ready |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | after CT-1 and CT-2 |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
-| [HO-10b](HO-10b.md) | Install and setup ask the adapter | after HO-10a |
+| [HO-10b](HO-10b.md) | Install and setup ask the adapter | ready |
 | [HO-11](HO-11.md) | The install manifest | after HO-10a and HO-10b |
 | [HO-12a](HO-12a.md) | Health's host names through the adapter | after HO-10b and the counters release |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a, DV-12b and the counters release |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b and SEAM-0b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
-| [EV-11](EV-11.md) | Ownership and size checks | ready; the lead writes the `deletes` blocks from its size report, before it merges |
-| [IF-01a](IF-01a.md) | The contract matrix and its check | ready |
-| [IF-01b](IF-01b.md) | The reader's fake | ready |
+| [EV-11](EV-11.md) | Ownership and size checks | started 2026-11-11; paused while the counters are fixed |
+| [IF-01a](IF-01a.md) | The contract matrix and its check | started 2026-11-11; paused while the counters are fixed |
+| [IF-01b](IF-01b.md) | The reader's fake | started 2026-11-11; paused while the counters are fixed |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
-| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | ready |
+| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | started 2026-11-11; paused while the counters are fixed |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
-| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | ready |
-| [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | ready |
-| [ST-04](ST-04.md) | The migrator and the minimum reader version | ready |
-| [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | built; in review |
-| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | after EV-14a |
+| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | started 2026-11-11; paused while the counters are fixed |
+| [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | started 2026-11-11; paused while the counters are fixed |
+| [ST-04](ST-04.md) | The migrator and the minimum reader version | started 2026-11-11; paused while the counters are fixed |
+| [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
+| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | ready |
 | [EV-14c](EV-14c.md) | Six new families, half held out | after EV-14a and EV-14b |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | after EV-14a and EV-14b, before EV-10a |
 | [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | after the counters release |

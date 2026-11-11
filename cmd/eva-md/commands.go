@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -34,6 +35,10 @@ var (
 	checkTimeout   = 30 * time.Second
 )
 
+// reportTimeout bounds eva-md doctor --report, which reads the whole
+// inbox. A test gives runFieldReport a limit of its own instead.
+const reportTimeout = 10 * time.Minute
+
 func init() {
 	register(command{name: "install", file: "commands.go", place: 50,
 		synopsis: []string{"eva-md install [--host claude|codex|all] [--dry-run]"},
@@ -44,10 +49,10 @@ func init() {
 		return runDoctor(ctx, args, out, errOut)
 	}
 	register(command{name: "doctor", file: "commands.go", place: 70,
-		synopsis: []string{"eva-md doctor [--json] [--live]"},
+		synopsis: []string{"eva-md doctor [--json] [--live]", "eva-md doctor --report"},
 		run:      doctor})
 	register(command{name: "status", file: "commands.go", place: 80,
-		synopsis: []string{"eva-md status [--json]"},
+		synopsis: []string{"eva-md status [--json] [--updates]"},
 		run:      doctor})
 	resume := func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
 		return runResume(ctx, args, out, errOut)
@@ -325,16 +330,33 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f.SetOutput(io.Discard)
 	asJSON := f.Bool("json", false, "")
 	live := f.Bool("live", false, "")
+	updates := f.Bool("updates", false, "")
+	report := f.Bool("report", false, "")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return usage(errOut, "invalid arguments for "+args[0])
 	}
+	if *report && args[0] != "doctor" {
+		return usage(errOut, "status takes no --report; run eva-md doctor --report")
+	}
+	if *report && (*asJSON || *live || *updates) {
+		return usage(errOut, "doctor --report takes no other flag")
+	}
 	if *live && args[0] != "doctor" {
 		return usage(errOut, "status makes no model call; run eva-md doctor --live")
+	}
+	if *updates && args[0] != "status" {
+		return usage(errOut, "doctor takes no --updates; run eva-md status --updates")
 	}
 	d, err := paths.Default()
 	if err != nil {
 		fmt.Fprintln(errOut, "eva-md: home folder is unavailable")
 		return 1
+	}
+	if *updates {
+		return runUpdateFigures(d, *asJSON, out, errOut)
+	}
+	if *report {
+		return runFieldReport(ctx, d, out, reportTimeout)
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
@@ -363,6 +385,51 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 		}
 	}
 	if r.Failed() {
+		return 1
+	}
+	return 0
+}
+
+// runUpdateFigures runs eva-md status --updates: what the background update
+// did and cost over the run log's last 7 days, and why work waited, in
+// counts and durations only (see health.Updates). It writes nothing.
+func runUpdateFigures(d paths.Dirs, asJSON bool, out, errOut io.Writer) int {
+	figures, err := health.Updates(d, time.Now())
+	if err != nil {
+		fmt.Fprintln(errOut, "eva-md: the run log is unreadable; inspect the files in eva-md's state folder, updates/")
+		return 1
+	}
+	if asJSON {
+		if err := json.NewEncoder(out).Encode(figures); err != nil {
+			return 1
+		}
+		return 0
+	}
+	for _, line := range figures.Lines() {
+		fmt.Fprintln(out, line)
+	}
+	return 0
+}
+
+// runFieldReport runs eva-md doctor --report: how eva-md has behaved on
+// this Mac, as JSON of counts, durations, dates, eva-md's version and fixed
+// names only (see health.Field), the same for the same state and day. It
+// runs no command, makes no network or model call, repairs nothing and
+// writes no file. It reads the whole inbox within limit, reportTimeout for
+// the doctor; a part cut short says so, and the report still exits 0.
+func runFieldReport(ctx context.Context, d paths.Dirs, out io.Writer, limit time.Duration) int {
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	data, err := json.MarshalIndent(health.Field(ctx, d, time.Now()), "", "  ")
+	if err != nil {
+		return 1
+	}
+	// A list of numbers, as a week of times by bucket, goes on one line.
+	numbers := regexp.MustCompile(`\[\n[ \-0-9.,\n]*\]`)
+	data = numbers.ReplaceAllFunc(data, func(list []byte) []byte {
+		return []byte("[" + strings.Join(strings.Fields(string(list[1:len(list)-1])), " ") + "]")
+	})
+	if _, err := out.Write(append(data, '\n')); err != nil {
 		return 1
 	}
 	return 0

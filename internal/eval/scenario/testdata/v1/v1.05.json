@@ -1,0 +1,69 @@
+{
+  "id": "v1.05",
+  "family": "v1",
+  "name": "a conditional fact",
+  "split": "tuning",
+  "seed": 0,
+  "sessions": [
+    {
+      "host": "claude-code",
+      "session": "00000936-2222-4000-8000-000000000000",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-13T10:01:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "If BenchmarkBrief in scripts/benchmark.py passes 300 ms, switch to the streaming parser, CONDOR-8.",
+          "plants": [
+            "f1"
+          ]
+        }
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "kinds": [
+        "decision"
+      ],
+      "authority": "user",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "CONDOR-8"
+        },
+        {
+          "class": "cond",
+          "value": "If BenchmarkBrief in scripts/benchmark.py passes 300 ms"
+        },
+        {
+          "class": "ident",
+          "value": "BenchmarkBrief"
+        },
+        {
+          "class": "path",
+          "value": "scripts/benchmark.py"
+        },
+        {
+          "class": "quantity",
+          "value": "300 ms",
+          "forms": [
+            "300ms"
+          ]
+        },
+        {
+          "class": "phrase",
+          "value": "streaming parser"
+        }
+      ],
+      "must": "store"
+    }
+  ],
+  "passes": [
+    {
+      "session": 0
+    }
+  ]
+}
