@@ -11,7 +11,8 @@
 // count a chat once and to find the inbox's turn ids on the host's rows.
 //
 // It reads eva-md's inbox through the ledger's v1 reader, its session
-// markers and recovery records, and the hosts' session files the capture
+// markers and recovery records, its identity cache when the config
+// excludes a repository's remote, and the hosts' session files the capture
 // audit lists (audit.ListStore), of sessions the inbox holds only, each
 // admitted by recovery's path rules (catchup.Admits) and opened by
 // recovery's opener (catchup.OpenUnregistered); on Claude Code also a
