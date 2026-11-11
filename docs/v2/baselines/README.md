@@ -79,3 +79,23 @@ The gate may block a merge once an unchanged binary has passed it 20 times with 
 | 78 | 38256be | pass |
 
 These 18 runs are the first rule's (EV-16), from before the gate's second round: 10 passes, 2 fails and 6 not judged, on binaries that were alike. So the first rule fails an unchanged binary on CI's runner about one time in nine, and the count stands at 0. The runner was busy each time the gate began (a load of 10 to 30 on 3 CPUs, left by the two builds before it), so since 2026-11-11 the job waits, five minutes at most, for the load to fall under the CPUs before it times anything. Worked out again with the second round's rule, the same 23 saved runs (these 18 and 5 of changed binaries) give no fail, 2 passes and 21 not judged: that rule does not fail on noise, and this runner, as busy as it was, gave it almost nothing it could judge. Whether the wait changes that is read from the runs after it.
+
+## What the counters cost
+
+The counters release adds work to every hook: a record of what the run held back and delivered, a week of counts in the heartbeat, and a larger binary. Its cost was measured once on a quiet Linux machine (4 CPUs, a load of 3 falling to 2), the commit before any counters part against `main` with all four, in alternating runs, 400 samples a side for the common hooks. Medians, in milliseconds:
+
+| Hook | Before | After |
+| --- | --- | --- |
+| The process's start, Claude Code's launch path | 10.6 | 11.3 |
+| The process's start, Codex's launch path | 11.8 | 12.9 |
+| Capture of a reply | 15.3 | 16.4 |
+| Capture with a transcript to recover | 16.7 | 16.6 |
+| A prompt after a brief | 16.9 | 16.4 |
+| A prompt with pointers | 22.7 | 22.2 |
+| A prompt with recall | 29.8 | 28.7 |
+| A tool call, Claude Code | 14.5 | 14.8 |
+| A tool call, Codex | 15.4 | 15.8 |
+| A chat's start | 63.4 | 64.1 |
+| A chat's start on the real install's shape | 98.2 | 99.8 |
+
+So a hook costs about one millisecond more, most of it at the process's start, and nothing was seen in the slow tail: no sample on either side passed 250 ms, and the slowest after was 201 ms, a chat's start with 1.5 seconds to spend. The gate itself could not judge that run, nor CI's runs on the commits that merged the parts: its 95th percentiles moved both ways by more than this between runs of the same binary. The medians are steadier, which the gate's next rule should use.
