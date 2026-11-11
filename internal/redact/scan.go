@@ -67,8 +67,8 @@ type Result struct {
 // replace, each with the kind of its marker, the rule set that found it and
 // a tier. When the baseline rules do not run at run time (see
 // SetBaselineAtRunTime), it runs the current rules alone, as Redact then
-// does, and no finding is FloorOnly; what follows of rounds and of the
-// baseline's calls is then of the current rules' passes alone.
+// does: no finding is FloorOnly, and what follows of the baseline rules'
+// calls does not apply.
 //
 // It checks ctx before each round of the rules and before each pass of the
 // current rules, and stops when ctx has ended. A scan that stops keeps

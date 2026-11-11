@@ -204,6 +204,7 @@ func TestRates(t *testing.T) {
 	if err := checkRates(got, string(want)); err != nil {
 		t.Fatal(err)
 	}
+	t.Log(got)
 }
 
 // The rates see a change of one label: relabelling one case changes the
