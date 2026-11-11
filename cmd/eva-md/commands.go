@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -27,11 +28,13 @@ import (
 // resumeTimeout bounds eva-md brief, show and search, installTimeout the
 // host commands of eva-md install, uninstall and setup's install, and
 // checkTimeout the checks of eva-md doctor, status and setup. Tests raise
-// them before any test runs.
+// them before any test runs. reportTimeout bounds eva-md doctor --report,
+// which reads the whole inbox; no test needs it raised.
 var (
 	resumeTimeout  = 5 * time.Second
 	installTimeout = 2 * time.Minute
 	checkTimeout   = 30 * time.Second
+	reportTimeout  = 10 * time.Minute
 )
 
 func init() {
@@ -44,7 +47,7 @@ func init() {
 		return runDoctor(ctx, args, out, errOut)
 	}
 	register(command{name: "doctor", file: "commands.go", place: 70,
-		synopsis: []string{"eva-md doctor [--json] [--live]"},
+		synopsis: []string{"eva-md doctor [--json] [--live]", "eva-md doctor --report"},
 		run:      doctor})
 	register(command{name: "status", file: "commands.go", place: 80,
 		synopsis: []string{"eva-md status [--json] [--updates]"},
@@ -326,8 +329,15 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 	asJSON := f.Bool("json", false, "")
 	live := f.Bool("live", false, "")
 	updates := f.Bool("updates", false, "")
+	report := f.Bool("report", false, "")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return usage(errOut, "invalid arguments for "+args[0])
+	}
+	if *report && args[0] != "doctor" {
+		return usage(errOut, "status takes no --report; run eva-md doctor --report")
+	}
+	if *report && (*asJSON || *live || *updates) {
+		return usage(errOut, "doctor --report takes no other flag")
 	}
 	if *live && args[0] != "doctor" {
 		return usage(errOut, "status makes no model call; run eva-md doctor --live")
@@ -342,6 +352,9 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 	}
 	if *updates {
 		return runUpdateFigures(d, *asJSON, out, errOut)
+	}
+	if *report {
+		return runFieldReport(ctx, d, out)
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
@@ -392,6 +405,30 @@ func runUpdateFigures(d paths.Dirs, asJSON bool, out, errOut io.Writer) int {
 	}
 	for _, line := range figures.Lines() {
 		fmt.Fprintln(out, line)
+	}
+	return 0
+}
+
+// runFieldReport runs eva-md doctor --report: how eva-md has behaved on
+// this Mac, as JSON of counts, durations, dates, eva-md's version and fixed
+// names only (see health.Field), the same for the same state and day. It
+// runs no command, makes no network or model call, repairs nothing and
+// writes no file. It reads the whole inbox, within reportTimeout; a part
+// cut short says so.
+func runFieldReport(ctx context.Context, d paths.Dirs, out io.Writer) int {
+	ctx, cancel := context.WithTimeout(ctx, reportTimeout)
+	defer cancel()
+	data, err := json.MarshalIndent(health.Field(ctx, d, time.Now()), "", "  ")
+	if err != nil {
+		return 1
+	}
+	// A list of numbers, as a week of times by bucket, goes on one line.
+	numbers := regexp.MustCompile(`\[\n[ \-0-9.,\n]*\]`)
+	data = numbers.ReplaceAllFunc(data, func(list []byte) []byte {
+		return []byte("[" + strings.Join(strings.Fields(string(list[1:len(list)-1])), " ") + "]")
+	})
+	if _, err := out.Write(append(data, '\n')); err != nil {
+		return 1
 	}
 	return 0
 }
