@@ -351,7 +351,7 @@ func TestTheReportHoldsNumbersOnly(t *testing.T) {
 	if after := snapshot(t, f.home); !slices.Equal(before, after) {
 		t.Errorf("the audit changed the home:\n%q\n%q", before, after)
 	}
-	for _, want := range []string{"capture audit: 4 sessions in 4 inbox files", "session 1 (claude-code)", "session 2 (codex)", "path named and refused 1", "no recovery record 1"} {
+	for _, want := range []string{"capture audit: 4 sessions in 4 inbox files, 0 more files unreadable", "session 1 (claude-code)", "session 2 (codex)", "path named and refused 1", "no recovery record 1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the report lacks %q:\n%s", want, out)
 		}

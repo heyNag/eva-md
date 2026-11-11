@@ -96,7 +96,7 @@ type Row struct {
 type Report struct {
 	Sessions      int // sessions in scope, by host and id
 	Files         int // their inbox files
-	Unread        int // inbox files the reader could not read
+	Unread        int // inbox files named that the reader could not read
 	Rows          []Row
 	Coverage      [kinds]Coverage
 	BeforeCapture int // host items before a session's first stored line
@@ -149,7 +149,6 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if ctx.Err() != nil {
 			return Report{}, ctx.Err()
 		}
-		r.Files++
 		if err != nil {
 			r.Unread++
 			continue
@@ -177,6 +176,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		order = order[:o.Last]
 	}
 	for _, g := range order {
+		r.Files += len(groups[g])
 		if err := r.session(ctx, o, g.host, g.session, groups[g]); err != nil {
 			return Report{}, err
 		}
@@ -184,11 +184,11 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	r.Sessions = len(order)
 	if o.Session == "" && o.Last == 0 {
 		known := map[string]map[string]bool{}
-		for _, g := range order {
-			if known[g.host] == nil {
-				known[g.host] = map[string]bool{}
+		for _, k := range keys {
+			if known[k.Host] == nil {
+				known[k.Host] = map[string]bool{}
 			}
-			known[g.host][g.session] = true
+			known[k.Host][k.Session] = true
 		}
 		r.Stores = stores(o, known, first)
 	}

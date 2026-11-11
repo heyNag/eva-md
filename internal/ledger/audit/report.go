@@ -14,7 +14,7 @@ var names = [kinds]string{"prompts", "final replies", "tool calls"}
 // A paired session is named by its place, newest first.
 func (r Report) Write(w io.Writer) error {
 	p := &printer{w: w}
-	p.f("capture audit: %d sessions in %d inbox files (%d unreadable); %d paired with the host's own record\n", r.Sessions, r.Files, r.Unread, r.Recovery.Paired)
+	p.f("capture audit: %d sessions in %d inbox files, %d more files unreadable; %d paired with the host's own record\n", r.Sessions, r.Files, r.Unread, r.Recovery.Paired)
 	p.f("coverage of the paired sessions (found, missing from the inbox, extra in it):\n")
 	for k := range kinds {
 		c := r.Coverage[k]
