@@ -920,9 +920,9 @@ func (v *validator) verdict() error {
 	}
 	switch {
 	case v.report.Dates > maxDateDrops:
-		return reject("%d lines wrote a date no cited entry holds", v.report.Dates)
+		return reject(RuleDates, "", "%d lines wrote a date no cited entry holds", v.report.Dates)
 	case !v.u.KeepNow && 2*v.report.Carried > len(v.order):
-		return reject("%d of the page's %d item ids have no action", v.report.Carried, len(v.order))
+		return reject(RuleCarried, "items", "%d of the page's %d item ids have no action", v.report.Carried, len(v.order))
 	}
 	return nil
 }

@@ -59,3 +59,23 @@ The gate may block a merge once an unchanged binary has passed it 20 times with 
 
 | Run | Commit | Verdict |
 | --- | --- | --- |
+| 56 | ecd8507 | pass |
+| 57 | 84f0fc7 | pass |
+| 58 | f52289f | pass |
+| 59 | 361ed5c | fail |
+| 60 | 7d824ae | pass |
+| 61 | e19d195 | not judged |
+| 62 | 02b9096 | not judged |
+| 63 | accc638 | fail |
+| 65 | c3afbd9 | pass |
+| 66 | 86767db | pass |
+| 67 | 10024d0 | pass |
+| 69 | 8805e3c | not judged |
+| 70 | 3a6a444 | not judged |
+| 71 | 3997e78 | pass |
+| 72 | 484017a | pass |
+| 75 | c0e0eaa | not judged |
+| 76 | d1e2a39 | not judged |
+| 78 | 38256be | pass |
+
+These 18 runs are the first rule's (EV-16), from before the gate's second round: 10 passes, 2 fails and 6 not judged, on binaries that were alike. So the first rule fails an unchanged binary on CI's runner about one time in nine, and the count stands at 0. The runner was busy each time the gate began (a load of 10 to 30 on 3 CPUs, left by the two builds before it), so since 2026-11-11 the job waits, five minutes at most, for the load to fall under the CPUs before it times anything. Worked out again with the second round's rule, the same 23 saved runs (these 18 and 5 of changed binaries) give no fail, 2 passes and 21 not judged: that rule does not fail on noise, and this runner, as busy as it was, gave it almost nothing it could judge. Whether the wait changes that is read from the runs after it.
