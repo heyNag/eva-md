@@ -36,13 +36,27 @@ func readV1File(t *testing.T, path string) (V1Page, error) {
 	return ReadV1(b)
 }
 
-// Each fixture page reads through ReadV1 as its golden, v1's own reading,
-// holds it; every page has its golden and every golden its page.
+// Each fixture page reads through ReadV1 as its golden, v1's own reading;
+// every page has its golden and every golden its page.
 func TestV1Goldens(t *testing.T) {
-	pages, _ := filepath.Glob("testdata/v1/*.md")
-	goldens, _ := filepath.Glob("testdata/v1/*.json")
-	if len(pages) < 9 || len(pages) != len(goldens) {
-		t.Fatalf("%d fixture pages, %d goldens", len(pages), len(goldens))
+	checkGoldens(t, "testdata/v1", 9)
+}
+
+// Forms v1 read, beyond the pages it wrote, which the codec reads alike:
+// each page of testdata/v1/forms reads as its golden, which the tests in
+// v1oracle hold to v1's own reading.
+func TestReadV1Forms(t *testing.T) {
+	checkGoldens(t, "testdata/v1/forms", 10)
+}
+
+// checkGoldens reads each page in dir through ReadV1 and compares it with
+// its golden. dir holds at least least pages, and a golden for each.
+func checkGoldens(t *testing.T, dir string, least int) {
+	t.Helper()
+	pages, _ := filepath.Glob(filepath.Join(dir, "*.md"))
+	goldens, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	if len(pages) < least || len(pages) != len(goldens) {
+		t.Fatalf("%s: %d pages, %d goldens", dir, len(pages), len(goldens))
 	}
 	for _, path := range pages {
 		want, err := os.ReadFile(strings.TrimSuffix(path, ".md") + ".json")
@@ -100,6 +114,18 @@ func TestV1Differences(t *testing.T) {
 			func(p V1Page, err error) bool { return locked(p, err) && p.Extra["locked"] == false }},
 		{"single-quoted", `"it''s the feed", quotes doubled and spaces trimmed`,
 			func(p V1Page, err error) bool { return err == nil && p.Title == "it's the feed  " }},
+		{"yaml-escape", `"Tide\x20feed", the escape kept`,
+			func(p V1Page, err error) bool { return err == nil && p.Title == "Tide feed" }},
+		{"explicit-key", `no title, and "Tide feed" under the key ""`,
+			func(p V1Page, err error) bool { return err == nil && p.Title == "Tide feed" && len(p.Extra) == 0 }},
+		{"indented-block", "no key at all",
+			func(p V1Page, err error) bool {
+				return err == nil && p.Type == "thread" && p.Title == "Tide feed" && p.Status == "stable"
+			}},
+		// YAML reads no key on these lines, or refuses them; v1 read one.
+		{"no-space-after-colon", `the title "Tide feed"`, refused(ErrNotWritten, Protection{})},
+		{"tab-indent", `the list ["tide-tables"]`, refused(ErrNotWritten, Protection{})},
+		{"text-after-quote", `the title "\"Tide\" feed"`, refused(ErrNotWritten, Protection{})},
 		// The one row where v1 protected and the codec does not: an empty
 		// mapping is no verified mark (the format's section 6), though v1
 		// read it as a record with no one and no time.
@@ -127,53 +153,6 @@ func TestV1Differences(t *testing.T) {
 	}
 }
 
-// Forms v1 read, which the codec reads alike, beyond those v1 wrote.
-func TestReadV1Forms(t *testing.T) {
-	page := func(front string) string { return "---\n" + front + "---\nbody\n" }
-	for _, c := range []struct {
-		name, in string
-		want     V1Page
-	}{
-		{"generated as a block mapping", page("generated:\n  by: codex/model-b\n  at: \"2026-11-04T06:12:09Z\"\n"),
-			V1Page{Generated: &V1Stamp{"codex/model-b", "2026-11-04T06:12:09Z"}}},
-		{"generated with no pairs", page("generated: x\n"), V1Page{}},
-		{"verified as a flow list, empty items dropped", page("verified: [{ by: a, at: b }, {}, { by: c }]\n"),
-			V1Page{Verified: []V1Stamp{{"a", "b"}, {"c", ""}}}},
-		{"verified as a block list of pairs", page("verified:\n  - by: a\n    at: b\n  - { by: c, at: d }\n"),
-			V1Page{Verified: []V1Stamp{{"a", "b"}, {"c", "d"}}}},
-		{"sources with a count and a comment line", page("sources:\n  # kept\n  - resource: \"s:1#2\"\n    usage_count: 3\n    seen: \"x, y\"\n"),
-			V1Page{Sources: []V1Source{{Resource: "s:1#2", UsageCount: 3, Extra: map[string]string{"seen": "x, y"}}}}},
-		{"a block list of scalars", page("repos:\n  - a\n  - \"b c\"\n  - 3\n"),
-			V1Page{Extra: map[string]any{"repos": []any{"a", "b c", float64(3)}}}},
-		{"a block v1 kept as lines", page("note:\n  a: 1\n    b: 2\n"),
-			V1Page{Extra: map[string]any{"note": []string{"a: 1", "  b: 2"}}}},
-		{"a flow list of plain values", page("aliases: [tide, 'harbour feed', 2, true]\n"),
-			V1Page{Extra: map[string]any{"aliases": []any{"tide", "harbour feed", float64(2), true}}}},
-		{"JSON and plain scalars", page("head: 4e2bf4c\nparent: \"\"\nlocked: null\nmodel_note: \"a\\u00e9\"\nempty:\n"),
-			V1Page{Extra: map[string]any{"head": "4e2bf4c", "parent": "", "locked": nil, "model_note": "aé", "empty": ""}}},
-		{"keys v1 kept in fields eva-md never used", page("tags: [a]\nresource: x\ngovernance: hold\ncode_refs: [y]\n"), V1Page{}},
-		{"an explicit key and a key with a space before its colon", page("? title\n: Tide\nstatus : stable\n"),
-			V1Page{Title: "Tide", Status: "stable"}},
-		{"CR LF lines", "---\r\ntype: thread\r\ntitle: \"A\"\r\n---\r\nbody\r\n", V1Page{Type: "thread", Title: "A", Body: "body\r\n"}},
-	} {
-		got, err := ReadV1([]byte(c.in))
-		if err != nil {
-			t.Errorf("%s: %v", c.name, err)
-			continue
-		}
-		got.Doc = nil
-		if c.want.Extra == nil {
-			c.want.Extra = map[string]any{}
-		}
-		if c.want.Body == "" {
-			c.want.Body = "body\n"
-		}
-		if !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
-		}
-	}
-}
-
 // What ReadV1 refuses: an error it can be told by, the Doc set, and a text
 // that names neither the library v1 was built on nor a key a person added.
 func TestReadV1Refusals(t *testing.T) {
@@ -196,6 +175,12 @@ func TestReadV1Refusals(t *testing.T) {
 		{"a plain value with lines under it", page("secret_word_zq: a\n  b\n"), ErrNotWritten},
 		{"a list under a value", page("sources: x\n  - resource: y\n"), ErrNotWritten},
 		{"a repeated key a person added", page("secret_word_zq: a\n\"secret_word_zq\": b\n"), ErrRepeated},
+		{"a line that is no key", page("title: x\nsecret_word_zq:y\n"), ErrNotWritten},
+		{"a line indented with a tab", page("title: x\n\tsecret_word_zq: y\n"), ErrNotWritten},
+		{"a line less indented than the block", page("  title: x\nsecret_word_zq: y\n"), ErrNotWritten},
+		{"a line before the first key", page("secret_word_zq\ntitle: x\n"), ErrNotWritten},
+		{"text after a quoted value", page("secret_word_zq: \"a\" b\n"), ErrNotWritten},
+		{"text after a flow list", page("repos: [a] b\n"), ErrNotWritten},
 	} {
 		p, err := ReadV1(c.in)
 		if !errors.Is(err, c.want) {
@@ -217,7 +202,7 @@ func TestReadV1Refusals(t *testing.T) {
 
 // ReadV1 never panics, and a refusal returns the Doc and nothing else.
 func FuzzReadV1(f *testing.F) {
-	for _, glob := range []string{"testdata/v1/*.md", "testdata/v1/differences/*.md", "testdata/corpus/*.md"} {
+	for _, glob := range []string{"testdata/v1/*.md", "testdata/v1/forms/*.md", "testdata/v1/differences/*.md", "testdata/corpus/*.md"} {
 		files, _ := filepath.Glob(glob)
 		for _, path := range files {
 			if b, err := os.ReadFile(path); err == nil {

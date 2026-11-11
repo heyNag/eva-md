@@ -159,16 +159,7 @@ func TestFixturesReadAsV1ReadThem(t *testing.T) {
 		if okfadapter.IsVerified(pg) {
 			verified++
 		}
-		want := filepath.Join(fixtures, name+".json")
-		if *update {
-			if err := os.WriteFile(want, golden(lib), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			continue
-		}
-		if b, err := os.ReadFile(want); err != nil || !bytes.Equal(b, golden(lib)) {
-			t.Errorf("%s: the golden is not v1's reading (%v); run go test -run %s -update", name, err, t.Name())
-		}
+		checkGolden(t, strings.TrimSuffix(path, ".md")+".json", lib)
 	}
 	for _, typ := range []string{"thread", "rules", "now", "knowledge", "map", "system", "guide"} {
 		if !types[typ] {
@@ -181,6 +172,44 @@ func TestFixturesReadAsV1ReadThem(t *testing.T) {
 	thread, _ := os.ReadFile(filepath.Join(fixtures, "thread.md"))
 	if want, _ := os.ReadFile("../../../okfadapter/testdata/thread.golden.md"); len(want) == 0 || !bytes.Equal(thread, want) {
 		t.Error("thread.md is not a copy of internal/okfadapter/testdata/thread.golden.md")
+	}
+}
+
+// checkGolden holds the golden at path to v1's reading, or with -update
+// writes it.
+func checkGolden(t *testing.T, path string, lib codec.V1Page) {
+	t.Helper()
+	if *update {
+		if err := os.WriteFile(path, golden(lib), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if b, err := os.ReadFile(path); err != nil || !bytes.Equal(b, golden(lib)) {
+		t.Errorf("%s is not v1's reading (%v); run go test -run %s -update", path, err, t.Name())
+	}
+}
+
+// Each page of testdata/v1/forms, in a form v1 read but did not write, or
+// wrote and a person may have edited, reads through the library and
+// through ReadV1 alike, and equals its golden.
+func TestFormsReadAsV1ReadThem(t *testing.T) {
+	w := wiki(t)
+	pages, err := filepath.Glob(filepath.Join(fixtures, "forms", "*.md"))
+	if err != nil || len(pages) < 10 {
+		t.Fatalf("%d forms: %v", len(pages), err)
+	}
+	for _, path := range pages {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lib, _, diff := agree(t, w, "f", raw)
+		if diff != "" {
+			t.Errorf("%s: %s", path, diff)
+			continue
+		}
+		checkGolden(t, strings.TrimSuffix(path, ".md")+".json", lib)
 	}
 }
 

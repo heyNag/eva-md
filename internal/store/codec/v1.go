@@ -80,6 +80,14 @@ func readV1(d *Doc) (V1Page, error) {
 	if d.flowRoot() {
 		return p, fmt.Errorf("%w: the frontmatter is one flow mapping", ErrNotWritten)
 	}
+	// A line that belongs to no key and is not blank or a comment is one
+	// YAML reads otherwise or refuses: "title:x", a line indented with a
+	// tab, one less indented than the block. Its words would be dropped.
+	for i := 1; i < d.close; i++ {
+		if t := strings.TrimLeft(text(d.lines[i]), " \t"); d.kinds[i] == opaque && t != "" && t[0] != '#' {
+			return p, fmt.Errorf("%w: line %d belongs to no key", ErrNotWritten, i+1)
+		}
+	}
 	seen := map[string]bool{}
 	for _, e := range d.entries {
 		if e.key == unknownKey || e.key == mergeKey {
@@ -120,8 +128,10 @@ func (p *V1Page) set(e *entry) error {
 		return errors.New("a block scalar")
 	case s != "" && strings.IndexByte("!&*", s[0]) >= 0:
 		return errors.New("a tag, an anchor or an alias")
-	case s != "" && len(lines) > 0, runsOn(s):
+	case s != "" && len(lines) > 0, closeOf(s) < 0:
 		return errors.New("a value that runs onto the next line")
+	case closeOf(s) != len(s):
+		return errors.New("a quoted value or a collection with text after it")
 	}
 	switch e.key {
 	case "type", "title", "description", "status", "stale_after":
@@ -217,19 +227,21 @@ func uncomment(s string) string {
 	return s
 }
 
-// runsOn reports a value, its comment dropped, that opens a quoted string
-// or a flow collection it does not close: YAML continues it onto the next
-// lines.
-func runsOn(s string) bool {
+// closeOf is the index just after the quoted string or flow collection a
+// value, its comment dropped, opens, -1 when it does not close on the line
+// (YAML continues it onto the next lines), and len(s) for any other value.
+func closeOf(s string) int {
 	switch {
 	case s == "":
-		return false
 	case s[0] == '"' || s[0] == '\'':
-		return quoteEnd(s, 0) != len(s)-1
+		if j := quoteEnd(s, 0); j >= 0 {
+			return j + 1
+		}
+		return -1
 	case s[0] == '[' || s[0] == '{':
-		return flowEnd(s) != len(s)
+		return flowEnd(s)
 	}
-	return false
+	return len(s)
 }
 
 // unquoteV1 reads a scalar, the white space around it dropped as v1
