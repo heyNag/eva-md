@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -335,12 +336,17 @@ func TestWhatIsLookedForByIDAndOpened(t *testing.T) {
 	}
 	type session struct{ name, host, id string }
 	var all []session
-	for name, c := range cases {
+	for _, d := range []string{projects, codexDay} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(cases)) {
 		id := marker + "-" + strings.ReplaceAll(name, " ", "-")
-		if c.host == "codex" {
+		if cases[name].host == "codex" {
 			id = uuid(len(all) + 1)
 		}
-		all = append(all, session{name, c.host, id})
+		all = append(all, session{name, cases[name].host, id})
 	}
 	for _, s := range all {
 		cases[s.name].make(s.id)
