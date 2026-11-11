@@ -528,7 +528,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 			return ""
 		}
 		if gapBacklogged(store, file, before, now) {
-			queueUpdate(spawns, env, host+":"+p.Session)
+			queueUpdate(spawns, env, p.Event, host+":"+p.Session)
 		}
 		e.Role = "user"
 		e.Kind = "prompt"
@@ -574,7 +574,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 			}
 		}
 		if (p.Event == "SessionEnd" || p.Event == "PreCompact") && !p.headless {
-			queueUpdate(spawns, env, host+":"+p.Session)
+			queueUpdate(spawns, env, p.Event, host+":"+p.Session)
 		}
 		return resumeContext(ctx, host, p, env, project, now, start, spawns)
 	}
@@ -588,7 +588,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 		}
 	}
 	if p.Event == "Stop" && !p.headless && updatesOn(env.Config) && stopBacklogged(store, file) {
-		queueUpdate(spawns, env, host+":"+p.Session)
+		queueUpdate(spawns, env, p.Event, host+":"+p.Session)
 	}
 	return resumeContext(ctx, host, p, env, project, now, start, spawns)
 }

@@ -91,6 +91,19 @@ type Record struct {
 	ModelNote         string  `json:"model_note,omitempty"`
 	Degraded          string  `json:"degraded,omitempty"`
 	Validation        *Report `json:"validation,omitempty"`
+	// Trigger names what started the job that chose the session (see
+	// Triggers): empty in a record an older release wrote, and for a job
+	// started with no name.
+	Trigger string `json:"trigger,omitempty"`
+	// ModelReported is the model the host's output says answered, where it
+	// says, beside Model, the one asked for.
+	ModelReported string `json:"model_reported,omitempty"`
+	// Rejection is the rule that refused an answer whole, and where, for
+	// an invalid_output the checker found.
+	Rejection *Rejection `json:"rejection,omitempty"`
+	// SessionHashes are the sessions a busy job was started for (see
+	// sessionHash); only an OutcomeBusy record has them.
+	SessionHashes []string `json:"session_hashes,omitempty"`
 }
 
 // success reports a pass whose output validated.
@@ -206,18 +219,47 @@ func openRecords(dir, name string) (*os.File, error) {
 	return f, nil
 }
 
-// parseRecords decodes run-log lines. A line that doesn't decode is skipped.
+// parseRecords decodes run-log lines. A line that doesn't decode is
+// skipped, and so is one that names no host, as a busy record does.
 func parseRecords(data []byte) []Record {
+	return parseLines(data, false)
+}
+
+// parseLines decodes run-log lines, and with busy keeps the busy records.
+func parseLines(data []byte, busy bool) []Record {
 	var out []Record
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
 		var r Record
-		if json.Unmarshal(sc.Bytes(), &r) == nil && r.Host != "" {
+		if json.Unmarshal(sc.Bytes(), &r) == nil && (r.Host != "" || busy && r.Outcome == OutcomeBusy) {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+// Days reads the whole run log of the days days that end on now's day,
+// oldest first, busy records included: what eva-md status --updates
+// reports on. It reads each day's file up to 32 MB, as the job does.
+func Days(state string, now time.Time, days int) ([]Record, error) {
+	var out []Record
+	for i := days - 1; i >= 0; i-- {
+		f, err := openDay(state, now.AddDate(0, 0, -i).Format(time.DateOnly))
+		if err != nil {
+			return out, err
+		}
+		if f == nil {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(f, maxRunLog))
+		f.Close()
+		if err != nil {
+			return out, fmt.Errorf("update: run log: %w", err)
+		}
+		out = append(out, parseLines(data, true)...)
+	}
+	return out, nil
 }
 
 // Recent reads the run log's newest records, of now's day and the day

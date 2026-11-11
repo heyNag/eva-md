@@ -83,6 +83,7 @@ type Request struct {
 type Result struct {
 	Output              []byte // the structured JSON, validated by the caller
 	Model               string // the model actually requested; empty for the host default
+	ModelReported       string // the model the host's output says answered the last attempt; empty where it doesn't say
 	ModelNote           string // "fallback from <model>" or "default (chat model unknown)"
 	TokensIn, TokensOut int    // from the CLI's own report, when present, over all attempts; input includes cached tokens
 	Attempts            int    // CLI runs made, including the retries after a refusal; a missing CLI made none
@@ -121,6 +122,7 @@ type attempt struct {
 	strictMCPRefused    bool // claude refused --strict-mcp-config
 	degraded            string
 	tokensIn, tokensOut int
+	model               string // the model the output says answered, where it says
 }
 
 // hostCLI is what differs between the hosts.
@@ -198,7 +200,7 @@ func (c cliRunner) Run(ctx context.Context, r Request) (Result, error) {
 			t.model = ""
 			res.Model, res.ModelNote = "", NoteFallback+r.Model
 		default:
-			res.Output, res.Reason = a.output, a.reason
+			res.Output, res.Reason, res.ModelReported = a.output, a.reason, a.model
 			if a.reason == "" {
 				res.Effort = t.effort
 				res.Degraded = joinNotes(a.degraded, effortNote(r.Model, t, effort), mcpNote)
