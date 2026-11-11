@@ -43,7 +43,7 @@ Rules every card carries, so they are said once here:
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a, DV-12b and the counters release |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b and SEAM-0b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
-| [EV-11](EV-11.md) | Ownership and size checks | ready, once the lead has written the `deletes` blocks |
+| [EV-11](EV-11.md) | Ownership and size checks | ready; the lead writes the `deletes` blocks from its size report, before it merges |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | ready |
 | [IF-01b](IF-01b.md) | The reader's fake | ready |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
