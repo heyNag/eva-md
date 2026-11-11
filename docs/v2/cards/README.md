@@ -33,12 +33,12 @@ Rules every card carries, so they are said once here:
 | [CT-4](CT-4.md) | Counters release: a content-free report | after CT-1 to CT-3 |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | building since 2026-11-11 |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
-| [HO-10a](HO-10a.md) | The host adapter and its table | built; in review |
+| [HO-10a](HO-10a.md) | The host adapter and its table | merged |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | building since 2026-11-11 |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | ready |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | after CT-1 and CT-2 |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
-| [HO-10b](HO-10b.md) | Install and setup ask the adapter | after HO-10a |
+| [HO-10b](HO-10b.md) | Install and setup ask the adapter | ready |
 | [HO-11](HO-11.md) | The install manifest | after HO-10a and HO-10b |
 | [HO-12a](HO-12a.md) | Health's host names through the adapter | after HO-10b and the counters release |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a, DV-12b and the counters release |

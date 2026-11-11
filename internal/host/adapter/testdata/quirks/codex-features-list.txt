@@ -1,0 +1,4 @@
+apps experimental false
+hooks experimental true
+multi_agent experimental false
+view_image stable true
