@@ -18,7 +18,9 @@ func init() {
 // heldCheck is the row of what the hooks of both hosts held back in the
 // week ending today, by kind: what a hook kept only the event's name of, or
 // nothing, while transcript recovery had not read to the end of the chat's
-// transcript, and apart, while a chat was off the record. It is for
+// transcript, and apart, while a chat was off the record. A chat's brief is
+// counted at each run that held it back while it was still owed, its start
+// and its prompts, so briefs count runs and not chats. It is for
 // information and never FAIL. A week with no run recorded by a hook that
 // keeps weeks gives no row.
 func heldCheck(d paths.Dirs, now time.Time) (Check, bool) {
@@ -38,6 +40,9 @@ func heldCheck(d paths.Dirs, now time.Time) (Check, bool) {
 		detail += "nothing held back while transcript recovery was behind; held back while a chat was off the record: " + off
 	default:
 		detail += "held back while transcript recovery was behind: " + behind + "; while a chat was off the record: " + off
+	}
+	if w.Behind[3]+w.OffRecord[3] > 0 {
+		detail += " (a brief still owed is counted at each run that held it back)"
 	}
 	return Check{Name: "hooks held back", Status: "PASS", Detail: detail}, true
 }

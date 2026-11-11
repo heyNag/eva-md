@@ -131,8 +131,6 @@ type beat struct {
 	// Headless whether the hook took it for a program's chat.
 	Entrypoint string `json:"entrypoint"`
 	Headless   bool   `json:"headless"`
-	// Week is the event's runs of the last WeekDays days (see AddRun).
-	Week []HookDay `json:"week"`
 }
 
 // hookRun is one run in a heartbeat's history, with the time it took, which

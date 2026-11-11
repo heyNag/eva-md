@@ -19,10 +19,11 @@ func init() {
 // deliveredCheck is the row of what the hooks of both hosts added to chats
 // in the week ending today: the runs that could add text, by kind; how
 // many added some, and how many characters; how many added each route;
-// the share of chat starts, those that did not run out of time, whose
-// state was older than the newest captured exchange or that had an update
-// pending; the first-prompt fallbacks; and the runs that passed their
-// deadline and delivered nothing. It is for information and never FAIL. A
+// of the briefs given to new chats and compactions (see Delivery.briefed),
+// how many showed the thread's state, and the share whose state was older
+// than the newest captured exchange or that had an update pending; the
+// first-prompt briefs delivered; and the runs that passed their deadline
+// and delivered nothing. It is for information and never FAIL. A
 // week with no such run recorded gives no row.
 func deliveredCheck(d paths.Dirs, now time.Time) (Check, bool) {
 	w := hookWeek(d, now)
@@ -46,9 +47,9 @@ func deliveredCheck(d paths.Dirs, now time.Time) (Check, bool) {
 	if len(by) > 0 {
 		detail += "; runs that added each: " + strings.Join(by, ", ")
 	}
-	if w.Starts > 0 {
-		detail += fmt.Sprintf("; of %d chat %s, %d (%d%%) showed a state older than the newest captured exchange or an update pending (%d stale, %d pending)",
-			w.Starts, plural(w.Starts, "start", "starts"), w.StaleOrPending, (w.StaleOrPending*100+w.Starts/2)/w.Starts, w.Stale, w.Pending)
+	if w.Briefs > 0 {
+		detail += fmt.Sprintf("; of %d %s given at a new chat's start, a compaction or a chat's first prompt (resumed and forked chats left out), %d showed the thread's state, and %d (%d%% of the %d) showed a state older than the newest captured exchange or an update pending (%d stale, %d pending)",
+			w.Briefs, plural(w.Briefs, "brief", "briefs"), w.WithState, w.StaleOrPending, (w.StaleOrPending*100+w.Briefs/2)/w.Briefs, w.Briefs, w.Stale, w.Pending)
 	}
 	if w.Fallback > 0 {
 		detail += fmt.Sprintf("; %d %s came with the chat's first prompt", w.Fallback, plural(w.Fallback, "brief", "briefs"))

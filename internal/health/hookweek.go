@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
@@ -47,10 +48,10 @@ var DeliveryKinds = []string{"startup", "clear", "resume", "fork", "compact", "p
 // Delivery is what a run that can add text to a chat delivered, with no
 // text: its kind (one of DeliveryKinds), the routes that added something,
 // the characters added, whether the state shown was older than the newest
-// captured exchange, whether an update was pending, whether a prompt
-// carried the chat's first brief because its start had not (the
-// first-prompt fallback), and whether the run passed its deadline and
-// delivered nothing.
+// captured exchange, whether an update was pending, whether a prompt was
+// built to carry the chat's first brief because its start had not (the
+// first-prompt fallback; a day counts it only when it delivered), and
+// whether the run passed its deadline and delivered nothing.
 type Delivery struct {
 	Kind     string   `json:"kind"`
 	Routes   []string `json:"routes,omitempty"`
@@ -61,9 +62,21 @@ type Delivery struct {
 	Late     bool     `json:"late,omitempty"`
 }
 
-// start reports whether d is a chat start: a start's brief, or a prompt
-// that carried the first brief.
-func (d Delivery) start() bool { return d.Kind != "prompt" || d.Fallback }
+// briefed reports whether d gave a chat the brief of a new chat or of a
+// compaction, the briefs whose state can be stale or pending: a startup,
+// clear or compact start, or a prompt that carried the first brief, that
+// delivered text and did not pass its deadline. A resumed or forked chat's
+// brief shows only what changed, and is not one.
+func (d Delivery) briefed() bool {
+	if d.Late || d.Chars == 0 {
+		return false
+	}
+	switch d.Kind {
+	case "startup", "clear", "compact":
+		return true
+	}
+	return d.Kind == "prompt" && d.Fallback
+}
 
 // HookRun is one run as its day counts it.
 type HookRun struct {
@@ -80,9 +93,10 @@ type HookRun struct {
 // recovery was behind and while a chat was off the record; and of the runs
 // that could add text to a chat, how many of each of DeliveryKinds, how
 // many added text, the characters they added, how many added each of
-// Routes, and of the chat starts that were not late, how many showed a
-// stale state or a pending update, and both together; then the first-prompt
-// fallbacks and the runs that passed their deadline.
+// Routes; how many gave a new chat's or a compaction's brief (see
+// Delivery.briefed), and of those how many showed the thread's state, a
+// stale state, a pending update, and either; then the first-prompt briefs
+// that were delivered and the runs that passed their deadline.
 type HookDay struct {
 	Day            string `json:"day"`
 	Runs           int    `json:"runs"`
@@ -94,7 +108,8 @@ type HookDay struct {
 	Added          int    `json:"added,omitempty"`
 	Chars          int    `json:"chars,omitempty"`
 	Routes         []int  `json:"routes,omitempty"`
-	Starts         int    `json:"starts,omitempty"`
+	Briefs         int    `json:"briefs,omitempty"`
+	WithState      int    `json:"with_state,omitempty"`
 	Stale          int    `json:"stale,omitempty"`
 	Pending        int    `json:"pending,omitempty"`
 	StaleOrPending int    `json:"stale_or_pending,omitempty"`
@@ -192,15 +207,18 @@ func (d *HookDay) add(run HookRun) {
 			d.Routes[i]++
 		}
 	}
-	if v.Fallback {
-		d.Fallback++
-	}
 	if v.Late {
 		d.Late++
 		return
 	}
-	if v.start() {
-		d.Starts++
+	if v.Fallback && v.Chars > 0 {
+		d.Fallback++
+	}
+	if v.briefed() {
+		d.Briefs++
+		if slices.Contains(v.Routes, "state") {
+			d.WithState++
+		}
 		if v.Stale {
 			d.Stale++
 		}
@@ -215,10 +233,15 @@ func (d *HookDay) add(run HookRun) {
 
 // eventWeek is the days of the week ending with now's that the heartbeat of
 // host's event keeps, each once, fitted to its lengths. A heartbeat that
-// isn't valid (see readBeat), or from before weeks were kept, has none.
+// isn't valid (see readBeat), or from before weeks were kept, has none. The
+// week is decoded here alone, so the readers of a heartbeat's other fields,
+// such as a chat start's notice, don't pay for it.
 func eventWeek(d paths.Dirs, host, event string, now time.Time) []HookDay {
-	b, valid := readBeat(d, host, event, now)
-	if !valid {
+	var b struct {
+		beat
+		Week []HookDay `json:"week"`
+	}
+	if !decodeBeat(d, host, event, now, &b.beat, &b) {
 		return nil
 	}
 	first, today := weekOf(now)
@@ -237,7 +260,8 @@ func eventWeek(d paths.Dirs, host, event string, now time.Time) []HookDay {
 // week ending with now's day.
 func hookWeek(d paths.Dirs, now time.Time) HookDay {
 	t := HookDay{}.fit()
-	for _, host := range []string{"claude-code", "codex"} {
+	for _, h := range adapter.All() {
+		host := string(h.ID)
 		for _, event := range hostEvents(host) {
 			for _, day := range eventWeek(d, host, event, now) {
 				t.plus(day)
@@ -263,7 +287,8 @@ func (d *HookDay) plus(day HookDay) {
 	d.Failed += day.Failed
 	d.Added += day.Added
 	d.Chars += day.Chars
-	d.Starts += day.Starts
+	d.Briefs += day.Briefs
+	d.WithState += day.WithState
 	d.Stale += day.Stale
 	d.Pending += day.Pending
 	d.StaleOrPending += day.StaleOrPending

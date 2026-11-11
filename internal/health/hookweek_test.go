@@ -31,7 +31,11 @@ func day(now time.Time, days int) string {
 
 // AddRun counts a run in its day, by the date in UTC: its time in its
 // bucket, a bound counted in the bucket it closes; what it held back, by
-// kind and by why; and what it delivered. It keeps the days of the week
+// kind and by why; and what it delivered. A brief whose state can be stale
+// or pending is a new chat's or a compaction's that delivered text in time,
+// or a prompt's that carried the first brief; a resumed chat's is not one,
+// and a first-prompt brief that was late or delivered nothing is no
+// first-prompt brief. It keeps the days of the week
 // ending today, oldest first, each once, and drops the others: older ones,
 // ones after today, ones that aren't dates, a day's second copy. A day's
 // counts of the wrong length are cut or filled.
@@ -47,11 +51,15 @@ func TestAddRunCountsARunInItsDay(t *testing.T) {
 	week = AddRun(week, now, HookRun{DurationMS: 1, Delivered: &Delivery{Kind: "prompt", Routes: []string{"recall"}, Chars: 30, Pending: true, Fallback: true}})
 	week = AddRun(week, now, HookRun{DurationMS: 1, Delivered: &Delivery{Kind: "prompt", Pending: true}})
 	week = AddRun(week, now, HookRun{DurationMS: 1, Failed: true, Delivered: &Delivery{Kind: "startup", Late: true, Stale: true}})
-	want := HookDay{Day: "2026-11-11", Runs: 7, Failed: 2,
-		MS:     []int{4, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+	week = AddRun(week, now, HookRun{DurationMS: 1, Delivered: &Delivery{Kind: "prompt", Fallback: true, Late: true}})
+	week = AddRun(week, now, HookRun{DurationMS: 1, Delivered: &Delivery{Kind: "prompt", Fallback: true, Pending: true}})
+	week = AddRun(week, now, HookRun{DurationMS: 1, Delivered: &Delivery{Kind: "resume", Routes: []string{"state"}, Chars: 50, Stale: true, Pending: true}})
+	week = AddRun(week, now, HookRun{DurationMS: 1, Delivered: &Delivery{Kind: "startup", Routes: []string{"rules"}, Chars: 10, Pending: true}})
+	want := HookDay{Day: "2026-11-11", Runs: 11, Failed: 2,
+		MS:     []int{8, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
 		Behind: []int{1, 0, 0, 1}, OffRecord: []int{0, 1, 0, 0},
-		Kinds: []int{1, 1, 0, 0, 0, 2}, Added: 2, Chars: 150, Routes: []int{1, 0, 1, 0, 1, 0, 0},
-		Starts: 2, Stale: 1, Pending: 1, StaleOrPending: 2, Fallback: 1, Late: 1}
+		Kinds: []int{2, 1, 1, 0, 0, 4}, Added: 4, Chars: 210, Routes: []int{2, 0, 2, 0, 1, 0, 0},
+		Briefs: 3, WithState: 1, Stale: 1, Pending: 2, StaleOrPending: 3, Fallback: 1, Late: 2}
 	if len(week) != 1 || !reflect.DeepEqual(week[0], want) {
 		t.Fatalf("day:\n%+v\nwant\n%+v", week, want)
 	}
@@ -92,7 +100,7 @@ func TestHeldAndDeliveredRows(t *testing.T) {
 	d := isolated(t)
 	fit := func(day HookDay) HookDay { return day.fit() }
 	prompt := fit(HookDay{Day: day(now, 0), Runs: 40, Behind: []int{3, 0, 0, 1}, OffRecord: []int{2},
-		Kinds: []int{0, 0, 0, 0, 0, 30}, Added: 20, Chars: 4000, Routes: []int{1, 0, 1, 0, 6, 4, 10}, Starts: 2, Stale: 1, StaleOrPending: 1, Fallback: 2, Late: 1})
+		Kinds: []int{0, 0, 0, 0, 0, 30}, Added: 20, Chars: 4000, Routes: []int{1, 0, 1, 0, 6, 4, 10}, Briefs: 2, WithState: 1, Stale: 1, StaleOrPending: 1, Fallback: 2, Late: 1})
 	putWeek(t, d, "claude-code", "UserPromptSubmit", now, []HookDay{
 		fit(HookDay{Day: day(now, -7), Runs: 1000, Behind: []int{1000}}), // before the week
 		prompt,
@@ -100,21 +108,21 @@ func TestHeldAndDeliveredRows(t *testing.T) {
 	})
 	putWeek(t, d, "claude-code", "Stop", now, []HookDay{fit(HookDay{Day: day(now, -6), Runs: 50, Behind: []int{0, 4}})})
 	putWeek(t, d, "codex", "SessionStart", now, []HookDay{fit(HookDay{Day: day(now, -1), Runs: 10, Behind: []int{0, 0, 0, 2},
-		Kinds: []int{6, 2, 1, 0, 1, 0}, Added: 9, Chars: 30000, Routes: []int{5, 3, 8, 9, 0, 6, 0}, Starts: 9, Stale: 2, Pending: 3, StaleOrPending: 4, Late: 1})})
+		Kinds: []int{6, 2, 1, 0, 1, 0}, Added: 9, Chars: 30000, Routes: []int{5, 3, 8, 9, 0, 6, 0}, Briefs: 9, WithState: 7, Stale: 2, Pending: 3, StaleOrPending: 4, Late: 1})})
 	putWeek(t, d, "codex", "PostToolUse", now, []HookDay{fit(HookDay{Day: day(now, -2), Runs: 300, Behind: []int{0, 0, 7}})})
 	// Not valid: a heartbeat of another host's event, and one from the future.
 	putWeek(t, d, "codex", "PostToolUseFailure", now, []HookDay{fit(HookDay{Day: day(now, 0), Runs: 1000, Behind: []int{1000}})})
 	putWeek(t, d, "codex", "Stop", now.Add(time.Hour), []HookDay{fit(HookDay{Day: day(now, 0), Runs: 1000, Behind: []int{1000}})})
 
 	held, ok := heldCheck(d, now)
-	want := Check{Name: "hooks held back", Status: "PASS", Detail: "of 400 hook runs in the past 7 days: held back while transcript recovery was behind: 3 prompts, 4 replies, 7 tool lines, 3 briefs; while a chat was off the record: 2 prompts"}
+	want := Check{Name: "hooks held back", Status: "PASS", Detail: "of 400 hook runs in the past 7 days: held back while transcript recovery was behind: 3 prompts, 4 replies, 7 tool lines, 3 briefs; while a chat was off the record: 2 prompts (a brief still owed is counted at each run that held it back)"}
 	if !ok || held != want {
 		t.Fatalf("held row\n%+v\nwant\n%+v", held, want)
 	}
 	delivered, ok := deliveredCheck(d, now)
 	want = Check{Name: "hooks delivered", Status: "PASS", Detail: "of 40 hook runs in the past 7 days that could add text to a chat (6 startups, 2 clears, 1 resume, 1 compaction, 30 prompts), 29 added 34000 characters; " +
 		"runs that added each: rules 6, constraints 3, state 9, exchanges 9, recalled statements 6, pointers 10, reminder 10; " +
-		"of 11 chat starts, 5 (45%) showed a state older than the newest captured exchange or an update pending (3 stale, 3 pending); " +
+		"of 11 briefs given at a new chat's start, a compaction or a chat's first prompt (resumed and forked chats left out), 8 showed the thread's state, and 5 (45% of the 11) showed a state older than the newest captured exchange or an update pending (3 stale, 3 pending); " +
 		"2 briefs came with the chat's first prompt; 2 runs passed the deadline and delivered nothing"}
 	if !ok || delivered != want {
 		t.Fatalf("delivered row\n%+v\nwant\n%+v", delivered, want)
@@ -151,6 +159,15 @@ func TestRowsWithLittleToSay(t *testing.T) {
 	}
 	if _, ok := deliveredCheck(d, now); ok {
 		t.Fatal("delivered row without a week")
+	}
+	// A day that counts no run is no day of the week, whatever else it
+	// counts.
+	putWeek(t, d, "codex", "UserPromptSubmit", now, []HookDay{{Day: day(now, 0), Behind: []int{1}, Kinds: []int{0, 0, 0, 0, 0, 1}}})
+	if c, ok := heldCheck(d, now); ok {
+		t.Fatalf("held row from a day of no runs: %+v", c)
+	}
+	if c, ok := deliveredCheck(d, now); ok {
+		t.Fatalf("delivered row from a day of no runs: %+v", c)
 	}
 	putWeek(t, d, "codex", "Stop", now, []HookDay{{Day: day(now, 0), Runs: 1}})
 	if c, ok := heldCheck(d, now); !ok || c.Detail != "of 1 hook run in the past 7 days: none held anything back" {

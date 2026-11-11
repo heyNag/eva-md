@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,16 @@ func TestHeldBehindRecoveryByKind(t *testing.T) {
 					t.Fatalf("%s week %+v", event, week)
 				}
 			}
+			// A program's prompt, in a chat a program runs, is stored as a
+			// host prompt, so it holds none back.
+			if host == "claude-code" {
+				t.Setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+				p.Turn = "turn-program"
+				invoke(t, host, p, held)
+				if run := lastRun(t, env, host, "UserPromptSubmit"); run.Held != nil || run.HeldBy != "" || run.Delivered != nil {
+					t.Fatalf("program's prompt: %+v", run)
+				}
+			}
 		})
 	}
 }
@@ -157,6 +168,24 @@ func TestHeldOffTheRecord(t *testing.T) {
 	// The SessionStart that registered the transcript held nothing.
 	if run := lastRun(t, env, "claude-code", "SessionStart"); run.Held != nil || run.HeldBy != "" {
 		t.Fatalf("start on the record: %+v", run)
+	}
+
+	// Recovery found a control the hooks missed and could not save the
+	// boundary it sets: what the run held back, it held back because the
+	// chat went off the record, not because recovery was behind.
+	env, p = setup(t)
+	boundary := env
+	boundary.recoverTranscript = func(context.Context, paths.Dirs, string, string) (int, error) {
+		return 0, catchup.ErrPrivacyBoundary
+	}
+	reply = "an answer after the control"
+	p.Event, p.Reply = "Stop", &reply
+	invoke(t, "codex", p, boundary)
+	if run := lastRun(t, env, "codex", "Stop"); !reflect.DeepEqual(run.Held, []string{"reply"}) || run.HeldBy != health.HeldByOffRecord {
+		t.Fatalf("unsaved boundary: %+v", run)
+	}
+	if week := weekOf(t, env, "codex", "Stop"); !reflect.DeepEqual(week[0].OffRecord, []int{0, 1, 0, 0}) || !reflect.DeepEqual(week[0].Behind, []int{0, 0, 0, 0}) {
+		t.Fatalf("unsaved boundary week %+v", week)
 	}
 }
 
@@ -245,11 +274,11 @@ func TestDeliveryRecordsEachRoute(t *testing.T) {
 			// The prompt's day counts its runs by route; the starts are
 			// counted in the start's day.
 			week := weekOf(t, env, host, "UserPromptSubmit")
-			if len(week) != 1 || week[0].Kinds[5] != 5 || week[0].Added != 4 || !reflect.DeepEqual(week[0].Routes, []int{0, 0, 1, 0, 1, 1, 2}) || week[0].Starts != 0 {
+			if len(week) != 1 || week[0].Kinds[5] != 5 || week[0].Added != 4 || !reflect.DeepEqual(week[0].Routes, []int{0, 0, 1, 0, 1, 1, 2}) || week[0].Briefs != 0 {
 				t.Fatalf("prompt week %+v", week)
 			}
 			week = weekOf(t, env, host, "SessionStart")
-			if len(week) != 1 || week[0].Kinds[0] != 1 || week[0].Starts != 1 || week[0].Pending != 1 || week[0].Stale != 0 || week[0].StaleOrPending != 1 || !reflect.DeepEqual(week[0].Routes, []int{1, 1, 1, 1, 0, 1, 0}) {
+			if len(week) != 1 || week[0].Kinds[0] != 1 || week[0].Briefs != 1 || week[0].WithState != 1 || week[0].Pending != 1 || week[0].Stale != 0 || week[0].StaleOrPending != 1 || !reflect.DeepEqual(week[0].Routes, []int{1, 1, 1, 1, 0, 1, 0}) {
 				t.Fatalf("start week %+v", week)
 			}
 		})
@@ -285,7 +314,7 @@ func TestDeliveryRecordsAStaleState(t *testing.T) {
 		}
 	}
 	week := weekOf(t, env, "codex", "SessionStart")
-	if len(week) != 1 || !reflect.DeepEqual(week[0].Kinds, []int{2, 1, 1, 1, 1, 0}) || week[0].Starts != 6 || week[0].Stale != 3 || week[0].StaleOrPending != 3 {
+	if len(week) != 1 || !reflect.DeepEqual(week[0].Kinds, []int{2, 1, 1, 1, 1, 0}) || week[0].Briefs != 4 || week[0].WithState != 4 || week[0].Stale != 3 || week[0].StaleOrPending != 3 {
 		t.Fatalf("week %+v", week)
 	}
 }
@@ -303,7 +332,7 @@ func TestDeliveryRecordsTheFirstPromptFallback(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("fallback delivered %+v, want %+v", got, want)
 	}
-	if week := weekOf(t, env, "claude-code", "UserPromptSubmit"); week[0].Fallback != 1 || week[0].Starts != 1 || week[0].StaleOrPending != 1 {
+	if week := weekOf(t, env, "claude-code", "UserPromptSubmit"); week[0].Fallback != 1 || week[0].Briefs != 1 || week[0].WithState != 1 || week[0].StaleOrPending != 1 {
 		t.Fatalf("week %+v", week)
 	}
 	// The next prompt is no fallback, and no start.
@@ -312,8 +341,39 @@ func TestDeliveryRecordsTheFirstPromptFallback(t *testing.T) {
 	if got := lastRun(t, env, "claude-code", "UserPromptSubmit").Delivered; got == nil || got.Fallback || got.Stale || got.Pending {
 		t.Fatalf("second prompt delivered %+v", got)
 	}
-	if week := weekOf(t, env, "claude-code", "UserPromptSubmit"); week[0].Fallback != 1 || week[0].Starts != 1 {
+	if week := weekOf(t, env, "claude-code", "UserPromptSubmit"); week[0].Fallback != 1 || week[0].Briefs != 1 {
 		t.Fatalf("week %+v", week)
+	}
+}
+
+// A prompt's lines go only once the chat's state that records them is
+// saved, and so do their routes: a first prompt whose state can't be saved
+// delivers its brief and records the brief's routes alone, where one whose
+// state is saved records the recalled statement too.
+func TestDeliveryRecordsNoLinesNotSaved(t *testing.T) {
+	env, p := setup(t)
+	fullWiki(t, &env, env.Now())
+	p.Prompt = "Does the inbox store entries as JSONL, one file per session?"
+	p.Session = "saved-session"
+	invoke(t, "claude-code", p, env)
+	if got := lastRun(t, env, "claude-code", "UserPromptSubmit").Delivered; got == nil || !slices.Contains(got.Routes, "recall") {
+		t.Fatalf("saved state delivered %+v", got)
+	}
+
+	// The prompts marker reads, and can't be written.
+	p.Session = "unsaved-session"
+	file := filepath.Join(env.Dirs.Sessions(), "claude-code", p.Session, promptsMarker)
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(`{"prompts":3}`), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	out := invoke(t, "claude-code", p, env)
+	got := lastRun(t, env, "claude-code", "UserPromptSubmit").Delivered
+	want := &health.Delivery{Kind: "prompt", Routes: []string{"rules", "constraints", "state", "exchanges", "pointers"}, Chars: len([]rune(contextFrom(t, out))), Pending: true, Fallback: true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unsaved state delivered %+v, want %+v", got, want)
 	}
 }
 
@@ -344,7 +404,7 @@ func TestDeliveryRecordsALateRun(t *testing.T) {
 	if want := (&health.Delivery{Kind: "clear", Late: true}); !run.Failed || !reflect.DeepEqual(run.Delivered, want) {
 		t.Fatalf("late start %+v", run)
 	}
-	if week := weekOf(t, env, "codex", "SessionStart"); week[0].Late != 1 || week[0].Starts != 0 || week[0].Kinds[1] != 1 || week[0].Failed != 1 {
+	if week := weekOf(t, env, "codex", "SessionStart"); week[0].Late != 1 || week[0].Briefs != 0 || week[0].Kinds[1] != 1 || week[0].Failed != 1 {
 		t.Fatalf("week %+v", week)
 	}
 
@@ -359,23 +419,33 @@ func TestDeliveryRecordsALateRun(t *testing.T) {
 		t.Fatalf("brief too close to the deadline: %+v", p.record.delivery)
 	}
 
-	// A late prompt that no person typed could add nothing.
-	env, p = setup(t)
-	p.Agent = "agent-1"
-	ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
-	release = make(chan struct{})
-	held = env
-	held.recoverTranscript = func(context.Context, paths.Dirs, string, string) (int, error) {
-		cancel()
-		<-release
-		return 0, nil
-	}
-	invokeContext(t, ctx, "codex", p, held)
-	close(release)
-	awaitNoCapture(t, "the capture Run gave up on")
-	if run := lastRun(t, env, "codex", "UserPromptSubmit"); !run.Failed || run.Delivered != nil {
-		t.Fatalf("late agent's prompt %+v", run)
+	// A late prompt that no person typed could add nothing: an agent's, and
+	// a program's. Each part has variables of its own, since the closure of
+	// an earlier part may still be running in the capture Run gave up on.
+	for _, tc := range []struct {
+		name   string
+		change func(t *testing.T, p *payload)
+	}{
+		{"agent's prompt", func(_ *testing.T, p *payload) { p.Agent = "agent-1" }},
+		{"program's prompt", func(t *testing.T, _ *payload) { t.Setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli") }},
+	} {
+		env, p := setup(t)
+		tc.change(t, &p)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		release := make(chan struct{})
+		held := env
+		held.recoverTranscript = func(context.Context, paths.Dirs, string, string) (int, error) {
+			cancel()
+			<-release
+			return 0, nil
+		}
+		invokeContext(t, ctx, "claude-code", p, held)
+		close(release)
+		awaitNoCapture(t, "the capture Run gave up on")
+		if run := lastRun(t, env, "claude-code", "UserPromptSubmit"); !run.Failed || run.Delivered != nil {
+			t.Fatalf("late %s %+v", tc.name, run)
+		}
 	}
 }
 
@@ -440,7 +510,7 @@ func TestWeekStaysBounded(t *testing.T) {
 			return counts
 		}
 		d.MS, d.Behind, d.OffRecord, d.Kinds, d.Routes = fill(len(health.DurationBounds)+1), fill(4), fill(4), fill(6), fill(7)
-		d.Runs, d.Failed, d.Added, d.Chars, d.Starts, d.Stale, d.Pending, d.StaleOrPending, d.Fallback, d.Late = 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999
+		d.Runs, d.Failed, d.Added, d.Chars, d.Briefs, d.WithState, d.Stale, d.Pending, d.StaleOrPending, d.Fallback, d.Late = 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999, 99_999_999
 		days = append(days, d)
 	}
 	var old map[string]any
@@ -499,15 +569,18 @@ func TestRecordsHoldNoContent(t *testing.T) {
 			invoke(t, "claude-code", q, env)
 			invoke(t, "codex", q, env)
 		}
-		start, prompt, stop, tool := p, p, p, p
-		start.Event, start.Source = "SessionStart", "startup"
+		start, prompt, stop, tool, agent := p, p, p, p, p
+		// The start's source, which picks the kind recorded, holds the
+		// marker too, and reads as a startup.
+		start.Event, start.Source = "SessionStart", marker+"-source"
 		prompt.Prompt = "Does " + marker + " hold the zqxmarker books?"
 		stop.Event, stop.Reply = "Stop", &reply
 		tool.Event, tool.Tool, tool.ToolInput = "PostToolUse", "Bash", json.RawMessage(`{"command":"echo `+marker+`"}`)
-		for _, q := range []payload{start, prompt, stop, tool} {
+		agent.Prompt, agent.Agent, agent.Turn = "the "+marker+" task", marker+"-agent", "turn-agent"
+		for _, q := range []payload{start, prompt, stop, tool, agent} {
 			send(behind(env), q)
 		}
-		for _, q := range []payload{start, prompt, stop, tool} {
+		for _, q := range []payload{start, prompt, stop, tool, agent} {
 			send(env, q)
 		}
 		off := prompt
