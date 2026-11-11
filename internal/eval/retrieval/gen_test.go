@@ -351,6 +351,14 @@ var topics = []topic{
 	},
 }
 
+// componentMisses share a component's words and nothing else with its
+// items.
+var componentMisses = []string{
+	"Add a log line to the {c} so slow requests show up.",
+	"Who wrote the {c} originally?",
+	"Move the {c} code into its own folder.",
+}
+
 // topicsPerComponent is how many of the topics each component has an item
 // of; the rest are what a near miss can ask about.
 const topicsPerComponent = 8
@@ -556,7 +564,6 @@ func generate(t *testing.T) map[string][]byte {
 		}
 		items = append(items, g)
 	}
-	byKey := map[string]*genItem{} // project index, component and topic: the item
 	for pi, p := range genProjects {
 		for _, c := range p.comps {
 			order := make([]int, len(topics))
@@ -579,7 +586,6 @@ func generate(t *testing.T) map[string][]byte {
 				}
 				g.Paths = append([]string{c.path}, tp.paths...)
 				add(g)
-				byKey[fmt.Sprint(pi, c.phrase, ti)] = g
 			}
 		}
 	}
@@ -629,7 +635,6 @@ func generate(t *testing.T) map[string][]byte {
 		}
 		if err := checkEvent(set, &e, itemsByID); err != nil {
 			refused[split+"."+class]++
-			t.Logf("refused: %v", err)
 			return false
 		}
 		texts[text] = true
@@ -701,6 +706,21 @@ func generate(t *testing.T) map[string][]byte {
 	for n := 0; n < 110; try() {
 		g := pick(r, grid)
 		if ev(g.project, fill(g.topic.miss, g), "lexical", "near_miss", nil, []string{g.ID}) {
+			n++
+		}
+	}
+	// near misses that share only the component's words, with every item
+	// of the component
+	try = tries(45)
+	for n := 0; n < 45; try() {
+		g := pick(r, grid)
+		var decoys []string
+		for _, other := range items {
+			if other.project == g.project && other.comp.phrase == g.comp.phrase {
+				decoys = append(decoys, other.ID)
+			}
+		}
+		if ev(g.project, fill(pick(r, componentMisses), g), "lexical", "near_miss", nil, decoys) {
 			n++
 		}
 	}

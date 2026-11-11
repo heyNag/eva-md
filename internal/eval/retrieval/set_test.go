@@ -145,11 +145,11 @@ func checkEvent(s *Set, e *Event, items map[string]*Item) error {
 		}
 		return n
 	}
-	// below reports an item in the event's scope that shares as many words
-	// as the weakest of the lures, or more than limit when there is none.
+	// below reports an item in the event's scope that shares more than
+	// limit words with the text, or as many as the weakest of the lures.
 	below := func(lures []string, limit int) error {
 		if len(lures) > 0 {
-			limit = strongest(lures) - 1
+			limit = min(limit, strongest(lures)-1)
 		}
 		for _, it := range s.Items {
 			if inScope(&it, e.Project) && len(shared(s, e.Text, &it)) > limit {
@@ -210,7 +210,8 @@ func checkEvent(s *Set, e *Event, items map[string]*Item) error {
 				return fmt.Errorf("decoy %s is not of a project that shares a system page with it", id)
 			}
 		}
-		if err := below(e.Decoys, 0); err != nil {
+		// Nothing of its own scope shares more than a near miss does.
+		if err := below(e.Decoys, 2); err != nil {
 			return err
 		}
 	case "no_match":
@@ -219,7 +220,14 @@ func checkEvent(s *Set, e *Event, items map[string]*Item) error {
 				return fmt.Errorf("decoy %s is of its scope or a sibling's", id)
 			}
 		}
-		if err := below(e.Decoys, 1); err != nil {
+		// A prompt about another project's item shares no more with its
+		// own scope than a near miss does; any other shares one word at
+		// most with any item of it.
+		limit := 1
+		if len(e.Decoys) > 0 {
+			limit = 2
+		}
+		if err := below(e.Decoys, limit); err != nil {
 			return err
 		}
 	}
@@ -317,15 +325,15 @@ func TestTheLabelChecksCanFail(t *testing.T) {
 		return nil
 	}
 	for name, breakIt := range map[string]func(s *Set){
-		"a paraphrase that uses its item's word": func(s *Set) {
+		"a paraphrase that uses its item's word|with relevant item": func(s *Set) {
 			e := first(s, "paraphrase", Positive)
 			e.Text += " " + tokens(s.Item(e.Relevant[0]).Title)[0]
 		},
-		"a near miss that shares one word": func(s *Set) {
+		"a near miss that shares one word|not two words": func(s *Set) {
 			e := first(s, "lexical", "near_miss")
 			e.Text = "Rename the variable job to task, it reads better."
 		},
-		"a name that is a cue of two items": func(s *Set) {
+		"a name that is a cue of two items|is a cue of": func(s *Set) {
 			e := first(s, "name", Positive)
 			name := nameOf(s.Item(e.Relevant[0]))
 			for i := range s.Items {
@@ -335,15 +343,15 @@ func TestTheLabelChecksCanFail(t *testing.T) {
 				}
 			}
 		},
-		"a name event without its name": func(s *Set) {
+		"a name event without its name|does not hold the name": func(s *Set) {
 			e := first(s, "name", Positive)
 			e.Text = "What should I know before touching it?"
 		},
-		"a name near miss with the name capitalized": func(s *Set) {
+		"a name near miss with the name capitalized|as an ordinary word": func(s *Set) {
 			e := first(s, "name", "near_miss")
 			e.Text += " " + nameOf(s.Item(e.Decoys[0]))
 		},
-		"a sibling-only event whose decoy is its own project's": func(s *Set) {
+		"a sibling-only event whose decoy is its own project's|not of a project that shares": func(s *Set) {
 			e := first(s, "lexical", "sibling_only")
 			for _, it := range s.Items {
 				if it.Project == e.Project {
@@ -352,7 +360,7 @@ func TestTheLabelChecksCanFail(t *testing.T) {
 				}
 			}
 		},
-		"a no-match event that matches its own project": func(s *Set) {
+		"a no-match event that matches its own project|of its scope shares": func(s *Set) {
 			e := first(s, "lexical", "no_match")
 			for _, it := range s.Items {
 				if it.Project == e.Project {
@@ -361,15 +369,16 @@ func TestTheLabelChecksCanFail(t *testing.T) {
 				}
 			}
 		},
-		"a prompt that names a project": func(s *Set) {
+		"a prompt that names a project|names the project": func(s *Set) {
 			e := first(s, "lexical", Positive)
 			e.Text += " in " + s.Projects[0].Name
 		},
 	} {
+		name, want, _ := strings.Cut(name, "|")
 		s := loadCommitted(t)
 		breakIt(s)
-		if err := checkLabels(s); err == nil {
-			t.Errorf("%s: the labels pass", name)
+		if err := checkLabels(s); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }
