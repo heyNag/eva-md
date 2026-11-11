@@ -19,7 +19,9 @@
 // through no link. A session said off the record at any time, by eva-md's
 // records or the host's, or in a folder the hooks leave out, is not opened
 // when eva-md's records show it, and when only the host's record does it is
-// read and nothing of it is kept: its chat is counted, and nothing else.
+// read and nothing of it is kept: its chat is counted, and nothing else;
+// its subagents' files are not listed, and no id its rows name joins it to
+// another chat.
 // It writes nothing, runs no command and makes no network or model call.
 package shapes
 
