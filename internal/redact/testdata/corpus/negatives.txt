@@ -54,6 +54,21 @@ secret = Rails.application.credentials.dig(:aws, :secret_access_key)
 === negative code kotlin password field
 val passwordField = findViewById<EditText>(R.id.password)
 
+=== negative code go index into a secret table
+	cfgSecret := store.readSecret[LevelHandshake]
+
+=== negative code ruby secret from a hash
+      secret = creds["SecretAccessKey"]
+
+=== negative code python tuple assignment
+    mail.user, mail.password = auth_pair[0], auth_pair[1]
+
+=== negative code go slice of a private key
+	k.PrivateKey = k.PrivateKey[1:]
+
+=== negative code go struct literal of a secret
+		Secret: FakeSecret{7},
+
 === negative prose rotation policy
 Please rotate the password policy and update the secret manager docs before the audit.
 

@@ -401,7 +401,7 @@ func genJWT(g *gen) string {
 		return base64.RawURLEncoding.EncodeToString([]byte(s))
 	}
 	head := enc(`{"alg":"` + g.pick([]string{"HS256", "RS256", "ES256"}) + `","typ":"JWT"}`)
-	body := enc(`{"sub":"` + g.chars(8, alnum) + `","exp":` + g.chars(10, digits) + `}`)
+	body := enc(`{"sub":"` + g.chars(8, alnum) + `","exp":` + g.chars(1, "123456789") + g.chars(9, digits) + `}`)
 	return head + "." + body + "." + g.chars(43, urlSafe)
 }
 
