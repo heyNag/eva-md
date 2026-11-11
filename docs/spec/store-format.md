@@ -105,7 +105,7 @@ A file a person locked or verified, or one that cannot be read, refuses the one 
 
 - **Locked**: a `locked` key with any value but a bare `false` (`False`, `FALSE`, a comment after it allowed), so an empty or quoted value locks, and so does a repeated key. Only items, workstreams and system pages may be locked. The engine never writes it (overrides S6.2, where an empty value unlocked).
 - **Verified**: a `verified` key with a value in any shape but `[]`, `{}`, `""`, `null`, `~` or none. `eva-md confirm` writes a JSON list of `{"by", "at"}`; no model's operation does. A model cannot change a verified file's statement, title or detail [S5.7].
-- **Key forms**: a lock is honoured in every form YAML allows [P6.2]. Only a bare `locked:` or `verified:` at a line's start is read by its value; in any other form (quoted, with escapes, spaces before the colon, `? locked`, after a tag or anchor, a block indented whole) the key protects whatever its value. An alias key (`*a`), a merge key (`<<`) or an explicit key that is no scalar does both.
+- **Key forms**: a lock is honoured in every form YAML allows [P6.2]. Only a bare `locked:` or `verified:` at a line's start is read by its value; any other form (quoted, escaped, spaces before the colon or none after it, `? locked`, after a tag or anchor, a block indented whole) protects whatever its value. An alias key (`*a`), a merge key (`<<`) or an explicit key that is no scalar does both.
 - **Unreadable**: a byte-order mark, invalid UTF-8, a NUL, a line over 64 KiB, a conflict marker line, or frontmatter not opened on line 1 or never closed. Never written or delivered; listed for repair [S6.2]. Only documents may be unreadable: an unreadable static or record file is a broken store.
 
 ## 7. A hand edit
