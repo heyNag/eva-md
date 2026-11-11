@@ -25,30 +25,30 @@ Rules every card carries, so they are said once here:
 | [EV-12](EV-12.md) | The results store and gates | merged |
 | [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 passes with no fail on macOS |
-| [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | built, reviewed and fixed on `pkg/ev-16b-r1`; the fix changed the rule, so two verifiers are measuring it by simulation before it merges |
+| [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | built and fixed twice, and its rule measured by simulation, on `pkg/ev-16b-r2`; merges after the owner has cut the counters release, since the gate's baseline restarts with it |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | after EV-16b |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
 | [CT-3b](CT-3b.md) | Counters release: the capture audit pairs a session by its id too | merged |
 | [CT-4](CT-4.md) | Counters release: a content-free report | merged |
-| [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | card written; not started. Its Part 1 serves the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md), cut to a core path; Part 2 may come later |
+| [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 building since 2026-11-11: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; Part 2 may come later |
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | building since 2026-11-11, on a branch; merges only after the owner has cut the counters release, since it changes the binary |
-| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | building since 2026-11-11 |
+| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | built on `pkg/dl-04`, in review; the baseline is accepted again on `main` after the merge |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | building since 2026-11-11 |
-| [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | ready |
-| [SEAM-0b](SEAM-0b.md) | The hook's handler list | after CT-1 and CT-2 |
+| [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | building since 2026-11-11, on a branch; merges after the owner has cut the counters release, since it changes the binary |
+| [SEAM-0b](SEAM-0b.md) | The hook's handler list | building since 2026-11-11, on a branch; merges after the owner has cut the counters release, since it changes every hook |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
-| [HO-10b](HO-10b.md) | Install and setup ask the adapter | ready |
+| [HO-10b](HO-10b.md) | Install and setup ask the adapter | building since 2026-11-11, on a branch; merges after the owner has cut the counters release, since it changes the binary |
 | [HO-11](HO-11.md) | The install manifest | after HO-10a and HO-10b |
 | [HO-12a](HO-12a.md) | Health's host names through the adapter | after HO-10b and the counters release |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a, DV-12b and the counters release |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b and SEAM-0b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
 | [EV-11](EV-11.md) | Ownership and size checks | building since 2026-11-11 |
-| [IF-01a](IF-01a.md) | The contract matrix and its check | building since 2026-11-11 |
+| [IF-01a](IF-01a.md) | The contract matrix and its check | built on `pkg/if-01a`, in review |
 | [IF-01b](IF-01b.md) | The reader's fake | building since 2026-11-11 |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | building since 2026-11-11 |
@@ -57,7 +57,7 @@ Rules every card carries, so they are said once here:
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | building since 2026-11-11 |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | building since 2026-11-11 |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
-| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | ready |
+| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | building since 2026-11-11 |
 | [EV-14c](EV-14c.md) | Six new families, half held out | after EV-14a and EV-14b |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | after EV-14a and EV-14b, before EV-10a |
 | [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | after the counters release |
