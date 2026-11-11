@@ -6,7 +6,7 @@
 
 ## (b) A note to yourself
 
-1. Upgrade first to the counters release (RELEASE-NUMBER) with `eva-md upgrade` (or the install command in the release notes). If Codex asks you to review eva-md's hooks (`/hooks`), approve them and remember that it asked.
+1. Upgrade first to the counters release (the first release after 2026.11.7) with `eva-md upgrade` (or the install command in the release notes). If Codex asks you to review eva-md's hooks (`/hooks`), approve them and remember that it asked.
 2. Open a new Codex chat in the desktop app, in a git repository you used with Codex this week, from your normal home. Attach the file with message (a), or paste the part between the tildes.
 3. Approve only commands the file names; `eva-md audit capture`, `eva-md status --updates` and `eva-md doctor --report` are among them, and write nothing. Refuse any other eva-md command (setup, init, install, uninstall, upgrade, update, commit, maintain, index, system, inbox, mcp, hook, doctor --live), `--all` or `--cwd` on search or brief, an MCP tool asked about another folder or all projects, any codex exec or claude -p, any web search or fetch, any network command (curl, ssh, git fetch, pull, push or ls-remote), and anything that writes outside the temporary folder and the report file in the chat's folder (eva-md's own index and cache files excepted, as the file lists). Deny any request for access to a folder.
 4. Run it after at least a day of normal use since the upgrade: it reads all the past use on the machine, but a few counters only start at the upgrade, and run sooner they count mostly the report's own chat. If you run it again in the same folder a week later, that run reads them in full. Expect an hour or more of the agent's work.
