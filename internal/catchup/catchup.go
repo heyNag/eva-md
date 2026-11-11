@@ -89,6 +89,10 @@ type Source struct {
 	// than the registered one. Recovery reads on and honours a record
 	// control, but stores nothing until a turn comes back to the folder.
 	Elsewhere bool `json:"elsewhere,omitempty"`
+	// Refused marks a missing transcript that a hook named and recovery's
+	// rules refused, as against one no hook named. It is kept while later
+	// events name none, and holds nothing of the path.
+	Refused bool `json:"refused,omitempty"`
 }
 
 // blindSpan counts the bytes of rows recovery could not recognize, and the
@@ -164,12 +168,14 @@ func Register(ctx context.Context, dirs paths.Dirs, home, path, cwd string, e in
 	if path == "" {
 		s.Missing = true
 		s.Reason = "transcript_unavailable"
+		s.Refused = found && old.Missing && old.Refused
 		return save(ctx, dirs, s)
 	}
 	f, err := openTranscript(s)
 	if err != nil {
 		s.Path = ""
 		s.Missing = true
+		s.Refused = true
 		s.Reason = "transcript_unavailable"
 		s.Skip, s.Slow = nil, nil
 		return save(ctx, dirs, s)
@@ -1256,27 +1262,9 @@ func openRegular(root *os.Root, name string) (*os.File, error) {
 	return f, nil
 }
 func openTranscript(s Source) (*os.File, error) {
-	if !filepath.IsAbs(s.Home) || !filepath.IsAbs(s.Path) || !filepath.IsAbs(s.Cwd) {
-		return nil, errors.New("catchup: invalid path")
-	}
-	if clean, n := redact.Redact(s.Path); n != 0 || clean != s.Path {
-		return nil, errors.New("catchup: invalid path")
-	}
-	switch s.Host {
-	case "claude-code":
-		if filepath.Base(s.Path) != s.Session+".jsonl" {
-			return nil, errors.New("catchup: wrong transcript")
-		}
-	case "codex":
-		if !strings.HasSuffix(filepath.Base(s.Path), "-"+s.Session+".jsonl") {
-			return nil, errors.New("catchup: wrong transcript")
-		}
-	default:
-		return nil, errors.New("catchup: invalid host")
-	}
-	path, ok := storePath(s.Host, s.Home, s.Path)
-	if !ok {
-		return nil, errors.New("catchup: outside host store")
+	path, err := transcriptPath(s)
+	if err != nil {
+		return nil, err
 	}
 	root, err := paths.OpenRoot(filepath.Dir(path), false)
 	if err != nil {
@@ -1284,6 +1272,34 @@ func openTranscript(s Source) (*os.File, error) {
 	}
 	defer root.Close()
 	return openRegular(root, filepath.Base(path))
+}
+
+// transcriptPath is the path recovery opens for the transcript s names, or
+// why its rules refuse it, judged before anything is opened.
+func transcriptPath(s Source) (string, error) {
+	if !filepath.IsAbs(s.Home) || !filepath.IsAbs(s.Path) || !filepath.IsAbs(s.Cwd) {
+		return "", errors.New("catchup: invalid path")
+	}
+	if clean, n := redact.Redact(s.Path); n != 0 || clean != s.Path {
+		return "", errors.New("catchup: invalid path")
+	}
+	switch s.Host {
+	case "claude-code":
+		if filepath.Base(s.Path) != s.Session+".jsonl" {
+			return "", errors.New("catchup: wrong transcript")
+		}
+	case "codex":
+		if !strings.HasSuffix(filepath.Base(s.Path), "-"+s.Session+".jsonl") {
+			return "", errors.New("catchup: wrong transcript")
+		}
+	default:
+		return "", errors.New("catchup: invalid host")
+	}
+	path, ok := storePath(s.Host, s.Home, s.Path)
+	if !ok {
+		return "", errors.New("catchup: outside host store")
+	}
+	return path, nil
 }
 
 // InStore reports whether path, a transcript a hook names, lies in the
