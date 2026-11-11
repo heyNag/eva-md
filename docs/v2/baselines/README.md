@@ -4,7 +4,7 @@
 
 ## Refreshing it
 
-The macOS job of `.github/workflows/ci.yml` runs the gate on every push to `main` and every pull request, and saves an artifact named `latency` that holds two files:
+The `latency` job of `.github/workflows/ci.yml`, on macOS and apart from the tests, runs the gate on every push to `main` and every pull request, and saves an artifact named `latency` that holds two files:
 
 - `gate.json`: the verdict, every metric's comparison, and each run's full report.
 - `latency-macos.json`: the change's own binary's figures over its runs, `new` and `new_again`, in the format below.
