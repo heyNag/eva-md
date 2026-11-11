@@ -29,8 +29,9 @@ var (
 const marker = "zqmk"
 
 // fixture is a made-up home with an inbox, recovery records, markers and
-// the hosts' folders of chats. home is the home as the report is given
-// it, which may be a link to real, where the files are.
+// the hosts' folders of chats. home is the home as the report and the
+// hosts name it, which may be a link to real, where the files are and
+// eva-md's own folders, which refuse a home that is a link.
 type fixture struct {
 	t          *testing.T
 	home, real string
@@ -39,26 +40,57 @@ type fixture struct {
 	rowLimit   int
 }
 
-// newFixture makes a home. With linked, the report is given the home
-// through a link, as macOS reaches its temporary folders.
-func newFixture(t *testing.T, linked bool) *fixture {
+// Where a fixture's home holds a link, as macOS reaches its temporary
+// folders through one and a person may link their hosts' folders.
+const (
+	noLink      = "no link"
+	homeLink    = "the home"     // the home is named through a link
+	dotfiles    = "dotfiles"     // ~/.claude and ~/.codex are links
+	chatFolders = "chat folders" // ~/.claude/projects and ~/.codex/sessions are links
+)
+
+// links are the ways a home may hold a link, none first.
+var links = []string{noLink, homeLink, dotfiles, chatFolders}
+
+// newFixture makes a home that holds a link where link says.
+func newFixture(t *testing.T, link string) *fixture {
 	t.Helper()
 	real, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	home := real
-	if linked {
-		home = filepath.Join(t.TempDir(), "home-link")
-		if err := os.Symlink(real, home); err != nil {
+	symlink := func(target, name string) {
+		t.Helper()
+		if err := os.MkdirAll(target, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, name); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("HOME", home)
+	elsewhere := filepath.Join(real, marker+"-dotfiles")
+	switch link {
+	case homeLink:
+		// In a temporary folder of its own, which on macOS is itself
+		// reached through /var.
+		home = filepath.Join(t.TempDir(), "home")
+		symlink(real, home)
+	case dotfiles:
+		symlink(filepath.Join(elsewhere, ".claude"), filepath.Join(real, ".claude"))
+		symlink(filepath.Join(elsewhere, ".codex"), filepath.Join(real, ".codex"))
+	case chatFolders:
+		symlink(filepath.Join(elsewhere, "projects"), filepath.Join(real, ".claude", "projects"))
+		symlink(filepath.Join(elsewhere, "sessions"), filepath.Join(real, ".codex", "sessions"))
+	}
+	t.Setenv("HOME", real)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(real, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	f := &fixture{t: t, home: home, real: real, cwd: filepath.Join(home, marker+"-cwd"),
-		dirs: paths.Dirs{Config: filepath.Join(home, ".config", "eva-md"), State: filepath.Join(home, ".local", "state", "eva-md"), Share: filepath.Join(home, ".local", "share", "eva-md")}}
+		dirs: paths.Dirs{Config: filepath.Join(real, ".config", "eva-md"), State: filepath.Join(real, ".local", "state", "eva-md"), Share: filepath.Join(real, ".local", "share", "eva-md")}}
 	if err := os.MkdirAll(filepath.Join(real, marker+"-cwd"), 0o700); err != nil {
 		t.Fatal(err)
 	}

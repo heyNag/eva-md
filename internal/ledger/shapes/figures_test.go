@@ -57,9 +57,16 @@ func oneChatEach(f *fixture) {
 // the values the lists name, order and gaps, folders and branches, turn
 // ids on both sides, and what was read. A tool's input, a tool's result
 // and a call's arguments are never looked into for names, though they hold
-// names the lists hold.
+// names the lists hold. The figures are the same with a link where macOS
+// or a person may put one.
 func TestFiguresOfOneChatEach(t *testing.T) {
-	f := newFixture(t, false)
+	for _, link := range links {
+		t.Run(link, func(t *testing.T) { figuresOfOneChatEach(t, link) })
+	}
+}
+
+func figuresOfOneChatEach(t *testing.T, link string) {
+	f := newFixture(t, link)
 	oneChatEach(f)
 	r, out := f.run()
 	want := map[string]int{
