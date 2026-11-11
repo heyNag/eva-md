@@ -19,7 +19,7 @@ The first field report was made by an agent writing its own scripts over eva-md'
 
 A report mode on the doctor, `eva-md doctor --report`, that prints counts and durations and nothing else, in a stable format a later report can be compared with (JSON, with a version). It gathers:
 
-1. **Operations:** the days the daily job ran in the last 14; commit and push outcomes by class; the trust flag's age; failures for each hook event; notices by kind.
+1. **Operations:** the days the daily job ran in the last 14; commit and push outcomes by class; the trust flag's age; failures for each hook event; and the kind of notice a chat start would show now. v1 keeps no record of the notices it showed, and this package changes no writer, so notices by kind over days wait for a later package that counts them.
 2. **What the other parts record:** CT-1's held and delivered counts and the week's durations, and CT-2's update figures, each through the function its package exports, never by reading its file a second way. The report does not run or read CT-3's capture audit, which keeps no file and reads the hosts' own records: the second field report runs `eva-md audit capture` beside it.
 3. **Backlog:** the age of the oldest event not yet organized, read from the event and past v1's limit of the 64 newest files of a folder, and how many sessions wait. Export the function that gives them: HO-12b will call it.
 4. **The record:** sessions, entries by kind, bytes; redaction markers by kind; and what 2026.11.7's redaction rules would catch in text stored under an older release, by class.
