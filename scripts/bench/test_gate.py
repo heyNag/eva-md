@@ -80,11 +80,14 @@ class RatioLow(unittest.TestCase):
         self.assertTrue(core.p95_low(base) < core.nearest_rank(base) < core.interval(base, base)[1]*core.nearest_rank(base))
 
     def test_the_interval_is_the_draws_at_both_ends(self):
-        base, cand = samples(1, 120, 20), samples(2, 80, 22)
+        base, cand = samples(1, 400, 20), samples(2, 400, 22)
         draws = core.ratios(base, cand)
         self.assertEqual(len(draws), core.DRAWS)
         self.assertEqual(draws, sorted(draws))
+        # 2.5% of the draws on each side of the interval, and these samples
+        # have no tie at either end.
         self.assertEqual(core.interval(base, cand), (draws[50], draws[core.DRAWS-51]))
+        self.assertTrue(draws[49] < draws[50] < draws[51] and draws[core.DRAWS-52] <= draws[core.DRAWS-51] < draws[core.DRAWS-50])
 
     def test_a_zero_base(self):
         self.assertEqual(core.ratio_low([0.0]*10, [0.0]*10), 1.0)
@@ -276,6 +279,47 @@ class Decide(unittest.TestCase):
         startup = runs_of("startup", {"new": (2, 2, 2, 2)}, n=25, centre=100, seed=50)
         d = core.decide(startup, {"startup": 600})
         self.assertEqual((d["verdict"], d["too_few_samples"]), ("fail", []))
+
+    def test_the_noise_is_the_fourth_largest_bound_and_at_least_1(self):
+        cases = ((runs_of("capture", {"old": (1, 1, 1, 1.3), "new": (1.3, 1.05, 1, 1)}), 1.15),
+                 (runs_of("capture", {"new": (1.195,)*4}, n=25, spread=0.3), 1.0))
+        for parts, at_least in cases:
+            old = [run["capture"] for role in core.ROLES_OF["old"] for run in parts[role]]
+            new = [run["capture"] for role in core.ROLES_OF["new"] for run in parts[role]]
+            bounds = []
+            for a_old, a_new in core.splits(2):
+                a = [v for i in a_old for v in old[i]] + [v for i in a_new for v in new[i]]
+                b = [v for i in range(4) if i not in a_old for v in old[i]] + [v for i in range(4) if i not in a_new for v in new[i]]
+                low, high = core.interval(a, b)
+                bounds += [low, 1/high]
+            bounds.sort()
+            m = core.decide(parts, {"capture": 100})["metrics"]["capture"]
+            self.assertEqual(m["noise"], round(max(1.0, bounds[-4]), 3))
+            if at_least == 1.0:
+                self.assertLess(bounds[-4], 1.0)
+                # A rise whose bound is above 1.15 times the
+                # fourth largest bound, but not above 1.15.
+                self.assertTrue(1.15*bounds[-4] < m["ratio_low"] <= 1.15, (bounds[-4], m["ratio_low"]))
+                self.assertEqual(m["reasons"], [])
+            else:
+                # The largest bound is not the noise.
+                self.assertGreater(bounds[-4], at_least)
+                self.assertGreater(bounds[-1], bounds[-4]+0.01, bounds[-6:])
+
+    def test_a_noise_of_1_15_is_not_too_noisy(self):
+        # One run of each binary is 1.15 times as slow as the rest, all
+        # samples alike: the controls that put both on one side say 1.15,
+        # which is not above it.
+        def parts(slow):
+            out = {}
+            for binary, levels in (("old", (10, 10, 10, slow)), ("new", (slow, 10, 10, 10))):
+                for i, role in enumerate(core.ROLES_OF[binary]):
+                    out[role] = [{"capture": [float(v)]*100} for v in levels[2*i:2*i+2]]
+            return out
+        d = core.decide(parts(11.5), {"capture": 100})
+        self.assertEqual((d["metrics"]["capture"]["noise"], d["verdict"], d["machine_too_noisy"]), (1.15, "pass", False))
+        d = core.decide(parts(11.6), {"capture": 100})
+        self.assertEqual((d["verdict"], d["machine_too_noisy"]), ("not judged", True))
 
     def test_the_threshold_is_strict(self):
         old = {"old": [{"capture": [10.0]*100}]*2, "old_again": [{"capture": [10.0]*100}]*2}
@@ -711,14 +755,14 @@ class Hooks(unittest.TestCase):
     """How the benchmark runs a hook, and stops one past its limit, on stub
     binaries that start a child and wait for it."""
 
-    GUARD = 60  # seconds: a hang guard, never what decides a test
+    GUARD = 30  # seconds: a hang guard, never what decides a test
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.path = Path(self.dir.name)
         self.pids = self.path/"pids"
         self.stub = self.path/"eva-md"
-        self.stub.write_text('#!/bin/sh\nsleep 600 &\necho "$$ $!" > "$PIDS.tmp"\nmv "$PIDS.tmp" "$PIDS"\nwait\n')
+        self.stub.write_text('#!/bin/sh\nsleep 60 &\necho "$$ $!" > "$PIDS.tmp"\nmv "$PIDS.tmp" "$PIDS"\nwait\n')
         self.stub.chmod(0o700)
         self.env = dict(os.environ, PIDS=str(self.pids))
         self.started = []

@@ -285,7 +285,7 @@ WHOLE = 100  # the samples on each binary's side a figure needs to be judged
 # ROUNDS rounds each binary gives it WHOLE (Run.loops).
 GATE_RUN_SAMPLES = -(-WHOLE // (2*ROUNDS))
 SPLITS = 36  # the most controls a figure has
-NOISE_QUANTILE = 0.92  # of the controls' lower bounds: the third largest of 36
+NOISE_QUANTILE = 0.89  # of the controls' lower bounds: the fourth largest of 36
 # A scenario the new binary failed in at least BROKEN of its runs more than
 # the old one fails the gate; in at least LOST of them, the verdict is "not
 # judged" and the gate is to be run again.
