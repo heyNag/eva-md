@@ -44,7 +44,7 @@ Rules every card carries, so they are said once here:
 | [EV-03b](EV-03b.md) | The pilot's driver | after EV-03a; the live run waits for the owner's leave, a ceiling and decision 28's keys |
 | [EV-03c](EV-03c.md) | The pilot's report and its README | after EV-03a; beside EV-03b |
 | [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | ready after EV-14d; merges after the owner has cut the counters release, before DV-13 |
-| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | built on `pkg/dl-04`, in review; the baseline is accepted again on `main` after the merge |
+| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | building since 2026-11-11 |
