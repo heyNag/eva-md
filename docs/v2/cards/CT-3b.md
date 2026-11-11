@@ -19,10 +19,12 @@ The rules for every part of the counters release hold (see [CT-3](CT-3.md)): con
 
 ## Owns and may touch
 
-`internal/ledger/audit/**`, `cmd/eva-md/audit.go` and its test, and the sentences on the capture audit in `README.md`, `docs/design.md` and `docs/verification.md`.
+`internal/ledger/audit/**`, `internal/catchup/record.go` and its test (read-only exports only), `cmd/eva-md/audit.go` and its test, and the sentences on the capture audit in `README.md`, `docs/design.md` and `docs/verification.md`.
 
 ```paths
 internal/ledger/audit/**
+internal/catchup/record.go
+internal/catchup/record_test.go
 cmd/eva-md/audit.go
 cmd/eva-md/audit_test.go
 README.md
@@ -32,7 +34,7 @@ docs/verification.md
 
 ## Must not touch
 
-`internal/catchup`, beyond calling what CT-3 exported. What recovery itself reads: a hook still recovers only from a transcript its payload names. Any writer: the audit writes nothing but its report.
+`internal/catchup`, beyond calling what CT-3 exported and, if its opener cannot open a file that has no recovery record, one more read-only export in `internal/catchup/record.go` that opens a path recovery's rules admit, with the Codex check that the file is that session's, and does nothing else. What recovery itself reads: a hook still recovers only from a transcript its payload names. Any writer: the audit writes nothing but its report.
 
 ## Accepted when
 
