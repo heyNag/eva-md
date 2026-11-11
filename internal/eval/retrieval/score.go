@@ -95,9 +95,7 @@ func Score(ctx context.Context, s *Set, name string, sys System) (*Result, error
 		if _, twice := r.Added[e.ID]; twice {
 			return nil, fmt.Errorf("retrieval: event %s is in the set twice", e.ID)
 		}
-		ask := e
-		ask.Relevant, ask.Decoys = slices.Clone(e.Relevant), slices.Clone(e.Decoys)
-		added, err := sys.Add(ctx, ask)
+		added, err := sys.Add(ctx, question(e, sys))
 		if err != nil {
 			return nil, fmt.Errorf("retrieval: %s failed on event %s: %w", name, e.ID, err)
 		}
@@ -110,6 +108,20 @@ func Score(ctx context.Context, s *Set, name string, sys System) (*Result, error
 	}
 	r.Figures = measure(s.Events, r.Added)
 	return r, nil
+}
+
+// question returns what a system is asked for an event: its id, project,
+// first and text, with its labels (split, class, relevant items and
+// decoys) cleared, so that no system under test can read the answers. Only
+// a test arm of this package that reads labels, the oracle, is given them,
+// as copies, so that it cannot change the set.
+func question(e Event, sys System) Event {
+	if _, ok := sys.(labelReader); ok {
+		e.Relevant, e.Decoys = slices.Clone(e.Relevant), slices.Clone(e.Decoys)
+		return e
+	}
+	e.Split, e.Class, e.Relevant, e.Decoys = "", "", nil, nil
+	return e
 }
 
 // counts are what the measures of one group are made of.

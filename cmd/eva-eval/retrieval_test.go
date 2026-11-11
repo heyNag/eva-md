@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -79,6 +80,39 @@ func TestRetrievalCommand(t *testing.T) {
 		if r.Commit != commit || r.Dirty || r.Scenario != "v1-recall.set1" || r.Instrument != "retrieval" {
 			t.Fatalf("a row: %+v", r)
 		}
+	}
+}
+
+// silentSystem adds nothing, for a system registered by a test.
+type silentSystem struct{}
+
+func (silentSystem) Add(context.Context, retrieval.Event) ([]string, error) { return nil, nil }
+
+// The command gives the Store the set's forbidden words: a system whose
+// name holds a project's name, and so would put it in every row's
+// scenario, is refused, and no row is written.
+func TestRetrievalCommandForbidsTheSetsNames(t *testing.T) {
+	repo, _, set := retrievalRepo(t)
+	const planted = "tidewater-x" // tidewater is a project of the committed set
+	if !slices.Contains(retrieval.Systems(), planted) {
+		retrieval.Register(planted, func([]retrieval.Item, []retrieval.Project) (retrieval.System, error) {
+			return silentSystem{}, nil
+		})
+	}
+	s, err := retrieval.Load(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(s.Projects, func(p retrieval.Project) bool { return p.Name == "tidewater" }) {
+		t.Fatal("the committed set has no project tidewater")
+	}
+	out := filepath.Join(t.TempDir(), "out")
+	code, stdout, stderr := cmd("retrieval", "--repo", repo, "--set", set, "--system", planted, "--out", out)
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "scenario holds a word the run forbids") {
+		t.Errorf("a system named %s: %d %q %q", planted, code, stdout, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(out, results.FileName)); !os.IsNotExist(err) {
+		t.Errorf("a refused run wrote rows: %v", err)
 	}
 }
 

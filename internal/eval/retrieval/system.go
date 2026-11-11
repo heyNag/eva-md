@@ -10,9 +10,9 @@ import (
 
 // System is a retrieval core under test: for each typed prompt it returns
 // the ids of the items it would add to the chat, best first, or none for
-// silence. It reads the event's id, project, first and text, never its
-// labels. An error stops the run: it is a fault of the system, not a
-// figure.
+// silence. It is given the event's id, project, first and text; the scorer
+// clears its labels (split, class, relevant items and decoys) before it
+// asks. An error stops the run: it is a fault of the system, not a figure.
 type System interface {
 	Add(ctx context.Context, e Event) ([]string, error)
 }
@@ -87,8 +87,15 @@ type silent struct{}
 
 func (silent) Add(context.Context, Event) ([]string, error) { return nil, nil }
 
+// labelReader is a test arm that is given the events' labels. Its method
+// is unexported, so only a type of this package can be one, and only the
+// oracle is.
+type labelReader interface{ readsLabels() }
+
 // oracle adds exactly the relevant items, from the labels: the ceiling a
 // test arm compares with.
 type oracle struct{}
+
+func (oracle) readsLabels() {}
 
 func (oracle) Add(_ context.Context, e Event) ([]string, error) { return slices.Clone(e.Relevant), nil }

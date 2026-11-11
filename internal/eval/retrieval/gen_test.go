@@ -7,8 +7,9 @@ package retrieval
 //	go test ./internal/eval/retrieval -run TestTheSetIsGenerated -args -write-set
 //
 // writes them, after a change here. A change to any held-out event is a new
-// set: raise setVersion with it. Every project, name, value and prompt is
-// made up.
+// set: raise setVersion with it, and pin the new held-out half in
+// heldoutHashes in set_test.go, or -write-set refuses to write it. Every
+// project, name, value and prompt is made up.
 
 import (
 	"bytes"
@@ -799,6 +800,9 @@ func lines[T any](t *testing.T, vs []T) []byte {
 func TestTheSetIsGenerated(t *testing.T) {
 	files := generate(t)
 	if *writeSet {
+		if err := checkPin(setVersion, files[HalvesFile]); err != nil {
+			t.Fatalf("the set is not written: %v", err)
+		}
 		if err := os.MkdirAll(committedSet, 0o755); err != nil {
 			t.Fatal(err)
 		}

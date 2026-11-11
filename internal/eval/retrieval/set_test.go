@@ -312,8 +312,9 @@ func TestTheSetsLabels(t *testing.T) {
 	}
 }
 
-// Each check of the labels can fail: an event changed to break each rule
-// is caught.
+// Each check of the labels can fail: an event or item changed to break
+// each rule is caught, with the error that rule gives, naming the event or
+// item that breaks it.
 func TestTheLabelChecksCanFail(t *testing.T) {
 	first := func(s *Set, split, class string) *Event {
 		for i := range s.Events {
@@ -324,61 +325,143 @@ func TestTheLabelChecksCanFail(t *testing.T) {
 		t.Fatalf("no %s %s event", split, class)
 		return nil
 	}
-	for name, breakIt := range map[string]func(s *Set){
-		"a paraphrase that uses its item's word|with relevant item": func(s *Set) {
+	// named returns the first item with a name whose type is one of kinds.
+	named := func(s *Set, kinds ...string) *Item {
+		for i := range s.Items {
+			if it := &s.Items[i]; nameOf(it) != "" && slices.Contains(kinds, it.Type) {
+				return it
+			}
+		}
+		t.Fatalf("no named item of the kinds %v", kinds)
+		return nil
+	}
+	event := func(e *Event) string { return "event " + e.ID + " " }
+	// Each change returns what the error must name besides the rule's own
+	// words: the event or item it changed.
+	for name, breakIt := range map[string]func(s *Set) string{
+		"a paraphrase that uses its item's word|with relevant item": func(s *Set) string {
 			e := first(s, "paraphrase", Positive)
 			e.Text += " " + tokens(s.Item(e.Relevant[0]).Title)[0]
+			return event(e)
 		},
-		"a near miss that shares one word|not two words": func(s *Set) {
+		"a near miss that shares no word|not two words": func(s *Set) string {
 			e := first(s, "lexical", "near_miss")
 			e.Text = "Rename the variable job to task, it reads better."
+			return event(e)
 		},
-		"a name that is a cue of two items|is a cue of": func(s *Set) {
+		"a near miss that shares exactly one word with its decoy|not two words": func(s *Set) string {
+			e := first(s, "lexical", "near_miss")
+			e.Decoys = e.Decoys[:1]
+			w := shared(s, e.Text, s.Item(e.Decoys[0]))
+			e.Text = "Tell me " + w[0] + "."
+			if got := shared(s, e.Text, s.Item(e.Decoys[0])); len(got) != 1 {
+				t.Fatalf("the changed near miss shares %v with its decoy, not one word", got)
+			}
+			return event(e)
+		},
+		"a name that is a cue of two items|is a cue of": func(s *Set) string {
 			e := first(s, "name", Positive)
 			name := nameOf(s.Item(e.Relevant[0]))
 			for i := range s.Items {
 				if nameOf(&s.Items[i]) == "" {
 					s.Items[i].Cues = append(s.Items[i].Cues, name)
-					return
+					return s.Items[i].ID
 				}
 			}
+			return ""
 		},
-		"a name event without its name|does not hold the name": func(s *Set) {
+		"a named rule whose words drop its name|is not in its rule's words": func(s *Set) string {
+			it := named(s, "rule")
+			var kept []string
+			for _, w := range strings.Fields(it.Words) {
+				if !wordsOf(w)[strings.ToLower(nameOf(it))] {
+					kept = append(kept, w)
+				}
+			}
+			it.Words = strings.Join(kept, " ")
+			if it.Words == "" || wordsOf(it.Words)[strings.ToLower(nameOf(it))] {
+				t.Fatalf("the rule %s's words still hold its name, or are empty", it.ID)
+			}
+			return "the name " + nameOf(it) + " "
+		},
+		"a named constraint whose words drop its name|is not in its constraint's words": func(s *Set) string {
+			it := named(s, "constraint")
+			it.Words = "keep this as it is"
+			return "the name " + nameOf(it) + " "
+		},
+		"another item's statement that holds a name's word|word is also in item": func(s *Set) string {
+			it := named(s, Kinds...)
+			for i := range s.Items {
+				if other := &s.Items[i]; other.ID != it.ID {
+					other.Statement += " " + strings.ToLower(nameOf(it))
+					return other.ID
+				}
+			}
+			return ""
+		},
+		"a name event without its name|does not hold the name": func(s *Set) string {
 			e := first(s, "name", Positive)
 			e.Text = "What should I know before touching it?"
+			return event(e)
 		},
-		"a name near miss with the name capitalized|as an ordinary word": func(s *Set) {
+		"a name near miss with the name capitalized|as an ordinary word": func(s *Set) string {
 			e := first(s, "name", "near_miss")
 			e.Text += " " + nameOf(s.Item(e.Decoys[0]))
+			return event(e)
 		},
-		"a sibling-only event whose decoy is its own project's|not of a project that shares": func(s *Set) {
+		"a sibling-only event whose decoy is its own project's|not of a project that shares": func(s *Set) string {
 			e := first(s, "lexical", "sibling_only")
 			for _, it := range s.Items {
 				if it.Project == e.Project {
 					e.Decoys = []string{it.ID}
-					return
+					return event(e)
 				}
 			}
+			return ""
 		},
-		"a no-match event that matches its own project|of its scope shares": func(s *Set) {
+		"a sibling-only event whose own item shares as many words as its decoy|of its scope shares": func(s *Set) string {
+			e := first(s, "lexical", "sibling_only")
+			lure := shared(s, e.Text, s.Item(e.Decoys[0]))
+			for _, id := range e.Decoys[1:] {
+				if w := shared(s, e.Text, s.Item(id)); len(w) < len(lure) {
+					lure = w
+				}
+			}
+			// An item of the event's own project that holds as many of the
+			// text's words as its weakest decoy, and no other.
+			own := Item{ID: "izzzzzzzzzzzzz", Type: "fact", Project: e.Project, Scope: ScopeProject, Title: strings.Join(lure, " "), Statement: "Kept as it is."}
+			if got := shared(s, e.Text, &own); len(got) != len(lure) || len(lure) < 2 {
+				t.Fatalf("the own item shares %v, its decoy %v", got, lure)
+			}
+			s.Items = append(s.Items, own)
+			// Only this event is checked: the new item may tempt others too.
+			s.Events = []Event{*e}
+			return event(&s.Events[0])
+		},
+		"a no-match event that matches its own project|of its scope shares": func(s *Set) string {
 			e := first(s, "lexical", "no_match")
 			for _, it := range s.Items {
 				if it.Project == e.Project {
 					e.Text += " " + it.Title
-					return
+					return event(e)
 				}
 			}
+			return ""
 		},
-		"a prompt that names a project|names the project": func(s *Set) {
+		"a prompt that names a project|names the project": func(s *Set) string {
 			e := first(s, "lexical", Positive)
 			e.Text += " in " + s.Projects[0].Name
+			return event(e)
 		},
 	} {
 		name, want, _ := strings.Cut(name, "|")
 		s := loadCommitted(t)
-		breakIt(s)
-		if err := checkLabels(s); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: %v", name, err)
+		names := breakIt(s)
+		if names == "" {
+			t.Fatalf("%s: nothing was changed", name)
+		}
+		if err := checkLabels(s); err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), names) {
+			t.Errorf("%s: %v; want an error that says %q and names %q", name, err, want, names)
 		}
 	}
 }
@@ -466,6 +549,80 @@ func TestTheHalvesAreFrozen(t *testing.T) {
 	if got, want := Half("ev-0001"), Half("ev-0001"); got != want || (got != Tuning && got != Heldout) {
 		t.Errorf("Half is %q then %q", got, want)
 	}
+}
+
+// heldoutHashes pins the held-out half of each version of the set, as
+// halves.sha256 holds it. A held-out event is never changed within a
+// version, since rows name the version and not the prompts behind them:
+// a change to one needs a new version of the set (setVersion in
+// gen_test.go) and a new entry here. An entry is never edited or removed.
+var heldoutHashes = map[int]string{
+	1: "7d8e34d98b65cd55d9393c10bf5c0ecfc64266bf164a226ae474fdcfdad8b215",
+}
+
+// The held-out half is the one pinned for the set's version, so that
+// regenerating the set cannot change it under the same version.
+func TestTheHeldOutHalfIsPinnedToItsVersion(t *testing.T) {
+	s := loadCommitted(t)
+	data, err := os.ReadFile(filepath.Join(committedSet, HalvesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkPin(s.Version, data); err != nil {
+		t.Error(err)
+	}
+	if s.Version != setVersion {
+		t.Errorf("the set is of version %d, the generator writes %d", s.Version, setVersion)
+	}
+	seen := map[string]int{}
+	for v, h := range heldoutHashes {
+		if other, ok := seen[h]; ok {
+			t.Errorf("versions %d and %d pin the same held-out half", v, other)
+		}
+		seen[h] = v
+	}
+
+	// A changed held-out event, hashed again, fails the pin; so does a
+	// version with no pin.
+	dir := copySet(t)
+	changeEvent(t, dir, Heldout)
+	changed, err := readLines[Event](filepath.Join(dir, EventsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkPin(s.Version, HalvesText(changed)); err == nil || !strings.Contains(err.Error(), "new version") {
+		t.Errorf("a changed held-out event under version %d: %v", s.Version, err)
+	}
+	if err := checkPin(s.Version+1, data); err == nil || !strings.Contains(err.Error(), "no held-out half is pinned") {
+		t.Errorf("a version with no pin: %v", err)
+	}
+	// A changed tuning event does not.
+	dir = copySet(t)
+	changeEvent(t, dir, Tuning)
+	if changed, err = readLines[Event](filepath.Join(dir, EventsFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkPin(s.Version, HalvesText(changed)); err != nil {
+		t.Errorf("a changed tuning event: %v", err)
+	}
+}
+
+// checkPin checks the held-out line of halves.sha256 against the hash
+// pinned for the version.
+func checkPin(version int, halves []byte) error {
+	want, ok := heldoutHashes[version]
+	if !ok {
+		return fmt.Errorf("no held-out half is pinned for version %d: add its hash to heldoutHashes", version)
+	}
+	for _, line := range strings.Split(string(halves), "\n") {
+		if hash, half, _ := strings.Cut(line, "  "); half == Heldout {
+			if hash != want {
+				return fmt.Errorf("the held-out half is not the one pinned for version %d: a changed held-out event needs a new version of the set and a new entry in heldoutHashes", version)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("%s holds no held-out line", HalvesFile)
 }
 
 // writeSetFiles writes a set to dir as the generator does, with the

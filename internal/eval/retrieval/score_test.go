@@ -179,8 +179,11 @@ func (f failing) Add(_ context.Context, e Event) ([]string, error) {
 	return nil, nil
 }
 
-// meddler changes the labels it is given and adds the first relevant item.
+// meddler is a test arm given the labels, as the oracle is, which changes
+// the labels it is given.
 type meddler struct{}
+
+func (meddler) readsLabels() {}
 
 func (meddler) Add(_ context.Context, e Event) ([]string, error) {
 	if len(e.Relevant) > 0 {
@@ -190,6 +193,54 @@ func (meddler) Add(_ context.Context, e Event) ([]string, error) {
 		e.Decoys[0] = "izzzzzzzzzzzzz"
 	}
 	return nil, nil
+}
+
+// recorder keeps every event it is asked about.
+type recorder struct{ seen *[]Event }
+
+func (r recorder) Add(_ context.Context, e Event) ([]string, error) {
+	*r.seen = append(*r.seen, e)
+	return nil, nil
+}
+
+// A system under test is given each event's id, project, first and text,
+// and none of its labels; only the oracle is given them.
+func TestASystemIsNotGivenTheLabels(t *testing.T) {
+	s := loadCommitted(t)
+	var seen []Event
+	if _, err := Score(context.Background(), s, "recorder", recorder{&seen}); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != len(s.Events) {
+		t.Fatalf("the system was asked %d times for %d events", len(seen), len(s.Events))
+	}
+	for i, e := range seen {
+		want := s.Events[i]
+		if e.ID != want.ID || e.Project != want.Project || e.First != want.First || e.Text != want.Text {
+			t.Fatalf("event %s is not given as the set holds it", want.ID)
+		}
+		if e.Split != "" || e.Class != "" || len(e.Relevant) != 0 || len(e.Decoys) != 0 {
+			t.Fatalf("event %s is given with its labels", want.ID)
+		}
+	}
+	firsts := 0
+	for _, e := range s.Events {
+		if e.First {
+			firsts++
+		}
+	}
+	if firsts == 0 || firsts == len(s.Events) {
+		t.Errorf("%d of %d events are a chat's first prompt; the test cannot tell first is given", firsts, len(s.Events))
+	}
+	for _, name := range Systems() {
+		sys, err := Build(name, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, reads := sys.(labelReader); reads != (name == "oracle") {
+			t.Errorf("%s is given the labels: %v", name, reads)
+		}
+	}
 }
 
 // v1's recall adds a sibling project's item only when the two projects
@@ -367,6 +418,38 @@ func TestRowsAndTheirForbiddenWords(t *testing.T) {
 	}
 	if len(forbid) < 40 {
 		t.Errorf("the set forbids %d words", len(forbid))
+	}
+
+	// Every made-up name of the set is forbidden: each project's name and
+	// key, the owners its keys name, the system pages, and each item's name.
+	want := []string{"orchard-labs", "brookline"} // the committed set's owners
+	for _, p := range s.Projects {
+		want = append(want, p.Name, p.Key)
+	}
+	for _, g := range s.Groups {
+		want = append(want, g.Page)
+	}
+	names := 0
+	for _, it := range s.Items {
+		for _, c := range it.Cues {
+			if IsName(c) {
+				want = append(want, c)
+				names++
+			}
+		}
+	}
+	if names < 30 || len(s.Groups) == 0 {
+		t.Errorf("the set has %d names and %d groups", names, len(s.Groups))
+	}
+	for _, w := range want {
+		if !slices.Contains(forbid, w) {
+			t.Errorf("the set does not forbid %q", w)
+		}
+	}
+	for _, host := range []string{"github.com", "gitlab.example.com"} {
+		if slices.Contains(forbid, host) {
+			t.Errorf("the set forbids the host %s, which is not made up", host)
+		}
 	}
 }
 

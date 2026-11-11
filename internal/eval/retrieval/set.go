@@ -112,9 +112,9 @@ type Group struct {
 	Projects []string `json:"projects"`
 }
 
-// Event is one typed prompt and its labels. A system is given the whole
-// event, but only the oracle reads its labels: a system under test reads
-// its id, project, first and text.
+// Event is one typed prompt and its labels. A system under test is given
+// its id, project, first and text only: the scorer clears its split,
+// class, relevant items and decoys, and gives them to the oracle alone.
 type Event struct {
 	ID       string   `json:"id"`
 	Project  string   `json:"project"`
@@ -447,18 +447,34 @@ func (s *Set) Item(id string) *Item {
 	return nil
 }
 
-// Forbid returns the words no result row may hold: every project's name
-// and key, and every name an item is known by, a cue of one capitalized
-// word.
+// Forbid returns the words no result row may hold: every made-up name in
+// the set. That is every project's name and key, the owner a key names
+// between its host and its name, every system page the projects share, and
+// every name an item is known by, a cue of one capitalized word. A key's
+// host is not made up, and is not forbidden.
 func (s *Set) Forbid() []string {
 	var out []string
+	add := func(w string) {
+		if w != "" && !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
 	for _, p := range s.Projects {
-		out = append(out, p.Name, p.Key)
+		add(p.Name)
+		add(p.Key)
+		if parts := strings.Split(p.Key, "__"); len(parts) > 2 {
+			for _, owner := range parts[1 : len(parts)-1] {
+				add(owner)
+			}
+		}
+	}
+	for _, g := range s.Groups {
+		add(g.Page)
 	}
 	for _, it := range s.Items {
 		for _, c := range it.Cues {
-			if IsName(c) && !slices.Contains(out, c) {
-				out = append(out, c)
+			if IsName(c) {
+				add(c)
 			}
 		}
 	}
