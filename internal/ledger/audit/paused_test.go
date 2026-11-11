@@ -243,6 +243,7 @@ func TestPauses(t *testing.T) {
 		ev(0, 0, event.KindPrompt, ""),
 		ev(1, 0, event.KindControl, event.OpOff),
 		ev(-1, 0, event.KindGap, "", event.MarkRepaired),
+		ev(-1, 0, event.KindPrompt, ""),
 		ev(2, 0, event.KindGap, "", event.MarkRepaired),
 		withheld,
 		ev(3, 0, event.KindPrompt, ""),

@@ -86,6 +86,17 @@ func TestRecoveryRulesDecideWhatIsOpened(t *testing.T) {
 		"paired": func(id string) {
 			f.register("claude-code", id, f.transcript("claude-code", id, cUser("P", at(0, 1), marker)))
 		},
+		// Off the record now by the recovery record alone, as when recovery
+		// found a control and could not write the marker.
+		"off-record": func(id string) {
+			f.register("claude-code", id, f.transcript("claude-code", id, cUser("Q", at(0, 1), marker)))
+			if err := catchup.SetOffRecord(ctx, f.dirs, "claude-code", id, true); err != nil {
+				t.Fatal(err)
+			}
+			if err := markers.ClearContext(ctx, "claude-code", id, session.OffRecord); err != nil {
+				t.Fatal(err)
+			}
+		},
 		// Off the record now by the marker alone, as when the hook could not
 		// write the recovery record's block.
 		"off-marker": func(id string) {
@@ -143,7 +154,7 @@ func TestRecoveryRulesDecideWhatIsOpened(t *testing.T) {
 		f.store("claude-code", id, inbox.Entry{TS: at(0, 0), Role: "event", Kind: "event", Text: "session_start"})
 	}
 	r, _ := f.run("", 0)
-	want := Recovery{Paired: 1, NoRecord: 1, NoneNamed: 1, NamedRefused: 1, NotWritten: 1, WhyUnknown: 1, Refused: 2, Gone: 1, OffNow: 2, OffUnplaced: 1, Unreadable: 1}
+	want := Recovery{Paired: 1, NoRecord: 1, NoneNamed: 1, NamedRefused: 1, NotWritten: 1, WhyUnknown: 1, Refused: 2, Gone: 1, OffNow: 3, OffUnplaced: 1, Unreadable: 1}
 	if r.Recovery != want {
 		t.Errorf("recovery %+v, want %+v", r.Recovery, want)
 	}
