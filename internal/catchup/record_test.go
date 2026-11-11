@@ -223,3 +223,87 @@ func TestLongRowFindsARecordControl(t *testing.T) {
 		}
 	}
 }
+
+// OpenUnregistered opens a file of the host's folder of chats that no
+// record registered, by its path, under recovery's path rules and with
+// Codex's identity check, and checks nothing of recovery's cursor: a file
+// put in the registered one's place and shorter than the cursor opens. A
+// path outside the folder, another session's file, a file reached through
+// a symlink, of the file or of a folder leading out of the folder of
+// chats, a file with a second link, and a Codex file of another folder are
+// refused.
+func TestOpenUnregisteredKeepsRecoverysPathRules(t *testing.T) {
+	for _, host := range []string{"claude-code", "codex"} {
+		dirs, file, e := fixture(t, host)
+		home := os.Getenv("HOME")
+		s, found, err := Record(context.Background(), dirs, host, e.Session)
+		if err != nil || !found {
+			t.Fatalf("%s: %v %v", host, found, err)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write := func(path string, data []byte) {
+			t.Helper()
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write(file+".new", data)
+		if err := os.Rename(file+".new", file); err != nil {
+			t.Fatal(err)
+		}
+		s.Offset = 1 << 40
+		if f, err := OpenTranscript(s); err == nil {
+			f.Close()
+			t.Fatalf("%s: the registered check passes a file put in its place", host)
+		}
+		f, err := OpenUnregistered(s)
+		if err != nil {
+			t.Fatalf("%s: %v", host, err)
+		}
+		f.Close()
+
+		base := filepath.Base(file)
+		outside := filepath.Join(home, "outside", base)
+		write(outside, data)
+		other := filepath.Join(filepath.Dir(file), strings.Replace(base, e.Session, "session-456", 1))
+		write(other, data)
+		linkedFile := filepath.Join(filepath.Dir(file), "linked", base)
+		if err := os.MkdirAll(filepath.Dir(linkedFile), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, linkedFile); err != nil {
+			t.Fatal(err)
+		}
+		linkedFolder := filepath.Join(filepath.Dir(file), "out")
+		if err := os.Symlink(filepath.Dir(outside), linkedFolder); err != nil {
+			t.Fatal(err)
+		}
+		twice := filepath.Join(filepath.Dir(file), "twice", base)
+		write(twice, data)
+		if err := os.Link(twice, filepath.Join(home, "twice-"+base)); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{outside, other, linkedFile, filepath.Join(linkedFolder, base), twice} {
+			bad := s
+			bad.Path = path
+			if f, err := OpenUnregistered(bad); err == nil {
+				f.Close()
+				t.Errorf("%s opens %s", host, path)
+			}
+		}
+		if host == "codex" {
+			bad := s
+			bad.Cwd = filepath.Join(home, "another")
+			if f, err := OpenUnregistered(bad); err == nil {
+				f.Close()
+				t.Error("codex: a transcript of another folder opens")
+			}
+		}
+	}
+}

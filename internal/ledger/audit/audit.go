@@ -75,10 +75,17 @@ type Gaps struct {
 // NoReply counts turns with a prompt and no stored reply, by cause.
 type NoReply struct{ Interrupted, Failed, NoReplyInPayload, HookNeverRan int }
 
-// Recovery counts the sessions whose host record was not read, by why,
-// and those paired with it.
+// How a session is paired with the host's record.
+const (
+	ByRecord = iota // by the transcript its recovery record names
+	ByID            // by its id, among the files of the host's folder of chats
+	ways
+)
+
+// Recovery counts the sessions whose host record was not read by the
+// transcript their recovery record names, by why, and those paired so.
 type Recovery struct {
-	Paired       int
+	Paired       int // by the recovery record; a subagent's thread is counted in Report.Subagents
 	NoRecord     int // no recovery record, as for a record pruned
 	NoneNamed    int // no hook named a transcript
 	NamedRefused int // a hook named one and recovery refused it
@@ -87,25 +94,51 @@ type Recovery struct {
 	Refused      int // the record names one the rules refuse now
 	Gone         int // the record names one that no longer exists
 	OffNow       int // the chat is off the record now: not opened
-	// OffUnplaced counts chats that were off the record once, where neither
-	// the inbox nor the host's record shows the range: not counted.
+	// OffUnplaced counts chats read by the transcript their record names
+	// that were off the record once, where neither the inbox nor the host's
+	// record shows the range: not paired.
 	OffUnplaced int
 	Unreadable  int // the record or the transcript could not be read
 }
 
-// Row is one paired session's coverage.
+// Lookup counts the sessions looked for by their id among the files of the
+// host's folder of chats, by what was found: those whose recovery record
+// names no transcript, as none was named, it was not written yet or for a
+// reason an older record does not keep, or names one that is gone.
+type Lookup struct {
+	Paired int // one file, admitted, the session's, and read; a subagent's thread is counted in Report.Subagents
+	None   int // no file by that id
+	Many   int // more than one
+	// Refused counts one file the rules refuse: a symlink, one outside
+	// the folder of chats of the home the record names, or on Codex one
+	// that says it is another session's or another folder's.
+	Refused    int
+	Gone       int // gone before it was opened
+	Unreadable int // opened and could not be read
+	// OffUnplaced counts those read that were off the record once, where
+	// neither the inbox nor the host's record shows the range: not paired.
+	OffUnplaced int
+}
+
+// Row is one paired session's coverage, and how it was paired. A
+// subagent's thread is not scored: its row holds no coverage.
 type Row struct {
 	Host     string
+	Way      int  // ByRecord or ByID
+	Subagent bool // a subagent's thread, read and not scored
 	Coverage [kinds]Coverage
 }
 
 // Report is the whole audit, numbers only.
 type Report struct {
-	Sessions      int // sessions in scope, by host and id
-	Files         int // their inbox files
-	Unread        int // inbox files named that the reader could not read
-	Rows          []Row
+	Sessions int // sessions in scope, by host and id
+	Files    int // their inbox files
+	Unread   int // inbox files named that the reader could not read
+	Rows     []Row
+	// Coverage is over the sessions paired either way, and ByWay over
+	// those paired each way.
 	Coverage      [kinds]Coverage
+	ByWay         [ways][kinds]Coverage
 	BeforeCapture int // host items before a session's first stored line
 	LeftOut       int // host items in folders the hooks leave out by design
 	TooLong       int // host rows too long to read
@@ -118,12 +151,21 @@ type Report struct {
 	VoiceHost     int // and in the host's records read
 	Classes       map[event.Class]int
 	Recovery      Recovery
-	Stores        []Store // nil unless every session was audited
+	Lookup        Lookup
+	// Subagents counts the subagents' threads paired, by the way they were
+	// paired: read, so that what was said off the record is honoured, and
+	// not scored. They are not in Recovery.Paired or Lookup.Paired.
+	Subagents [ways]int
+	Stores    []Store // nil unless every session was audited
 }
 
-// openTranscript opens the transcript a recovery record names. Tests
-// replace it to see what is opened.
-var openTranscript = catchup.OpenTranscript
+// openTranscript opens the transcript a recovery record names, and
+// openUnregistered a file found by the session's id. Tests replace them to
+// see what is opened.
+var (
+	openTranscript   = catchup.OpenTranscript
+	openUnregistered = catchup.OpenUnregistered
+)
 
 // file is one inbox file of a session, as the reader returned it.
 type file struct {
@@ -184,9 +226,18 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		order = order[:o.Last]
 	}
 	away := outside(o)
+	// The hosts' folders of chats are listed once, when a session is looked
+	// for by its id or every session is audited.
+	var files listing
+	listed := func() listing {
+		if files == nil {
+			files = listStore(o.Home)
+		}
+		return files
+	}
 	for _, g := range order {
 		r.Files += len(groups[g])
-		if err := r.session(ctx, o, away, g.host, g.session, groups[g]); err != nil {
+		if err := r.session(ctx, o, away, listed, g.host, g.session, groups[g]); err != nil {
 			return Report{}, err
 		}
 	}
@@ -199,7 +250,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			}
 			known[k.Host][k.Session] = true
 		}
-		r.Stores = stores(o, known, first)
+		r.Stores = stores(o, listed(), known, first)
 	}
 	return r, nil
 }
@@ -228,13 +279,26 @@ func span(events []event.Event) (first, last time.Time) {
 // was paused is not counted from the inbox either, where a hook stored it.
 // A line or row with no time is left out whenever there is such a range. A
 // chat that was off the record once, where neither side shows the range,
-// is not paired.
-func (r *Report) session(ctx context.Context, o Options, away func(string) bool, host, id string, files []file) error {
+// is not paired. A session paired by its id is audited as one paired by
+// its recovery record.
+//
+// A subagent's thread, a session whose every inbox file the reader classes
+// as a subagent's, is paired and read as any other, but not scored: v1
+// stores a subagent's lines under its id, which coverage leaves out, and on
+// Codex such a thread is a session of its own, whose every row the host's
+// record holds. Paired or not, it adds nothing to coverage, repeats, gaps,
+// voice hand-overs, the host's rows not compared or the turns with no
+// stored reply; its ranges said off the record are counted as paused, and
+// its pairing apart, in Subagents. A session that holds a subagent's lines
+// among others is scored.
+func (r *Report) session(ctx context.Context, o Options, away func(string) bool, listed func() listing, host, id string, files []file) error {
 	var paused []interval
 	var first time.Time
 	inboxPaused := 0
+	sub := len(files) > 0
 	for _, f := range files {
 		r.Classes[f.session.Class]++
+		sub = sub && f.session.Class == event.ClassSubagent
 		p, n := pauses(f.events)
 		paused = append(paused, p...)
 		inboxPaused += n
@@ -243,7 +307,7 @@ func (r *Report) session(ctx context.Context, o Options, away func(string) bool,
 		}
 	}
 	r.PausedInbox += inboxPaused
-	rec, ok, err := r.hostRecord(ctx, o, away, host, id)
+	rec, way, ok, err := r.hostRecord(ctx, o, away, listed, host, id)
 	if err != nil {
 		return err
 	}
@@ -253,14 +317,31 @@ func (r *Report) session(ctx context.Context, o Options, away func(string) bool,
 			return ctx.Err()
 		}
 		if err != nil || was {
-			r.Recovery.OffUnplaced++
+			if way == ByID {
+				r.Lookup.OffUnplaced++
+			} else {
+				r.Recovery.OffUnplaced++
+			}
 			ok = false
 		}
 	}
 	if ok {
-		r.Recovery.Paired++
+		switch {
+		case sub:
+			r.Subagents[way]++
+		case way == ByID:
+			r.Lookup.Paired++
+		default:
+			r.Recovery.Paired++
+		}
 		r.PausedHost += rec.paused
 		paused = append(paused, rec.pauses...)
+	}
+	if sub {
+		if ok {
+			r.Rows = append(r.Rows, Row{Host: host, Way: way, Subagent: true})
+		}
+		return nil
 	}
 	var stored [kinds]map[string]int
 	for k := range stored {
@@ -306,12 +387,15 @@ func (r *Report) session(ctx context.Context, o Options, away func(string) bool,
 		}
 	}
 	r.noReply(files, interrupted)
-	row := Row{Host: host}
+	row := Row{Host: host, Way: way}
 	for k := range kinds {
-		row.Coverage[k] = match(found[k], stored[k])
-		r.Coverage[k].Found += row.Coverage[k].Found
-		r.Coverage[k].Missing += row.Coverage[k].Missing
-		r.Coverage[k].Extra += row.Coverage[k].Extra
+		c := match(found[k], stored[k])
+		row.Coverage[k] = c
+		for _, sum := range []*Coverage{&r.Coverage[k], &r.ByWay[way][k]} {
+			sum.Found += c.Found
+			sum.Missing += c.Missing
+			sum.Extra += c.Extra
+		}
 	}
 	r.Rows = append(r.Rows, row)
 	return nil
@@ -319,63 +403,122 @@ func (r *Report) session(ctx context.Context, o Options, away func(string) bool,
 
 // hostRecord reads the host's record of the session, where its recovery
 // record names one that recovery's rules admit, and counts why it did not
-// otherwise. A transcript the rules refuse by its path is never opened.
-func (r *Report) hostRecord(ctx context.Context, o Options, away func(string) bool, host, id string) (hostRecord, bool, error) {
+// otherwise. Where the record names none, for a reason other than a
+// refusal, or names one that is gone, it looks for the session's file by
+// its id instead. A chat off the record now is never looked for or
+// opened, nor is a transcript the rules refuse by its path. way is how the
+// session was paired.
+func (r *Report) hostRecord(ctx context.Context, o Options, away func(string) bool, listed func() listing, host, id string) (rec hostRecord, way int, ok bool, err error) {
 	s, found, err := catchup.Record(ctx, o.Dirs, host, id)
 	switch {
 	case ctx.Err() != nil:
-		return hostRecord{}, false, ctx.Err()
+		return hostRecord{}, 0, false, ctx.Err()
 	case err != nil:
 		r.Recovery.Unreadable++
-		return hostRecord{}, false, nil
+		return hostRecord{}, 0, false, nil
 	case !found:
 		r.Recovery.NoRecord++
-		return hostRecord{}, false, nil
-	case s.Missing:
+		return hostRecord{}, 0, false, nil
+	}
+	// A record whose transcript is missing keeps its block, and no longer
+	// its reason, once a later event names none: only a chat off the record
+	// keeps recovery blocked.
+	_, off, err := session.Markers{Root: o.Dirs.Sessions()}.GetContext(ctx, host, id, session.OffRecord)
+	if err != nil || off || s.Blocked && (s.Reason == "off_record" || s.Missing) {
+		r.Recovery.OffNow++
+		return hostRecord{}, 0, false, nil
+	}
+	if s.Missing {
 		switch s.MissingWhy {
 		case catchup.MissingNoneNamed:
 			r.Recovery.NoneNamed++
 		case catchup.MissingRefused:
 			r.Recovery.NamedRefused++
+			return hostRecord{}, 0, false, nil
 		case catchup.MissingNotWritten:
 			r.Recovery.NotWritten++
 		default:
 			r.Recovery.WhyUnknown++
 		}
-		return hostRecord{}, false, nil
-	}
-	_, off, err := session.Markers{Root: o.Dirs.Sessions()}.GetContext(ctx, host, id, session.OffRecord)
-	if err != nil || off || s.Blocked && s.Reason == "off_record" {
-		r.Recovery.OffNow++
-		return hostRecord{}, false, nil
+		return r.byID(ctx, o, away, listed(), s)
 	}
 	if !catchup.Admits(s) {
 		r.Recovery.Refused++
-		return hostRecord{}, false, nil
+		return hostRecord{}, 0, false, nil
 	}
 	f, err := openTranscript(s)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		r.Recovery.Gone++
-		return hostRecord{}, false, nil
+		return r.byID(ctx, o, away, listed(), s)
 	case err != nil:
 		r.Recovery.Refused++
-		return hostRecord{}, false, nil
+		return hostRecord{}, 0, false, nil
 	}
 	defer f.Close()
-	limit := o.rowLimit
-	if limit <= 0 {
-		limit = maxRow
-	}
-	rec, err := readHost(ctx, s, away, f, limit)
+	rec, err = readHost(ctx, s, away, f, o.limit())
 	if ctx.Err() != nil {
-		return hostRecord{}, false, ctx.Err()
+		return hostRecord{}, 0, false, ctx.Err()
 	}
 	if err != nil {
 		r.Recovery.Unreadable++
-		return hostRecord{}, false, nil
+		return hostRecord{}, 0, false, nil
 	}
-	return rec, true, nil
+	return rec, ByRecord, true, nil
+}
+
+// byID reads the host's record of the session s names from the one file
+// of the host's folder of chats named for its id, and counts why it did
+// not otherwise: no file or more than one, and a file recovery's rules
+// refuse, which is never opened, or that on Codex says it is another
+// session's, which is refused once opened.
+func (r *Report) byID(ctx context.Context, o Options, away func(string) bool, files listing, s catchup.Source) (hostRecord, int, bool, error) {
+	var named []storeFile
+	for _, f := range files[s.Host] {
+		if f.id == s.Session {
+			named = append(named, f)
+		}
+	}
+	switch {
+	case len(named) == 0:
+		r.Lookup.None++
+		return hostRecord{}, 0, false, nil
+	case len(named) > 1:
+		r.Lookup.Many++
+		return hostRecord{}, 0, false, nil
+	}
+	s.Path = named[0].path
+	if !named[0].regular || !catchup.Admits(s) {
+		r.Lookup.Refused++
+		return hostRecord{}, 0, false, nil
+	}
+	f, err := openUnregistered(s)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		r.Lookup.Gone++
+		return hostRecord{}, 0, false, nil
+	case err != nil:
+		r.Lookup.Refused++
+		return hostRecord{}, 0, false, nil
+	}
+	defer f.Close()
+	rec, err := readHost(ctx, s, away, f, o.limit())
+	if ctx.Err() != nil {
+		return hostRecord{}, 0, false, ctx.Err()
+	}
+	if err != nil {
+		r.Lookup.Unreadable++
+		return hostRecord{}, 0, false, nil
+	}
+	return rec, ByID, true, nil
+}
+
+// limit is the longest host row the audit decodes.
+func (o Options) limit() int {
+	if o.rowLimit <= 0 {
+		return maxRow
+	}
+	return o.rowLimit
 }
 
 // counted is the kind an inbox event is counted as, by coverage: a

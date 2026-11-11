@@ -19,11 +19,16 @@ import (
 // repairs within that range on both sides. On Claude Code only the host's record holds the controls, as when
 // the hooks missed them and stored what was said; on Codex only the inbox
 // does.
-func pausedSessions(f *fixture, inside bool) {
+func pausedSessions(f *fixture, inside bool) { pausedThreads(f, inside, "") }
+
+// pausedThreads is pausedSessions with every stored line under the
+// subagent's id agent, as v1 stores a subagent's thread, or under none when
+// agent is "".
+func pausedThreads(f *fixture, inside bool, agent string) {
 	f.rowLimit = 4096
 	image := map[string]any{"type": "image", "source": map[string]any{"data": strings.Repeat("A", f.rowLimit)}}
 	line := func(ts, turn, role, kind, txt string) inbox.Entry {
-		return inbox.Entry{TS: ts, Turn: turn, Role: role, Kind: kind, Text: txt}
+		return inbox.Entry{TS: ts, Turn: turn, Role: role, Kind: kind, Text: txt, Agent: agent}
 	}
 	claude := []any{
 		cUser("T1", at(0, 5), marker+" before"),
