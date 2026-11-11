@@ -112,7 +112,7 @@ type file struct {
 func Run(ctx context.Context, o Options) (Report, error) {
 	r := Report{Format: Format, Version: o.Version, Day: o.Now.Format(time.DateOnly), Parts: map[string]string{},
 		Days: map[string][2]string{}, Settled: map[string][]string{"in_full": settledInFull, "in_part": settledInPart, "not_by_shapes": notByShapes}}
-	away := audit.Outside(audit.Options{Dirs: o.Dirs, Home: o.Home, TempDir: o.TempDir, Config: o.Config})
+	away := outside(o)
 	sessions, part, err := readInbox(ctx, o, away)
 	if err != nil && ctx.Err() == nil {
 		return Report{}, err

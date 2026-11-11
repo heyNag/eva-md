@@ -132,6 +132,23 @@ func specials() []special {
 			path := f.codexFile(3, id, rows...)
 			f.session(codex, id, path, prompt(inside))
 		}, 1, 0},
+		{"its repository's remote is excluded, by eva-md's records", claude, statusLeftOut, func(f *fixture, inside int) {
+			id := marker + "-away-remote"
+			rel, err := filepath.Rel(f.home, f.excludedRepo())
+			if err != nil {
+				f.t.Fatal(err)
+			}
+			path := f.claudeFile("", id, insideRows(f, claude, id, inside)...)
+			e := prompt(inside)
+			e.Cwd = rel
+			f.session(claude, id, path, e)
+		}, 1, 0},
+		{"its repository's remote is excluded, by the host's record", codex, statusLeftOut, func(f *fixture, inside int) {
+			id := codexIDs(20)[16]
+			rows := append(insideRows(f, codex, id, inside), xRow(at(33, 0), "turn_context", map[string]any{"turn_id": "t2", "cwd": f.excludedRepo()}))
+			path := f.codexFile(3, id, rows...)
+			f.session(codex, id, path, prompt(inside))
+		}, 1, 0},
 		{"a line the inbox withholds says it", claude, statusOff, func(f *fixture, inside int) {
 			// A pause of another project's, which v1's reader does not
 			// trust and never returns as a pause, then a prompt it

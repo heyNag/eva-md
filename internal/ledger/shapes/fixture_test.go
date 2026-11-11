@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/catchup"
+	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -38,6 +39,7 @@ type fixture struct {
 	dirs       paths.Dirs
 	cwd        string // the chats' folder, as the hosts write it
 	rowLimit   int
+	config     config.Config
 }
 
 // Where a fixture's home holds a link, as macOS reaches its temporary
@@ -235,7 +237,7 @@ func (f *fixture) write(path string, rows ...any) string {
 
 // options are the report's options for the home.
 func (f *fixture) options() Options {
-	return Options{Dirs: f.dirs, Home: f.home, TempDir: filepath.Join(f.home, "tmp"), Version: "2026.11.9", rowLimit: f.rowLimit,
+	return Options{Dirs: f.dirs, Home: f.home, TempDir: filepath.Join(f.home, "tmp"), Version: "2026.11.9", rowLimit: f.rowLimit, Config: f.config,
 		Now: time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)}
 }
 
