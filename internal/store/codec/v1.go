@@ -57,21 +57,29 @@ var v1Keys = strings.Fields("type title description resource status governance c
 // ReadV1 reads a v1 page through Read. It reads the forms v1 wrote, as v1
 // read them, and where v1 misread a hand edit it reads as YAML does: a
 // comment after a value is dropped, a single-quoted value is unquoted.
-// It refuses, with the page's Doc set, what it would have to guess at: an
-// unreadable document (ErrUnreadable), a repeated key (ErrRepeated), and a
-// value it does not decode (ErrNotWritten): a block scalar, a tag, anchor
-// or alias, a value that runs onto the next line, or a key it cannot read.
-// An error names a key only when it is one v1 wrote.
+// It refuses what it would have to guess at, returning a page that holds
+// the Doc and nothing else: an unreadable document (ErrUnreadable), a
+// repeated key (ErrRepeated), and a value it does not decode
+// (ErrNotWritten): a block scalar, a tag, anchor or alias, a value that
+// runs onto the next line, or a key it cannot read. An error names a key
+// only when it is one v1 wrote.
 func ReadV1(b []byte) (V1Page, error) {
 	d := Read(b)
-	p := V1Page{Doc: d}
+	p, err := readV1(d)
+	if err != nil {
+		return V1Page{Doc: d}, err
+	}
+	return p, nil
+}
+
+func readV1(d *Doc) (V1Page, error) {
+	p := V1Page{Doc: d, Extra: map[string]any{}}
 	if why := d.why(); why != "" {
 		return p, fmt.Errorf("%w: %s", ErrUnreadable, why)
 	}
 	if d.flowRoot() {
 		return p, fmt.Errorf("%w: the frontmatter is one flow mapping", ErrNotWritten)
 	}
-	p.Extra = map[string]any{}
 	seen := map[string]bool{}
 	for _, e := range d.entries {
 		if e.key == unknownKey || e.key == mergeKey {
@@ -82,7 +90,7 @@ func ReadV1(b []byte) (V1Page, error) {
 		}
 		seen[e.key] = true
 		if err := p.set(e); err != nil {
-			return p, fmt.Errorf("%w: %s under %s", ErrNotWritten, err.Error(), named(e.key))
+			return p, fmt.Errorf("%w: %s, under %s", ErrNotWritten, err.Error(), named(e.key))
 		}
 	}
 	p.Body = strings.Join(d.lines[d.close+1:], "")
@@ -118,7 +126,7 @@ func (p *V1Page) set(e *entry) error {
 	switch e.key {
 	case "type", "title", "description", "status", "stale_after":
 		if len(lines) > 0 {
-			return errors.New("a value on the lines under its key")
+			return errors.New("a scalar on the lines below its key")
 		}
 		switch v := unquoteV1(s); e.key {
 		case "type":
