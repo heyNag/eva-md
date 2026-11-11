@@ -286,6 +286,8 @@ scripts/linux-check.sh
 
 On Linux the tests need a `TMPDIR` outside `/tmp`, `/private/tmp`, `/var/tmp` and `/private/var/tmp`: eva-md's hooks skip folders under them as temporary, and `t.TempDir()` puts every test project in `TMPDIR`, which defaults to `/tmp` on Linux and is under `/var/folders` on macOS. Cloud sessions run as root, and as root about 20 tests fail by design: eva-md keeps no identity cache for root, since git's ownership checks then depend on `SUDO_UID`, and root reads and writes files whatever their modes, which the permission tests rely on. So the script makes a temporary folder of its own and, started as root, runs the tests as an unprivileged user on a snapshot of the working tree, rather than skip those tests. That user, `eva-md-check`, and the world-readable Go module cache it reads, `/var/cache/eva-md/gomod`, stay in place for the next run; remove them by hand if you ran the script with sudo on a machine of your own. CI runs the same script on Linux, but its macOS job is the test run of record.
 
+A cloud session's disk is a fixed allowance that the checks' build caches spend; `scripts/linux-space.sh` shows what they use and `--prune` frees it. Under heavy load the benchmark can fail on sound code: run it again when the machine is quiet. AGENTS.md has the details.
+
 Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
 
 ## Documentation
