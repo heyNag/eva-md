@@ -25,16 +25,16 @@ Rules every card carries, so they are said once here:
 | [EV-12](EV-12.md) | The results store and gates | merged |
 | [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 passes with no fail on macOS |
-| [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | built, reviewed and fixed; the fix changed the rule, so it is being verified by simulation |
+| [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | built, reviewed and fixed on `pkg/ev-16b-r1`; the fix changed the rule, so it is verified by simulation before it merges; that is paused while the counters are fixed |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | after EV-16b |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | built; in review |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | built and reviewed; its fix is being made |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | built; in review |
 | [CT-4](CT-4.md) | Counters release: a content-free report | building since 2026-11-11, on the three other parts as built; reviewed once they are merged |
-| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | building since 2026-11-11 |
+| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | started 2026-11-11; paused while the counters are fixed |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
-| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | building since 2026-11-11 |
+| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | started 2026-11-11; paused while the counters are fixed |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | ready |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | after CT-1 and CT-2 |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
@@ -44,15 +44,15 @@ Rules every card carries, so they are said once here:
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a, DV-12b and the counters release |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b and SEAM-0b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
-| [EV-11](EV-11.md) | Ownership and size checks | building since 2026-11-11 |
-| [IF-01a](IF-01a.md) | The contract matrix and its check | building since 2026-11-11 |
-| [IF-01b](IF-01b.md) | The reader's fake | building since 2026-11-11 |
+| [EV-11](EV-11.md) | Ownership and size checks | started 2026-11-11; paused while the counters are fixed |
+| [IF-01a](IF-01a.md) | The contract matrix and its check | started 2026-11-11; paused while the counters are fixed |
+| [IF-01b](IF-01b.md) | The reader's fake | started 2026-11-11; paused while the counters are fixed |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
-| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | building since 2026-11-11 |
+| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | started 2026-11-11; paused while the counters are fixed |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
-| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | building since 2026-11-11 |
-| [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | building since 2026-11-11 |
-| [ST-04](ST-04.md) | The migrator and the minimum reader version | building since 2026-11-11 |
+| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | started 2026-11-11; paused while the counters are fixed |
+| [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | started 2026-11-11; paused while the counters are fixed |
+| [ST-04](ST-04.md) | The migrator and the minimum reader version | started 2026-11-11; paused while the counters are fixed |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | ready |
 | [EV-14c](EV-14c.md) | Six new families, half held out | after EV-14a and EV-14b |
