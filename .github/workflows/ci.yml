@@ -91,6 +91,39 @@ jobs:
           path: ${{ runner.temp }}/latency/
           if-no-files-found: ignore
 
+  # The two guards of the v2 build, from the evaluation harness, which no
+  # release builds. Ownership: each commit the change brings, on its first
+  # parent, touches only the paths of the cards its Card: trailers name; a
+  # commit with no trailer is the lead's and is listed, not judged. Size:
+  # the Go built into eva-md for macOS, less the lines of v1 files that
+  # merged cards schedule for deletion, stays within v1's 53,694 lines.
+  # The base is found as the latency job finds it, so the whole history
+  # is fetched; the size check also reads v1's files from it.
+  guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Ownership
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            BASE=$(git rev-parse HEAD^)
+          fi
+          echo "Judging $BASE..$SHA"
+          go run ./cmd/eva-eval paths "$BASE" "$SHA"
+      - name: Size
+        if: ${{ !cancelled() }}
+        run: go run ./cmd/eva-eval size
+
   # eva-md runs only on macOS, so the test job above is the test run of record.
   # This one keeps eva-md building and its tests passing on Linux, where
   # cloud sessions work on it. It runs the checks through the script cloud

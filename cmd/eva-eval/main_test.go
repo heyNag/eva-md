@@ -317,7 +317,8 @@ func deps(t *testing.T, root, dir string) []string {
 }
 
 // No release contains the harness: eva-md imports no package of it,
-// directly or not, and no workflow or script names the command.
+// directly or not, and no workflow or script names the command, but for
+// the two lines of CI's guards job that run its paths and size.
 func TestNoReleaseContainsIt(t *testing.T) {
 	root := moduleRoot(t)
 	product := deps(t, root, "cmd/eva-md")
@@ -339,6 +340,8 @@ func TestNoReleaseContainsIt(t *testing.T) {
 		t.Fatalf("found %v and %v; the check read the wrong folders", files, scripts)
 	}
 	name := regexp.MustCompile(`eva-eval|cmd/eva-eval|internal/eval\b`)
+	// CI's own workflow, which no release runs, runs the guards' commands.
+	guards := regexp.MustCompile(`go run \./cmd/eva-eval (paths|size)\b`)
 	for _, path := range append(files, scripts...) {
 		if info, err := os.Stat(path); err != nil || info.IsDir() {
 			continue
@@ -346,6 +349,9 @@ func TestNoReleaseContainsIt(t *testing.T) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if filepath.Base(path) == "ci.yml" && filepath.Base(filepath.Dir(path)) == "workflows" {
+			data = guards.ReplaceAll(data, nil)
 		}
 		if m := name.Find(data); m != nil {
 			t.Errorf("%s names %s", path, m)

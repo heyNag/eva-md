@@ -458,7 +458,8 @@ func TestTheRealRunner(t *testing.T) {
 
 // No release or install step builds the command: every go build, install
 // or run in the workflows and scripts builds ./cmd/eva-md alone, and none
-// names this command.
+// names this command. CI's own workflow, ci.yml, which no release runs,
+// may also run the evaluation's ./cmd/eva-eval, for its guards job.
 func TestNoReleaseBuildsIt(t *testing.T) {
 	root := filepath.Join("..", "..")
 	files, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
@@ -475,7 +476,8 @@ func TestNoReleaseBuildsIt(t *testing.T) {
 	// A command runs to the end of its line, or to a ;, & or |; a line a
 	// backslash continues is one line.
 	gocmd := regexp.MustCompile(`\bgo +(build|install|run)\b([^\n;&|]*)`)
-	builds := 0
+	ci := filepath.Join(root, ".github", "workflows", "ci.yml")
+	builds, guards := 0, 0
 	for _, path := range append(files, scripts...) {
 		if info, err := os.Stat(path); err != nil || info.IsDir() {
 			continue
@@ -495,14 +497,17 @@ func TestNoReleaseBuildsIt(t *testing.T) {
 					pkgs = append(pkgs, f)
 				}
 			}
-			if !slices.Equal(pkgs, []string{"./cmd/eva-md"}) {
+			switch {
+			case path == ci && m[1] == "run" && slices.Equal(pkgs, []string{"./cmd/eva-eval"}):
+				guards++
+			case !slices.Equal(pkgs, []string{"./cmd/eva-md"}):
 				t.Errorf("%s: go %s%s builds %q", path, m[1], m[2], pkgs)
 			}
 			builds++
 		}
 	}
-	if builds < 3 {
-		t.Fatalf("found %d builds; the check read the wrong files", builds)
+	if builds < 3 || guards == 0 {
+		t.Fatalf("found %d builds, %d of them the guards' in %s; the check read the wrong files", builds, guards, ci)
 	}
 }
 
