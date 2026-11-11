@@ -20,12 +20,20 @@ func seeds() int {
 	return 1000
 }
 
+// Each property runs beside the others: they share no state.
 func TestTheModelKeepsEveryProperty(t *testing.T) {
-	t.Run(PropCrashSafety, func(t *testing.T) { RunCrashSafety(t, newModel, seeds()) })
-	t.Run(PropExactlyOnce, func(t *testing.T) { RunExactlyOnce(t, newModel, seeds()) })
-	t.Run(PropProtection, func(t *testing.T) { RunProtection(t, newModel, seeds()) })
-	t.Run(PropRestore, func(t *testing.T) { RunRestore(t, newRestorable, seeds()) })
-	t.Run(PropReplay, func(t *testing.T) { RunReplay(t, newRestorable, seeds()) })
+	for name, run := range map[string]func(*testing.T){
+		PropCrashSafety: func(t *testing.T) { RunCrashSafety(t, newModel, seeds()) },
+		PropExactlyOnce: func(t *testing.T) { RunExactlyOnce(t, newModel, seeds()) },
+		PropProtection:  func(t *testing.T) { RunProtection(t, newModel, seeds()) },
+		PropRestore:     func(t *testing.T) { RunRestore(t, newRestorable, seeds()) },
+		PropReplay:      func(t *testing.T) { RunReplay(t, newRestorable, seeds()) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			run(t)
+		})
+	}
 }
 
 // variants are the broken models, each with a property it fails, the seed
