@@ -14,6 +14,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/resume"
+	"github.com/heyNag/eva-md/internal/update"
 )
 
 // The update triggers, seen through the injected spawn: which events start
@@ -99,12 +100,13 @@ func fileSize(t *testing.T, file string) int64 {
 	return info.Size()
 }
 
-func updateOf(sessions ...string) [][]string {
+// updateOf is the update a hook spawns for sessions, named for trigger.
+func updateOf(trigger string, sessions ...string) [][]string {
 	args := []string{"update"}
 	for _, s := range sessions {
 		args = append(args, "--session", s)
 	}
-	return [][]string{args}
+	return [][]string{append(args, update.TriggerFlag, trigger)}
 }
 
 // SessionEnd and PreCompact start an update for the session; the other
@@ -116,18 +118,18 @@ func updateOf(sessions ...string) [][]string {
 // chat's start takes its backlog.
 func TestEndAndCompactSpawnAnUpdate(t *testing.T) {
 	for _, host := range hosts {
-		own := updateOf(host + ":test-session")
+		own := host + ":test-session"
 		for _, tc := range []struct {
 			event string
 			off   bool
 			want  [][]string
 		}{
-			{"SessionEnd", false, own},
-			{"PreCompact", false, own},
+			{"SessionEnd", false, updateOf(update.TriggerEnd, own)},
+			{"PreCompact", false, updateOf(update.TriggerCompact, own)},
 			{"SessionEnd", true, nil},
 			{"PreCompact", true, nil},
-			{"Stop", false, own},
-			{"SessionStart", false, updateOf("codex:idle-other")},
+			{"Stop", false, updateOf(update.TriggerStop, own)},
+			{"SessionStart", false, updateOf(update.TriggerStart, "codex:idle-other")},
 			{"PostCompact", false, nil},
 			{"PostToolUse", false, nil},
 			{"PostToolUseFailure", false, nil},
@@ -203,7 +205,7 @@ func TestStopSpawnsAt60KBUnprocessed(t *testing.T) {
 				}
 				var want [][]string
 				if tc.want {
-					want = updateOf(host + ":" + p.Session)
+					want = updateOf(update.TriggerStop, host+":"+p.Session)
 				}
 				if got := spawned(); !reflect.DeepEqual(got, want) {
 					t.Fatalf("spawned %q, want %q", got, want)
@@ -245,7 +247,7 @@ func TestPromptAfterAGapSpawns(t *testing.T) {
 				invoke(t, host, p, env)
 				var want [][]string
 				if tc.want {
-					want = updateOf(host + ":" + p.Session)
+					want = updateOf(update.TriggerGap, host+":"+p.Session)
 				}
 				if got := spawned(); !reflect.DeepEqual(got, want) {
 					t.Fatalf("spawned %q, want %q", got, want)
@@ -281,7 +283,7 @@ func TestGapIsReadBeforeRecovery(t *testing.T) {
 	if n := countRecords(records(t, env), "assistant", reply); n != 1 {
 		t.Fatalf("recovery stored the missed reply %d times", n)
 	}
-	if got, want := spawned(), updateOf("claude-code:"+p.Session); !reflect.DeepEqual(got, want) {
+	if got, want := spawned(), updateOf(update.TriggerGap, "claude-code:"+p.Session); !reflect.DeepEqual(got, want) {
 		t.Fatalf("spawned %q, want %q", got, want)
 	}
 }
@@ -323,7 +325,7 @@ func TestSessionStartCatchesUpIdleSessions(t *testing.T) {
 	}
 	p.Event, p.Source = "SessionStart", "startup"
 	invoke(t, "claude-code", p, env)
-	want := updateOf("codex:idle-1", "claude-code:idle-2", "codex:idle-3", "claude-code:idle-4", "codex:idle-5")
+	want := updateOf(update.TriggerStart, "codex:idle-1", "claude-code:idle-2", "codex:idle-3", "claude-code:idle-4", "codex:idle-5")
 	if got := spawned(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("spawned %q, want %q", got, want)
 	}
@@ -352,7 +354,7 @@ func TestCatchUpReadsOnlyTheBriefsListing(t *testing.T) {
 		}
 	}
 	invoke(t, "claude-code", p, env)
-	if got, want := spawned(), updateOf("codex:oldest"); !reflect.DeepEqual(got, want) {
+	if got, want := spawned(), updateOf(update.TriggerStart, "codex:oldest"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("spawned %q, want %q", got, want)
 	}
 }
@@ -437,13 +439,13 @@ func TestSessionStartCatchesUpTheChatsOwnBacklog(t *testing.T) {
 			others       int // the project's other sessions idle with a backlog
 			want         [][]string
 		}{
-			{"resume", "resume", time.Hour, inbox.Mark{}, 0, updateOf(own)},
-			{"startup with the same id", "startup", idleAfter, inbox.Mark{}, 0, updateOf(own)},
+			{"resume", "resume", time.Hour, inbox.Mark{}, 0, updateOf(update.TriggerStart, own)},
+			{"startup with the same id", "startup", idleAfter, inbox.Mark{}, 0, updateOf(update.TriggerStart, own)},
 			{"idle just short", "resume", idleAfter - time.Second, inbox.Mark{}, 0, nil},
 			{"just compacted", "compact", 10 * time.Second, inbox.Mark{}, 0, nil},
 			{"processed", "resume", time.Hour, inbox.Mark{Offset: 3 * promptBacklog}, 0, nil},
 			{"rest too small", "resume", time.Hour, inbox.Mark{Offset: 100, Wait: 3 * promptBacklog}, 0, nil},
-			{"with idle sessions", "resume", time.Hour, inbox.Mark{}, 5, updateOf(own, "codex:idle-1", "codex:idle-2", "codex:idle-3", "codex:idle-4")},
+			{"with idle sessions", "resume", time.Hour, inbox.Mark{}, 5, updateOf(update.TriggerStart, own, "codex:idle-1", "codex:idle-2", "codex:idle-3", "codex:idle-4")},
 		} {
 			t.Run(host+"/"+tc.name, func(t *testing.T) {
 				env, p, spawned := triggerSetup(t)
@@ -486,7 +488,7 @@ func TestResumedChatSpawnsOnce(t *testing.T) {
 			// these two.
 			got := spawned()
 			for _, day := range []string{before, after} {
-				if want := [][]string{{"update", "--session", host + ":" + p.Session, "--sweep=" + day}}; reflect.DeepEqual(got, want) {
+				if want := [][]string{{"update", "--session", host + ":" + p.Session, update.TriggerFlag, update.TriggerStart, "--sweep=" + day}}; reflect.DeepEqual(got, want) {
 					return
 				}
 			}
@@ -523,7 +525,7 @@ func TestCatchUpTakesSessionsRecoveryAppendedTo(t *testing.T) {
 	if n := countRecords(records(t, env), "assistant", reply); n != 1 {
 		t.Fatalf("recovery stored the missed reply %d times", n)
 	}
-	if got, want := spawned(), updateOf("claude-code:"+idle.Session); !reflect.DeepEqual(got, want) {
+	if got, want := spawned(), updateOf(update.TriggerStart, "claude-code:"+idle.Session); !reflect.DeepEqual(got, want) {
 		t.Fatalf("spawned %q, want %q", got, want)
 	}
 }

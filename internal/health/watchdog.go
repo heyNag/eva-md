@@ -145,11 +145,16 @@ func driftCheck(d paths.Dirs, host string) Check {
 
 func readBeat(d paths.Dirs, host, event string, now time.Time) (beat, bool) {
 	var b beat
+	valid := decodeBeat(d, host, event, now, &b, &b)
+	return b, valid
+}
+
+// decodeBeat decodes the heartbeat of host's event into v, whose head is
+// the beat it holds, and reports whether the heartbeat is valid: the
+// event's own, of a run that ended no later than a minute past now.
+func decodeBeat(d paths.Dirs, host, event string, now time.Time, head *beat, v any) bool {
 	data, err := readPrivate(filepath.Join(d.State, "heartbeats", host, event+".json"), 16384)
-	if err != nil || json.Unmarshal(data, &b) != nil || b.Host != host || b.Event != event || b.At.IsZero() || b.At.After(now.Add(time.Minute)) {
-		return b, false
-	}
-	return b, true
+	return err == nil && json.Unmarshal(data, v) == nil && head.Host == host && head.Event == event && !head.At.IsZero() && !head.At.After(now.Add(time.Minute))
 }
 
 // activityTimeout bounds the scan of a host's chat folders, which runs in a

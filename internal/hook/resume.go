@@ -3,6 +3,7 @@ package hook
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -60,22 +61,30 @@ func resumeContext(ctx context.Context, host string, p payload, env Env, project
 	if p.Event == "UserPromptSubmit" && (synthetic(p) || builtinCommand(p.Prompt)) {
 		return ""
 	}
+	d := p.record.deliver(p)
 	markers := session.Markers{Root: env.Dirs.Sessions()}
 	b, ok := brief(ctx, host, p, env, project, now, start, spawns, markers)
 	if !ok {
 		return ""
 	}
+	d.Fallback = b.fallback
 	s, lines, changed := nextState(ctx, markers, host, p, env, project.Key, b)
 	// The briefed marker is saved first, and only with markerReserve to spare,
 	// so a brief lost to the deadline is retried on the next prompt and the
 	// chat's state records nothing of it. The state follows, saved in place
 	// well within the reserve, and the lines it records go only once it is
 	// saved.
-	if b.marker != "" && saveMarker(ctx, markers, host, p.Session, session.Briefed, b.marker, markerReserve) != nil {
-		return ""
+	if b.marker != "" {
+		if err := saveMarker(ctx, markers, host, p.Session, session.Briefed, b.marker, markerReserve); err != nil {
+			d.Late = errors.Is(err, context.DeadlineExceeded)
+			return ""
+		}
 	}
+	routes := b.routes()
 	if changed && saveState(ctx, markers, host, p.Session, s) != nil {
 		lines = nil
+	} else if p.record != nil {
+		routes = append(routes, p.record.lines...)
 	}
 	r := b.reply
 	if len(lines) > 0 {
@@ -84,7 +93,14 @@ func resumeContext(ctx context.Context, host string, p payload, env Env, project
 		}
 		r.context += strings.Join(lines, "\n")
 	}
-	return r.encode(p.Event)
+	out := r.encode(p.Event)
+	if out != "" {
+		d.Chars, d.Routes = runes(r.context), ordered(routes)
+		if b.brief {
+			d.Stale, d.Pending = b.shown.Stale, b.shown.Pending
+		}
+	}
+	return out
 }
 
 // reply is what a SessionStart or a prompt hands the chat: context for the
@@ -107,11 +123,29 @@ func (r reply) encode(event string) string {
 // briefed is the brief or refresh a SessionStart or prompt carries: its
 // reply, the brief's own text, the briefed marker to save, "" to leave it as
 // it is, whether it is a brief rather than a refresh, and whether it starts
-// the chat over, as a startup or clear brief does.
+// the chat over, as a startup or clear brief does. For the run's record,
+// it says whether a prompt carries the chat's first brief, the first-prompt
+// fallback, and which parts the brief or refresh shows.
 type briefed struct {
 	reply
 	text, marker string
 	brief, fresh bool
+	fallback     bool
+	shown        resume.Shown
+}
+
+// routes are the routes of health.Routes that b's text adds.
+func (b briefed) routes() []string {
+	var routes []string
+	for _, r := range []struct {
+		on    bool
+		route string
+	}{{b.shown.Rules, "rules"}, {b.shown.Constraints, "constraints"}, {b.shown.State, "state"}, {b.shown.Exchanges, "exchanges"}, {b.shown.Systems, "pointers"}} {
+		if r.on && b.text != "" {
+			routes = append(routes, r.route)
+		}
+	}
+	return routes
 }
 
 // brief builds the brief or refresh for a SessionStart or prompt, and the
@@ -175,7 +209,8 @@ func brief(ctx context.Context, host string, p payload, env Env, project identit
 		notice = health.QuickNotice(ctx, env.Dirs, env.Config, host)
 	}
 	data, _ := json.Marshal(marker)
-	b := briefed{reply: reply{context: result.Text}, text: result.Text, marker: string(data), brief: variant != "refresh", fresh: variant == "startup" || variant == "clear"}
+	b := briefed{reply: reply{context: result.Text}, text: result.Text, marker: string(data), brief: variant != "refresh", fresh: variant == "startup" || variant == "clear",
+		fallback: p.Event == "UserPromptSubmit" && !found, shown: result.Shown}
 	// A health notice is a fixed diagnostic, not recovered chat content.
 	if notice != "" && b.context == "" {
 		b.context = notice
@@ -211,6 +246,12 @@ type beatRun struct {
 	At         string  `json:"at"`
 	Failed     bool    `json:"failed,omitempty"`
 	DurationMS float64 `json:"duration_ms,omitempty"`
+	// Held is what the run held back, of health.HeldKinds, and HeldBy why
+	// (see runRecord.hold); Delivered what a run that can add text to a
+	// chat delivered. None holds any text.
+	Held      []string         `json:"held,omitempty"`
+	HeldBy    string           `json:"held_by,omitempty"`
+	Delivered *health.Delivery `json:"delivered,omitempty"`
 }
 
 // beatEvent reports whether event is one the hooks keep a heartbeat for.
@@ -223,8 +264,9 @@ func beatEvent(event string) bool {
 }
 
 // heartbeat records the run of p's event, which took took, with the
-// event's last maxRuns runs, the Claude Code entrypoint the run inherited
-// and whether its transcript lies where recovery can't read it.
+// event's last maxRuns runs and its week (see health.AddRun), the Claude
+// Code entrypoint the run inherited and whether its transcript lies where
+// recovery can't read it.
 func heartbeat(ctx context.Context, dirs paths.Dirs, host string, p payload, failed bool, now time.Time, took time.Duration) {
 	event := p.Event
 	if !beatEvent(event) {
@@ -240,19 +282,22 @@ func heartbeat(ctx context.Context, dirs paths.Dirs, host string, p payload, fai
 	}
 	name := filepath.Join(host, event+".json")
 	at := now.Format(time.RFC3339Nano)
-	runs := append(previousRuns(root, name), beatRun{at, failed, float64(took.Microseconds()) / 1000})
+	run := p.record.run(failed, float64(took.Microseconds())/1000)
+	previous := previousBeat(root, name)
+	runs := append(previous.Runs, beatRun{At: at, Failed: failed, DurationMS: run.DurationMS, Held: run.Held, HeldBy: run.HeldBy, Delivered: run.Delivered})
 	runs = runs[max(0, len(runs)-maxRuns):]
 	data, _ := json.Marshal(struct {
-		V          int       `json:"v"`
-		At         string    `json:"at"`
-		Host       string    `json:"host"`
-		Event      string    `json:"event"`
-		Transcript bool      `json:"transcript_available"`
-		Elsewhere  bool      `json:"transcript_elsewhere,omitempty"`
-		Runs       []beatRun `json:"runs"`
-		Entrypoint string    `json:"entrypoint,omitempty"`
-		Headless   bool      `json:"headless,omitempty"`
-	}{1, at, host, event, p.Transcript != "", p.elsewhere, runs, p.entrypoint, p.headless})
+		V          int              `json:"v"`
+		At         string           `json:"at"`
+		Host       string           `json:"host"`
+		Event      string           `json:"event"`
+		Transcript bool             `json:"transcript_available"`
+		Elsewhere  bool             `json:"transcript_elsewhere,omitempty"`
+		Runs       []beatRun        `json:"runs"`
+		Entrypoint string           `json:"entrypoint,omitempty"`
+		Headless   bool             `json:"headless,omitempty"`
+		Week       []health.HookDay `json:"week"`
+	}{1, at, host, event, p.Transcript != "", p.elsewhere, runs, p.entrypoint, p.headless, health.AddRun(previous.Week, now, run)})
 	_ = paths.WriteFileAtomicAt(ctx, root, name, data, 0600)
 }
 
@@ -313,28 +358,36 @@ func uncaptured(env Env, host, event string, now time.Time) {
 	_, _ = f.WriteAt(data, 0)
 }
 
-// previousRuns reads the history of the heartbeat about to be replaced. Two
-// runs of one event that end together may each keep only its own run.
-func previousRuns(root *os.Root, name string) []beatRun {
+// beatHistory is what a heartbeat keeps of an event's earlier runs: the
+// last runs and the week.
+type beatHistory struct {
+	Runs []beatRun        `json:"runs"`
+	Week []health.HookDay `json:"week"`
+}
+
+// previousBeat reads the history of the heartbeat about to be replaced. Two
+// runs of one event that end together may each keep only its own run, in
+// both.
+func previousBeat(root *os.Root, name string) beatHistory {
 	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nil
+		return beatHistory{}
 	}
 	defer f.Close()
-	var old struct {
-		Runs []beatRun `json:"runs"`
-	}
+	var old beatHistory
 	if json.NewDecoder(io.LimitReader(f, 16<<10)).Decode(&old) != nil {
-		return nil
+		return beatHistory{}
 	}
-	return old.Runs
+	return old
 }
 
 // lateBeat records a run whose capture ran out of time as failed, with the
 // time it took and whether its transcript lies elsewhere, once its output
 // was written. It has a moment of its own, as the run's time is up,
 // lengthened by the hook's slack, and reads the system clock, since
-// env.Now may be what held the capture up.
+// env.Now may be what held the capture up. A run that could have added
+// text to a chat is recorded as one that passed its deadline and delivered
+// nothing.
 func lateBeat(ctx context.Context, env Env, host string, p payload, took time.Duration) {
 	defer func() { _ = recover() }()
 	if !filepath.IsAbs(env.Dirs.State) {
@@ -345,6 +398,10 @@ func lateBeat(ctx context.Context, env Env, host string, p payload, took time.Du
 		getenv = os.Getenv
 	}
 	p.elsewhere = transcriptElsewhere(host, p.Transcript, getenv("HOME"))
+	p.record = new(runRecord)
+	if kind, ok := deliverable(p); ok {
+		p.record.delivery = &health.Delivery{Kind: kind, Late: true}
+	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond+env.Slack)
 	defer cancel()
 	heartbeat(ctx, env.Dirs, host, p, true, time.Now(), took)
