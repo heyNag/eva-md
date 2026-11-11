@@ -269,10 +269,9 @@ def context(output):
 # more than THRESHOLD (the ratio of the lower medians of their runs'
 # medians, which load on half of a binary's runs or fewer leaves where it
 # was), the controls first bring the new binary's samples to THRESHOLD of
-# the old one's (aligned). A
-# figure's noise is the NOISE_QUANTILE, by nearest rank, of its controls'
-# lower bounds, both ways, and at least 1: the fourth largest of 36 at two
-# rounds, the eighth of 72 at three.
+# the old one's (aligned). A figure's noise is the NOISE_QUANTILE, by
+# nearest rank, of its controls' lower bounds, both ways, and at least 1:
+# the fourth largest of 36 at two rounds, the eighth of 72 at three.
 #
 # A figure is judged only with at least WHOLE samples on each binary's
 # side. One with fewer is listed as having too few samples, and neither
@@ -286,15 +285,14 @@ def context(output):
 # all the judged figures (run_levels): load on all of a binary's runs but
 # one is what no control can tell from a change, since every split has a
 # loaded run on each side. Only the runs themselves call the machine noisy.
-# Otherwise a
-# figure fails when its lower bound is above THRESHOLD times its noise, or
-# when the lower bound of the interval of the new binary's p95 is above its
-# ceiling and the old binary's p95 is not. One whose lower bound is above
-# THRESHOLD but not above THRESHOLD times its noise is unsettled. A figure
-# too noisy to judge, or unsettled, stops nothing: another figure that
-# failed still fails the gate, and without one the gate is not judged. The
-# controls have no ceiling: a fixed ceiling says where a binary sits, not
-# how noisy the machine is.
+# Otherwise a figure fails when its lower bound is above THRESHOLD times its
+# noise, or when the lower bound of the interval of the new binary's p95 is
+# above its ceiling and the old binary's p95 is not. One whose lower bound
+# is above THRESHOLD but not above THRESHOLD times its noise is unsettled. A
+# figure too noisy to judge, or unsettled, stops nothing: another figure
+# that failed still fails the gate, and without one the gate is not judged.
+# The controls have no ceiling: a fixed ceiling says where a binary sits,
+# not how noisy the machine is.
 ROLES = ("old", "new", "old_again", "new_again")
 BINARY = {"old": "old", "old_again": "old", "new": "new", "new_again": "new"}
 ROLES_OF = {"old": ("old", "old_again"), "new": ("new", "new_again")}
