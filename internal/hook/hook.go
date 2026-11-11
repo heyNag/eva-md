@@ -109,6 +109,10 @@ type payload struct {
 	// record is what capture's heartbeat says the run held back and
 	// delivered; nil leaves both out.
 	record *runRecord
+	// turn is what the run's handlers read and the jobs they ask for (see
+	// handlers.go), which Run gives capture and launch starts. capture
+	// makes one of its own when it has none.
+	turn *turn
 }
 
 var stopEvent = regexp.MustCompile(`"hook_event_name"\s*:\s*"Stop"`)
@@ -131,7 +135,9 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	// Until the payload names its event, the hook has the shortest budget.
 	deadline := invocationDeadline(ctx, started.Add(budget("")+env.Slack))
 	var event, output string
-	var spawns [][]string
+	// ran is the turn of a capture that returned in time, whose jobs launch
+	// starts.
+	var ran *turn
 	// late is the payload of a capture that ran out of time: a failed run,
 	// recorded once the output is written.
 	var late *payload
@@ -142,7 +148,7 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 			output = "{}"
 		}
 		writeOutput(out, output, deadline, env.withDeadline)
-		launch(env, spawns)
+		launch(env, ran)
 		if late != nil {
 			lateBeat(ctx, env, host, *late, env.took(late.started))
 		}
@@ -203,21 +209,18 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	deadline = invocationDeadline(ctx, started.Add(budget(event)+env.Slack))
 	workCtx, cancel := env.withDeadline(ctx, deadline.Add(-10*time.Millisecond))
 	defer cancel()
-	// A capture that misses the deadline delivers nothing, its spawns
-	// included.
-	type captured struct {
-		output string
-		spawns [][]string
-	}
-	done := make(chan captured, 1)
+	// A capture that misses the deadline delivers nothing, its jobs
+	// included: Run reads its turn only once it has returned.
+	p.turn = new(turn)
+	done := make(chan string, 1)
 	go func() {
-		var c captured
-		defer func() { _ = recover(); done <- c }()
-		c.output = capture(workCtx, host, p, env, &c.spawns)
+		var output string
+		defer func() { _ = recover(); done <- output }()
+		output = capture(workCtx, host, p, env, nil)
 	}()
 	select {
-	case c := <-done:
-		output, spawns = c.output, c.spawns
+	case output = <-done:
+		ran = p.turn
 	case <-workCtx.Done():
 		late = &p
 	}
@@ -266,10 +269,12 @@ func writeOutput(out io.Writer, output string, deadline time.Time, withDeadline 
 	}
 }
 
-// capture stores the event and returns the hook's output. The update
-// triggers add the detached jobs they ask for to spawns, which Run starts
-// once the output is written.
-func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]string) string {
+// capture stores the event and returns the hook's output. It runs the
+// handlers at their points (see handlers.go) on p's turn, whose jobs Run
+// starts once the output is written. The last parameter is the list of
+// jobs' arguments it took before the turn carried them, kept for the
+// tests that call it alone, and is not read.
+func capture(ctx context.Context, host string, p payload, env Env, _ *[][]string) string {
 	if env.Getenv == nil {
 		env.Getenv = os.Getenv
 	}
@@ -360,16 +365,22 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 		}
 		heartbeat(ctx, env.Dirs, host, p, failed, env.Now(), env.took(p.started))
 	}()
-	// The day's maintain and, at a chat start, a push retry: launch decides
-	// whether each is due.
-	queueMaintain(spawns, env, p.Event == "SessionStart")
+	store := inbox.Store{Root: env.Dirs.Inbox()}
+	file := store.Path(project.Key, host, p.Session)
+	t := p.turn
+	if t == nil {
+		t = new(turn)
+		p.turn = t
+	}
+	*t = turn{ctx: ctx, env: env, host: host, event: p.Event, session: p.Session, source: p.Source, headless: p.headless, project: project.Key, file: file}
+	// The run has passed the guards: the day's maintain and, at a chat
+	// start, a push retry, which launch judges due or not.
+	t.run(atGuarded)
 	release, err := sessionLock(ctx, env.Dirs.Locks(), host, p.Session)
 	if err != nil {
 		return fail()
 	}
 	defer release()
-	store := inbox.Store{Root: env.Dirs.Inbox()}
-	file := store.Path(project.Key, host, p.Session)
 	// The prompt trigger and the SessionStart catch-up need the session's
 	// file as it was before this hook appended anything, transcript recovery
 	// included: one stat. A chat a program runs never asks for its own
@@ -380,6 +391,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 			before = info
 		}
 	}
+	t.before = before
 	start := startState{before: before, recovered: touched}
 	if model != "" {
 		if err := remember(ctx, markers, host, p.Session, session.Model, model); err != nil {
@@ -421,6 +433,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 		rel = ""
 	}
 	now := env.Now()
+	t.now = now
 	if ctx.Err() != nil {
 		return fail()
 	}
@@ -536,9 +549,6 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 			appendEvent("host_prompt")
 			return ""
 		}
-		if gapBacklogged(store, file, before, now) {
-			queueUpdate(spawns, env, p.Event, host+":"+p.Session)
-		}
 		e.Role = "user"
 		e.Kind = "prompt"
 		e.Text = p.Prompt
@@ -582,10 +592,8 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 				failed = true
 			}
 		}
-		if (p.Event == "SessionEnd" || p.Event == "PreCompact") && !p.headless {
-			queueUpdate(spawns, env, p.Event, host+":"+p.Session)
-		}
-		return resumeContext(ctx, host, p, env, project, now, start, spawns)
+		t.run(atStored)
+		return resumeContext(ctx, host, p, env, project, now, start, nil)
 	}
 	if e.Text != "" {
 		duplicate := false
@@ -596,10 +604,8 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 			failed = true
 		}
 	}
-	if p.Event == "Stop" && !p.headless && updatesOn(env.Config) && stopBacklogged(store, file) {
-		queueUpdate(spawns, env, p.Event, host+":"+p.Session)
-	}
-	return resumeContext(ctx, host, p, env, project, now, start, spawns)
+	t.run(atStored)
+	return resumeContext(ctx, host, p, env, project, now, start, nil)
 }
 
 // Ordinary captures hold the session lock here. Keeping identical markers in
