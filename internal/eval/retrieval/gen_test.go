@@ -448,7 +448,7 @@ var names = []struct{ name, ordinary string }{
 var nameMisses = []string{
 	"The {c} status page {ordinary}; can we tone that down?",
 	"Put a little {n} drawing on the {c} welcome screen.",
-	"Does the {c} help text need a {n} metaphor at all?",
+	"Does the {c} help text need the {n} metaphor at all?",
 }
 
 // global is an item of every project, and the prompts that ask for it.

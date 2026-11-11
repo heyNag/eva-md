@@ -47,7 +47,9 @@ func Systems() []string {
 }
 
 // Build makes the named system over the set's items and projects. Each
-// gets copies, so no system can change the set another is scored on.
+// gets copies, so no system can change the set another is scored on, and
+// each project's pages are read from the set's groups, the one place that
+// says which projects share a system page.
 func Build(name string, s *Set) (System, error) {
 	build, ok := systems[name]
 	if !ok {
@@ -60,7 +62,12 @@ func Build(name string, s *Set) (System, error) {
 	}
 	projects := make([]Project, len(s.Projects))
 	for i, p := range s.Projects {
-		p.Pages = slices.Clone(p.Pages)
+		p.Pages = nil
+		for _, g := range s.Groups {
+			if slices.Contains(g.Projects, p.ID) {
+				p.Pages = append(p.Pages, g.Page)
+			}
+		}
 		projects[i] = p
 	}
 	sys, err := build(items, projects)

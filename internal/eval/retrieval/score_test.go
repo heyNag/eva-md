@@ -156,6 +156,11 @@ func TestScoreRefusesABadAnswer(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
+	twice := smallSet()
+	twice.Events = append(twice.Events, twice.Events[3])
+	if _, err := Score(context.Background(), twice, "fake", answers{}); err == nil || !strings.Contains(err.Error(), "e7") {
+		t.Errorf("an event twice: %v", err)
+	}
 	s := smallSet()
 	if _, err := Score(context.Background(), s, "fake", meddler{}); err != nil {
 		t.Fatal(err)
@@ -210,7 +215,7 @@ func TestV1AddsASiblingOnlyWithASharedPage(t *testing.T) {
 	if got := ask(s, "p_cccccccccccc", text); !slices.Equal(got, []string{"iddddddddddddd"}) {
 		t.Errorf("charlie gets %v", got)
 	}
-	s.Projects[0].Pages, s.Projects[1].Pages = nil, nil
+	s.Groups = nil
 	if got := ask(s, "p_aaaaaaaaaaaa", text); len(got) != 0 {
 		t.Errorf("with no shared page, alpha gets %v", got)
 	}
@@ -254,8 +259,9 @@ func TestV1AddsASiblingOnlyWithASharedPage(t *testing.T) {
 		t.Error("v1 added no sibling item on the set")
 	}
 	for i := range set.Projects {
-		set.Projects[i].Pages = nil
+		set.Projects[i].Pages = []string{"freight-platform"} // read from the groups, never from here
 	}
+	set.Groups = nil
 	if n := siblingAdds(set); n != 0 {
 		t.Errorf("with no shared page, v1 added %d sibling items", n)
 	}
@@ -352,8 +358,11 @@ func TestRowsAndTheirForbiddenWords(t *testing.T) {
 	for _, word := range forbid {
 		r := first[0]
 		r.Scenario = "v1-recall.set1-" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-").Replace(word))
-		if err := store.Append(r); err == nil {
-			t.Errorf("a scenario id holding %q is stored", word)
+		if err := store.Append(r); err == nil || !strings.Contains(err.Error(), "scenario holds a word the run forbids") {
+			t.Errorf("a scenario id holding %q: %v", word, err)
+		}
+		if err := (results.Store{Dir: t.TempDir()}).Append(r); err != nil {
+			t.Errorf("with nothing forbidden, a scenario id holding %q: %v", word, err)
 		}
 	}
 	if len(forbid) < 40 {

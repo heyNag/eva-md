@@ -28,7 +28,7 @@
 {"id":"ev-0028","project":"p_0463e4gbf2rx","first":false,"text":"I'm about to migrate the booking queue schema, go ahead?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["i64zj4cff7s3th"]}
 {"id":"ev-0029","project":"p_e3ngv8evk1ce","first":false,"text":"Fix the typo in the word cloud request form label.","split":"lexical","class":"near_miss","relevant":[],"decoys":["i21pc8fbk3q6h4"]}
 {"id":"ev-0030","project":"p_e3ngv8evk1ce","first":true,"text":"Add an alt tag to the template engine screenshot in the docs.","split":"lexical","class":"near_miss","relevant":[],"decoys":["ikq9qhdy7bptxr"]}
-{"id":"ev-0031","project":"p_e3ngv8evk1ce","first":false,"text":"Does the sync daemon help text need a magnolia metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["irwmqkddb6sa1z"]}
+{"id":"ev-0031","project":"p_e3ngv8evk1ce","first":false,"text":"Does the sync daemon help text need the magnolia metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["irwmqkddb6sa1z"]}
 {"id":"ev-0032","project":"p_0463e4gbf2rx","first":false,"text":"Should I run go test for the session keeper or make check?","split":"lexical","class":"positive","relevant":["ipc7vxhz6sn3pn"],"decoys":[]}
 {"id":"ev-0033","project":"p_0463e4gbf2rx","first":false,"text":"How should I validate edits to trip sketch?","split":"paraphrase","class":"positive","relevant":["i7dw9xq37m1kh7"],"decoys":[]}
 {"id":"ev-0034","project":"p_76y016w1vbzx","first":false,"text":"Explain the struct field order here.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
@@ -38,7 +38,7 @@
 {"id":"ev-0038","project":"p_0463e4gbf2rx","first":false,"text":"What is the offline sync local setup?","split":"lexical","class":"positive","relevant":["i6xt30spvactzn"],"decoys":[]}
 {"id":"ev-0039","project":"p_76y016w1vbzx","first":false,"text":"Is there a note about Thimble?","split":"name","class":"positive","relevant":["i6vk7gbwmbfx60"],"decoys":[]}
 {"id":"ev-0040","project":"p_e3ngv8evk1ce","first":false,"text":"Which storage did we choose for the math renderer?","split":"lexical","class":"positive","relevant":["i8fz5qep7p4z1h"],"decoys":[]}
-{"id":"ev-0041","project":"p_ckyje79775eb","first":false,"text":"Does the rate engine help text need a lichen metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ipvkvt2987wc95"]}
+{"id":"ev-0041","project":"p_ckyje79775eb","first":false,"text":"Does the rate engine help text need the lichen metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ipvkvt2987wc95"]}
 {"id":"ev-0042","project":"p_76y016w1vbzx","first":true,"text":"Which storage did we choose for the export pipeline?","split":"lexical","class":"no_match","relevant":[],"decoys":["i3e2ypjgkty5m2"]}
 {"id":"ev-0043","project":"p_76y016w1vbzx","first":true,"text":"I'm looking at pipeline/quality/gate.py: is the quality gate request timeout still thirty seconds?","split":"lexical","class":"positive","relevant":["ieb93z47fch7kj"],"decoys":[]}
 {"id":"ev-0044","project":"p_76y016w1vbzx","first":false,"text":"What is the warehouse loader release cadence?","split":"lexical","class":"positive","relevant":["i0a80mtqzgqte8"],"decoys":[]}
@@ -73,7 +73,7 @@
 {"id":"ev-0073","project":"p_e3ngv8evk1ce","first":false,"text":"Rename the sitemap writer variable job to task, it reads better.","split":"lexical","class":"near_miss","relevant":[],"decoys":["i9ph2m71phy2vc"]}
 {"id":"ev-0074","project":"p_0463e4gbf2rx","first":false,"text":"Reorder these variable names here.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0075","project":"p_ckyje79775eb","first":false,"text":"What is the dock scheduler retry limit?","split":"lexical","class":"positive","relevant":["ikbap5r64ey1n6"],"decoys":[]}
-{"id":"ev-0076","project":"p_e3ngv8evk1ce","first":false,"text":"Does the feed generator help text need a prism metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["iwmf3gx93dnj8q"]}
+{"id":"ev-0076","project":"p_e3ngv8evk1ce","first":false,"text":"Does the feed generator help text need the prism metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["iwmf3gx93dnj8q"]}
 {"id":"ev-0077","project":"p_0463e4gbf2rx","first":false,"text":"Draw the theme loader user journey as a diagram.","split":"lexical","class":"near_miss","relevant":[],"decoys":["id406fyb7paxrc"]}
 {"id":"ev-0078","project":"p_76y016w1vbzx","first":false,"text":"What do I do to undo a bad deploy of merge strategy picker?","split":"paraphrase","class":"positive","relevant":["imfv9vft63cbnh"],"decoys":[]}
 {"id":"ev-0079","project":"p_0463e4gbf2rx","first":false,"text":"What is the customs exporter local setup?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["ic4bxzy6hs3crg"]}
@@ -106,7 +106,7 @@
 {"id":"ev-0106","project":"p_e3ngv8evk1ce","first":true,"text":"Is 256 megabytes still the cap for the markdown parser?","split":"lexical","class":"positive","relevant":["ira749ax3vvcmn"],"decoys":[]}
 {"id":"ev-0107","project":"p_0463e4gbf2rx","first":true,"text":"I'm editing app/signature/pad.ts; remind me of the signature pad retry limit.","split":"lexical","class":"positive","relevant":["iwj8qy9991yrrf"],"decoys":[]}
 {"id":"ev-0108","project":"p_0463e4gbf2rx","first":false,"text":"Translate the theme loader interface labels into Spanish.","split":"lexical","class":"near_miss","relevant":[],"decoys":["i8rymcfvgnrdf3"]}
-{"id":"ev-0109","project":"p_e3ngv8evk1ce","first":false,"text":"Does the citation formatter help text need a orchid metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i5r0695mp428cm"]}
+{"id":"ev-0109","project":"p_e3ngv8evk1ce","first":false,"text":"Does the citation formatter help text need the orchid metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i5r0695mp428cm"]}
 {"id":"ev-0110","project":"p_e3ngv8evk1ce","first":false,"text":"Can I ship the tracking poller on a Friday this week?","split":"lexical","class":"no_match","relevant":[],"decoys":["i1jr7t6570r394"]}
 {"id":"ev-0111","project":"p_76y016w1vbzx","first":true,"text":"Can I run the migration against the format registry now?","split":"lexical","class":"positive","relevant":["injx4jvaamkvg1"],"decoys":[]}
 {"id":"ev-0112","project":"p_0463e4gbf2rx","first":false,"text":"Is there a note about Sorrel?","split":"name","class":"positive","relevant":["ihp1tnxrr8ca91"],"decoys":[]}
@@ -132,7 +132,7 @@
 {"id":"ev-0132","project":"p_76y016w1vbzx","first":false,"text":"How regularly do new builds of analytics depot feeder reach people?","split":"paraphrase","class":"positive","relevant":["i0a80mtqzgqte8"],"decoys":[]}
 {"id":"ev-0133","project":"p_0463e4gbf2rx","first":false,"text":"How do I roll back the onboarding wizard?","split":"lexical","class":"positive","relevant":["ib8h35mzemjpnk"],"decoys":[]}
 {"id":"ev-0134","project":"p_76y016w1vbzx","first":false,"text":"Can I print the Hazel file to debug?","split":"name","class":"positive","relevant":["i9xazt3f0d9bvr"],"decoys":[]}
-{"id":"ev-0135","project":"p_76y016w1vbzx","first":true,"text":"Does the partition pruner help text need a willow metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i94qdqbq99c11c"]}
+{"id":"ev-0135","project":"p_76y016w1vbzx","first":true,"text":"Does the partition pruner help text need the willow metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i94qdqbq99c11c"]}
 {"id":"ev-0136","project":"p_0463e4gbf2rx","first":false,"text":"Make the offline sync icon small on narrow screens.","split":"lexical","class":"near_miss","relevant":[],"decoys":["is1hg2xnxz7nc4"]}
 {"id":"ev-0137","project":"p_ckyje79775eb","first":false,"text":"Where did we settle that shipping partner bridge should persist its data?","split":"paraphrase","class":"positive","relevant":["iv4bcpm3geqj5j"],"decoys":[]}
 {"id":"ev-0138","project":"p_76y016w1vbzx","first":false,"text":"Add a log line to the feature vault so slow requests show up.","split":"lexical","class":"near_miss","relevant":[],"decoys":["ikxbc3fjmxatwd","ig7yq8t0mn8ed2","iwvstt2c4qttmb","i24dkbd31pea1b","ibswf2z8kwj81r","ij70jqh0p8x2pv","ibj6a0tdbkyqqg","iztwxqshp1x3z9","ifjbts49mq0kpw"]}
@@ -147,12 +147,12 @@
 {"id":"ev-0147","project":"p_0463e4gbf2rx","first":true,"text":"I'm about to migrate the battery saver schema, go ahead?","split":"lexical","class":"positive","relevant":["i3sfkpzx7sey9c"],"decoys":[]}
 {"id":"ev-0148","project":"p_ckyje79775eb","first":false,"text":"I'm editing internal/report/export.go; remind me of the report exporter retry limit.","split":"lexical","class":"positive","relevant":["id8n6zyf1h0n16"],"decoys":[]}
 {"id":"ev-0149","project":"p_e3ngv8evk1ce","first":false,"text":"Can Summit records leave the EU region?","split":"name","class":"positive","relevant":["imfcjn2mrr5j84"],"decoys":[]}
-{"id":"ev-0150","project":"p_ckyje79775eb","first":false,"text":"Does the booking queue help text need a beacon metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["itft9r3tb4q3gt"]}
+{"id":"ev-0150","project":"p_ckyje79775eb","first":false,"text":"Does the booking queue help text need the beacon metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["itft9r3tb4q3gt"]}
 {"id":"ev-0151","project":"p_e3ngv8evk1ce","first":false,"text":"How much RAM can equation typesetter use at most?","split":"paraphrase","class":"positive","relevant":["izpx2t83w551cb"],"decoys":[]}
 {"id":"ev-0152","project":"p_e3ngv8evk1ce","first":false,"text":"How do I roll back the image resizer?","split":"lexical","class":"positive","relevant":["inx8zcx59kvxm6"],"decoys":[]}
 {"id":"ev-0153","project":"p_0463e4gbf2rx","first":false,"text":"On which weekday does autograph capture go out to users?","split":"paraphrase","class":"positive","relevant":["iqtb36590rkra4"],"decoys":[]}
 {"id":"ev-0154","project":"p_0463e4gbf2rx","first":false,"text":"What is the auth broker memory ceiling?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["ig37e9q47jfy6x"]}
-{"id":"ev-0155","project":"p_76y016w1vbzx","first":false,"text":"Does the join planner help text need a marble metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ibc8wkzkap55v7"]}
+{"id":"ev-0155","project":"p_76y016w1vbzx","first":false,"text":"Does the join planner help text need the marble metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ibc8wkzkap55v7"]}
 {"id":"ev-0156","project":"p_0463e4gbf2rx","first":true,"text":"What do I do to undo a bad deploy of fault telemetry?","split":"paraphrase","class":"positive","relevant":["im953pvd73emvr"],"decoys":[]}
 {"id":"ev-0157","project":"p_ckyje79775eb","first":true,"text":"How do I roll back the signature pad?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["i0hg1s2mdqzb9e"]}
 {"id":"ev-0158","project":"p_ckyje79775eb","first":false,"text":"How much RAM can diesel levy use at most?","split":"paraphrase","class":"positive","relevant":["icnkgx4c37b11e"],"decoys":[]}
@@ -170,7 +170,7 @@
 {"id":"ev-0170","project":"p_ckyje79775eb","first":false,"text":"What is the deep links request timeout?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["in58v87pcm6012"]}
 {"id":"ev-0171","project":"p_76y016w1vbzx","first":false,"text":"The lineage tracker status page draws a compass rose in the corner; can we tone that down?","split":"name","class":"near_miss","relevant":[],"decoys":["ig5605h4zzyhkn"]}
 {"id":"ev-0172","project":"p_e3ngv8evk1ce","first":false,"text":"Which suite invocation verifies text markup reader is healthy?","split":"paraphrase","class":"positive","relevant":["ik9w5mk4ty7bff"],"decoys":[]}
-{"id":"ev-0173","project":"p_0463e4gbf2rx","first":false,"text":"Does the deep links help text need a onyx metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["if8tfq5v3ntpxr"]}
+{"id":"ev-0173","project":"p_0463e4gbf2rx","first":false,"text":"Does the deep links help text need the onyx metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["if8tfq5v3ntpxr"]}
 {"id":"ev-0174","project":"p_ckyje79775eb","first":false,"text":"Add a log line to the carrier gateway so slow requests show up.","split":"lexical","class":"near_miss","relevant":[],"decoys":["imr6atcd4a2t85","igkecedsftp339","iv4bcpm3geqj5j","i77v0rhgrcdpy7","ic7pfy71qrz44b","ig7fgzn3z4t9hj","icxcqeegfd92b7","iy49p5g3rgmh67","i3kx6x4wq7tyqt"]}
 {"id":"ev-0175","project":"p_e3ngv8evk1ce","first":true,"text":"The template engine deploy went bad, what are the rollback steps?","split":"lexical","class":"positive","relevant":["ikq9qhdy7bptxr"],"decoys":[]}
 {"id":"ev-0176","project":"p_e3ngv8evk1ce","first":false,"text":"Add a log line to the sync daemon so slow requests show up.","split":"lexical","class":"near_miss","relevant":[],"decoys":["iawne4ay1w95ym","ihxzb2q0bhr5z4","ifv9h3err5aad7","ihy647dsxchzc6","ipvy5tdwam7csp","iffh70dp8p7mrj","is7gprepynjxav","i32gx2zpd824he","irwmqkddb6sa1z"]}
@@ -180,12 +180,12 @@
 {"id":"ev-0180","project":"p_ckyje79775eb","first":false,"text":"What was the booking queue storage choice again?","split":"lexical","class":"positive","relevant":["ia1yr20vh4bf5p"],"decoys":[]}
 {"id":"ev-0181","project":"p_76y016w1vbzx","first":false,"text":"Is there a note about Cedar?","split":"name","class":"positive","relevant":["ige1m2ck0zzx5p"],"decoys":[]}
 {"id":"ev-0182","project":"p_0463e4gbf2rx","first":false,"text":"Tidy up the README intro paragraph here.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
-{"id":"ev-0183","project":"p_ckyje79775eb","first":false,"text":"Does the dock scheduler help text need a copper metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ixwjdjxrbv4e61"]}
+{"id":"ev-0183","project":"p_ckyje79775eb","first":false,"text":"Does the dock scheduler help text need the copper metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ixwjdjxrbv4e61"]}
 {"id":"ev-0184","project":"p_76y016w1vbzx","first":false,"text":"Inline this regular expression please.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0185","project":"p_0463e4gbf2rx","first":false,"text":"Reorder the gitignore entries here.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0186","project":"p_e3ngv8evk1ce","first":false,"text":"What is the anomaly detector request timeout?","split":"lexical","class":"no_match","relevant":[],"decoys":["ij0ynt0ab3frt9"]}
 {"id":"ev-0187","project":"p_76y016w1vbzx","first":true,"text":"The quality gate status page has a kestrel in the splash art; can we tone that down?","split":"name","class":"near_miss","relevant":[],"decoys":["i6p4p92mcs30vp"]}
-{"id":"ev-0188","project":"p_76y016w1vbzx","first":false,"text":"Does the format registry help text need a juniper metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["iy20ehbdcf5gtg"]}
+{"id":"ev-0188","project":"p_76y016w1vbzx","first":false,"text":"Does the format registry help text need the juniper metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["iy20ehbdcf5gtg"]}
 {"id":"ev-0189","project":"p_76y016w1vbzx","first":false,"text":"Rename the editor settings here.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0190","project":"p_e3ngv8evk1ce","first":false,"text":"Which suite invocation verifies background mirror service is healthy?","split":"paraphrase","class":"positive","relevant":["i32gx2zpd824he"],"decoys":[]}
 {"id":"ev-0191","project":"p_76y016w1vbzx","first":false,"text":"How do I roll back the metrics rollup?","split":"lexical","class":"positive","relevant":["ivz3m0ek3psney"],"decoys":[]}
@@ -316,7 +316,7 @@
 {"id":"ev-0316","project":"p_e3ngv8evk1ce","first":true,"text":"I'm editing src/sync/daemon.rs; remind me of the sync daemon retry limit.","split":"lexical","class":"positive","relevant":["iawne4ay1w95ym"],"decoys":[]}
 {"id":"ev-0317","project":"p_76y016w1vbzx","first":true,"text":"How often will columnar file emitter attempt something again after an error?","split":"paraphrase","class":"positive","relevant":["i337mj8xc7p364"],"decoys":[]}
 {"id":"ev-0318","project":"p_ckyje79775eb","first":false,"text":"Reformat the gitignore entries so it reads better.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
-{"id":"ev-0319","project":"p_e3ngv8evk1ce","first":false,"text":"Does the theme compiler help text need a falcon metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ivqeexd0n5r45j"]}
+{"id":"ev-0319","project":"p_e3ngv8evk1ce","first":false,"text":"Does the theme compiler help text need the falcon metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ivqeexd0n5r45j"]}
 {"id":"ev-0320","project":"p_e3ngv8evk1ce","first":false,"text":"Is Velvet switched on for every tenant now?","split":"name","class":"positive","relevant":["i6v3n1j4pn20vc"],"decoys":[]}
 {"id":"ev-0321","project":"p_ckyje79775eb","first":false,"text":"Is 768 megabytes still the cap for the offline sync?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["is1hg2xnxz7nc4"]}
 {"id":"ev-0322","project":"p_76y016w1vbzx","first":false,"text":"On which weekday does expiry cleanup go out to users?","split":"paraphrase","class":"positive","relevant":["icpxgyd465vmyw"],"decoys":[]}
@@ -326,7 +326,7 @@
 {"id":"ev-0326","project":"p_76y016w1vbzx","first":true,"text":"Explain the lineage tracker stack trace in this crash report.","split":"lexical","class":"near_miss","relevant":[],"decoys":["iv6qngvn4nbeq8"]}
 {"id":"ev-0327","project":"p_ckyje79775eb","first":false,"text":"What is the driver roster retry limit?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["ifbhj1aq42tgpw"]}
 {"id":"ev-0328","project":"p_0463e4gbf2rx","first":false,"text":"Is it fine to evolve the tables of cartography layer on my own?","split":"paraphrase","class":"positive","relevant":["ivrfk28dypc7pv"],"decoys":[]}
-{"id":"ev-0329","project":"p_0463e4gbf2rx","first":false,"text":"Does the offline sync help text need a heron metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i236xmfyxrz3z1"]}
+{"id":"ev-0329","project":"p_0463e4gbf2rx","first":false,"text":"Does the offline sync help text need the heron metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i236xmfyxrz3z1"]}
 {"id":"ev-0330","project":"p_76y016w1vbzx","first":false,"text":"Document the gitignore entries without altering behaviour.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0331","project":"p_e3ngv8evk1ce","first":true,"text":"Add an alt tag to the math renderer screenshot in the docs.","split":"lexical","class":"near_miss","relevant":[],"decoys":["i3e5q2620wbyfx"]}
 {"id":"ev-0332","project":"p_ckyje79775eb","first":true,"text":"What backing store holds records for diesel levy?","split":"paraphrase","class":"positive","relevant":["iq72tw9bmydjfe"],"decoys":[]}
@@ -338,7 +338,7 @@
 {"id":"ev-0338","project":"p_e3ngv8evk1ce","first":false,"text":"Did the trial month with Magnolia go well?","split":"name","class":"positive","relevant":["irwmqkddb6sa1z"],"decoys":[]}
 {"id":"ev-0339","project":"p_76y016w1vbzx","first":false,"text":"How much RAM can spend forecaster use at most?","split":"paraphrase","class":"positive","relevant":["if71hbwgtkvxxr"],"decoys":[]}
 {"id":"ev-0340","project":"p_e3ngv8evk1ce","first":true,"text":"How often will bibliography styler attempt something again after an error?","split":"paraphrase","class":"positive","relevant":["ihn22ffj32q3mg"],"decoys":[]}
-{"id":"ev-0341","project":"p_0463e4gbf2rx","first":false,"text":"Does the map renderer help text need a lantern metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ik84ybnd0f2f9a"]}
+{"id":"ev-0341","project":"p_0463e4gbf2rx","first":false,"text":"Does the map renderer help text need the lantern metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ik84ybnd0f2f9a"]}
 {"id":"ev-0342","project":"p_ckyje79775eb","first":false,"text":"What footprint is acceptable for diesel levy on the cheap boxes?","split":"paraphrase","class":"positive","relevant":["icnkgx4c37b11e"],"decoys":[]}
 {"id":"ev-0343","project":"p_ckyje79775eb","first":false,"text":"What is the pallet planner request timeout?","split":"lexical","class":"positive","relevant":["iz3me90c2zah0h"],"decoys":[]}
 {"id":"ev-0344","project":"p_0463e4gbf2rx","first":false,"text":"What is the dock scheduler request timeout?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["i4rjdwv4j6337j"]}
@@ -376,7 +376,7 @@
 {"id":"ev-0376","project":"p_76y016w1vbzx","first":true,"text":"How should I validate edits to duplicate removal step?","split":"paraphrase","class":"positive","relevant":["i5cc70wzaaanx1"],"decoys":[]}
 {"id":"ev-0377","project":"p_e3ngv8evk1ce","first":false,"text":"What is the draft watcher local setup?","split":"lexical","class":"positive","relevant":["ixpx5w1xy98eyb"],"decoys":[]}
 {"id":"ev-0378","project":"p_e3ngv8evk1ce","first":true,"text":"How do I run the draft watcher locally?","split":"lexical","class":"positive","relevant":["ixpx5w1xy98eyb"],"decoys":[]}
-{"id":"ev-0379","project":"p_0463e4gbf2rx","first":true,"text":"Does the route preview help text need a cinder metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ibtmpfgv7n34cb"]}
+{"id":"ev-0379","project":"p_0463e4gbf2rx","first":true,"text":"Does the route preview help text need the cinder metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ibtmpfgv7n34cb"]}
 {"id":"ev-0380","project":"p_e3ngv8evk1ce","first":true,"text":"How many retries does the export pipeline make before it parks a failed job?","split":"lexical","class":"positive","relevant":["i7wq418s7pedpw"],"decoys":[]}
 {"id":"ev-0381","project":"p_ckyje79775eb","first":true,"text":"What is the settings screen request timeout?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["i6dat9tr64w2yf"]}
 {"id":"ev-0382","project":"p_76y016w1vbzx","first":false,"text":"What backing store holds records for measurement aggregation?","split":"paraphrase","class":"positive","relevant":["i6aaktcamzkc5y"],"decoys":[]}
@@ -387,7 +387,7 @@
 {"id":"ev-0387","project":"p_0463e4gbf2rx","first":false,"text":"What is the session keeper test command?","split":"lexical","class":"positive","relevant":["ipc7vxhz6sn3pn"],"decoys":[]}
 {"id":"ev-0388","project":"p_e3ngv8evk1ce","first":false,"text":"Anything I need to keep in mind with Mosaic?","split":"name","class":"positive","relevant":["ivnn7v1ekn5bqq"],"decoys":[]}
 {"id":"ev-0389","project":"p_76y016w1vbzx","first":false,"text":"Explain the join planner stack trace in this crash report.","split":"lexical","class":"near_miss","relevant":[],"decoys":["i1vfgatn4ejp4p"]}
-{"id":"ev-0390","project":"p_76y016w1vbzx","first":false,"text":"Does the feature vault help text need a osprey metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ifjbts49mq0kpw"]}
+{"id":"ev-0390","project":"p_76y016w1vbzx","first":false,"text":"Does the feature vault help text need the osprey metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ifjbts49mq0kpw"]}
 {"id":"ev-0391","project":"p_76y016w1vbzx","first":false,"text":"What is the search indexer retry limit?","split":"lexical","class":"no_match","relevant":[],"decoys":["i149hknkqbw4kg"]}
 {"id":"ev-0392","project":"p_76y016w1vbzx","first":false,"text":"How much RAM can intake process use at most?","split":"paraphrase","class":"positive","relevant":["iwfjre6cqmmevw"],"decoys":[]}
 {"id":"ev-0393","project":"p_e3ngv8evk1ce","first":false,"text":"What boilerplate opens each code module?","split":"paraphrase","class":"positive","relevant":["iskk7rrq6dcxv7"],"decoys":[]}
@@ -472,7 +472,7 @@
 {"id":"ev-0472","project":"p_76y016w1vbzx","first":false,"text":"How should I validate edits to expiry cleanup?","split":"paraphrase","class":"positive","relevant":["in9sb06b0b12qj"],"decoys":[]}
 {"id":"ev-0473","project":"p_76y016w1vbzx","first":true,"text":"Do we still ship the partition pruner every Wednesday?","split":"lexical","class":"positive","relevant":["i0sjpw75h6nzct"],"decoys":[]}
 {"id":"ev-0474","project":"p_0463e4gbf2rx","first":false,"text":"Add a log line to the signature pad so slow requests show up.","split":"lexical","class":"near_miss","relevant":[],"decoys":["iwj8qy9991yrrf","i88ve6jmqggt1s","iqtb36590rkra4","i17yd34ntd3mjx","ikrm24ae0eep6b","i0hg1s2mdqzb9e","i8rcct3gc2z3hx","i5cdgxnr74han7","i3334m8d0wy7y7"]}
-{"id":"ev-0475","project":"p_0463e4gbf2rx","first":false,"text":"Does the push notifier help text need a granite metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i9psp4x4e9m9wj"]}
+{"id":"ev-0475","project":"p_0463e4gbf2rx","first":false,"text":"Does the push notifier help text need the granite metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i9psp4x4e9m9wj"]}
 {"id":"ev-0476","project":"p_ckyje79775eb","first":false,"text":"What is the carrier gateway test command?","split":"lexical","class":"positive","relevant":["iy49p5g3rgmh67"],"decoys":[]}
 {"id":"ev-0477","project":"p_76y016w1vbzx","first":false,"text":"How regularly do new builds of health checkpoint reach people?","split":"paraphrase","class":"positive","relevant":["ijx9vrh986hn2j"],"decoys":[]}
 {"id":"ev-0478","project":"p_76y016w1vbzx","first":false,"text":"What is the ingest worker test command?","split":"lexical","class":"positive","relevant":["ine9jhawwfchcm"],"decoys":[]}
@@ -536,7 +536,7 @@
 {"id":"ev-0536","project":"p_76y016w1vbzx","first":false,"text":"How many seconds before calls from the metrics rollup give up?","split":"lexical","class":"positive","relevant":["inx90qhza7nant"],"decoys":[]}
 {"id":"ev-0537","project":"p_0463e4gbf2rx","first":false,"text":"Document the README intro paragraph.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0538","project":"p_76y016w1vbzx","first":false,"text":"How many seconds before calls from the ingest worker give up?","split":"lexical","class":"positive","relevant":["i3jw4xqz24ddgy"],"decoys":[]}
-{"id":"ev-0539","project":"p_e3ngv8evk1ce","first":false,"text":"Does the search indexer help text need a saffron metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["iq3skcwdya4khj"]}
+{"id":"ev-0539","project":"p_e3ngv8evk1ce","first":false,"text":"Does the search indexer help text need the saffron metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["iq3skcwdya4khj"]}
 {"id":"ev-0540","project":"p_e3ngv8evk1ce","first":false,"text":"Document this regular expression so it reads better.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0541","project":"p_ckyje79775eb","first":true,"text":"Document the nested ternary without altering behaviour.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0542","project":"p_ckyje79775eb","first":false,"text":"The proof gallery deploy went bad, what are the rollback steps?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["izyn76zmmv0twg"]}
@@ -658,7 +658,7 @@
 {"id":"ev-0658","project":"p_76y016w1vbzx","first":false,"text":"Tidy up the README intro paragraph please.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0659","project":"p_0463e4gbf2rx","first":true,"text":"What is the dock scheduler test command?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["im630s9hx2m18m"]}
 {"id":"ev-0660","project":"p_76y016w1vbzx","first":false,"text":"Put a little hazel drawing on the metrics rollup welcome screen.","split":"name","class":"near_miss","relevant":[],"decoys":["i9xazt3f0d9bvr"]}
-{"id":"ev-0661","project":"p_e3ngv8evk1ce","first":false,"text":"Does the draft watcher help text need a mosaic metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ivnn7v1ekn5bqq"]}
+{"id":"ev-0661","project":"p_e3ngv8evk1ce","first":false,"text":"Does the draft watcher help text need the mosaic metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ivnn7v1ekn5bqq"]}
 {"id":"ev-0662","project":"p_76y016w1vbzx","first":true,"text":"Put a little compass drawing on the lineage tracker welcome screen.","split":"name","class":"near_miss","relevant":[],"decoys":["ig5605h4zzyhkn"]}
 {"id":"ev-0663","project":"p_e3ngv8evk1ce","first":false,"text":"What was the citation formatter storage choice again?","split":"lexical","class":"positive","relevant":["icn2z73s6a3fxp"],"decoys":[]}
 {"id":"ev-0664","project":"p_0463e4gbf2rx","first":false,"text":"Do we still ship the push notifier every Tuesday?","split":"lexical","class":"positive","relevant":["ignqd91czmdse3"],"decoys":[]}
@@ -710,7 +710,7 @@
 {"id":"ev-0710","project":"p_e3ngv8evk1ce","first":false,"text":"Should the documentation use British spelling?","split":"lexical","class":"positive","relevant":["ihr9pycteqbgsg"],"decoys":[]}
 {"id":"ev-0711","project":"p_0463e4gbf2rx","first":false,"text":"What is the report exporter memory ceiling?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["ibvjj3v68d48hr"]}
 {"id":"ev-0712","project":"p_ckyje79775eb","first":false,"text":"I'm about to migrate the dock scheduler schema, go ahead?","split":"lexical","class":"positive","relevant":["ivbk8b2km1j22d"],"decoys":[]}
-{"id":"ev-0713","project":"p_e3ngv8evk1ce","first":false,"text":"Does the sitemap writer help text need a sparrow metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ir3vnd6t5tmd0b"]}
+{"id":"ev-0713","project":"p_e3ngv8evk1ce","first":false,"text":"Does the sitemap writer help text need the sparrow metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ir3vnd6t5tmd0b"]}
 {"id":"ev-0714","project":"p_0463e4gbf2rx","first":true,"text":"How much memory may the barcode scanner use on the small instances?","split":"lexical","class":"positive","relevant":["iy8fvc0dd2twsj"],"decoys":[]}
 {"id":"ev-0715","project":"p_76y016w1vbzx","first":false,"text":"What is the tracking poller release cadence?","split":"lexical","class":"no_match","relevant":[],"decoys":["i1jr7t6570r394"]}
 {"id":"ev-0716","project":"p_76y016w1vbzx","first":false,"text":"Put a little willow drawing on the partition pruner welcome screen.","split":"name","class":"near_miss","relevant":[],"decoys":["i94qdqbq99c11c"]}
@@ -726,7 +726,7 @@
 {"id":"ev-0726","project":"p_ckyje79775eb","first":true,"text":"Can I print the Zephyr file to debug?","split":"name","class":"positive","relevant":["in7raq2byzd92d"],"decoys":[]}
 {"id":"ev-0727","project":"p_ckyje79775eb","first":false,"text":"Is 512 megabytes still the cap for the audit ledger?","split":"lexical","class":"positive","relevant":["ipqxd608e7agwt"],"decoys":[]}
 {"id":"ev-0728","project":"p_ckyje79775eb","first":false,"text":"Rename the auth broker variable job to task, it reads better.","split":"lexical","class":"near_miss","relevant":[],"decoys":["imgdx59qd04zkg"]}
-{"id":"ev-0729","project":"p_ckyje79775eb","first":false,"text":"Does the invoice service help text need a harbor metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ipzdjwrcqmmwsc"]}
+{"id":"ev-0729","project":"p_ckyje79775eb","first":false,"text":"Does the invoice service help text need the harbor metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ipzdjwrcqmmwsc"]}
 {"id":"ev-0730","project":"p_0463e4gbf2rx","first":true,"text":"Is it fine to evolve the tables of delivery evidence album on my own?","split":"paraphrase","class":"positive","relevant":["iy4bakzcje6eww"],"decoys":[]}
 {"id":"ev-0731","project":"p_0463e4gbf2rx","first":false,"text":"Add an alt tag to the map renderer screenshot in the docs.","split":"lexical","class":"near_miss","relevant":[],"decoys":["igrsb5krtt0e88"]}
 {"id":"ev-0732","project":"p_76y016w1vbzx","first":false,"text":"What footprint is acceptable for intake process on the cheap boxes?","split":"paraphrase","class":"positive","relevant":["iwfjre6cqmmevw"],"decoys":[]}
@@ -876,7 +876,7 @@
 {"id":"ev-0876","project":"p_76y016w1vbzx","first":false,"text":"The lineage tracker deploy went bad, what are the rollback steps?","split":"lexical","class":"positive","relevant":["iqze4hnsg9qwf9"],"decoys":[]}
 {"id":"ev-0877","project":"p_0463e4gbf2rx","first":false,"text":"What is the invoice service test command?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["ice09sf294f7gz"]}
 {"id":"ev-0878","project":"p_76y016w1vbzx","first":true,"text":"Put a little thimble drawing on the ingest worker welcome screen.","split":"name","class":"near_miss","relevant":[],"decoys":["i6vk7gbwmbfx60"]}
-{"id":"ev-0879","project":"p_76y016w1vbzx","first":false,"text":"Does the dedupe stage help text need a cedar metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ige1m2ck0zzx5p"]}
+{"id":"ev-0879","project":"p_76y016w1vbzx","first":false,"text":"Does the dedupe stage help text need the cedar metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["ige1m2ck0zzx5p"]}
 {"id":"ev-0880","project":"p_e3ngv8evk1ce","first":false,"text":"Explain the nested ternary here.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0881","project":"p_ckyje79775eb","first":true,"text":"What notice do consumers of outbound callback sender get before a breaking edit?","split":"paraphrase","class":"positive","relevant":["ipec4yh7nbfr81"],"decoys":[]}
 {"id":"ev-0882","project":"p_76y016w1vbzx","first":true,"text":"How much RAM can merge strategy picker use at most?","split":"paraphrase","class":"positive","relevant":["isc0bb4d4hnt7d"],"decoys":[]}
@@ -886,7 +886,7 @@
 {"id":"ev-0886","project":"p_0463e4gbf2rx","first":false,"text":"The route preview status page shows a cinder block pattern in the footer; can we tone that down?","split":"name","class":"near_miss","relevant":[],"decoys":["ibtmpfgv7n34cb"]}
 {"id":"ev-0887","project":"p_0463e4gbf2rx","first":true,"text":"The settings screen status page paints the buttons cobalt blue; can we tone that down?","split":"name","class":"near_miss","relevant":[],"decoys":["i914qjwfbg2azs"]}
 {"id":"ev-0888","project":"p_ckyje79775eb","first":false,"text":"Make the invoice service icon small on narrow screens.","split":"lexical","class":"near_miss","relevant":[],"decoys":["ig1cvwdj4p6f0h"]}
-{"id":"ev-0889","project":"p_ckyje79775eb","first":false,"text":"Does the customs exporter help text need a ember metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["iedbvbvxnj15dq"]}
+{"id":"ev-0889","project":"p_ckyje79775eb","first":false,"text":"Does the customs exporter help text need the ember metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["iedbvbvxnj15dq"]}
 {"id":"ev-0890","project":"p_e3ngv8evk1ce","first":false,"text":"Put a little orchid drawing on the citation formatter welcome screen.","split":"name","class":"near_miss","relevant":[],"decoys":["i5r0695mp428cm"]}
 {"id":"ev-0891","project":"p_0463e4gbf2rx","first":false,"text":"Document this recursive function so it reads better.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0892","project":"p_0463e4gbf2rx","first":false,"text":"Which storage did we choose for the session keeper?","split":"lexical","class":"positive","relevant":["i7pfkrefc44erd"],"decoys":[]}
@@ -923,15 +923,15 @@
 {"id":"ev-0923","project":"p_ckyje79775eb","first":false,"text":"What is the route preview local setup?","split":"lexical","class":"sibling_only","relevant":[],"decoys":["isa5pzv71j2x62"]}
 {"id":"ev-0924","project":"p_e3ngv8evk1ce","first":false,"text":"Which suite invocation verifies publishing chain is healthy?","split":"paraphrase","class":"positive","relevant":["in8bdpr820vmb6"],"decoys":[]}
 {"id":"ev-0925","project":"p_0463e4gbf2rx","first":true,"text":"Translate the onboarding wizard interface labels into Spanish.","split":"lexical","class":"near_miss","relevant":[],"decoys":["i7g0j1fx8wbxav"]}
-{"id":"ev-0926","project":"p_ckyje79775eb","first":false,"text":"Does the webhook dispatcher help text need a nimbus metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i35pg6jdnkrt2j"]}
+{"id":"ev-0926","project":"p_ckyje79775eb","first":false,"text":"Does the webhook dispatcher help text need the nimbus metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i35pg6jdnkrt2j"]}
 {"id":"ev-0927","project":"p_ckyje79775eb","first":true,"text":"I'm about to migrate the address validator schema, go ahead?","split":"lexical","class":"positive","relevant":["irsq7xxsmga5be"],"decoys":[]}
 {"id":"ev-0928","project":"p_76y016w1vbzx","first":true,"text":"The join planner status page renders a marble texture behind the cards; can we tone that down?","split":"name","class":"near_miss","relevant":[],"decoys":["ibc8wkzkap55v7"]}
 {"id":"ev-0929","project":"p_e3ngv8evk1ce","first":false,"text":"How do I roll back the backlink graph?","split":"lexical","class":"positive","relevant":["i6rzqchj4yvq8f"],"decoys":[]}
-{"id":"ev-0930","project":"p_ckyje79775eb","first":false,"text":"Does the carrier gateway help text need a tundra metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i3kx6x4wq7tyqt"]}
+{"id":"ev-0930","project":"p_ckyje79775eb","first":false,"text":"Does the carrier gateway help text need the tundra metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i3kx6x4wq7tyqt"]}
 {"id":"ev-0931","project":"p_0463e4gbf2rx","first":true,"text":"Update the photo uploader changelog wording for the release notes.","split":"lexical","class":"near_miss","relevant":[],"decoys":["iwmfd2cdg4p1ww"]}
 {"id":"ev-0932","project":"p_ckyje79775eb","first":true,"text":"The address validator status page has a pelican sticker in the help panel; can we tone that down?","split":"name","class":"near_miss","relevant":[],"decoys":["i0hq2ey9q41z5h"]}
 {"id":"ev-0933","project":"p_ckyje79775eb","first":true,"text":"Is Harbor switched on for every tenant now?","split":"name","class":"positive","relevant":["ipzdjwrcqmmwsc"],"decoys":[]}
-{"id":"ev-0934","project":"p_ckyje79775eb","first":false,"text":"Does the manifest builder help text need a quartz metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i8jjzqw0s67dq4"]}
+{"id":"ev-0934","project":"p_ckyje79775eb","first":false,"text":"Does the manifest builder help text need the quartz metaphor at all?","split":"name","class":"near_miss","relevant":[],"decoys":["i8jjzqw0s67dq4"]}
 {"id":"ev-0935","project":"p_0463e4gbf2rx","first":false,"text":"Simplify the enum of shapes please.","split":"lexical","class":"no_match","relevant":[],"decoys":[]}
 {"id":"ev-0936","project":"p_0463e4gbf2rx","first":true,"text":"Can I change the route preview public interface in this release?","split":"lexical","class":"positive","relevant":["irw0sh1c6zve0x"],"decoys":[]}
 {"id":"ev-0937","project":"p_e3ngv8evk1ce","first":false,"text":"Add an alt tag to the theme compiler screenshot in the docs.","split":"lexical","class":"near_miss","relevant":[],"decoys":["i2zynm8hecxhjq"]}

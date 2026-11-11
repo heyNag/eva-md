@@ -83,7 +83,8 @@ type Result struct {
 
 // Score asks the system for each event of the set, in order, and measures
 // what it added. An addition must be an item of the set, once; anything
-// else, and any error, stops the run, naming the event.
+// else, an event id given twice, and any error stop the run, naming the
+// event.
 func Score(ctx context.Context, s *Set, name string, sys System) (*Result, error) {
 	items := map[string]bool{}
 	for _, it := range s.Items {
@@ -91,6 +92,9 @@ func Score(ctx context.Context, s *Set, name string, sys System) (*Result, error
 	}
 	r := &Result{System: name, Version: s.Version, Seed: s.Seed, Events: s.Events, Added: map[string][]string{}}
 	for _, e := range s.Events {
+		if _, twice := r.Added[e.ID]; twice {
+			return nil, fmt.Errorf("retrieval: event %s is in the set twice", e.ID)
+		}
 		ask := e
 		ask.Relevant, ask.Decoys = slices.Clone(e.Relevant), slices.Clone(e.Decoys)
 		added, err := sys.Add(ctx, ask)
