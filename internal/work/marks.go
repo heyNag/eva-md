@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,6 +80,7 @@ func listMarks(root *os.Root, dir string) ([]listed, error) {
 	if err != nil {
 		return nil, fmt.Errorf("work: %w", err)
 	}
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	var out []listed
 	for _, e := range entries {
 		if !e.Type().IsRegular() {
