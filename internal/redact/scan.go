@@ -65,7 +65,10 @@ type Result struct {
 
 // Scan runs the rules on text as Redact does and returns the ranges they
 // replace, each with the kind of its marker, the rule set that found it and
-// a tier.
+// a tier. When the baseline rules do not run at run time (see
+// SetBaselineAtRunTime), it runs the current rules alone, as Redact then
+// does, and no finding is FloorOnly; what follows of rounds and of the
+// baseline's calls is then of the current rules' passes alone.
 //
 // It checks ctx before each round of the rules and before each pass of the
 // current rules, and stops when ctx has ended. A scan that stops keeps
@@ -85,7 +88,7 @@ type Result struct {
 // outputs, each over the whole text: for a long text, a good part of what
 // Redact takes on it. A scan that runs to the end costs what Redact does.
 func Scan(ctx context.Context, text string) Result {
-	return driver{ctx: ctx}.scan(text)
+	return driver{ctx: ctx, alone: !BaselineAtRunTime()}.scan(text)
 }
 
 // driver runs the rules on a text and stops when its context ends.
@@ -96,12 +99,19 @@ type driver struct {
 	step func(through int)
 	// rules, when set, stands in for bothRules. Only tests set it.
 	rules func(text string, stop func() bool) (floor string, nf int, current string, ok bool)
+	// alone runs the current rules alone (see runAlone), with no call of
+	// the baseline rules.
+	alone bool
 }
+
+// baselineRedact is the baseline rules. Only tests replace it, to count its
+// calls.
+var baselineRedact = baseline.Redact
 
 // bothRules runs the baseline rules and then the current rules on text,
 // which stop before a pass when stop says so; ok is false when they did.
 func bothRules(text string, stop func() bool) (floor string, nf int, current string, ok bool) {
-	floor, nf = baseline.Redact(text)
+	floor, nf = baselineRedact(text)
 	current, _, ok = redactUntil(text, mode{entropy: true}, stop)
 	return floor, nf, current, ok
 }
@@ -109,7 +119,11 @@ func bothRules(text string, stop func() bool) (floor string, nf int, current str
 // scan is Scan.
 func (d driver) scan(text string) Result {
 	c := clean(text)
-	r, ok := d.run(c)
+	run := d.run
+	if d.alone {
+		run = d.runAlone
+	}
+	r, ok := run(c)
 	if !ok {
 		return Result{Clean: c}
 	}
@@ -152,14 +166,7 @@ func (d driver) run(c string) (r Result, ok bool) {
 	if d.stop(len(c)) {
 		return r, false
 	}
-	if strings.Contains(c, "PRIVATE KEY") {
-		var rs []removal
-		for _, m := range privateKeyBlock.FindAllStringIndex(c, -1) {
-			rs = append(rs, removal{start: m[0], end: m[1], kind: "private_key", current: true, tier: Certain})
-		}
-		t.replace(rs)
-		t.count += len(rs)
-	}
+	t.privateKeys()
 	rules := d.rules
 	if rules == nil {
 		rules = bothRules
@@ -180,6 +187,22 @@ func (d driver) run(c string) (r Result, ok bool) {
 		t.count += n
 	}
 	return t.result(), true
+}
+
+// privateKeys replaces the private key blocks of the cleaned text, which
+// the trace must not have changed yet. Both rule sets replace them the same
+// way, but a block spans lines and leaves kept text that is hard to line up
+// between two outputs, so the driver replaces them first.
+func (t *trace) privateKeys() {
+	if !strings.Contains(t.clean, "PRIVATE KEY") {
+		return
+	}
+	var rs []removal
+	for _, m := range privateKeyBlock.FindAllStringIndex(t.clean, -1) {
+		rs = append(rs, removal{start: m[0], end: m[1], kind: "private_key", current: true, tier: Certain})
+	}
+	t.replace(rs)
+	t.count += len(rs)
 }
 
 // trace is a text the driver redacts, as the rules see it, and as pieces of
