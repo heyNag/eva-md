@@ -3,6 +3,7 @@ made-up scenarios, of how a hook is stopped, and of the scenario list. The
 decision's tests feed numbers and read no clock; the hook tests wait for a
 process only up to a hang guard: python3 -I scripts/bench/test_gate.py"""
 import argparse
+import ast
 import contextlib
 import importlib.util
 import io
@@ -866,6 +867,106 @@ class Simulation(unittest.TestCase):
             self.assertGreaterEqual(4*n, core.WHOLE, name)
         self.assertEqual(sorted(sim.CHANGES), ["all-x1.2", "all-x1.3", "capture+20ms", "unchanged"])
         self.assertEqual(sorted(sim.LOADS), ["drift", "heavy", "light", "new-pair", "none", "runs"])
+
+
+class GateLoops(unittest.TestCase):
+    """How many times the real scenarios time each hook, read from their
+    code: in the gate's runs each timed hook gives at least GATE_RUN_SAMPLES
+    a run, and in the plain benchmark as many as it always did."""
+
+    # The hooks the plain benchmark times a run, by the line that times
+    # them: its report's sample counts.
+    PLAIN = {
+        ("benchmark.py", "padded_inbox"): [10, 10, 100, 10, 100, 100, 100, 30, 30],
+        ("benchmark.py", "code_scenarios"): [10, 25],
+        ("benchmark.py", "recall_scenario"): [100],
+        ("real_install.py", "real_install"): [20, 50, 50],
+    }
+
+    def tree(self, file):
+        path = HERE.parent/file if file == "benchmark.py" else HERE/file
+        return ast.parse(path.read_text())
+
+    def function(self, tree, name):
+        return next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == name)
+
+    def timed(self, fn, env):
+        """Each timed hook call in fn, in order: the line it is on and how
+        many times a run makes it, the product of its loops' ranges."""
+        out = []
+
+        def is_hook(call):
+            return isinstance(call, ast.Call) and (getattr(call.func, "id", None) == "hook" or getattr(call.func, "attr", None) == "hook")
+
+        def names(target):
+            return {n.id for n in ast.walk(target) if isinstance(n, ast.Name)}
+
+        def timing(st):
+            return isinstance(st, ast.Assign) and is_hook(st.value) and "elapsed" in names(st.targets[0])
+
+        def visit(statements, times):
+            for st in statements:
+                if isinstance(st, (ast.FunctionDef, ast.Lambda)):
+                    continue
+                if isinstance(st, ast.For):
+                    if not any(timing(s) for s in ast.walk(st)):
+                        continue
+                    self.assertTrue(isinstance(st.iter, ast.Call) and getattr(st.iter.func, "id", None) == "range", ast.dump(st.iter))
+                    n = eval(compile(ast.Expression(st.iter.args[0]), "<loop>", "eval"), dict(env))
+                    visit(st.body, times*n)
+                elif timing(st):
+                    out.append((st.lineno, times))
+                else:
+                    for field in ("body", "orelse", "finalbody"):
+                        visit(getattr(st, field, []) or [], times)
+                    for h in getattr(st, "handlers", []):
+                        visit(h.body, times)
+        visit(fn.body, 1)
+        return out
+
+    def env(self, gate):
+        """What the loops' ranges read: the run, and code_scenarios'
+        counts as padded_inbox passes them."""
+        run = core.Run(None, None, gate=gate)
+        caller = self.function(self.tree("benchmark.py"), "padded_inbox")
+        call = next(n for n in ast.walk(caller) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "code_scenarios")
+        callee = self.function(self.tree("benchmark.py"), "code_scenarios")
+        params = [a.arg for a in callee.args.args]
+        defaults = dict(zip(params[len(params)-len(callee.args.defaults):], callee.args.defaults))
+        env = {"run": run, "range": range}
+        for i, name in enumerate(params):
+            if name in defaults:
+                arg = call.args[i] if i < len(call.args) else defaults[name]
+                env[name] = eval(compile(ast.Expression(arg), "<arg>", "eval"), {"run": run})
+        return env
+
+    def counts(self, gate):
+        env = self.env(gate)
+        return {key: [n for _, n in self.timed(self.function(self.tree(key[0]), key[1]), env)] for key in self.PLAIN}
+
+    def test_the_plain_benchmark_times_as_many_as_it_did(self):
+        self.assertEqual(self.counts(False), self.PLAIN)
+
+    def test_the_gates_runs_time_every_hook_enough(self):
+        # Enough that the gate's runs of a binary, at the default rounds,
+        # give WHOLE samples even with one of them lost.
+        counts = self.counts(True)
+        for key, plain in self.PLAIN.items():
+            self.assertEqual(counts[key], [max(n, core.GATE_RUN_SAMPLES) for n in plain], key)
+            for n in counts[key]:
+                self.assertGreaterEqual(n*(2*core.ROUNDS-1), core.WHOLE, key)
+        self.assertEqual(core.GATE_RUN_SAMPLES, 34)
+
+    def test_the_gates_runs_take_a_chat_start_untimed_first(self):
+        # A run's first chat start is a cold one: in the gate's runs an
+        # untimed one comes before the first timed, and in the plain
+        # benchmark none does.
+        fn = self.function(self.tree("benchmark.py"), "padded_inbox")
+        first = min(line for line, _ in self.timed(fn, self.env(True)))
+        warm = [n for n in ast.walk(fn) if isinstance(n, ast.If) and ast.unparse(n.test) == "run.gate" and n.lineno < first
+                and any(isinstance(c, ast.Call) and getattr(c.func, "id", None) == "hook" and
+                        any(isinstance(k, ast.Constant) and k.value == "SessionStart" for k in c.args) for c in ast.walk(n))]
+        self.assertEqual(len(warm), 1)
 
 
 class Scenarios(unittest.TestCase):

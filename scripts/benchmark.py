@@ -17,8 +17,9 @@ figure holds the start of its processes, on the host's launch path.
 
 With --compare OLD NEW, the gate: each round runs every scenario on OLD and
 NEW twice each, alternating, and the gate exits 1 when NEW is slower than
-OLD on a hook figure whose controls show the machine quiet enough to judge
-it, or fails a scenario clearly more often than OLD (see decide in
+OLD on a hook figure whose controls, splits of each binary's own runs, show
+the machine quiet enough to judge it, or fails a scenario clearly more often
+than OLD (see decide in
 scripts/bench/core.py), 0 otherwise, and 2 when it could not run.
 """
 import argparse
@@ -167,6 +168,11 @@ def padded_inbox(run, evabench):
             for _ in range(target//len(line)):
                 out.write(line)
             out.write(original)
+        # In the gate's runs, one chat start untimed first: a run's first
+        # chat start takes about twice as long as the rest, and among the
+        # gate's samples a side it would sit at the p95 and blur it.
+        if run.gate:
+            hook("codex", "SessionStart", "m1-warm", source="startup")
         startup=[]
         for i in range(run.loops(10)):
             output, elapsed=hook("codex", "SessionStart", "m1-new-"+str(i), source="startup")
@@ -339,11 +345,11 @@ def padded_inbox(run, evabench):
         pad=json.dumps(dict(sample,host="codex",session="m1-spawn")).encode()+b"\n"
         (files[0].parent/"codex-m1-spawn.jsonl").write_bytes(pad*((61<<10)//len(pad)+1))
         stop_spawn=[]
-        for i in range(30):
+        for i in range(run.loops(30)):
             _,elapsed=hook("codex","Stop","m1-spawn",turn_id=str(i),last_assistant_message="Synthetic timing reply.")
             stop_spawn.append(elapsed)
         ends=[]
-        for i in range(30):
+        for i in range(run.loops(30)):
             _,elapsed=hook("claude-code","SessionEnd","m1-end-"+str(i))
             ends.append(elapsed)
         # The first chat start's sweep came alone, a job of its own.
@@ -359,7 +365,7 @@ def padded_inbox(run, evabench):
         # with the padded inbox, the wiki and the records above in place.
         mcp_starts,mcp_exits,mcp_searches,mcp_shows,mcp_statuses=mcp_timings(binary,env,cwd)
         p95=lambda values: sorted(values)[int((len(values)-1)*.95)]
-        code=code_scenarios(hook,cwd,wiki,state,sample["project"],run.loops(10))
+        code=code_scenarios(hook,cwd,wiki,state,sample["project"],run.loops(10),run.loops(25))
         recalled=recall_scenario(hook,wiki,sample["project"])
         report={"offline":True,"isolated_home":True,"cross_host_resume":True,"inbox_bytes":files[0].stat().st_size,
                 "capture_samples":len(capture),"capture_p95_ms":round(p95(capture),3),
@@ -421,6 +427,7 @@ def run_once(core, binary, cwd, failures=None):
     (core.Run.loops)."""
     run = core.Run(binary, cwd, gate=failures is not None)
     for s in core.ordered():
+        run.scenario = s.name
         if failures is None:
             s.fn(run)
             continue
@@ -459,24 +466,25 @@ def compare(core, a):
     samples = {role: [] for role in core.ROLES}
     # A scenario that fails in a run leaves that run's figures of it out,
     # and counts against the binary that failed it (core.scenarios).
-    targets, runs, failures = {}, [], {role: {} for role in core.ROLES}
+    targets, runs, failures, sources = {}, [], {role: {} for role in core.ROLES}, {}
     for rnd, role in core.schedule(a.rounds):
         print("benchmark: round %d of %d, %s" % (rnd, a.rounds, ROLE_NAMES[role]), file=sys.stderr, flush=True)
         run = run_once(core, binaries[role], cwd, failures[role])
         samples[role].append(dict(sorted(run.metrics.items())))
         targets.update(run.targets)
+        sources.update(run.sources)
         runs.append({"round": rnd, "binary": role, "report": run.report})
     # A ceiling factor of 0 turns the ceilings off.
     ceilings = {name: (target*a.ceiling_factor if target is not None and a.ceiling_factor else None)
                 for name, target in targets.items()}
-    verdict = core.decide(samples, ceilings, failures, a.rounds)
+    verdict = core.decide(samples, ceilings, failures, a.rounds, sources=sources)
     gate = {"verdict": verdict["verdict"], "exit": verdict["exit"], "old": str(old), "new": str(new),
             "rounds": a.rounds, "schedule": [role for _, role in core.schedule(a.rounds)],
             "ceiling_factor": a.ceiling_factor, "launch_paths": core.LAUNCH_PATHS,
             "load_average_at_start": round(load, 2), "decision": verdict, "scenario_failures": failures, "runs": runs,
             # Every sample by run, unrounded, and the ceilings, so that
             # core.redecide works the verdict out again exactly.
-            "ceilings": ceilings, "samples": samples, "checked_at": datetime.now(timezone.utc).isoformat()}
+            "ceilings": ceilings, "figure_scenarios": dict(sorted(sources.items())), "samples": samples, "checked_at": datetime.now(timezone.utc).isoformat()}
     if a.output:
         write(a.output, json.dumps(gate, indent=2)+"\n")
     if a.baseline:
@@ -485,10 +493,12 @@ def compare(core, a):
         print("%-28s old %8.1f ms  new %8.1f ms  ratio %6s  lower bound %6s  noise %6s  %s" % (
             name, m["p95_base_ms"], m["p95_ms"], m["ratio"], m["ratio_low"], m["noise"],
             "; ".join(m["reasons"] + m["unsettled"]) or
-            ("too few samples to judge, fewer than %d a binary" % verdict["whole"] if m["too_few_samples"] else "ok")))
+            ("too few samples to judge, fewer than %d a binary%s" % (
+                verdict["whole"], ", as a scenario failed in some runs" if name in verdict["short_by_failures"] else "")
+             if m["too_few_samples"] else "ok")))
     for name in verdict["too_few_samples"]:
         if name not in verdict["metrics"]:
-            print("%-28s too few samples to judge: the new binary gave none, and lost a scenario in every run" % name)
+            print("%-28s too few samples to judge: the new binary gave none, and lost its scenario in every run" % name)
     for name in verdict["not_compared"]:
         print("%-28s not compared: the old binary gave it no samples" % name)
     for role, by in failures.items():
@@ -500,8 +510,7 @@ def compare(core, a):
     for lost in verdict["lost"]:
         print("not judged: %s" % lost)
     if verdict["machine_too_noisy"]:
-        why = " (runs of both binaries that a change cancels out of differed by more than %.2f: the machine was too noisy to judge)" % (
-            verdict["threshold"])
+        why = " (runs of one binary differed by more than %.2f: the machine was too noisy to judge)" % verdict["threshold"]
     elif verdict["lost"]:
         why = " (a scenario may have been lost to load: run the gate again)"
     else:
@@ -579,7 +588,7 @@ def main():
     return 0
 
 
-def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10):
+def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10, prompts_timed=25):
     """Times the code notes. Startup briefs in --cwd, whose project key the
     inbox recorded, point at 3 systems that cite its repo at HEAD~1, so each
     brief counts the commits since, 3 git calls, and every pointer must say
@@ -587,7 +596,8 @@ def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10):
     lines cite a made-up repo's code and whose entries in a planted code
     status, one for each of the 400 pages, say it moved 14 commits: every
     pointer must say so, read from the status with no git. A --cwd repo with
-    a single commit skips the briefs; briefs_timed are timed."""
+    a single commit skips the briefs. briefs_timed briefs and prompts_timed
+    prompts are timed."""
     head1=subprocess.run(["git","-C",str(cwd),"rev-parse","HEAD~1"],capture_output=True,text=True)
     systems=wiki/"systems"
     mapfile=systems/"map.md"
@@ -620,9 +630,11 @@ def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10):
     status.write_text(json.dumps(dict(v=1,at=datetime.now().astimezone().isoformat(timespec="seconds"),duration_ms=1800,pages=pages))+"\n")
     status.chmod(0o600)
     prompts=[]
-    for c in range(25):
+    for c in range(prompts_timed):
         hook("codex","SessionStart","m1-code-prompts-%d"%c,source="startup")
-        n=300+c*3
+        # Systems 300 to 398, three a chat; a chat past the 33rd, as the
+        # gate's runs take, names those of an earlier chat again.
+        n=300+(c%33)*3
         prompt="Why does LedgerSync%04d drop rows when svc-%04d-ledger retries, and does the ledger gateway zone %04d see it?"%(n,n+1,n+2)
         output,elapsed=hook("codex","UserPromptSubmit","m1-code-prompts-%d"%c,turn_id="0",prompt=prompt)
         value=json.loads(output)
