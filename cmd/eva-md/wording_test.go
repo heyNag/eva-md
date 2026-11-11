@@ -65,6 +65,14 @@ func TestThePublicRepoUsesNeutralWording(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i, line := range strings.Split(string(data), "\n") {
+			// Every word the pattern bans holds one of these, so a line
+			// without them is passed over: the pattern alone, on every line
+			// of every file, takes minutes under the race detector.
+			lower := strings.ToLower(line)
+			if !strings.Contains(lower, "work") && !strings.Contains(lower, "compan") &&
+				!strings.Contains(lower, "employer") && !strings.Contains(lower, "corporate") {
+				continue
+			}
 			if m := workplaceWording.FindString(line); m != "" {
 				rel, _ := filepath.Rel(root, path)
 				t.Errorf("%s:%d says %q", rel, i+1, m)
