@@ -31,6 +31,7 @@ Rules every card carries, so they are said once here:
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | built; in review |
 | [CT-4](CT-4.md) | Counters release: a content-free report | building since 2026-11-11, on the three other parts as built; reviewed once they are merged |
+| [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | card written; not started. The sittings it serves ([host-facts.md](../host-facts.md), [host-sitting-runbook.md](../host-sitting-runbook.md)) are being cut to a core path first |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | started 2026-11-11; paused while the counters are fixed |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
