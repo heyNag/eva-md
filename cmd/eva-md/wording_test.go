@@ -14,9 +14,13 @@ import (
 // company. The ordinary verb, as in a chat that worked on a branch, is fine.
 var workplaceWording = regexp.MustCompile(`(?i)\bwork[ -](machines?|macs?|laptops?|proxy|proxies|accounts?|identity|email|person|ca|instance)\b|~/work\b|\bwork\.gitconfig|\bwork@|\bcompan(y|y's|ies)\b|\bemployers?\b|\bcorporate\b|\bat work\b|\bpersonal and work\b`)
 
-// The repo is public, so its docs, code and tests speak of a self-hosted
-// GitLab, GitHub, a GitHub Enterprise server or a managed machine, never of
-// work machines or companies. This reads only the checkout's own files.
+// The repo is public, so its docs, code, tests, scripts and workflows speak
+// of a self-hosted GitLab, GitHub, a GitHub Enterprise server or a managed
+// machine, never of work machines or companies. This reads only the
+// checkout's own files: README.md, AGENTS.md, every .md under docs/ at any
+// depth (the v2 build's plan, cards, specs and working papers among them),
+// the Go files under cmd/ and internal/, and every file under scripts/ and
+// .github/.
 func TestThePublicRepoUsesNeutralWording(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -27,23 +31,32 @@ func TestThePublicRepoUsesNeutralWording(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := []string{filepath.Join(root, "README.md"), filepath.Join(root, "AGENTS.md")}
-	docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
-	if err != nil || len(docs) == 0 {
-		t.Fatalf("docs: %v, %v", docs, err)
-	}
-	files = append(files, docs...)
-	for _, dir := range []string{"cmd", "internal"} {
-		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+	// Each folder, and which of its files are read: "" for every file.
+	for _, walk := range []struct{ dir, suffix string }{
+		{"docs", ".md"},
+		{"cmd", ".go"},
+		{"internal", ".go"},
+		{"scripts", ""},
+		{".github", ""},
+	} {
+		before := len(files)
+		err := filepath.WalkDir(filepath.Join(root, walk.dir), func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
-			if !d.IsDir() && strings.HasSuffix(path, ".go") && path != self {
+			if d.IsDir() && d.Name() == "__pycache__" {
+				return filepath.SkipDir
+			}
+			if d.Type().IsRegular() && strings.HasSuffix(path, walk.suffix) && path != self {
 				files = append(files, path)
 			}
 			return nil
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if len(files) == before {
+			t.Fatalf("found no file to read in %s", walk.dir)
 		}
 	}
 	for _, path := range files {
