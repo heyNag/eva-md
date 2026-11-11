@@ -52,7 +52,7 @@ func (s *sweepDay) Set(value string) error {
 
 func init() {
 	register(command{name: "update", file: "update.go", place: 140,
-		synopsis: []string{"eva-md update [--session host:id ... | --pending] [--sweep[=YYYY-MM-DD]] [--dry-run] [--foreground]"},
+		synopsis: []string{"eva-md update [--session host:id ... | --pending] [--sweep[=YYYY-MM-DD]] [--dry-run] [--foreground] [--trigger NAME]"},
 		run: func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
 			return runUpdate(ctx, args, out, errOut)
 		}})
@@ -67,7 +67,9 @@ func init() {
 // progress on stderr; without it, it is the job the triggers spawn detached,
 // and its lines go to the day's log. It prints one summary line once the
 // job ran. A busy lock, updates = false, the budget, a hold, a backoff or a
-// quarantine stops it without an error; a failed pass exits 1.
+// quarantine stops it without an error; a failed pass exits 1. --trigger
+// names what started it, as the hooks pass it, for the run log; without
+// it, a run with --foreground is manual and any other names none.
 func runUpdate(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet("update", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
@@ -78,6 +80,7 @@ func runUpdate(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f.Var(&sweep, "sweep", "")
 	dry := f.Bool("dry-run", false, "")
 	foreground := f.Bool("foreground", false, "")
+	trigger := f.String("trigger", "", "")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return usage(errOut, "invalid arguments for update")
 	}
@@ -119,7 +122,10 @@ func runUpdate(ctx context.Context, args []string, out, errOut io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	job := update.Job{Dirs: dirs, Config: c, Version: version, Manual: *foreground, Runner: newRunner, Now: updateClock, SweepDay: sweep.day}
+	job := update.Job{Dirs: dirs, Config: c, Version: version, Manual: *foreground, Runner: newRunner, Now: updateClock, SweepDay: sweep.day, Trigger: update.TriggerName(*trigger)}
+	if *trigger == "" && *foreground {
+		job.Trigger = update.TriggerManual
+	}
 	if *dry {
 		if err := job.DryRun(ctx, refs[0].Host, refs[0].ID, out); err != nil {
 			fmt.Fprintln(errOut, "eva-md:", updateError(err, sessionArgs))

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/inbox"
+	"github.com/heyNag/eva-md/internal/update"
 )
 
 // A Claude Code chat a program runs never asks for an update of its own:
@@ -23,7 +24,7 @@ func TestProgramRunChatAsksForNoUpdateOfItsOwn(t *testing.T) {
 		{"PreCompact", nil},
 		{"Stop", nil},
 		{"UserPromptSubmit", nil},
-		{"SessionStart", updateOf("codex:idle-other")},
+		{"SessionStart", updateOf(update.TriggerStart, "codex:idle-other")},
 	} {
 		t.Run(tc.event, func(t *testing.T) {
 			env, p, spawned := triggerSetup(t)

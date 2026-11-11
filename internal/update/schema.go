@@ -179,10 +179,6 @@ const (
 // records the run as invalid_output and leaves its entries for a later pass.
 var ErrRejected = errors.New("update: output rejected")
 
-func reject(format string, args ...any) error {
-	return fmt.Errorf("%w: "+format, append([]any{ErrRejected}, args...)...)
-}
-
 // output is the model's answer, parsed. The JSON tags give the schema's
 // names; a nil string stands for null.
 type output struct {
@@ -490,15 +486,15 @@ func parseKnowledge(raw json.RawMessage) ([]knowledgeOp, error) {
 func fields(raw json.RawMessage, where string, keys ...string) (map[string]json.RawMessage, error) {
 	var m map[string]json.RawMessage
 	if json.Unmarshal(raw, &m) != nil || m == nil {
-		return nil, reject("%s is not an object", where)
+		return nil, reject(RuleNotObject, where, "%s is not an object", where)
 	}
 	for _, k := range keys {
 		if _, ok := m[k]; !ok {
-			return nil, reject("%s has no %s", where, k)
+			return nil, reject(RuleMissingKey, where+"."+k, "%s has no %s", where, k)
 		}
 	}
 	if len(m) != len(keys) {
-		return nil, reject("%s has a key the schema doesn't allow", where)
+		return nil, reject(RuleExtraKey, where, "%s has a key the schema doesn't allow", where)
 	}
 	return m, nil
 }
@@ -507,7 +503,7 @@ func fields(raw json.RawMessage, where string, keys ...string) (map[string]json.
 func str(raw json.RawMessage, where string) (string, error) {
 	var s *string
 	if json.Unmarshal(raw, &s) != nil || s == nil {
-		return "", reject("%s is not a string", where)
+		return "", reject(RuleNotString, where, "%s is not a string", where)
 	}
 	return *s, nil
 }
@@ -516,7 +512,7 @@ func str(raw json.RawMessage, where string) (string, error) {
 func nullable(raw json.RawMessage, where string) (*string, error) {
 	var s *string
 	if json.Unmarshal(raw, &s) != nil {
-		return nil, reject("%s is not a string or null", where)
+		return nil, reject(RuleNotNull, where, "%s is not a string or null", where)
 	}
 	return s, nil
 }
@@ -524,7 +520,7 @@ func nullable(raw json.RawMessage, where string) (*string, error) {
 func oneOf(raw json.RawMessage, where string, values []string) (string, error) {
 	s, err := str(raw, where)
 	if err == nil && !slices.Contains(values, s) {
-		err = reject("%s is not one of the schema's values", where)
+		err = reject(RuleNotEnum, where, "%s is not one of the schema's values", where)
 	}
 	return s, err
 }
@@ -533,10 +529,10 @@ func oneOf(raw json.RawMessage, where string, values []string) (string, error) {
 func array(raw json.RawMessage, where string, lo, hi int) ([]json.RawMessage, error) {
 	var list []json.RawMessage
 	if json.Unmarshal(raw, &list) != nil || list == nil {
-		return nil, reject("%s is not an array", where)
+		return nil, reject(RuleNotArray, where, "%s is not an array", where)
 	}
 	if len(list) < lo || hi > 0 && len(list) > hi {
-		return nil, reject("%s has %d values; the schema allows %d to %d", where, len(list), lo, hi)
+		return nil, reject(RuleArraySize, where, "%s has %d values; the schema allows %d to %d", where, len(list), lo, hi)
 	}
 	return list, nil
 }
@@ -550,7 +546,7 @@ func ints(raw json.RawMessage, where string, lo, hi int) ([]int, error) {
 	out := make([]int, len(list))
 	for i, v := range list {
 		if out[i], err = strconv.Atoi(string(v)); err != nil {
-			return nil, reject("%s[%d] is not an integer", where, i)
+			return nil, reject(RuleNotInteger, where+"[]", "%s[%d] is not an integer", where, i)
 		}
 	}
 	return out, nil

@@ -55,6 +55,10 @@ type Job struct {
 	// two judge the same day whatever time zone each runs in; "": the day of
 	// the job's clock (see claimSweep).
 	SweepDay string
+	// Trigger names what started the job, as TriggerName gives it, for its
+	// records: "" when nothing named it. The sessions the day's sweep picks
+	// are recorded as TriggerSweep.
+	Trigger string
 }
 
 // Summary is what one job did.
@@ -156,7 +160,7 @@ func (j Job) CatchUp(ctx context.Context, refs []Ref, sweep bool) (Summary, erro
 		}
 		names[name] = true
 	}
-	return j.run(ctx, func(files []sessionFile) ([]sessionFile, error) {
+	return j.run(ctx, func() { j.busy(refs, sweep) }, func(files []sessionFile) ([]sessionFile, error) {
 		var out []sessionFile
 		for _, f := range files {
 			if names[f.name] {
@@ -170,8 +174,12 @@ func (j Job) CatchUp(ctx context.Context, refs []Ref, sweep bool) (Summary, erro
 				j.logf("the day's sweep: %d %s from before updates not set aside yet, idle an hour or more, recorded with no model call", len(left), plural(len(left), "chat", "chats"))
 			}
 			// The chats left go first: they cost no call, so a job cut
-			// short still records them.
-			return append(append(out, left...), swept...), nil
+			// short still records them. Their records name the sweep.
+			for _, f := range append(left, swept...) {
+				f.swept = true
+				out = append(out, f)
+			}
+			return out, nil
 		}
 		if len(out) == 0 && !sweep {
 			return nil, ErrNoSession
@@ -349,7 +357,7 @@ func (j Job) claimSweep() bool {
 // Pending runs the update for every session with a backlog, oldest first,
 // under the same lock and budget.
 func (j Job) Pending(ctx context.Context) (Summary, error) {
-	return j.run(ctx, func(files []sessionFile) ([]sessionFile, error) { return files, nil })
+	return j.run(ctx, func() { j.busy(nil, false) }, func(files []sessionFile) ([]sessionFile, error) { return files, nil })
 }
 
 // fileName is a session's file name in the inbox.
@@ -364,15 +372,17 @@ func fileName(host, id string) (string, error) {
 	return host + "-" + safe + ".jsonl", nil
 }
 
-// run takes the lock, opens the wiki and drains the files pick chooses.
-func (j Job) run(ctx context.Context, pick func([]sessionFile) ([]sessionFile, error)) (Summary, error) {
+// run takes the lock, opens the wiki and drains the files pick chooses. A
+// job that finds the lock held records its exit with busy and leaves.
+func (j Job) run(ctx context.Context, busy func(), pick func([]sessionFile) ([]sessionFile, error)) (Summary, error) {
 	if !j.Config.Updates {
 		j.logf("stopped: paused (updates = false in the config)")
 		return Summary{Stops: []string{StopPaused}}, nil
 	}
-	unlock, busy, err := lockUpdates(j.Dirs.Locks())
-	if busy {
+	unlock, held, err := lockUpdates(j.Dirs.Locks())
+	if held {
 		j.logf("stopped: another update is running")
+		busy()
 		return Summary{Stops: []string{StopBusy}}, nil
 	}
 	if err != nil {
@@ -393,6 +403,7 @@ func (j Job) run(ctx context.Context, pick func([]sessionFile) ([]sessionFile, e
 	r.left = left
 	// A chat the record listed as left, set aside now: its newest record
 	// says so, and the doctor stops naming it.
+	r.trigger = j.Trigger
 	for _, f := range cleared {
 		_, sid, _ := sessionID(f.name)
 		r.record(Record{Host: f.host, Session: sid, Project: f.dir, Outcome: OutcomeSkipped, Reason: ReasonLeft, RulesVersion: RulesVersion, Manual: j.Manual})
@@ -400,6 +411,9 @@ func (j Job) run(ctx context.Context, pick func([]sessionFile) ([]sessionFile, e
 	for _, f := range files {
 		if ctx.Err() != nil {
 			break
+		}
+		if r.trigger = j.Trigger; f.swept {
+			r.trigger = TriggerSweep
 		}
 		r.drain(ctx, f)
 	}
@@ -506,6 +520,7 @@ type sessionFile struct {
 	host            string // from its name
 	mod             time.Time
 	size            int64
+	swept           bool // the day's sweep picked it
 }
 
 // listSessions lists the session files of every project folder, oldest
@@ -606,6 +621,7 @@ type run struct {
 	stopped  map[string]bool   // hosts a budget, hold or backoff stopped; their files wait whole
 	clis     map[string]string // the CLIs' paths install recorded, by command name
 	left     map[string]error  // session files from before updates not set aside yet, and why, by path
+	trigger  string            // the trigger of the session file being drained, for its records
 	sum      Summary
 }
 
