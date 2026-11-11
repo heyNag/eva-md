@@ -24,7 +24,10 @@
 #   committed into a fresh repository it owns. It can't read
 #   root's Go module cache either, so root fills a shared read-only one,
 #   /var/cache/eva-md/gomod, with the modules and the Go toolchain go.mod
-#   names, and the user runs offline from it, with its own build cache.
+#   names, and the user runs offline from it. Its build cache is the run's
+#   own and goes with the snapshot: a snapshot has a path of its own, so
+#   what one run builds is of no use to the next, and a cache that is kept
+#   grows by about 1 GB a run until the disk is full.
 #
 # Git configuration in the environment, such as GIT_CONFIG_COUNT, and a commit
 # identity in it, such as GIT_AUTHOR_NAME, are left as they are: the tests
@@ -84,7 +87,7 @@ if [ "$(id -u)" -eq 0 ]; then
     -exec rm -rf {} + || true
   work=$(mktemp -d "$home/check-XXXXXX") || exit 2
   src=$work/src
-  mkdir "$src" "$work/tmp" || exit 2
+  mkdir "$src" "$work/tmp" "$work/gocache" || exit 2
   # pipefail, here only, so a failure in the tar that reads fails the copy too.
   (
     set -o pipefail
@@ -111,7 +114,7 @@ if [ "$(id -u)" -eq 0 ]; then
   in_snapshot() {
     (cd "$src" && runuser -u "$user" -- env HOME="$home" TMPDIR="$work/tmp" \
       GOMODCACHE="$modcache" GOPROXY=off GOFLAGS=-mod=readonly \
-      GOCACHE="$home/.cache/go-build" GOPATH="$home/go" "$@")
+      GOCACHE="$work/gocache" GOPATH="$home/go" "$@")
   }
   bench_cwd=$src
 else
