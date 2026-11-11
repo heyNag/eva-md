@@ -130,8 +130,19 @@ func (d *Doc) SetSection(heading, text string) error {
 	if err := d.bodyEditable(); err != nil {
 		return err
 	}
+	// A heading a reader shows as this one, "## Evidence " or
+	// "## Evidence ##", is not this section: setting it would add a second
+	// that looks the same. Nor is a new heading written in such a form.
+	for _, s := range d.sections {
+		if s.heading != heading && shown(s.heading) == shown(heading) {
+			return fmt.Errorf("%w: a heading reads as this one in another form", ErrNotWritten)
+		}
+	}
 	ps := d.parts()
 	i, err := d.sectionIndex(heading)
+	if err == ErrNoKey && shown(heading) != heading {
+		return fmt.Errorf("%w: the heading is not in the form the codec writes", ErrNotWritten)
+	}
 	switch err {
 	case nil:
 		ps[i].text, ps[i].given = text, true
@@ -141,6 +152,16 @@ func (d *Doc) SetSection(heading, text string) error {
 		return err
 	}
 	return d.putBody(ps)
+}
+
+// shown is a heading's text as Markdown shows it: spaces and tabs around
+// it dropped, and a closing run of "#" after a space or a tab.
+func shown(h string) string {
+	s := strings.Trim(h, " \t")
+	if t := strings.TrimRight(s, "#"); t != s && (t == "" || strings.HasSuffix(t, " ") || strings.HasSuffix(t, "\t")) {
+		s = strings.Trim(t, " \t")
+	}
+	return s
 }
 
 // RemoveSection removes the "## heading" line and the lines under it.

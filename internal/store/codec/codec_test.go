@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"unicode/utf8"
 )
 
 const item = "---\ntype: fact\ntitle: \"A title\"\nstatus: stable\n---\nThe statement.\n\n## Evidence\n[^e1]: x\n"
@@ -122,7 +123,22 @@ func TestOtherRefusals(t *testing.T) {
 		{"an indented block", "---\n  type: fact\n  title: x\n---\n", func(d *Doc) error { return d.Set("title", "y") }, ErrNotWritten},
 		{"a line over 64 KiB", item, func(d *Doc) error { return d.Set("title", strings.Repeat("x ", 33<<10)) }, ErrNotWritten},
 		{"an explicit key would take a value", "---\n? note\nk: v\n: x\n---\n", func(d *Doc) error { return d.Delete("k") }, ErrNotWritten},
-		{"a raw NEL, which a YAML reader may break a line at", item, func(d *Doc) error { return d.Set("title", "a\u0085b") }, ErrNotWritten},
+		{"a string that is not UTF-8", item, func(d *Doc) error { return d.Set("title", "a\xffb") }, ErrNotWritten},
+		{"a map key that is not UTF-8", item, func(d *Doc) error { return d.Set("cues", map[string]any{"k\xff": "v"}) }, ErrNotWritten},
+		{"a deep string that is not UTF-8", item, func(d *Doc) error { return d.Set("cues", []any{map[string]any{"k": []string{"\xc3"}}}) }, ErrNotWritten},
+		{"a block string that is not UTF-8", item, func(d *Doc) error { return d.SetBlock("sources", []map[string]string{{"id": "a\xffb"}}) }, ErrNotWritten},
+		{"raw JSON that is not UTF-8", item, func(d *Doc) error { return d.Set("cues", json.RawMessage("[\"a\xffb\"]")) }, ErrNotWritten},
+		{"an alias would lose its anchor", "---\nx: &a {locked: true}\ntitle: *a\n---\n", func(d *Doc) error { return d.Set("x", "c") }, ErrNotWritten},
+		{"an alias would lose its anchor by Delete", "---\nx: &a [1]\ny: [*a]\n---\n", func(d *Doc) error { return d.Delete("x") }, ErrNotWritten},
+		{"a new key inside a quoted value", "---\ntype: fact\ntitle: \"a\nb\"\n---\nbody\n", func(d *Doc) error { return d.Set("status", "stable") }, ErrNotWritten},
+		{"an edit of a quoted value that runs on", "---\nnote: \"a\nstatus: draft\"\n---\n", func(d *Doc) error { return d.Set("note", "x") }, ErrNotWritten},
+		{"an edit of a key inside a quoted value", "---\nnote: 'a\nstatus: draft'\n---\n", func(d *Doc) error { return d.Delete("status") }, ErrNotWritten},
+		{"an edit beside a flow list that runs on", "---\nx: [a,\nb]\ntype: fact\n---\n", func(d *Doc) error { return d.Delete("type") }, ErrNotWritten},
+		{"a key YAML reads as another", "---\ntitle:{locked: true}\n---\n", func(d *Doc) error { return d.Delete("title") }, ErrNoKey},
+		{"a section whose heading has a trailing space", item + "## Detail \nx\n", func(d *Doc) error { return d.SetSection("Detail", "y\n") }, ErrNotWritten},
+		{"a section whose heading has a closing run", item + "## Detail ##\nx\n", func(d *Doc) error { return d.SetSection("Detail", "y\n") }, ErrNotWritten},
+		{"a new heading with a trailing space", item, func(d *Doc) error { return d.SetSection("Detail ", "y\n") }, ErrNotWritten},
+		{"a new heading with a closing run", item, func(d *Doc) error { return d.SetSection("Detail #", "y\n") }, ErrNotWritten},
 		{"a flow mapping would become the block", "---\nk: v\n{b: 2}\n---\n", func(d *Doc) error { return d.Delete("k") }, ErrNotWritten},
 		{"a repeated section", item + "## Evidence\nmore\n", func(d *Doc) error { return d.SetSection("Evidence", "x\n") }, ErrRepeated},
 		{"remove a repeated section", item + "## Evidence\nmore\n", func(d *Doc) error { return d.RemoveSection("Evidence") }, ErrRepeated},
@@ -162,6 +178,9 @@ func TestValue(t *testing.T) {
 		"strings:\n  - \"a\"\n" +
 		"\"quoted\": x\n" +
 		"empty:\n" +
+		"n: 5\nb: true\nx: null\n" +
+		"tight:\n  -{\"a\": 1}\n" +
+		"deep:\n   - {\"a\": 1}\n" +
 		"---\nbody\n"
 	d := Read([]byte(in))
 	want := map[string]any{
@@ -179,6 +198,7 @@ func TestValue(t *testing.T) {
 	errs := map[string]error{
 		"twice": ErrRepeated, "absent": ErrNoKey, "plain": ErrNotWritten, "word": ErrNotWritten, "spaced": ErrNotWritten,
 		"commented": ErrNotWritten, "block": ErrNotWritten, "strings": ErrNotWritten, "quoted": ErrNotWritten, "empty": ErrNotWritten,
+		"n": ErrNotWritten, "b": ErrNotWritten, "x": ErrNotWritten, "tight": ErrNotWritten, "deep": ErrNotWritten,
 	}
 	for k, w := range errs {
 		if _, err := d.Value(k); err != w {
@@ -232,6 +252,15 @@ func TestWrittenForm(t *testing.T) {
 		{map[string]any{"b": 1, "a": []int{1, 2}}, `k: {"a": [1, 2], "b": 1}`},
 		{src{"e1", "claude-code:x#1", "tool"}, `k: {"id": "e1", "resource": "claude-code:x#1", "pv": "tool"}`},
 		{json.RawMessage(`{ "z" :1 ,"a":[ ] }`), `k: {"z": 1, "a": []}`},
+		// Characters YAML does not allow in a document are escaped: DEL,
+		// the C1 controls with NEL, U+FFFE and U+FFFF. Those it allows are
+		// kept.
+		{"a\x7fb", `k: "a\u007fb"`},
+		{"a\u0080b\u0085c\u009fd", `k: "a\u0080b\u0085c\u009fd"`},
+		{"a\ufffeb\uffffc", `k: "a\ufffeb\uffffc"`},
+		{map[string]any{"k\x7f": "v\u0090"}, `k: {"k\u007f": "v\u0090"}`},
+		{json.RawMessage("[\"a\x7fb\"]"), `k: ["a\u007fb"]`},
+		{"a\ufeffb\u2028c\u00a0d\ufffde\U0001F600", "k: \"a\ufeffb\\u2028c\u00a0d\ufffde\U0001F600\""},
 	}
 	for _, c := range cases {
 		d := Read([]byte("---\ntype: fact\n---\n"))
@@ -242,6 +271,12 @@ func TestWrittenForm(t *testing.T) {
 		if got, want := mustWrite(t, d), "---\ntype: fact\n"+c.line+"\n---\n"; got != want {
 			t.Errorf("%#v: wrote %q, want %q", c.v, got, want)
 		}
+		if !yamlPrintable(c.line) {
+			t.Errorf("%#v: wrote a character YAML does not allow", c.v)
+		}
+		if got, err := d.Value("k"); err != nil || !reflect.DeepEqual(got, normal(t, c.v)) {
+			t.Errorf("%#v: reads back %#v (%v)", c.v, got, err)
+		}
 	}
 	d := Read([]byte("---\ntype: fact\n---\n"))
 	if err := d.SetBlock("sources", []src{{"e1", "r:1", "tool"}, {"e2", "a, b: c", "typed"}}); err != nil {
@@ -250,6 +285,44 @@ func TestWrittenForm(t *testing.T) {
 	want := "---\ntype: fact\nsources:\n  - {\"id\": \"e1\", \"resource\": \"r:1\", \"pv\": \"tool\"}\n  - {\"id\": \"e2\", \"resource\": \"a, b: c\", \"pv\": \"typed\"}\n---\n"
 	if got := mustWrite(t, d); got != want {
 		t.Errorf("SetBlock wrote %q, want %q", got, want)
+	}
+}
+
+// yamlPrintable reports text whose every character YAML allows in a
+// document: tab, LF, CR, the printable ASCII, NEL, and the rest of Unicode
+// but the surrogates, U+FFFE and U+FFFF.
+func yamlPrintable(s string) bool {
+	for _, r := range s {
+		ok := r == '\t' || r == '\n' || r == '\r' || r >= 0x20 && r <= 0x7e || r == 0x85 ||
+			r >= 0xa0 && r <= 0xd7ff || r >= 0xe000 && r <= 0xfffd || r >= 0x10000 && r <= 0x10ffff
+		if !ok {
+			return false
+		}
+	}
+	return utf8.ValidString(s)
+}
+
+// Error texts carry nothing of the caller's key or value, which may be text
+// that must not reach a log.
+func TestRefusalsNameNoInput(t *testing.T) {
+	const secret = "Made Up Secret 98765"
+	for name, edit := range map[string]func(d *Doc) error{
+		"a key":              func(d *Doc) error { return d.Set(secret, "x") },
+		"a number":           func(d *Doc) error { return d.Set("n", 98765) },
+		"a bool in a block":  func(d *Doc) error { return d.SetBlock("sources", []any{map[string]any{"a": secret}, secret}) },
+		"a JSON number":      func(d *Doc) error { return d.Set("n", []any{json.Number("98765" + secret)}) },
+		"raw JSON":           func(d *Doc) error { return d.Set("n", json.RawMessage("[\""+secret+"\"")) },
+		"a string not UTF-8": func(d *Doc) error { return d.Set("n", secret+"\xff") },
+		"a key in a block":   func(d *Doc) error { return d.SetBlock(secret, []map[string]int{{"a": 1}}) },
+		"a Delete":           func(d *Doc) error { return d.Delete(secret) },
+	} {
+		err := edit(Read([]byte(item)))
+		if err == nil {
+			t.Fatalf("%s: not refused", name)
+		}
+		if strings.Contains(err.Error(), "98765") || strings.Contains(err.Error(), "Secret") {
+			t.Errorf("%s: the error names the input: %v", name, err)
+		}
 	}
 }
 
@@ -263,6 +336,13 @@ func TestSetKeepsOtherLines(t *testing.T) {
 	}{
 		{"a quoted key", "---\ntype: fact\n\"title\": x # c\nstatus: stable\n---\n", "title", "z", "---\ntype: fact\ntitle: z\nstatus: stable\n---\n"},
 		{"an explicit key", "---\ntype: fact\n? title\n: x\nstatus: stable\n---\n", "title", "z", "---\ntype: fact\ntitle: z\nstatus: stable\n---\n"},
+		// A line that continues an explicit key comes before its value
+		// line, which is still the entry's: no ": x" is left behind.
+		{"an explicit key over two lines", "---\ntype: fact\n? title\n  more\n: x\nstatus: stable\n---\n", "title", "z", "---\ntype: fact\ntitle: z\nstatus: stable\n---\n"},
+		// A key line YAML reads as another key is left as it is.
+		{"a key with no space after its colon", "---\nverified:{locked: true}\n---\n", "verified", []string{"x"}, "---\nverified:{locked: true}\nverified: [\"x\"]\n---\n"},
+		// A closed value next to a new key.
+		{"a quoted value closed on a second line", "---\ntitle: \"a\n  b\"\n---\n", "status", "s", "---\ntitle: \"a\n  b\"\nstatus: s\n---\n"},
 		{"a block scalar", "---\ntype: fact\ndescription: |\n  one\n\n  two\nstatus: stable\n---\n", "description", "d", "---\ntype: fact\ndescription: d\n\nstatus: stable\n---\n"},
 		{"a comment inside a block", "---\nsources:\n# keep me\n  - {\"id\": \"e1\"}\n---\n", "sources", []string{"x"}, "---\nsources: [\"x\"]\n# keep me\n---\n"},
 		{"a new key after trailing comments", "---\ntype: fact\nsources:\n  - {\"id\": \"e1\"}\n# end\n\n---\nbody\n", "title", "t", "---\ntype: fact\nsources:\n  - {\"id\": \"e1\"}\ntitle: t\n# end\n\n---\nbody\n"},
@@ -335,6 +415,7 @@ func TestSections(t *testing.T) {
 	for body, n := range map[string]int{
 		"~~~\n## a\n```\n## b\n~~~\n## c\n":     1,
 		"````\n## a\n```\n## b\n````\n## c\n":   1,
+		"```\n## in\n````\n## out\n":            1,
 		"``` x`y\n## a\n":                       1,
 		"   ```\n## a\n   ```\n## b\n":          1,
 		"    ```\n## a\n":                       1,

@@ -31,7 +31,9 @@ func genString(r *rand.Rand) string {
 		}
 		return s
 	}
-	parts := []string{"a", "Z", " ", ":", ", ", "#", " # ", `"`, "'", `\`, "\n", "\t", "<", ">", "&", "é", " ", "---", "## ", "[", "]", "{", "}", "-", "~", "*", "!", "%", "@", "`", "0", "1.5"}
+	parts := []string{"a", "Z", " ", ":", ", ", "#", " # ", `"`, "'", `\`, "\n", "\t", "<", ">", "&", "é", " ", "---", "## ", "[", "]", "{", "}", "-", "~", "*", "!", "%", "@", "`", "0", "1.5",
+		// Characters YAML does not allow in a document, and some it does.
+		"\x7f", "\u0080", "\u0085", "\u009f", "\ufffe", "\uffff", "\ufffd", "\ufeff", "\u2028", "\u00a0"}
 	var b strings.Builder
 	for range r.IntN(10) {
 		b.WriteString(parts[r.IntN(len(parts))])
@@ -240,6 +242,8 @@ func TestEditProperty(t *testing.T) {
 			case op <= 2 && key == "locked" && errors.Is(err, ErrProtected):
 			case op <= 2 && len(old.find(key)) > 1 && errors.Is(err, ErrRepeated):
 			case op <= 2 && old.base != 0 && errors.Is(err, ErrNotWritten):
+			case op <= 2 && slices.ContainsFunc(old.entries, opens) && errors.Is(err, ErrNotWritten):
+			case op == 3 && slices.ContainsFunc(heads, func(h string) bool { return h != head && shown(h) == shown(head) }) && errors.Is(err, ErrNotWritten):
 			case op == 2 && len(old.find(key)) == 0 && errors.Is(err, ErrNoKey):
 			case (op == 3 || op == 5) && countHeads(heads, head) > 1 && errors.Is(err, ErrRepeated):
 			case op == 5 && countHeads(heads, head) == 0 && errors.Is(err, ErrNoKey):
@@ -303,6 +307,14 @@ func checkKeyEdit(t *testing.T, what string, old []byte, d *Doc, key string, val
 	}
 	if po != pn {
 		t.Fatalf("%s: protection changed from %+v to %+v", what, o.Protection(), n.Protection())
+	}
+	// What it wrote is all characters YAML allows.
+	for _, e := range n.find(key) {
+		for _, i := range e.lines {
+			if !yamlPrintable(n.lines[i]) {
+				t.Fatalf("%s: wrote a character YAML does not allow: %q", what, n.lines[i])
+			}
+		}
 	}
 	// Read gives back the value set.
 	got, err := n.Value(key)

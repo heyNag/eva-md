@@ -2,6 +2,7 @@ package codec
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -31,6 +32,7 @@ var corpusWant = map[string]Protection{
 	"flow-mapping.md":     {},
 	"no-body.md":          {},
 	"no-final-newline.md": {},
+	"open-quote.md":       {},
 	"quoted-key.md":       {},
 	"repeated-key.md":     {},
 	"written.md":          {},
@@ -106,6 +108,15 @@ func TestCorpusIsListed(t *testing.T) {
 	has("bom.md", "\xef\xbb\xbf")
 	has("conflict.md", "\n=======\n")
 	has("long-line.md", strings.Repeat("x", 100<<10))
+	has("open-quote.md", "note: \"and a note that runs on\nstatus: draft\"\n")
+	// A key edit next to a value that runs on is refused; the body is not.
+	d := Read(files["open-quote.md"])
+	if err := d.Set("status", "stable"); !errors.Is(err, ErrNotWritten) {
+		t.Errorf("open-quote.md: Set %v, want ErrNotWritten", err)
+	}
+	if err := d.SetSection("Detail", "x\n"); err != nil {
+		t.Errorf("open-quote.md: SetSection %v", err)
+	}
 	if b := files["no-final-newline.md"]; bytes.HasSuffix(b, []byte("\n")) {
 		t.Error("no-final-newline.md ends in a newline")
 	}

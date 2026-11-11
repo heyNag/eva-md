@@ -29,10 +29,20 @@ type entry struct {
 	cont      []string // its continuation lines, without their ends
 	canonical bool     // the bare key at the line's start, the colon right after it
 	explicit  bool     // an explicit "? key"
+	valued    bool     // an explicit key that has its ": value" line
 }
 
 var (
-	reKeyLine = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_-]*):(.*)$`)
+	// reKeyLine is a bare key: its colon is followed by a space, a tab or
+	// the line's end, as YAML requires of a key's colon.
+	reKeyLine = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_-]*):((?:[ \t].*)?)$`)
+	// reTightKey is a line that would be a bare key but for the space after
+	// its colon, "locked:false": no key to YAML, so it protects as one.
+	reTightKey = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_-]*):[^ \t]`)
+	// reAnchor and reAlias find an anchor or an alias at the start of a
+	// node; either may be in a quoted string, which only refuses more.
+	reAnchor  = regexp.MustCompile("(^|[ \t\\[{,])&[^ \t,\\[\\]{}]")
+	reAlias   = regexp.MustCompile("(^|[ \t\\[{,])\\*[^ \t,\\[\\]{}]")
 	rePlain   = regexp.MustCompile(`^[a-z][a-z0-9_.-]*$`)
 	reKey     = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 	yamlWords = map[string]bool{"y": true, "n": true, "yes": true, "no": true, "on": true, "off": true, "true": true, "false": true, "null": true}
@@ -70,8 +80,10 @@ func (d *Doc) readFront() {
 				add(&entry{key: key, rest: rest, explicit: explicit}, i)
 				continue
 			}
-			if last != nil && last.explicit && strings.HasPrefix(s, ":") && last.rest == "" && len(last.cont) == 0 {
-				last.rest = s[1:]
+			// An explicit key's value line follows its key, and any lines
+			// that continue the key: "? a" / "  b" / ": v" is the key "a b".
+			if last != nil && last.explicit && strings.HasPrefix(s, ":") && !last.valued {
+				last.rest, last.valued = s[1:], true
 				last.lines = append(last.lines, i)
 				d.kinds[i] = valueLine
 				continue
@@ -111,15 +123,22 @@ func (d *Doc) Protection() Protection {
 		p.Locked, p.Verified = true, true
 	}
 	// A line that belongs to no key but reads as a protection key, such as
-	// one indented less than the block, is a mark a person wrote.
+	// one indented less than the block or with a tab before it, is a mark a
+	// person wrote; so is a key line with no space after its colon.
 	for i := 1; i < d.close; i++ {
-		if d.kinds[i] != opaque {
+		if d.kinds[i] != opaque && d.kinds[i] != keyLine {
 			continue
 		}
-		s := strings.TrimLeft(text(d.lines[i]), " ")
-		key, _, _, ok := yamlKey(s)
-		if m := reKeyLine.FindStringSubmatch(s); m != nil {
+		s := strings.TrimLeft(text(d.lines[i]), " \t")
+		key, ok := "", false
+		switch m := reTightKey.FindStringSubmatch(s); {
+		case m != nil:
 			key, ok = m[1], true
+		case d.kinds[i] != opaque:
+		case strings.HasPrefix(s, "*"):
+			key, ok = unknownKey, true
+		default:
+			key, _, _, ok = yamlKey(s)
 		}
 		switch {
 		case !ok:
@@ -249,15 +268,67 @@ func spaced(b []byte) string {
 	return out.String()
 }
 
-// marshal is v as compact JSON, with HTML escaping off.
+// marshal is v as compact JSON, with HTML escaping off, and each character
+// YAML does not allow in a document escaped. A string that is not valid
+// UTF-8 is refused: encoding/json would write U+FFFD in its place. The
+// error says nothing of v, which may be text a caller must not log.
 func marshal(v any) ([]byte, error) {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrNotWritten, err)
+		return nil, fmt.Errorf("%w: the value is not one JSON can hold", ErrNotWritten)
 	}
-	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
+	j := bytes.TrimSuffix(b.Bytes(), []byte("\n"))
+	if !utf8.Valid(j) || replaced(j) {
+		return nil, fmt.Errorf("%w: a string in the value is not valid UTF-8", ErrNotWritten)
+	}
+	return yamlSafe(j), nil
+}
+
+// replaced reports a \ufffd escape in JSON: what encoding/json writes for
+// a byte that is not UTF-8. It writes U+FFFD itself as the character, so
+// only a json.RawMessage holding the escape is refused with it.
+func replaced(j []byte) bool {
+	in := false
+	for i := 0; i < len(j); i++ {
+		switch {
+		case j[i] == '"':
+			in = !in
+		case in && j[i] == '\\':
+			if bytes.HasPrefix(j[i+1:], []byte("ufffd")) || bytes.HasPrefix(j[i+1:], []byte("uFFFD")) {
+				return true
+			}
+			i++
+		}
+	}
+	return false
+}
+
+// yamlSafe escapes each character of JSON that YAML does not allow in a
+// document, which encoding/json writes as it is: DEL, the C1 controls
+// (NEL among them, at which a YAML reader may break a line), U+FFFE and
+// U+FFFF. Outside strings JSON holds none of them, and inside one the
+// escape is the same value.
+func yamlSafe(j []byte) []byte {
+	if !bytes.ContainsFunc(j, notYAML) {
+		return j
+	}
+	var out []byte
+	for _, r := range string(j) {
+		if notYAML(r) {
+			out = fmt.Appendf(out, `\u%04x`, r)
+		} else {
+			out = utf8.AppendRune(out, r)
+		}
+	}
+	return out
+}
+
+// notYAML reports a character, valid in JSON text, that is not printable
+// to YAML.
+func notYAML(r rune) bool {
+	return r == 0x7f || r >= 0x80 && r <= 0x9f || r == 0xfffe || r == 0xffff
 }
 
 // form is the written form of v: plain for a string in the plain alphabet
@@ -276,7 +347,7 @@ func form(v any) (string, error) {
 		}
 	case '[', '{':
 	default:
-		return "", fmt.Errorf("%w: %s is not a string, list or object", ErrNotWritten, j)
+		return "", fmt.Errorf("%w: the value is not a string, list or object", ErrNotWritten)
 	}
 	return spaced(j), nil
 }
@@ -336,7 +407,7 @@ func (d *Doc) editable(key string) error {
 	case d.why() != "" || d.Protection().Locked || key == "locked":
 		return ErrProtected
 	case !reKey.MatchString(key) || yamlWords[key]:
-		return fmt.Errorf("%w: %q is not a key the codec writes", ErrNotWritten, key)
+		return fmt.Errorf("%w: the key is not one the codec writes", ErrNotWritten)
 	case d.base != 0:
 		return fmt.Errorf("%w: the frontmatter is indented as a whole", ErrNotWritten)
 	}
@@ -352,9 +423,20 @@ func (d *Doc) put(key string, lines []string) error {
 	if len(es) > 1 {
 		return ErrRepeated
 	}
+	for _, e := range d.entries {
+		if opens(e) {
+			// A YAML reader continues the value onto lines the codec reads
+			// on their own, so an edit next to it, or of it, may change
+			// what another line holds.
+			return fmt.Errorf("%w: a value does not close on its lines", ErrNotWritten)
+		}
+	}
 	var out []string
 	if len(es) == 1 {
 		own := d.owned(key)
+		if d.removesAnchor(own) {
+			return fmt.Errorf("%w: the entry defines an anchor that another line may name", ErrNotWritten)
+		}
 		for i, l := range d.lines {
 			if i == es[0].lines[0] {
 				out = append(out, lines...)
@@ -416,6 +498,46 @@ func (d *Doc) others(key string) []string {
 		}
 	}
 	return out
+}
+
+// removesAnchor reports lines to be removed that define an anchor while
+// another line of the frontmatter holds an alias: a YAML reader refuses an
+// alias whose anchor is gone.
+func (d *Doc) removesAnchor(own map[int]bool) bool {
+	anchor, alias := false, false
+	for i := 1; i < d.close; i++ {
+		l := text(d.lines[i])
+		if own[i] {
+			anchor = anchor || reAnchor.MatchString(l)
+		} else {
+			alias = alias || reAlias.MatchString(l)
+		}
+	}
+	return anchor && alias
+}
+
+// opens reports an entry whose value opens a quoted scalar or a flow
+// collection that does not close on the entry's lines.
+func opens(e *entry) bool {
+	s := strings.TrimLeft(e.rest, " \t")
+	for strings.HasPrefix(s, "!") || strings.HasPrefix(s, "&") {
+		i := strings.IndexAny(s, " \t")
+		if i < 0 {
+			return false
+		}
+		s = strings.TrimLeft(s[i:], " \t")
+	}
+	if s == "" || strings.IndexByte(`"'[{`, s[0]) < 0 {
+		return false
+	}
+	// The value's lines as one, as YAML folds them.
+	for _, c := range e.cont {
+		s += " " + strings.TrimLeft(c, " \t")
+	}
+	if s[0] == '"' || s[0] == '\'' {
+		return quoteEnd(s, 0) < 0
+	}
+	return flowEnd(s) < 0
 }
 
 // owned marks the lines of key's entries.
@@ -531,16 +653,19 @@ const (
 // yamlKey reads a line that YAML reads as a mapping key in a form other
 // than the bare "key:" of the written forms: a quoted key, spaces or tabs
 // before the colon, an explicit "? key", a tag or an anchor before the
-// key, or an alias as the key. It returns the key, what follows its colon,
-// and whether the key is explicit; ok is false for a line it cannot read
-// as a key.
+// key, an alias as the key, or a flow collection as the key. It returns
+// the key, what follows its colon, and whether the key is explicit; ok is
+// false for a line it cannot read as a key. An explicit key's value is on
+// its own ": value" line, so its rest is empty.
 func yamlKey(s string) (key, rest string, explicit, ok bool) {
 	if s == "?" || strings.HasPrefix(s, "? ") || strings.HasPrefix(s, "?\t") {
 		key, after, ok := readKey(strings.TrimLeft(s[1:], " \t"), true)
-		if !ok {
+		if !ok || strings.HasPrefix(after, ":") {
+			// No scalar on the line, or a compact mapping as the key's
+			// node, "? note: x": either may hold locked or verified.
 			return unknownKey, "", true, true
 		}
-		return key, strings.TrimPrefix(after, ":"), true, true
+		return key, "", true, true
 	}
 	key, after, ok := readKey(s, false)
 	if !ok || !strings.HasPrefix(after, ":") {
@@ -551,7 +676,8 @@ func yamlKey(s string) (key, rest string, explicit, ok bool) {
 
 // readKey reads the key at the start of s, after any tag or anchor, and
 // returns it and what follows it, spaces dropped. Unless explicit, a plain
-// key must end in a colon.
+// key must end in a colon. No key starts with white space. An alias, or a
+// flow collection closed on the line, is read as the unknown key.
 func readKey(s string, explicit bool) (key, after string, ok bool) {
 	for strings.HasPrefix(s, "!") || strings.HasPrefix(s, "&") {
 		i := strings.IndexAny(s, " \t")
@@ -560,7 +686,7 @@ func readKey(s string, explicit bool) (key, after string, ok bool) {
 		}
 		s = strings.TrimLeft(s[i:], " \t")
 	}
-	if s == "" {
+	if s == "" || s[0] == ' ' || s[0] == '\t' {
 		return "", "", false
 	}
 	switch c := s[0]; {
@@ -596,12 +722,23 @@ func readKey(s string, explicit bool) (key, after string, ok bool) {
 		}
 		key, after = b.String(), s[end+1:]
 	case c == '*':
-		i := strings.IndexAny(s, " \t")
-		if i < 0 {
-			i = len(s)
+		// An alias's name is libyaml's anchor alphabet, so "*k: true" is
+		// the alias k and then a colon. A reader that takes more as the
+		// name finds no key on the line, and Protection reads every line
+		// that starts with "*" as the unknown key.
+		i := 1
+		for i < len(s) && isAnchorByte(s[i]) {
+			i++
 		}
 		key, after = unknownKey, s[i:]
-	case strings.IndexByte("-#,[]{}|>%@`:", c) >= 0:
+	case c == '[' || c == '{':
+		// A flow collection as the key, "[locked]: false": no scalar.
+		end := flowEnd(s)
+		if end < 0 {
+			return "", "", false
+		}
+		key, after = unknownKey, s[end:]
+	case strings.IndexByte("-#,]}|>%@`:", c) >= 0:
 		return "", "", false
 	default:
 		i := plainKeyEnd(s)
@@ -617,6 +754,58 @@ func readKey(s string, explicit bool) (key, after string, ok bool) {
 		key, after = strings.TrimRight(s[:i], " \t"), s[i:]
 	}
 	return key, strings.TrimLeft(after, " \t"), true
+}
+
+// isAnchorByte reports a byte of libyaml's anchor and alias names.
+func isAnchorByte(c byte) bool {
+	return c == '_' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+// flowEnd is the index just after the flow collection that starts s, or
+// -1 when it does not close on the line. A quote opens a string only where
+// a node may start; a comment runs to the line's end.
+func flowEnd(s string) int {
+	depth := 0
+	prev := byte(' ')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case (c == '"' || c == '\'') && strings.IndexByte(" \t[{,:", prev) >= 0:
+			j := quoteEnd(s, i)
+			if j < 0 {
+				return -1
+			}
+			i = j
+		case c == '#' && (prev == ' ' || prev == '\t'):
+			return -1
+		case c == '[' || c == '{':
+			depth++
+		case c == ']' || c == '}':
+			if depth--; depth == 0 {
+				return i + 1
+			}
+		}
+		prev = s[i]
+	}
+	return -1
+}
+
+// quoteEnd is the index of the quote that closes the string opened at
+// s[i], or -1 when it does not close on the line.
+func quoteEnd(s string, i int) int {
+	q := s[i]
+	for j := i + 1; j < len(s); j++ {
+		switch {
+		case q == '"' && s[j] == '\\':
+			j++
+		case s[j] != q:
+		case q == '\'' && j+1 < len(s) && s[j+1] == '\'':
+			j++
+		default:
+			return j
+		}
+	}
+	return -1
 }
 
 // plainKeyEnd is the index of the colon that ends a plain key: the first

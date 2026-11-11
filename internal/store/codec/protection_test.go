@@ -40,11 +40,19 @@ var otherLines = []string{
 	"note:\n  locked: true", "note:\n  verified: [x]", "",
 }
 
+// Lines that protect both ways where the profile checker reads less today
+// (SPEC.md section 10): an alias with its colon right after its name, an
+// explicit key whose node is a compact mapping, a flow collection as a key.
+var bothBeyondProfile = []string{
+	"*k: true", "*k:\ttrue", "*k:", "*k.x: true", "? note: x\n  locked: true\n: v", "? &k note: x\n  verified: [x]\n: v",
+	"? \"a\": b\n: v", "? locked : false", "? verified: []", "[locked]: false", "{locked: true}: x", "[a, \"b]\"]: x",
+}
+
 // genFront makes a frontmatter of protection keys in generated forms and
-// values, and the protection the format's section 6 gives it.
-func genFront(r *rand.Rand) (string, Protection) {
+// values, and the protection the format's section 6 gives it. beyond says
+// it holds a form the profile checker does not read as the codec does.
+func genFront(r *rand.Rand) (front string, want Protection, beyond bool) {
 	var lines []string
-	var want Protection
 	nLocked := 0
 	slots := r.IntN(6) + 1
 	indent := r.IntN(10) == 0
@@ -87,10 +95,23 @@ func genFront(r *rand.Rand) (string, Protection) {
 		case 3:
 			lines = append(lines, pick(otherLines))
 		case 4:
-			if r.IntN(8) == 0 {
+			switch n := r.IntN(16); {
+			case n == 0:
 				lines = append(lines, pick([]string{"*k : true", "<<: *defaults", `<<: {"locked": true}`, "? [locked]\n: false", "?\n  locked\n: false"}))
 				want.Locked, want.Verified = true, true
-			} else {
+			case n == 1:
+				lines = append(lines, pick(bothBeyondProfile))
+				want.Locked, want.Verified, beyond = true, true, true
+			case n == 2:
+				// A tab before a key: YAML refuses the line, but a person
+				// wrote a mark.
+				if r.IntN(2) == 0 {
+					lines, want.Locked = append(lines, "\tlocked:"+pick(unlockValues)), true
+				} else {
+					lines, want.Verified = append(lines, "\tverified:"+pick(unverifiedValues)), true
+				}
+				beyond = true
+			default:
 				lines = append(lines, "status: stable")
 			}
 		}
@@ -98,11 +119,11 @@ func genFront(r *rand.Rand) (string, Protection) {
 	if nLocked > 1 {
 		want.Locked = true
 	}
-	front := "type: fact\n" + strings.Join(lines, "\n") + "\n"
+	front = "type: fact\n" + strings.Join(lines, "\n") + "\n"
 	if indent {
 		front = "  " + strings.ReplaceAll(strings.TrimSuffix(front, "\n"), "\n", "\n  ") + "\n"
 	}
-	return front, want
+	return front, want, beyond
 }
 
 func formKey(form, key string) string {
@@ -117,7 +138,7 @@ func TestProtectionProperty(t *testing.T) {
 	root := copyFixture(t)
 	counts := map[Protection]int{}
 	for n := range 4000 {
-		front, want := genFront(r)
+		front, want, beyond := genFront(r)
 		b := []byte("---\n" + front + "---\nbody\n")
 		d := Read(b)
 		if d.Unreadable() != "" {
@@ -134,7 +155,12 @@ func TestProtectionProperty(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			agree(t, front, got, rep.Protected[hand])
+			if pp := rep.Protected[hand]; !beyond {
+				agree(t, front, got, pp)
+			} else if pp.Locked && !got.Locked || pp.Verified && !got.Verified {
+				// Where the checker reads less, it never reads more.
+				t.Errorf("%s: codec %+v, profile %+v", front, got, pp)
+			}
 		}
 	}
 	// Each verdict is reached often enough for the test to mean something.
@@ -185,6 +211,36 @@ func TestProtectionBeyondProfile(t *testing.T) {
 		{"  type: fact\n verified: []", Protection{Verified: true}},
 		{"    type: fact\n  \"locked\": false", Protection{Locked: true}},
 		{"  type: fact\n<<: *x", Protection{Locked: true, Verified: true}},
+		// An alias with its colon right after its name: libyaml reads the
+		// alias k, then the colon, so k's scalar is the key.
+		{"type: fact\ntitle: &k locked\n*k: true", Protection{Locked: true, Verified: true}},
+		{"locked: false\nnote: &k locked\n*k: true", Protection{Locked: true, Verified: true}},
+		{"title: &k verified\n*k: [x]", Protection{Locked: true, Verified: true}},
+		{"*k:\ttrue", Protection{Locked: true, Verified: true}},
+		{"*k:", Protection{Locked: true, Verified: true}},
+		// A name past libyaml's alphabet: no key to it, but another reader
+		// may take the name to the space.
+		{"type: fact\n*k.x: true", Protection{Locked: true, Verified: true}},
+		// An explicit key whose node is a compact mapping is no scalar.
+		{"type: fact\n? note: x\n  locked: true\n: v", Protection{Locked: true, Verified: true}},
+		{"type: fact\n? &k note: x\n  verified: [x]\n: v", Protection{Locked: true, Verified: true}},
+		{"type: fact\n? \"a\": b\n: v", Protection{Locked: true, Verified: true}},
+		{"type: fact\n? locked : false", Protection{Locked: true, Verified: true}},
+		{"type: fact\n? verified: []", Protection{Locked: true, Verified: true}},
+		// A flow collection as an implicit key is no scalar either.
+		{"type: fact\n[locked]: false", Protection{Locked: true, Verified: true}},
+		{"type: fact\n{locked: true}: x", Protection{Locked: true, Verified: true}},
+		{"type: fact\n[a, \"b]\"]: x", Protection{Locked: true, Verified: true}},
+		// A tab before a key: YAML refuses the line, and a person wrote a
+		// mark.
+		{"title: x\n\tlocked: true", Protection{Locked: true}},
+		{"\tlocked: true", Protection{Locked: true}},
+		{"type: fact\n\tlocked:\tfalse", Protection{Locked: true}},
+		{"type: fact\n\t\"verified\": []", Protection{Verified: true}},
+		// A key line with no space after its colon is a different key to
+		// YAML, "verified:{locked"; it still protects as the key it shows.
+		{"verified:{locked: true}", Protection{Verified: true}},
+		{"locked:{x: y}", Protection{Locked: true}},
 	}
 	for _, c := range cases {
 		if got := Read([]byte("---\n" + c.front + "\n---\nbody\n")).Protection(); got != c.want {
@@ -194,7 +250,12 @@ func TestProtectionBeyondProfile(t *testing.T) {
 	// What stays unprotected: a bare false and an empty mark with spaces
 	// or tabs around them, a flow mapping under a key, a comment.
 	for _, front := range []string{"locked:\tfalse\t", "locked: false  # c", "verified:\t[]\t", "title: {a: b}\nlocked: false", "# {locked: true}\ntype: fact", "title: x\r\nlocked: false\r",
-		"  # locked: true\n  type: fact", "  type: fact\n# locked: true", "  type: fact\nlockedness: true"} {
+		"  # locked: true\n  type: fact", "  type: fact\n# locked: true", "  type: fact\nlockedness: true",
+		// A comment before the first key does not set the top level.
+		"  # note\ntype: fact\nlocked: false",
+		// A tab-only line is blank; a flow collection with no colon after
+		// it, or as a value, is no key.
+		"locked: false\n\t", "title: [locked, verified]\n[a]", "title: {locked: true}"} {
 		if got := Read([]byte("---\n" + front + "\n---\n")).Protection(); got != (Protection{}) {
 			t.Errorf("%q: %+v, want none", front, got)
 		}
