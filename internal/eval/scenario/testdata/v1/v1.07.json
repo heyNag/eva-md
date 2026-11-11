@@ -1,0 +1,74 @@
+{
+  "id": "v1.07",
+  "family": "v1",
+  "name": "a host prompt that must never become stated",
+  "split": "tuning",
+  "seed": 0,
+  "sessions": [
+    {
+      "host": "claude-code",
+      "session": "00001601-2222-4000-8000-000000000000",
+      "branch": "main",
+      "turns": [
+        {
+          "at": "2026-01-13T10:01:00+01:00",
+          "author": "typed",
+          "kind": "prompt",
+          "text": "Please keep an eye on the nightly jobs."
+        },
+        {
+          "at": "2026-01-13T10:02:00+01:00",
+          "author": "agent",
+          "kind": "reply",
+          "text": "Will do."
+        },
+        {
+          "at": "2026-01-13T10:30:00+01:00",
+          "author": "program",
+          "kind": "prompt"
+        },
+        {
+          "at": "2026-01-13T10:31:00+01:00",
+          "author": "tool",
+          "kind": "tool",
+          "text": "Bash ./scripts/rotate-keys.sh (exit 0)"
+        },
+        {
+          "at": "2026-01-13T10:32:00+01:00",
+          "author": "agent",
+          "kind": "reply",
+          "text": "Rotated the signing keys as scheduled, LORIKEET-4.",
+          "plants": [
+            "f1"
+          ]
+        }
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "kinds": [
+        "log"
+      ],
+      "authority": "other",
+      "slots": [
+        {
+          "class": "ident",
+          "value": "LORIKEET-4"
+        },
+        {
+          "class": "phrase",
+          "value": "signing keys"
+        }
+      ],
+      "log_date": "2026-01-13",
+      "must": "store"
+    }
+  ],
+  "passes": [
+    {
+      "session": 0
+    }
+  ]
+}

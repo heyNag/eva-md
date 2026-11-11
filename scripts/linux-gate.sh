@@ -69,16 +69,19 @@ src=$work/src
 mkdir "$src" "$work/tmp" "$work/base" || exit 2
 
 # The two binaries: the base's from its files as git holds them, the new one
-# from the working tree.
+# from the working tree. Both with -trimpath, which changes nothing a hook
+# does and keeps the folder out of Go's cache keys: without it the base,
+# built in a folder of this run's own, would add its packages to the build
+# cache on every run, and the cache would only grow.
 echo "Building $(git rev-parse --short "$base") and the working tree"
 (
   set -o pipefail
   git archive "$base" | tar -C "$work/base" -xf -
 ) || { echo "linux-gate.sh: reading the files of $base failed" >&2; exit 2; }
 cd "$work/base" || exit 2
-go build -mod=readonly -o "$work/eva-md-old" ./cmd/eva-md || exit 2
+go build -mod=readonly -trimpath -o "$work/eva-md-old" ./cmd/eva-md || exit 2
 cd "$repo" || exit 2
-go build -mod=readonly -o "$work/eva-md-new" ./cmd/eva-md || exit 2
+go build -mod=readonly -trimpath -o "$work/eva-md-new" ./cmd/eva-md || exit 2
 
 # The snapshot the hooks run in: a repository the user owns, with two
 # commits, as scripts/linux-check.sh makes it.
