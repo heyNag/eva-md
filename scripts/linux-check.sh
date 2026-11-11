@@ -77,15 +77,6 @@ if [ "$(id -u)" -eq 0 ]; then
     useradd --create-home --user-group --shell /usr/sbin/nologin "$user" || exit 2
   fi
   home=$(getent passwd "$user" | cut -d: -f6)
-  # A cloud session has a fixed allowance of disk, and a run needs about
-  # 2 GB of it for its snapshot and its build cache. With less it would
-  # fail part way, with errors that say nothing of the disk.
-  free_mb=$(df --output=avail -BM "$home" 2>/dev/null | tail -n 1 | tr -dc 0-9)
-  if [ -n "$free_mb" ] && [ "$free_mb" -lt 2500 ]; then
-    echo "linux-check.sh: only $free_mb MB of disk is left, and a run needs about 2,500." \
-      "Free some with scripts/linux-space.sh --prune, then run this again." >&2
-    exit 2
-  fi
   # A run that is killed outright, as by SIGKILL, can't remove its snapshot,
   # so remove those left more than three hours ago. A folder's time is when
   # its run started, or reached the benchmark, the last step, and a full run
@@ -94,6 +85,21 @@ if [ "$(id -u)" -eq 0 ]; then
   # a killed run's leftovers don't stay long.
   find "$home" -mindepth 1 -maxdepth 1 -type d -name 'check-??????' -mmin +180 \
     -exec rm -rf {} + || true
+  # A cloud session has a fixed allowance of disk. A run needs about 1.5 GB
+  # of it for its snapshot, its temporary files and its build cache, and
+  # holds it until it ends; with less it would fail part way, with errors
+  # that say nothing of the disk. So it asks for 2,500 MB, to leave a
+  # margin, and 2,000 MB more for each check whose snapshot is there and
+  # under three hours old, as each of those may still be running.
+  free_mb=$(df --output=avail -BM "$home" 2>/dev/null | tail -n 1 | tr -dc 0-9)
+  others=$(find "$home" -mindepth 1 -maxdepth 1 -type d -name 'check-??????' -mmin -180 2>/dev/null | wc -l)
+  need=$((2500 + 2000 * others))
+  if [ -n "$free_mb" ] && [ "$free_mb" -lt "$need" ]; then
+    echo "linux-check.sh: $free_mb MB of disk is left, and a run needs 2,500 MB plus 2,000 for each of" \
+      "the $others other checks whose snapshots are here, $need in all. Wait for those to end, or free" \
+      "some with scripts/linux-space.sh --prune, then run this again." >&2
+    exit 2
+  fi
   work=$(mktemp -d "$home/check-XXXXXX") || exit 2
   src=$work/src
   mkdir "$src" "$work/tmp" "$work/gocache" || exit 2
@@ -119,10 +125,15 @@ if [ "$(id -u)" -eq 0 ]; then
     GOMODCACHE=$modcache go version >/dev/null &&
     chmod -R a+rX "$(dirname "$modcache")" || exit 2
 
-  # Runs a command in the snapshot as the user, offline.
+  # Runs a command in the snapshot as the user, offline. -count=1 because
+  # the run's build cache goes with it, so no run can use another's test
+  # results, and go test would only write a log of each to the cache, a
+  # few hundred MB a run, for nothing. Every go command ignores a flag in
+  # GOFLAGS that it doesn't have, so the go commands the tests start take
+  # it too.
   in_snapshot() {
     (cd "$src" && runuser -u "$user" -- env HOME="$home" TMPDIR="$work/tmp" \
-      GOMODCACHE="$modcache" GOPROXY=off GOFLAGS=-mod=readonly \
+      GOMODCACHE="$modcache" GOPROXY=off GOFLAGS='-mod=readonly -count=1' \
       GOCACHE="$work/gocache" GOPATH="$home/go" "$@")
   }
   bench_cwd=$src
