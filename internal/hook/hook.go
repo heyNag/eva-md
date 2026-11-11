@@ -20,6 +20,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/health"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -105,6 +106,9 @@ type payload struct {
 	// capture sets, or the late run's record.
 	started   time.Time
 	elsewhere bool
+	// record is what capture's heartbeat says the run held back and
+	// delivered; nil leaves both out.
+	record *runRecord
 }
 
 var stopEvent = regexp.MustCompile(`"hook_event_name"\s*:\s*"Stop"`)
@@ -349,6 +353,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	// failed; the doctor counts them. Run records a run out of time.
 	failed := false
 	fail := func() string { failed = true; return "" }
+	p.record = new(runRecord)
 	defer func() {
 		if recover() != nil {
 			failed = true
@@ -428,7 +433,11 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	// the host wrote before it. A pass that runs out of time saves its cursor
 	// and returns ErrPending, and the next event's pass carries on from there.
 	// A pass that returns no error has read to the end, even when it finished
-	// in the grace recovery gets past its deadline to save the cursor.
+	// in the grace recovery gets past its deadline to save the cursor. A
+	// pass that found the chat put off the record and could not save that
+	// boundary sets boundary, so the run records what it held back as held
+	// off the record, not behind recovery.
+	boundary := false
 	caughtUp := func() bool {
 		catchCtx, cancelCatch := context.WithTimeout(ctx, 100*time.Millisecond+env.Slack)
 		defer cancelCatch()
@@ -437,7 +446,8 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 		if err == nil {
 			return true
 		}
-		return catchCtx.Err() == nil && !errors.Is(err, catchup.ErrPrivacyBoundary) && !errors.Is(err, catchup.ErrPending)
+		boundary = errors.Is(err, catchup.ErrPrivacyBoundary)
+		return catchCtx.Err() == nil && !boundary && !errors.Is(err, catchup.ErrPending)
 	}
 	appendEvent := func(text string) bool {
 		e.Role = "event"
@@ -493,6 +503,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	}
 	if off {
 		// Only fixed event names and model markers survive off-record mode.
+		p.record.hold(ctx, markers, host, p, health.HeldByOffRecord)
 		return markersOnly()
 	}
 	// Until recovery has read the transcript to its end, unread rows may hold
@@ -501,6 +512,11 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 	// and replies held back are in the transcript, and a later pass recovers
 	// them.
 	if !caughtUp() {
+		by := health.HeldByRecovery
+		if boundary {
+			by = health.HeldByOffRecord
+		}
+		p.record.hold(ctx, markers, host, p, by)
 		return markersOnly()
 	}
 	_, paused, err := markers.GetContext(ctx, host, p.Session, session.OffRecord)
@@ -508,6 +524,7 @@ func capture(ctx context.Context, host string, p payload, env Env, spawns *[][]s
 		return fail()
 	}
 	if paused {
+		p.record.hold(ctx, markers, host, p, health.HeldByOffRecord)
 		return markersOnly()
 	}
 	switch p.Event {
