@@ -38,9 +38,16 @@ func TestAuditUsage(t *testing.T) {
 
 // A Claude Code chat the real hooks captured, with transcript recovery
 // reading the host's record they name, is paired with that record: its
-// prompt, tool call and reply are each found. The report holds no text,
-// session id, path or project name, and the audit writes nothing.
+// prompt, tool call and reply are each found. One whose hooks named no
+// record is paired with the host's file by its id, and scored the same.
+// The report holds no text, session id, path or project name, and the
+// audit writes nothing.
 func TestAuditCaptureOfAChatTheHooksCaptured(t *testing.T) {
+	t.Run("named", func(t *testing.T) { auditCaptureOfAChatTheHooksCaptured(t, true) })
+	t.Run("by id", func(t *testing.T) { auditCaptureOfAChatTheHooksCaptured(t, false) })
+}
+
+func auditCaptureOfAChatTheHooksCaptured(t *testing.T, named bool) {
 	d := isolated(t)
 	cwd, err := filepath.EvalSymlinks(project(t))
 	if err != nil {
@@ -70,7 +77,10 @@ func TestAuditCaptureOfAChatTheHooksCaptured(t *testing.T) {
 	}
 	hook := func(payload map[string]any) {
 		t.Helper()
-		payload["session_id"], payload["cwd"], payload["transcript_path"] = id, cwd, transcript
+		payload["session_id"], payload["cwd"] = id, cwd
+		if named {
+			payload["transcript_path"] = transcript
+		}
 		data, _ := json.Marshal(payload)
 		var out, errOut bytes.Buffer
 		if code := run(context.Background(), []string{"hook", "--host", "claude-code"}, bytes.NewReader(data), &out, &errOut); code != 0 {
@@ -95,7 +105,11 @@ func TestAuditCaptureOfAChatTheHooksCaptured(t *testing.T) {
 		t.Fatalf("%d %q", code, errOut.String())
 	}
 	report := out.String()
-	for _, want := range []string{"1 paired with the host's own record", "prompts: 1 found, 0 missing, 0 extra", "final replies: 1 found, 0 missing, 0 extra", "tool calls: 1 found, 0 missing, 0 extra"} {
+	paired := "1 paired with the host's own record, 1 by the recovery record and 0 by the session's id"
+	if !named {
+		paired = "1 paired with the host's own record, 0 by the recovery record and 1 by the session's id"
+	}
+	for _, want := range []string{paired, "prompts: 1 found, 0 missing, 0 extra", "final replies: 1 found, 0 missing, 0 extra", "tool calls: 1 found, 0 missing, 0 extra"} {
 		if !strings.Contains(report, want) {
 			t.Errorf("the report lacks %q:\n%s", want, report)
 		}

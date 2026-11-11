@@ -367,9 +367,24 @@ func TestTheReportHoldsNumbersOnly(t *testing.T) {
 	f.register("claude-code", marker+"-refused", refused)
 	f.store("claude-code", marker+"-refused", inbox.Entry{TS: at(9, 0), Role: "event", Kind: "event", Text: "session_start"})
 	f.transcript("claude-code", marker+"-unknown", cUser("X", at(0, 0), marker))
+	// Paired by their ids, as their records name no transcript.
+	byID := marker + "-by-id"
+	row := cUser("I1", at(9, 1), marker+" by id")
+	row["sessionId"] = byID
+	f.transcript("claude-code", byID, row)
+	f.register("claude-code", byID, "")
+	f.store("claude-code", byID, inbox.Entry{TS: at(9, 1), Turn: "I1", Role: "user", Kind: "prompt", Text: marker + " by id"})
+	const codexByID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d"
+	f.transcript("codex", codexByID, cx(at(9, 0), "session_meta", map[string]any{"id": codexByID, "cwd": f.cwd}),
+		cx(at(9, 2), "event_msg", map[string]any{"type": "user_message", "turn_id": "J1", "message": marker + " codex by id"}))
+	f.register("codex", codexByID, "")
+	f.store("codex", codexByID, inbox.Entry{TS: at(9, 2), Turn: "J1", Role: "user", Kind: "prompt", Text: marker + " codex by id"})
 	before := snapshot(t, f.home)
-	_, out := f.run("", 0)
-	for _, leak := range []string{marker, codexID, f.home, "realtime", "rate_limit"} {
+	r, out := f.run("", 0)
+	if r.Lookup != (Lookup{Paired: 2}) || r.ByWay[ByID][Prompt] != (Coverage{Found: 2}) {
+		t.Errorf("by id: lookup %+v, coverage %+v", r.Lookup, r.ByWay[ByID])
+	}
+	for _, leak := range []string{marker, codexID, codexByID, f.home, "realtime", "rate_limit"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("the report holds %q:\n%s", leak, out)
 		}
@@ -377,7 +392,8 @@ func TestTheReportHoldsNumbersOnly(t *testing.T) {
 	if after := snapshot(t, f.home); !slices.Equal(before, after) {
 		t.Errorf("the audit changed the home:\n%q\n%q", before, after)
 	}
-	for _, want := range []string{"capture audit: 4 sessions in 4 inbox files, 0 more files unreadable", "session 1 (claude-code)", "session 2 (codex)", "path named and refused 1", "no recovery record 1"} {
+	for _, want := range []string{"capture audit: 6 sessions in 6 inbox files, 0 more files unreadable; 4 paired with the host's own record, 2 by the recovery record and 2 by the session's id",
+		"(claude-code, paired by its recovery record)", "(codex, paired by its recovery record)", "(claude-code, paired by its id)", "(codex, paired by its id)", "path named and refused 1", "no recovery record 1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the report lacks %q:\n%s", want, out)
 		}
