@@ -509,6 +509,9 @@ def compare(core, a):
         print("fails: %s" % failure)
     for lost in verdict["lost"]:
         print("not judged: %s" % lost)
+    for binary in verdict["one_quick_run"]:
+        print("not judged: one run of the %s binary was more than %.2f times as quick as its next, over the figures judged: "
+              "load on its other runs looks like a change" % (binary, verdict["threshold"]))
     if verdict["machine_too_noisy"]:
         why = (" (runs differed by more than %.2f in %d figures or more, or one run was that much quicker than the rest: "
                "the machine was too noisy to judge)" % (verdict["threshold"], verdict["noisy_figures"]))

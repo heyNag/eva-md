@@ -268,7 +268,8 @@ def context(output):
 # two of its runs against two. So when the binaries' typical runs differ by
 # more than THRESHOLD (the ratio of the lower medians of their runs'
 # medians, which load on half of a binary's runs or fewer leaves where it
-# was), the controls divide the new binary's samples by that ratio first. A
+# was), the controls first bring the new binary's samples to THRESHOLD of
+# the old one's (aligned). A
 # figure's noise is the NOISE_QUANTILE, by nearest rank, of its controls'
 # lower bounds, both ways, and at least 1: the fourth largest of 36 at two
 # rounds, the eighth of 72 at three.
@@ -446,18 +447,20 @@ def by_run(samples, rounds):
 
 
 def aligned(o_runs, n_runs, threshold=THRESHOLD):
-    """What the controls divide the new binary's samples by: the ratio of
-    the lower median of the new binary's runs' medians to the old one's,
-    when it is above threshold or below its inverse, and otherwise 1. Load
-    on half of a binary's runs or fewer leaves its lower median on a run
-    the load missed."""
+    """What the controls divide the new binary's samples by: as much as
+    brings the lower median of its runs' medians to within threshold of the
+    old binary's, and 1 when it is within already. Load on half of a
+    binary's runs or fewer leaves its lower median on a run the load
+    missed. The new binary is brought to threshold, not to the old one, so
+    that what sets the two apart by chance, which says how far apart the
+    runs can be, still shows in the controls."""
     def typical(runs):
         medians = sorted(nearest_rank(r, 0.5) for r in runs if r)
         return medians[(len(medians)-1)//2]
     if not any(o_runs) or not any(n_runs):
         return 1.0
     k = typical(n_runs)/typical(o_runs)
-    return k if k > threshold or k < 1/threshold else 1.0
+    return k/threshold if k > threshold else k*threshold if k < 1/threshold else 1.0
 
 
 def run_levels(figures):
