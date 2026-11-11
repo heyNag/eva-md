@@ -179,6 +179,12 @@ func TestProtectionBeyondProfile(t *testing.T) {
 		{"title: x locked: true", Protection{Locked: true, Verified: true}},
 		{"title: \"x \"", Protection{Locked: true, Verified: true}},
 		{"title: x\r\r", Protection{Locked: true, Verified: true}},
+		// A line that belongs to no key but reads as a protection key: one
+		// indented less than a block indented whole.
+		{"  type: fact\nlocked: false", Protection{Locked: true}},
+		{"  type: fact\n verified: []", Protection{Verified: true}},
+		{"    type: fact\n  \"locked\": false", Protection{Locked: true}},
+		{"  type: fact\n<<: *x", Protection{Locked: true, Verified: true}},
 	}
 	for _, c := range cases {
 		if got := Read([]byte("---\n" + c.front + "\n---\nbody\n")).Protection(); got != c.want {
@@ -187,7 +193,8 @@ func TestProtectionBeyondProfile(t *testing.T) {
 	}
 	// What stays unprotected: a bare false and an empty mark with spaces
 	// or tabs around them, a flow mapping under a key, a comment.
-	for _, front := range []string{"locked:\tfalse\t", "locked: false  # c", "verified:\t[]\t", "title: {a: b}\nlocked: false", "# {locked: true}\ntype: fact", "title: x\r\nlocked: false\r"} {
+	for _, front := range []string{"locked:\tfalse\t", "locked: false  # c", "verified:\t[]\t", "title: {a: b}\nlocked: false", "# {locked: true}\ntype: fact", "title: x\r\nlocked: false\r",
+		"  # locked: true\n  type: fact", "  type: fact\n# locked: true", "  type: fact\nlockedness: true"} {
 		if got := Read([]byte("---\n" + front + "\n---\n")).Protection(); got != (Protection{}) {
 			t.Errorf("%q: %+v, want none", front, got)
 		}

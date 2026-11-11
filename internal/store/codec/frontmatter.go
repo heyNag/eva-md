@@ -110,6 +110,27 @@ func (d *Doc) Protection() Protection {
 		// does not read as entries.
 		p.Locked, p.Verified = true, true
 	}
+	// A line that belongs to no key but reads as a protection key, such as
+	// one indented less than the block, is a mark a person wrote.
+	for i := 1; i < d.close; i++ {
+		if d.kinds[i] != opaque {
+			continue
+		}
+		s := strings.TrimLeft(text(d.lines[i]), " ")
+		key, _, _, ok := yamlKey(s)
+		if m := reKeyLine.FindStringSubmatch(s); m != nil {
+			key, ok = m[1], true
+		}
+		switch {
+		case !ok:
+		case key == "locked":
+			p.Locked = true
+		case key == "verified":
+			p.Verified = true
+		case key == unknownKey || key == mergeKey:
+			p.Locked, p.Verified = true, true
+		}
+	}
 	n := 0
 	for _, e := range d.entries {
 		// Only the bare key, its value after a space or a tab, is read by

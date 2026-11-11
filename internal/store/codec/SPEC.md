@@ -72,6 +72,7 @@ Read fail-closed, as the format's section 6 says. Over-protection is allowed; a 
 - An entry read as the key `*` (an alias, or an explicit key that is no scalar) or `<<` (a merge) is both locked and verified.
 - A block whose first line that is neither blank nor a comment opens a flow mapping (`{`, after any tag or anchor) is both locked and verified: its keys are on lines the codec does not read as entries.
 - A block with a line that holds a CR not at its end, or NEL, LS or PS, is both locked and verified: a YAML reader may break the line there and find a key the codec reads as part of a value (`title: x<CR>locked: true`). `encoding/json` escapes CR, LS and PS but not NEL, so a `Set` of a string holding NEL is refused (section 7).
+- An opaque line that reads as a `locked`, `verified`, alias or merge key once its leading spaces are dropped protects as that key would in any form but the bare one. Such a line is one indented less than a block indented as a whole: YAML refuses the block, but the person wrote a mark.
 - A key under another (`note:` then `  locked: true`) is not a top-level key and protects nothing; nor do `Locked`, `lockedness` or a comment that says `locked: true`.
 
 The codec reports a verified mark and refuses nothing for it. What a verified mark forbids depends on who asks, so the store core enforces it (ST-05).
@@ -144,7 +145,8 @@ Where they differ today, the codec protects and the profile checker does not; th
 - white space other than a space or a tab around a `locked` or `verified` value (the checker trims any Unicode space, so `locked: <no-break space>false` unlocks there);
 - `locked:false` and `verified:[]`, with no space after the colon;
 - a block that is one flow mapping, `{type: fact, locked: true}`;
-- a frontmatter line that holds a lone CR, NEL, LS or PS.
+- a frontmatter line that holds a lone CR, NEL, LS or PS;
+- an opaque line that reads as a protection key.
 
 ## 11. Not here
 
