@@ -25,21 +25,42 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 func main() {
+	var out io.Writer = os.Stdout
 	if len(os.Args) > 1 && os.Args[1] == "hook" {
 		// The hook's own work is bounded: past its budget it answers {} and
 		// exits, whatever it was doing, so it stays far under the hosts'
-		// limits.
+		// limits. Only the first answer is written.
+		once := &firstWrite{w: os.Stdout}
+		out = once
 		go func() {
 			time.Sleep(hookBudget + startPause)
-			fmt.Fprintln(os.Stdout, "{}")
+			fmt.Fprintln(once, "{}")
 			os.Exit(0)
 		}()
 	}
-	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, out, os.Stderr))
+}
+
+// firstWrite passes on its first write and drops every later one.
+type firstWrite struct {
+	mu   sync.Mutex
+	w    io.Writer
+	done bool
+}
+
+func (f *firstWrite) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.done {
+		return len(p), nil
+	}
+	f.done = true
+	return f.w.Write(p)
 }
 
 // cli is one run of a command: its streams.

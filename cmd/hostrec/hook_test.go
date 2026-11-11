@@ -323,6 +323,20 @@ func TestTheHookKeepsTheValuesTheCoreFactsRead(t *testing.T) {
 	}
 }
 
+// The hook's answer is written once, whether its own or the budget's.
+func TestFirstWriteOnly(t *testing.T) {
+	var b strings.Builder
+	f := &firstWrite{w: &b}
+	for _, s := range []string{"{\"a\":1}\n", "{}\n"} {
+		if n, err := f.Write([]byte(s)); err != nil || n != len(s) {
+			t.Fatal(n, err)
+		}
+	}
+	if b.String() != "{\"a\":1}\n" {
+		t.Errorf("%q", b.String())
+	}
+}
+
 // The hook's parent process is read from the system's process table.
 func TestParentProcess(t *testing.T) {
 	p, err := parent(os.Getpid())
