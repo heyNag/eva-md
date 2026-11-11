@@ -161,7 +161,7 @@ type Options struct {
 	Log io.Writer
 
 	// hook, for tests only, is called at the named points of a wake:
-	// "marked", "waiter", "worker", "taken" and "last".
+	// "marked", "waiter", "worker", "taken", "idle" and "last".
 	hook func(point string)
 }
 
@@ -258,6 +258,7 @@ func Wake(ctx context.Context, dirs paths.Dirs, marks []Mark, o Options) error {
 		}
 		o.at("worker")
 		err = w.run(ctx)
+		o.at("idle")
 		// Leave before unlocking, so that the next worker and its waiter
 		// never meet this one inside.
 		leave()

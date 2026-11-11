@@ -2,6 +2,7 @@ package work
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -101,8 +102,9 @@ func TestNoWakeIsLostWhileAJobIsHeld(t *testing.T) {
 
 // The points of a wake where a schedule holds a caller until it lets it
 // go: just after taking the worker lock, after taking marks, in the job's
-// Run, and before the last listing.
-var holdPoints = []string{"worker", "taken", "run", "last"}
+// Run, when it has run out of marks and still holds the lock, and before
+// the last listing. In all but the last it holds the worker lock.
+var holdPoints = []string{"worker", "taken", "run", "idle", "last"}
 
 // A schedEvent is a caller reaching a point.
 type schedEvent struct {
@@ -157,6 +159,8 @@ func runSchedule(t *testing.T, seed uint64) int {
 	var wakes []wake  // in the order their marks were written
 	var runs [][]Mark // every Run's marks
 	state := map[int]string{}
+	cancels := map[int]context.CancelFunc{}
+	cancelled := map[int]bool{}
 	wakesLeft := 6 + rng.IntN(7)
 	keys := []string{"sync-a", "sync-b", "tidy-a", "sync-c"}
 
@@ -164,12 +168,13 @@ func runSchedule(t *testing.T, seed uint64) int {
 		rel := make(chan Outcome, 1)
 		release[c] = rel
 		state[c] = "active"
-		ctx := context.WithValue(context.Background(), callerKey{}, caller{c, rel})
+		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), callerKey{}, caller{c, rel}))
+		cancels[c] = cancel
 		o := Options{hook: func(p string) {
 			switch p {
 			case "marked", "waiter":
 				events <- schedEvent{caller: c, point: p}
-			case "worker", "taken", "last":
+			case "worker", "taken", "idle", "last":
 				events <- schedEvent{caller: c, point: p}
 				<-rel
 			}
@@ -189,7 +194,7 @@ func runSchedule(t *testing.T, seed uint64) int {
 				return false
 			case "waiter":
 				waiting = true
-			case "worker", "taken", "run":
+			case "worker", "taken", "run", "idle":
 				lockHeld = true
 			}
 		}
@@ -203,7 +208,7 @@ func runSchedule(t *testing.T, seed uint64) int {
 				case "marked":
 					// Still active.
 				case "exit":
-					if ev.err != nil {
+					if ev.err != nil && !(cancelled[ev.caller] && errors.Is(ev.err, context.Canceled)) {
 						t.Errorf("seed %d: caller %d: %v", seed, ev.caller, ev.err)
 					}
 					delete(state, ev.caller)
@@ -244,6 +249,21 @@ func runSchedule(t *testing.T, seed uint64) int {
 		}
 		if len(held) == 0 {
 			t.Fatalf("seed %d: callers %v, none held", seed, state)
+		}
+		var waiters []int
+		for c, s := range state {
+			if s == "waiter" {
+				waiters = append(waiters, c)
+			}
+		}
+		if len(waiters) > 0 && rng.IntN(4) == 0 {
+			// The waiter's context ends: its marks must still be run.
+			c := waiters[0]
+			cancelled[c] = true
+			state[c] = "active"
+			cancels[c]()
+			settle()
+			continue
 		}
 		c := held[rng.IntN(len(held))]
 		out := Done
