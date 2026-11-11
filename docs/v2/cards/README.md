@@ -26,6 +26,7 @@ Rules every card carries, so they are said once here:
 | [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 of 20 on macOS |
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | building |
+| [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | after EV-16b |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | building since 2026-11-11 |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | building since 2026-11-11 |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | building since 2026-11-11 |
