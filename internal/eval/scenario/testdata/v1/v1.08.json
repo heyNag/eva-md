@@ -33,13 +33,19 @@
           "at": "2026-01-14T10:01:00+01:00",
           "author": "tool",
           "kind": "tool",
-          "text": "Bash go test ./internal/parser/... (exit 0)"
+          "text": "Bash go test ./internal/parser/... (exit 0)",
+          "plants": [
+            "f5"
+          ]
         },
         {
           "at": "2026-01-14T10:02:00+01:00",
           "author": "agent",
           "kind": "reply",
-          "text": "The parser is finished and its tests pass."
+          "text": "The parser is finished and its tests pass.",
+          "plants": [
+            "f6"
+          ]
         },
         {
           "at": "2026-01-14T10:03:00+01:00",
@@ -47,7 +53,7 @@
           "kind": "prompt",
           "text": "Yes, pages hold hidden ids.",
           "plants": [
-            "f5"
+            "f7"
           ]
         }
       ]
@@ -141,6 +147,37 @@
     },
     {
       "id": "f5",
+      "kinds": [
+        "log"
+      ],
+      "authority": "other",
+      "slots": [
+        {
+          "class": "phrase",
+          "value": "parser"
+        }
+      ],
+      "log_date": "2026-01-14",
+      "must": "store"
+    },
+    {
+      "id": "f6",
+      "kinds": [
+        "log",
+        "fact"
+      ],
+      "authority": "other",
+      "slots": [
+        {
+          "class": "phrase",
+          "value": "parser"
+        }
+      ],
+      "log_date": "2026-01-14",
+      "must": "store"
+    },
+    {
+      "id": "f7",
       "kinds": [
         "decision",
         "fact"

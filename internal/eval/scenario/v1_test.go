@@ -66,7 +66,7 @@ func TestV1EntriesMatchTheSuite(t *testing.T) {
 
 // added are the facts the port plants where v1 plants none, by scenario,
 // each named by its first slot's value; v1.go says why at each.
-var added = map[string][]string{"v1.08": {"hidden ids"}, "v1.11": {"KITE-WARM"}}
+var added = map[string][]string{"v1.08": {"parser", "parser", "hidden ids"}, "v1.11": {"KITE-WARM"}}
 
 // TestV1PortsTheSuite: each ported scenario has its script's id, name,
 // passes and facts, and judges each fact as v1 does, but where a comment in
@@ -252,11 +252,31 @@ var codename = regexp.MustCompile(`\b[A-Z]+-[A-Z0-9]+\b`)
 
 // TestForbidHoldsEveryCodename: Forbid lists every codename of the suite,
 // those of its facts and any its texts say, and keeps a word of every fact,
-// each holding a letter from g to z.
+// each holding a letter from g to z. Beyond the codenames, it lists every
+// planted word: each value and accepted form of every slot that holds such
+// a letter, and nothing else.
 func TestForbidHoldsEveryCodename(t *testing.T) {
 	for i, s := range accuracy.Scripts() {
 		sc := V1()[i]
 		words := Forbid(sc)
+		want := map[string]bool{}
+		for _, f := range sc.Facts {
+			for _, sl := range f.Slots {
+				for _, w := range append([]string{sl.Value}, sl.Forms...) {
+					if strings.ContainsFunc(strings.ToLower(w), func(r rune) bool { return r >= 'g' && r <= 'z' }) {
+						want[w] = true
+						if !slices.Contains(words, w) {
+							t.Errorf("%s: Forbid leaves out the planted word %q of fact %s", sc.ID, w, f.ID)
+						}
+					}
+				}
+			}
+		}
+		for j, w := range words {
+			if !want[w] || slices.Contains(words[:j], w) {
+				t.Errorf("%s: Forbid holds %q, which is no planted word or is listed twice", sc.ID, w)
+			}
+		}
 		var codes []string
 		for _, f := range s.Facts {
 			codes = append(codes, f.Code)
@@ -278,8 +298,8 @@ func TestForbidHoldsEveryCodename(t *testing.T) {
 }
 
 // checkForbid reports a word of Forbid(sc) with no letter from g to z, a
-// value that is not one of sc's slots, or a fact none of whose slots is in
-// the list.
+// word that is not a value or form of one of sc's slots, or a fact none of
+// whose slots' values is in the list.
 func checkForbid(sc Scenario) error {
 	words := Forbid(sc)
 	var values []string
@@ -287,6 +307,7 @@ func checkForbid(sc Scenario) error {
 		var kept bool
 		for _, s := range f.Slots {
 			values = append(values, s.Value)
+			values = append(values, s.Forms...)
 			kept = kept || slices.Contains(words, s.Value)
 		}
 		if !kept {
@@ -325,5 +346,28 @@ func TestForbidCheckFailsADoctoredScenario(t *testing.T) {
 		if words := Forbid(sc); len(words) != 0 {
 			t.Errorf("Forbid of a fact whose only slot is %q is %q", value, words)
 		}
+	}
+}
+
+// TestV1CitedLinesPlant: each line v1's correct output for v1.08's second
+// chat cites plants a fact in the port, so the scorer counts none of v1's
+// correct items as noise: the test run and the word that the parser is
+// finished (MARTIN-1's Done, and its dated line), and the user's answer to
+// MARTIN-3. MARTIN-1 still ends at the word that the parser is finished.
+func TestV1CitedLinesPlant(t *testing.T) {
+	sc := V1()[7]
+	s := sc.Sessions[1]
+	for _, said := range []string{"go test", "parser is finished", "hidden ids"} {
+		n := slices.IndexFunc(s.Turns, func(tr Turn) bool { return strings.Contains(tr.Text, said) })
+		if n < 0 {
+			t.Fatalf("%s: no line says %q", sc.ID, said)
+		}
+		if _, facts, err := sc.Locate(s.ID[:8], int64(n+1)); err != nil || len(facts) == 0 {
+			t.Errorf("%s: the line that says %q plants %d facts (%v)", sc.ID, said, len(facts), err)
+		}
+	}
+	martin1 := sc.Facts[0]
+	if martin1.Slots[0].Value != "MARTIN-1" || martin1.Until == nil || martin1.Until.Session != s.ID || martin1.Until.Seq != 2 {
+		t.Errorf("%s: MARTIN-1 is %+v, want it to end at the word that the parser is finished", sc.ID, martin1)
 	}
 }

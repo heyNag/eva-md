@@ -245,47 +245,92 @@ func TestRenderingsRefuseWhatTheyCannotRender(t *testing.T) {
 }
 
 // TestValidateRefusesBrokenScenarios: each way a scenario can break the
-// model is an error.
+// model is an error, the one that names it: a check that is dropped or
+// shadowed by another fails its case.
 func TestValidateRefusesBrokenScenarios(t *testing.T) {
 	for _, c := range []struct {
 		name   string
+		want   string
 		mutate func(*Scenario)
 	}{
-		{"an id that is not a results id", func(sc *Scenario) { sc.ID = "V1 01" }},
-		{"an unknown split", func(sc *Scenario) { sc.Split = "train" }},
-		{"no pass", func(sc *Scenario) { sc.Passes = nil }},
-		{"a pass of no session", func(sc *Scenario) { sc.Passes = []Pass{{Session: 2}} }},
-		{"an unknown host", func(sc *Scenario) { sc.Sessions[0].Host = "cursor" }},
-		{"a fact with no slot", func(sc *Scenario) { sc.Facts[0].Slots = nil }},
-		{"a fact with no kind", func(sc *Scenario) { sc.Facts[0].Kinds = nil }},
-		{"an unknown kind", func(sc *Scenario) { sc.Facts[0].Kinds = []Kind{"wish"} }},
-		{"a repeated kind", func(sc *Scenario) { sc.Facts[0].Kinds = []Kind{KindDecision, KindDecision} }},
-		{"no must", func(sc *Scenario) { sc.Facts[0].Must = "" }},
-		{"no authority", func(sc *Scenario) { sc.Facts[0].Authority = "" }},
-		{"an unknown slot class", func(sc *Scenario) { sc.Facts[0].Slots[1].Class = "colour" }},
-		{"an empty slot value", func(sc *Scenario) { sc.Facts[0].Slots[1].Value = " " }},
-		{"a log kind without a date", func(sc *Scenario) { sc.Facts[0].Kinds = append(sc.Facts[0].Kinds, KindLog) }},
-		{"a date without a log kind", func(sc *Scenario) { sc.Facts[0].LogDate = "2026-01-13" }},
-		{"an end before the fact", func(sc *Scenario) { sc.Facts[1].Until = &Ref{Session: sc.Sessions[1].ID, Seq: 1} }},
-		{"an end at no turn", func(sc *Scenario) { sc.Facts[0].Until = &Ref{Session: sc.Sessions[1].ID, Seq: 2} }},
-		{"a fact that supersedes itself", func(sc *Scenario) { sc.Facts[1].Supersedes = sc.Facts[1].ID }},
-		{"a fact that supersedes none", func(sc *Scenario) { sc.Facts[1].Supersedes = "f9" }},
-		{"a fact planted twice", func(sc *Scenario) { sc.Sessions[1].Turns[0].Plants = []string{"f1", "f2"} }},
-		{"a fact planted by no turn", func(sc *Scenario) { sc.Sessions[1].Turns[0].Plants = nil }},
-		{"a turn that plants no fact", func(sc *Scenario) { sc.Sessions[1].Turns[0].Plants = []string{"f2", "f3"} }},
-		{"a fact given twice", func(sc *Scenario) { sc.Facts[1].ID = "f1" }},
-		{"a turn by no known author", func(sc *Scenario) { sc.Sessions[0].Turns[0].Author = event.AuthorUnknown }},
-		{"a control that does not go off or on", func(sc *Scenario) { sc.Sessions[0].Turns[0].Kind = event.KindControl }},
-		{"an operation on a prompt", func(sc *Scenario) { sc.Sessions[0].Turns[0].Op = event.OpOff }},
+		{"an id that is not a results id", "the id is not a results id", func(sc *Scenario) { sc.ID = "V1 01" }},
+		{"a family that is not an id", "the family is not an id", func(sc *Scenario) { sc.Family = "V 1" }},
+		{"an unknown split", "unknown split", func(sc *Scenario) { sc.Split = "train" }},
+		{"no session", ": no session", func(sc *Scenario) { sc.Sessions = nil }},
+		{"no pass", "no pass", func(sc *Scenario) { sc.Passes = nil }},
+		{"a pass of no session", "a pass takes no session", func(sc *Scenario) { sc.Passes = []Pass{{Session: 2}} }},
+		{"an unknown host", "unknown host", func(sc *Scenario) { sc.Sessions[0].Host = "cursor" }},
+		{"a session with no branch", "has no branch", func(sc *Scenario) { sc.Sessions[0].Branch = "" }},
+		{"a session with no turn", "has no turn", func(sc *Scenario) {
+			sc.Sessions = append(sc.Sessions, Session{Host: "codex", ID: "0badf00d-2222-4000-8000-000000000009", Branch: "main"})
+		}},
+		{"a fact with no slot", "no slot", func(sc *Scenario) { sc.Facts[0].Slots = nil }},
+		{"a fact with no kind", "no kind", func(sc *Scenario) { sc.Facts[0].Kinds = nil }},
+		{"an unknown kind", "unknown or repeated kind", func(sc *Scenario) { sc.Facts[0].Kinds = []Kind{"wish"} }},
+		{"a repeated kind", "unknown or repeated kind", func(sc *Scenario) { sc.Facts[0].Kinds = []Kind{KindDecision, KindDecision} }},
+		{"no must", "unknown must", func(sc *Scenario) { sc.Facts[0].Must = "" }},
+		{"no authority", "unknown authority", func(sc *Scenario) { sc.Facts[0].Authority = "" }},
+		{"the user's authority on a fact that must not carry it", "must not carry the user's authority", func(sc *Scenario) { sc.Facts[0].Must = MustNotWithAuthority }},
+		{"an unknown slot class", "a slot needs a known class", func(sc *Scenario) { sc.Facts[0].Slots[1].Class = "colour" }},
+		{"an empty slot value", "a slot needs a known class", func(sc *Scenario) { sc.Facts[0].Slots[1].Value = " " }},
+		{"an empty form", "a slot needs a known class", func(sc *Scenario) { sc.Facts[0].Slots[1].Forms = []string{"yaml", ""} }},
+		{"a log kind without a date", "a log date is set exactly", func(sc *Scenario) { sc.Facts[0].Kinds = append(sc.Facts[0].Kinds, KindLog) }},
+		{"a date without a log kind", "a log date is set exactly", func(sc *Scenario) { sc.Facts[0].LogDate = "2026-01-13" }},
+		{"a log date that is not a day", "the log date is not a day", func(sc *Scenario) {
+			sc.Facts[0].Kinds, sc.Facts[0].LogDate = append(sc.Facts[0].Kinds, KindLog), "2026-13-45"
+		}},
+		{"an end before the fact", "it ends no later than it is said", func(sc *Scenario) { sc.Facts[1].Until = &Ref{Session: sc.Sessions[1].ID, Seq: 1} }},
+		{"an end at no turn", "until: no such turn", func(sc *Scenario) { sc.Facts[0].Until = &Ref{Session: sc.Sessions[1].ID, Seq: 2} }},
+		{"a fact that supersedes itself", "it supersedes no other fact", func(sc *Scenario) { sc.Facts[1].Supersedes = sc.Facts[1].ID }},
+		{"a fact that supersedes none", "it supersedes no other fact", func(sc *Scenario) { sc.Facts[1].Supersedes = "f9" }},
+		{"a fact that supersedes one said later", "it supersedes a fact said no earlier than it", func(sc *Scenario) {
+			sc.Facts[0].Supersedes, sc.Facts[1].Supersedes = sc.Facts[1].ID, ""
+		}},
+		{"two facts that supersede each other", "it supersedes a fact said no earlier than it", func(sc *Scenario) { sc.Facts[0].Supersedes = sc.Facts[1].ID }},
+		{"a fact that supersedes one said at the same turn", "it supersedes a fact said no earlier than it", func(sc *Scenario) {
+			sc.Facts = append(sc.Facts, Fact{ID: "f3", Kinds: []Kind{KindDecision}, Authority: AuthorityUser, Must: MustStore,
+				Slots: []Slot{slot(SlotIdent, "JSON")}, Supersedes: sc.Facts[1].ID})
+			sc.Sessions[1].Turns[0].Plants = append(sc.Sessions[1].Turns[0].Plants, "f3")
+		}},
+		{"a fact planted twice", "is planted twice", func(sc *Scenario) { sc.Sessions[1].Turns[0].Plants = []string{"f1", "f2"} }},
+		{"a fact planted by no turn", "is planted by no turn", func(sc *Scenario) { sc.Sessions[1].Turns[0].Plants = nil }},
+		{"a turn that plants no fact", "plants no fact", func(sc *Scenario) { sc.Sessions[1].Turns[0].Plants = []string{"f2", "f3"} }},
+		{"a fact given twice", "is given twice", func(sc *Scenario) { sc.Facts[1].ID = "f1" }},
+		{"a turn with no time", "no time", func(sc *Scenario) { sc.Sessions[0].Turns[0].At = time.Time{} }},
+		{"a turn said before the one ahead of it", "is said before the turn ahead of it", func(sc *Scenario) {
+			sc.Sessions[0].Turns = append(sc.Sessions[0].Turns, Turn{At: on(0, 9, 0), Author: event.AuthorAgent, Kind: event.KindReply, Text: "Noted."})
+		}},
+		{"a turn by no known author", "unknown author", func(sc *Scenario) { sc.Sessions[0].Turns[0].Author = event.AuthorUnknown }},
+		{"a control that does not go off or on", "a control, and only a control", func(sc *Scenario) { sc.Sessions[0].Turns[0].Kind = event.KindControl }},
+		{"an operation on a prompt", "a control, and only a control", func(sc *Scenario) { sc.Sessions[0].Turns[0].Op = event.OpOff }},
+		{"a control with text", "a control has no text", func(sc *Scenario) {
+			tr := &sc.Sessions[0].Turns[0]
+			tr.Author, tr.Kind, tr.Op = event.AuthorEva, event.KindControl, event.OpOff
+		}},
+		{"a subagent's turn that names no subagent", "a subagent's turn, and only a subagent's", func(sc *Scenario) {
+			tr := &sc.Sessions[0].Turns[0]
+			tr.Author, tr.Kind = event.AuthorSubagent, event.KindReply
+		}},
+		{"another's turn that names a subagent", "a subagent's turn, and only a subagent's", func(sc *Scenario) { sc.Sessions[0].Turns[0].Agent = "worker-1" }},
 	} {
 		sc := reversal()
 		if err := sc.Validate(); err != nil {
 			t.Fatal(err)
 		}
 		c.mutate(&sc)
-		if err := sc.Validate(); err == nil {
-			t.Errorf("%s is valid", c.name)
+		if err := sc.Validate(); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want an error that says %q", c.name, err, c.want)
 		}
+	}
+	// What each case breaks, and only that, is what makes it invalid: the
+	// same scenario with the fault mended is valid.
+	sc := reversal()
+	tr := &sc.Sessions[0].Turns[0]
+	tr.Author, tr.Kind, tr.Op, tr.Text = event.AuthorEva, event.KindControl, event.OpOff, ""
+	sc.Facts[0].Authority, sc.Facts[0].Must = AuthorityOther, MustNotWithAuthority
+	sc.Sessions[1].Turns = append(sc.Sessions[1].Turns, Turn{At: on(1, 10, 1), Author: event.AuthorSubagent, Kind: event.KindReply, Agent: "worker-1", Text: "Noted."})
+	if err := sc.Validate(); err != nil {
+		t.Errorf("a textless control, an other's not_with_authority fact and a subagent's reply at the time of the turn ahead: %v", err)
 	}
 }
 
@@ -419,5 +464,76 @@ func TestOnlyEvasName(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSubagentAndPastedTurnsRender: a pasted prompt and one v1 filed as
+// the user's render as v1's user prompts and keep their authors as
+// events; a subagent's reply renders as v1's assistant reply with the
+// subagent's id, which the v1 reader takes back as the subagent's, and as
+// an event by the subagent with its id; and every event carries the hook
+// as its source and the project, branch and folder as its context.
+func TestSubagentAndPastedTurnsRender(t *testing.T) {
+	const agent = "worker-7f3e"
+	s := Session{Host: "claude-code", ID: "0badcafe-3333-4000-8000-000000000001", Branch: "feature/queue", Turns: []Turn{
+		{At: on(0, 9, 0), Author: event.AuthorTyped, Kind: event.KindPrompt, Text: "Ask a helper which queue the worker uses."},
+		{At: on(0, 9, 1), Author: event.AuthorSubagent, Kind: event.KindReply, Agent: agent, Text: "The worker reads the disk queue."},
+		{At: on(0, 9, 2), Author: event.AuthorPasted, Kind: event.KindPrompt, Text: "Pasted note: the memory queue was retired."},
+		{At: on(0, 9, 3), Author: event.AuthorV1User, Kind: event.KindPrompt, Text: "So the disk queue it is."},
+		{At: on(0, 9, 4), Author: event.AuthorAgent, Kind: event.KindReply, Text: "Yes, the disk queue."},
+	}}
+	sc := Scenario{Sessions: []Session{s}}
+	want := []struct {
+		role, kind, agent string
+		author            event.Author // as the v1 reader gives it back
+	}{
+		{"user", "prompt", "", event.AuthorV1User},
+		{"assistant", "reply", agent, event.AuthorSubagent},
+		{"user", "prompt", "", event.AuthorV1User},
+		{"user", "prompt", "", event.AuthorV1User},
+		{"assistant", "reply", "", event.AuthorAgent},
+	}
+	for _, host := range []string{"claude-code", "codex"} {
+		root, all := writeInbox(t, sc, host)
+		entries := all[0]
+		if len(entries) != len(s.Turns)+2 {
+			t.Fatalf("%d entries, want %d", len(entries), len(s.Turns)+2)
+		}
+		for i, w := range want {
+			e := entries[i]
+			if e.Role != w.role || e.Kind != w.kind || e.Agent != w.agent || e.Text != s.Turns[i].Text || e.Branch != s.Branch || e.Origin != "hook" {
+				t.Errorf("%s entry %d is %+v, want %s %s by agent %q", host, i+1, e, w.role, w.kind, w.agent)
+			}
+		}
+		b := inboxv1.Backend{Root: root}
+		keys, err := b.Sessions(context.Background())
+		if err != nil || len(keys) != 1 {
+			t.Fatalf("%d sessions read (%v)", len(keys), err)
+		}
+		_, evs, err := b.Read(context.Background(), keys[0])
+		if err != nil || len(evs) != len(entries) {
+			t.Fatalf("%d lines read, want %d (%v)", len(evs), len(entries), err)
+		}
+		for i, w := range want {
+			if ev := evs[i]; ev.Author != w.author || ev.Agent != w.agent || ev.Text != s.Turns[i].Text {
+				t.Errorf("%s line %d reads back by %s, agent %q, %q; want by %s, agent %q", host, i+1, ev.Author, ev.Agent, ev.Text, w.author, w.agent)
+			}
+		}
+	}
+	evs, err := Events(s)
+	if err != nil || len(evs) != len(s.Turns)+2 {
+		t.Fatalf("%d events (%v)", len(evs), err)
+	}
+	for i, ev := range evs {
+		wantAgent := ""
+		if i == 1 {
+			wantAgent = agent
+		}
+		if i < len(s.Turns) && ev.Author != s.Turns[i].Author {
+			t.Errorf("event %d is by %s, want %s", i+1, ev.Author, s.Turns[i].Author)
+		}
+		if ev.Agent != wantAgent || !ev.Src.Hook || ev.Ctx == nil || *ev.Ctx != (event.Context{Project: project, Branch: s.Branch, Cwd: cwd}) {
+			t.Errorf("event %d has agent %q, hook %v, context %+v", i+1, ev.Agent, ev.Src.Hook, ev.Ctx)
+		}
 	}
 }

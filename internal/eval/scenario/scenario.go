@@ -206,6 +206,9 @@ func (sc Scenario) Validate() error {
 			if err := t.check(); err != nil {
 				return fmt.Errorf("scenario %s: %s#%d: %w", sc.ID, s.ID, n+1, err)
 			}
+			if n > 0 && t.At.Before(s.Turns[n-1].At) {
+				return fmt.Errorf("scenario %s: %s#%d is said before the turn ahead of it", sc.ID, s.ID, n+1)
+			}
 			for _, id := range t.Plants {
 				if _, ok := facts[id]; !ok {
 					return fmt.Errorf("scenario %s: %s#%d plants no fact %s", sc.ID, s.ID, n+1, id)
@@ -222,7 +225,7 @@ func (sc Scenario) Validate() error {
 		if !ok {
 			return fmt.Errorf("scenario %s: fact %s is planted by no turn", sc.ID, f.ID)
 		}
-		if err := sc.checkFact(f, at, facts); err != nil {
+		if err := sc.checkFact(f, at, planted); err != nil {
 			return fmt.Errorf("scenario %s: fact %s: %w", sc.ID, f.ID, err)
 		}
 	}
@@ -245,12 +248,17 @@ func (t Turn) check() error {
 		return fmt.Errorf("unknown kind %q", t.Kind)
 	case (t.Kind == event.KindControl) != (t.Op == event.OpOff || t.Op == event.OpOn):
 		return errors.New("a control, and only a control, goes off or on the record")
+	case t.Kind == event.KindControl && t.Text != "":
+		return errors.New("a control has no text")
+	case (t.Author == event.AuthorSubagent) != (t.Agent != ""):
+		return errors.New("a subagent's turn, and only a subagent's, names the subagent")
 	}
 	return nil
 }
 
-// checkFact reports what is wrong with fact f, which turn at plants.
-func (sc Scenario) checkFact(f Fact, at Turn, facts map[string]int) error {
+// checkFact reports what is wrong with fact f, which turn at plants;
+// planted gives the turn that plants each fact.
+func (sc Scenario) checkFact(f Fact, at Turn, planted map[string]Turn) error {
 	if len(f.Kinds) == 0 {
 		return errors.New("no kind")
 	}
@@ -266,6 +274,9 @@ func (sc Scenario) checkFact(f Fact, at Turn, facts map[string]int) error {
 	}
 	if f.Authority != AuthorityUser && f.Authority != AuthorityOther {
 		return fmt.Errorf("unknown authority %q", f.Authority)
+	}
+	if f.Must == MustNotWithAuthority && f.Authority != AuthorityOther {
+		return errors.New("a fact that must not carry the user's authority has another's")
 	}
 	if len(f.Slots) == 0 {
 		return errors.New("no slot")
@@ -296,8 +307,14 @@ func (sc Scenario) checkFact(f Fact, at Turn, facts map[string]int) error {
 		}
 	}
 	if f.Supersedes != "" {
-		if _, ok := facts[f.Supersedes]; !ok || f.Supersedes == f.ID {
+		// A fact replaces only one said strictly before it, so no chain of
+		// replacements can come back to where it started.
+		old, ok := planted[f.Supersedes]
+		if !ok || f.Supersedes == f.ID {
 			return errors.New("it supersedes no other fact")
+		}
+		if !old.At.Before(at.At) {
+			return errors.New("it supersedes a fact said no earlier than it")
 		}
 	}
 	return nil
@@ -361,16 +378,21 @@ func (sc Scenario) Locate(session string, seq int64) (Turn, []Fact, error) {
 }
 
 // Forbid lists every planted word of sc, for results.Store's Forbid: each
-// slot's value as said that holds a letter from g to z, once, in the order
-// of the facts. A value with no such letter, a bare number or a date in
+// slot's value as said and each of its accepted forms that holds a letter
+// from g to z, once, in the order of the facts and of each slot's value
+// then its forms. A form is listed because a scorer takes it for the value,
+// so a row that holds it ("5 min" for "5 minutes") leaks the value as
+// surely. A value or form with no such letter, a bare number or a date in
 // digits, is left out, since a row's commit, a hex string, could hold it.
 // Validate makes sure every fact keeps at least one word in the list.
 func Forbid(sc Scenario) []string {
 	var words []string
 	for _, f := range sc.Facts {
 		for _, s := range f.Slots {
-			if forbiddable(s.Value) && !slices.Contains(words, s.Value) {
-				words = append(words, s.Value)
+			for _, w := range append([]string{s.Value}, s.Forms...) {
+				if forbiddable(w) && !slices.Contains(words, w) {
+					words = append(words, w)
+				}
 			}
 		}
 	}

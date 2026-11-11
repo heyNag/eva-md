@@ -217,11 +217,20 @@ func accountingTwoPasses() Scenario {
 		plant{code: "MARTIN-2", kinds: kindsOf(KindNext), authority: AuthorityUser, must: MustStore, slots: []Slot{slot(SlotPhrase, "renderer")}},
 		plant{code: "MARTIN-3", kinds: kindsOf(KindOpen), authority: AuthorityUser, must: MustStore, slots: []Slot{slot(SlotPhrase, "hidden ids")}, until: on(1, 10, 3)},
 		plant{code: "MARTIN-4", kinds: kindsOf(KindDecision, KindFact, KindConstraint), authority: AuthorityUser, must: MustStore, slots: []Slot{slot(SlotVersion, "Go 1.26", "1.26")}})
-	p.say(1, "tool", on(1, 10, 1), "Bash go test ./internal/parser/... (exit 0)")
-	p.say(1, "assistant", on(1, 10, 2), "The parser is finished and its tests pass.")
-	// v1 plants nothing here, though its correct answer turns MARTIN-3 into
-	// the user's decision; the port plants that answer, so an item that
-	// cites this line is not counted as noise.
+	// v1 plants nothing at the next three lines, though its correct output
+	// cites each: MARTIN-1's Done cites the test run and the assistant's
+	// word that the parser is finished, its dated line "Finished the
+	// parser" the test run, and its answer to MARTIN-3 the user's reply.
+	// The port plants a fact at each, so that no item of v1's correct page
+	// cites only lines that plant nothing, which the scorer counts as
+	// noise. The scorer keeps its rule as it stands: an item is tied to
+	// facts only through the lines it cites. The two lines that end
+	// MARTIN-1 plant dated lines in another's words, each with the one word
+	// v1's items about them hold, parser.
+	p.say(1, "tool", on(1, 10, 1), "Bash go test ./internal/parser/... (exit 0)",
+		plant{kinds: kindsOf(KindLog), authority: AuthorityOther, must: MustStore, slots: []Slot{slot(SlotPhrase, "parser")}})
+	p.say(1, "assistant", on(1, 10, 2), "The parser is finished and its tests pass.",
+		plant{kinds: kindsOf(KindLog, KindFact), authority: AuthorityOther, must: MustStore, slots: []Slot{slot(SlotPhrase, "parser")}})
 	p.say(1, "user", on(1, 10, 3), "Yes, pages hold hidden ids.",
 		plant{kinds: kindsOf(KindDecision, KindFact), authority: AuthorityUser, must: MustStore, slots: []Slot{slot(SlotPhrase, "hidden ids")}, supersedes: "MARTIN-3"})
 	return p.done(Pass{Session: 0}, Pass{Session: 1})
