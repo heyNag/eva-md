@@ -43,15 +43,16 @@ func load(path string, b []byte) *doc {
 		return d
 	}
 	d.entries, d.opaque, d.sections = cd.Entries(), cd.Opaque(), cd.Sections()
+	// The body's lines, each heading's among them, for the checks that
+	// read the whole body: the statement, citations and links.
 	text := cd.Preamble()
 	for _, s := range d.sections {
 		text += "## " + s.Heading + "\n" + s.Text
 	}
-	for _, l := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
-		d.body = append(d.body, strings.TrimSuffix(l, "\r"))
-	}
-	if text == "" {
-		d.body = nil
+	if text != "" {
+		for _, l := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+			d.body = append(d.body, strings.TrimSuffix(l, "\r"))
+		}
 	}
 	return d
 }
