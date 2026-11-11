@@ -587,7 +587,7 @@ def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10):
     lines cite a made-up repo's code and whose entries in a planted code
     status, one for each of the 400 pages, say it moved 14 commits: every
     pointer must say so, read from the status with no git. A --cwd repo with
-    a single commit skips the briefs."""
+    a single commit skips the briefs; briefs_timed are timed."""
     head1=subprocess.run(["git","-C",str(cwd),"rev-parse","HEAD~1"],capture_output=True,text=True)
     systems=wiki/"systems"
     mapfile=systems/"map.md"

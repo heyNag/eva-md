@@ -405,6 +405,11 @@ class Decide(unittest.TestCase):
         d = core.decide(parts, {"capture": 100, "code_brief": 600}, lost)
         self.assertEqual(d["too_few_samples"], ["code_brief"])
         self.assertEqual(d["failures"], ["the new binary failed the scenario code in 4 of 4 runs, the old one in 0"])
+        # A scenario lost in some runs alone explains nothing.
+        lost = {role: ({"code": ["RuntimeError: a brief did not say it"]} if role == "new" else {}) for role in core.ROLES}
+        d = core.decide(parts, {"capture": 100, "code_brief": 600}, lost)
+        self.assertEqual((d["verdict"], d["too_few_samples"]), ("fail", []))
+        self.assertEqual(d["failures"], ["code_brief: the new binary gave no samples, the old one 40"])
 
     def test_the_same_samples_give_the_same_verdict(self):
         parts = merge(runs_of("capture", {"new": (1.1, 1.2, 1.1, 1.2)}), runs_of("startup", n=25, centre=100, seed=40))
@@ -606,14 +611,16 @@ class Compare(unittest.TestCase):
             return [math.pi*(1+rng.random()/7)*(1.14 if which == "new" else 1) for _ in range(30)]
         self.scenario(figures)
         self.scenario(lambda which, k: samples(k, 25, 100, 0.0137), place=200, name="startup")
+        self.scenario(lambda which, k: RuntimeError("load") if (which, k) == ("new", 6) else samples(k, 25, 30), place=300, name="recall")
         code, out, report = self.gate()
+        self.assertEqual(report["scenario_failures"]["new_again"], {"recall": ["RuntimeError: load"]})
         again = core.redecide(report)
         self.assertEqual(json.loads(json.dumps(again)), report["decision"])
         self.assertEqual((again["verdict"], again["exit"]), (report["verdict"], code))
         self.assertIn("latency gate: %s" % again["verdict"], out.splitlines()[-1])
         # Every sample is kept as it was taken: new_again's second run is the
-        # new binary's third, in which capture was the fifth scenario it ran.
-        self.assertEqual(report["samples"]["new_again"][1]["capture"], figures("new", 5))
+        # new binary's third, in which capture was the seventh scenario it ran.
+        self.assertEqual(report["samples"]["new_again"][1]["capture"], figures("new", 7))
         self.assertEqual(report["samples"]["old"][0]["capture"], figures("old", 1))
         # The figures it prints come from the decision it kept.
         m = report["decision"]["metrics"]["capture"]
