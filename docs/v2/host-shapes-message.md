@@ -1,0 +1,13 @@
+# The message that goes with the host shapes prompt
+
+## (a) To the agent, when you attach the file to a new chat
+
+> The attached file, host-shapes-prompt.md, holds a task for you. Read all of it. The part before the first line of tildes is notes for me; the part between the two lines of tildes is your instructions. Do exactly what that part says, as if I had pasted it here. Write the report where it says (eva-host-shapes.md, or eva-host-shapes-run2.md if that file is already there). Change nothing else on this machine. Run only the commands it names. If you think you need anything else, stop and tell me what and why. Do not ask me to approve it.
+
+## (b) A note to yourself
+
+1. This is a companion to the second report, not a part of it. Run it on the same Mac, from the same folder, after the second report or on another day, once eva-md has had at least a day of normal use since the upgrade. It saves the host sittings the facts it settles. Expect 30 to 60 minutes of the agent's work.
+2. Open a new Codex chat in the desktop app, in the git repository you used for the second report, from your normal home. Attach the file with message (a), or paste the part between the tildes.
+3. Approve only commands the file names: `eva-md version`, `eva-md audit capture` and `eva-md status --updates`, which write nothing; the hosts' and tools' `--version`; and a git check that runs only in a temporary folder, with made-up files and a throwaway key. Refuse any other eva-md command (setup, init, install, uninstall, upgrade, update, commit, maintain, index, system, inbox, mcp, hook, doctor), any codex exec or claude -p, any web search or fetch, any network command (curl, ssh, git fetch, pull, push or ls-remote), and anything that writes outside the temporary folder and the report file in the chat's folder. Deny any request for access to a folder.
+4. Its last section asks you four things. One needs your wiki project's settings page in your browser, read only, answered yes, no or don't know; another needs System Settings, General, Device Management, answered yes or no.
+5. Read the report once. Before you bring it back, look for any name, path, title, quote, model name or service name, and strike it. Answer its last section a line each in general terms (no names, no settings' names), and bring the file back.
