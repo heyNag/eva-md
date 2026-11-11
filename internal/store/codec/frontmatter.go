@@ -326,12 +326,12 @@ func (d *Doc) put(key string, lines []string) error {
 	}
 	var out []string
 	if len(es) == 1 {
-		e := es[0]
+		own := d.owned(key)
 		for i, l := range d.lines {
-			if i == e.lines[0] {
+			if i == es[0].lines[0] {
 				out = append(out, lines...)
 			}
-			if !slices.Contains(e.lines, i) {
+			if !own[i] {
 				out = append(out, l)
 			}
 		}
@@ -368,12 +368,7 @@ func (d *Doc) put(key string, lines []string) error {
 
 // others lists every line of the frontmatter, but key's, with what it is.
 func (d *Doc) others(key string) []string {
-	own := map[int]bool{}
-	for _, e := range d.find(key) {
-		for _, i := range e.lines {
-			own[i] = true
-		}
-	}
+	own := d.owned(key)
 	var out []string
 	for i := 0; i <= d.close; i++ {
 		if !own[i] {
@@ -385,6 +380,17 @@ func (d *Doc) others(key string) []string {
 		}
 	}
 	return out
+}
+
+// owned marks the lines of key's entries.
+func (d *Doc) owned(key string) map[int]bool {
+	own := map[int]bool{}
+	for _, e := range d.find(key) {
+		for _, i := range e.lines {
+			own[i] = true
+		}
+	}
+	return own
 }
 
 // lenient reads a scalar as YAML would, for a line a person wrote: a
