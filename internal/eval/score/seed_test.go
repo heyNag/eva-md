@@ -115,7 +115,9 @@ func seededRight(sc scenario.Scenario, base, spoiled score.Export, d score.Disto
 	return nil
 }
 
-func endsWith(s, suffix string) bool { return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix }
+func endsWith(s, suffix string) bool {
+	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
+}
 
 // othersOnly reports an item every line of which is someone else's words.
 func othersOnly(sc scenario.Scenario, it score.Item) bool {

@@ -126,7 +126,9 @@ func TestOutcomes(t *testing.T) {
 		{name: "the value in another form", spoil: func(e *score.Export) { e.Items[0] = k5("Cache entries for 300 s, KITE-5") },
 			item: "", metrics: func(m score.Metrics) bool { return m.FactHolds == 1 }},
 		{name: "a wrong value", spoil: func(e *score.Export) { e.Items[0] = k5("Cache entries for 7 minutes, KITE-5") },
-			facts: map[string]string{"k5": "value_wrong []"}, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 && m.FactHolds == fiveSixths && m.FactRecall == fiveSixths }},
+			facts: map[string]string{"k5": "value_wrong []"}, metrics: func(m score.Metrics) bool {
+				return m.WrongWrite == 1 && m.FactHolds == fiveSixths && m.FactRecall == fiveSixths
+			}},
 		{name: "a dropped value", spoil: func(e *score.Export) { e.Items[0] = k5("Cache entries, KITE-5") },
 			facts: map[string]string{"k5": "value_dropped []"}, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 }},
 		{name: "a dropped limit", spoil: func(e *score.Export) { e.Items[2].Text = "FREEZE-7; 3 March 2026" },
@@ -156,7 +158,9 @@ func TestOutcomes(t *testing.T) {
 			e.Items = append(e.Items, active(scenario.KindNext, score.TagStated, "Skip the lint, LINT-1", src(7)))
 		}, item: score.Supports},
 		{name: "another's suggestion under the user's tag", spoil: func(e *score.Export) { e.Items[1].Authority = score.TagStated },
-			facts: map[string]string{"p2": "found [authority]"}, metrics: func(m score.Metrics) bool { return m.Misattributed == 1 && m.FactRecall == 1 && m.FactHolds == fiveSixths }},
+			facts: map[string]string{"p2": "found [authority]"}, metrics: func(m score.Metrics) bool {
+				return m.Misattributed == 1 && m.FactRecall == 1 && m.FactHolds == fiveSixths
+			}},
 		{name: "an unknown tag", spoil: func(e *score.Export) { e.Items[1].Authority = "bogus" },
 			facts: map[string]string{"p2": "found [authority]"}, metrics: func(m score.Metrics) bool { return m.Misattributed == 0 }},
 		{name: "an unknown scope", spoil: func(e *score.Export) { e.Items[0].Scope = "everywhere" },
@@ -178,7 +182,9 @@ func TestOutcomes(t *testing.T) {
 			e.Items = append(e.Items, score.Item{Kind: scenario.KindLog, State: score.StateLog, Authority: score.TagStated, Date: "2026-03-02", Text: "Used Go 1.26, GOV-1", Sources: []score.Source{src(9)}})
 		}, item: score.Supports, metrics: func(m score.Metrics) bool { return m.StaleInForce == 0 }},
 		{name: "a proposal carried on by its acceptance", spoil: func(e *score.Export) {
-			i := slices.IndexFunc(e.Items, func(it score.Item) bool { return it.State == score.StateActive && strings.HasPrefix(it.Text, "DOTTEREL-W") })
+			i := slices.IndexFunc(e.Items, func(it score.Item) bool {
+				return it.State == score.StateActive && strings.HasPrefix(it.Text, "DOTTEREL-W")
+			})
 			e.Items[i].Sources = []score.Source{src(12), src(13)}
 		}, metrics: func(m score.Metrics) bool { return m.StaleInForce == 0 }},
 		{name: "a proposal kept open after its acceptance", spoil: func(e *score.Export) {
