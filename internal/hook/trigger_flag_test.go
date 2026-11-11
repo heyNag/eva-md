@@ -87,14 +87,6 @@ func TestWithSweepKeepsTheTrigger(t *testing.T) {
 	}
 }
 
-// fileInfo is a stand-in for what a stat found.
-type fileInfo struct {
-	os.FileInfo
-	mod time.Time
-}
-
-func (f fileInfo) ModTime() time.Time { return f.mod }
-
 // The hook passes the trigger only to the build it runs: the very file it
 // was started from, written at least a minute before it started. A file
 // written later may be any release, put there by an upgrade or a downgrade
@@ -107,26 +99,35 @@ func TestSameBuild(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	info, _ := os.Lstat(binary)
-	self, _ := os.Stat(binary)
-	otherInfo, _ := os.Stat(other)
 	start := time.Date(2026, 10, 29, 15, 4, 5, 0, time.UTC)
 	for _, tc := range []struct {
 		name    string
 		written time.Time
-		self    os.FileInfo
+		self    string
 		want    bool
 	}{
-		{"written long before", start.Add(-time.Hour), self, true},
-		{"written just over a minute before", start.Add(-settled - time.Nanosecond), self, true},
-		{"written a minute before", start.Add(-settled), self, false},
-		{"written as the hook started", start, self, false},
-		{"written after", start.Add(time.Second), self, false},
-		{"another file", start.Add(-time.Hour), otherInfo, false},
-		{"no file of its own", start.Add(-time.Hour), nil, false},
+		{"written long before", start.Add(-time.Hour), binary, true},
+		{"written just over a minute before", start.Add(-settled - time.Millisecond), binary, true},
+		{"written a minute before", start.Add(-settled), binary, false},
+		{"written as the hook started", start, binary, false},
+		{"written after", start.Add(time.Second), binary, false},
+		{"another file", start.Add(-time.Hour), other, false},
+		{"no file of its own", start.Add(-time.Hour), "", false},
 	} {
-		got := sameBuild(fileInfo{info, tc.written}, tc.self, start)
-		if got != tc.want {
+		if err := os.Chtimes(binary, tc.written, tc.written); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Lstat(binary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var self os.FileInfo
+		if tc.self != "" {
+			if self, err = os.Stat(tc.self); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := sameBuild(info, self, start); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
 	}
