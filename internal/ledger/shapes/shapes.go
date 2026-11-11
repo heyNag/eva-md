@@ -296,12 +296,12 @@ func (k *known) inbox(o Options, s event.Session, events []event.Event) {
 // it was off the record, ran in a folder the hooks leave out or could not
 // be read whole.
 func readSession(ctx context.Context, o Options, away func(string) bool, g *groups, k *known, id, path string) []file {
-	out := []file{readFile(ctx, o, away, g, k, id, path, false)}
+	out := []file{readFile(ctx, o, away, k, id, path, false)}
 	if k.host != string(adapter.ClaudeCode) || out[0].status != statusRead {
 		return out
 	}
 	for _, sub := range subagentFiles(path) {
-		f := readFile(ctx, o, away, g, k, strings.TrimSuffix(filepath.Base(sub), ".jsonl"), sub, true)
+		f := readFile(ctx, o, away, k, strings.TrimSuffix(filepath.Base(sub), ".jsonl"), sub, true)
 		g.union(f.name, node(k.host, k.id))
 		out = append(out, f)
 	}
@@ -310,7 +310,7 @@ func readSession(ctx context.Context, o Options, away func(string) bool, g *grou
 
 // readFile reads one file of the session k, the file at path named for id,
 // under recovery's rules, unless eva-md's records leave the session out.
-func readFile(ctx context.Context, o Options, away func(string) bool, g *groups, k *known, id, path string, subagent bool) file {
+func readFile(ctx context.Context, o Options, away func(string) bool, k *known, id, path string, subagent bool) file {
 	f := file{host: k.host, name: node(k.host, id), subagent: subagent}
 	switch {
 	case k.unknown:
