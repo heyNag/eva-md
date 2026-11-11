@@ -41,6 +41,7 @@ type Event struct {
 	EnvNames      []string          `json:"env_names,omitempty"`
 	EnvMarks      []string          `json:"env_marks,omitempty"`
 	FilesAdded    map[string]int    `json:"files_added,omitempty"`
+	FilesCut      bool              `json:"files_cut,omitempty"`
 	Record        *Snapshot         `json:"record,omitempty"`
 	Arm           string            `json:"arm,omitempty"`
 	Answer        string            `json:"answer,omitempty"`

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -76,9 +75,9 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 					p, ok := parseTime(t, 0)
 					switch {
 					case !ok || !strings.HasSuffix(t, "Z"):
-						at(fmt.Sprintf("time %q is not in UTC with Z", t))
+						at("a time is not in UTC with Z")
 					case p.Before(Epoch) || !p.Before(EpochEnd):
-						at(fmt.Sprintf("time %q is not on the made-up epoch", t))
+						at("a time is not on the made-up epoch")
 					}
 				}
 				if hasClass(shape) {
@@ -102,7 +101,7 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 				switch {
 				case key == "mono_ns":
 					if v, err := n.Int64(); err != nil || v < MonoBase {
-						at(fmt.Sprintf("monotonic reading %s is below the made-up base", n))
+						at("a monotonic reading is below the made-up base")
 					}
 				case keptNumber(n, key):
 				default:
@@ -114,7 +113,7 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 					}
 					form, ok := numberForm(string(n))
 					if !ok {
-						at(fmt.Sprintf("number %s has an exponent", n))
+						at("a number has an exponent")
 						return n
 					}
 					numbers[form] = append(numbers[form], seen{name, i + 1, string(n)})
@@ -131,7 +130,7 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 		})
 		for _, v := range vals {
 			if !made[maskTimes(v.value)] {
-				problems = append(problems, Problem{v.file, v.line, fmt.Sprintf("value %q is not one the generator makes", v.value)})
+				problems = append(problems, Problem{v.file, v.line, fmt.Sprintf("a string of %d bytes is not one the generator makes", len(v.value))})
 			}
 		}
 	}
@@ -139,7 +138,7 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 		made := madeSet(len(vals), func(k int) string { return drawNumber(seed, form, k) })
 		for _, v := range vals {
 			if !made[v.value] {
-				problems = append(problems, Problem{v.file, v.line, fmt.Sprintf("number %s is not one the generator makes", v.value)})
+				problems = append(problems, Problem{v.file, v.line, fmt.Sprintf("a number of %d characters is not one the generator makes", len(v.value))})
 			}
 		}
 	}
@@ -216,12 +215,14 @@ func CheckSurvival(rec, fixtures string) ([]Problem, error) {
 				if kept(s) {
 					return
 				}
+				// The recorded value is not shown: a check's output may be
+				// pasted where the recording must not go.
 				for _, r := range fb.within(s) {
-					at(fmt.Sprintf("holds the recorded value %q", r))
+					at(fmt.Sprintf("holds a recorded string of %d characters", len(r)))
 				}
 				for _, run := range digitRuns(s) {
 					if fb.nums[run] {
-						at(fmt.Sprintf("holds the recorded number %s", run))
+						at(fmt.Sprintf("holds a recorded number of %d digits", len(run)))
 					}
 				}
 			}
@@ -233,7 +234,7 @@ func CheckSurvival(rec, fixtures string) ([]Problem, error) {
 				case json.Number:
 					whole, _, _ := strings.Cut(strings.TrimLeft(string(t), "-"), ".")
 					if fb.nums[whole] {
-						at("holds the recorded number " + strconv.Quote(whole))
+						at(fmt.Sprintf("holds a recorded number of %d digits", len(whole)))
 					}
 				}
 			})

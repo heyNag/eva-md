@@ -183,6 +183,18 @@ func TakeSnapshot(in SnapshotInput) (snap Snapshot, next int64, index int, err e
 
 func ptr(b bool) *bool { return &b }
 
+// PayloadHashes gives the keyed hash of each string of a decoded payload,
+// by its field path as PathString writes it.
+func PayloadHashes(key []byte, v any) map[string]string {
+	out := map[string]string{}
+	walk(v, nil, func(path []string, x any) {
+		if s, ok := x.(string); ok {
+			out[PathString(key, path)] = Hash(key, s)
+		}
+	})
+	return out
+}
+
 // rowHashes gives the hash of every string of a row.
 func rowHashes(key, line []byte) map[string]bool {
 	out := map[string]bool{}
