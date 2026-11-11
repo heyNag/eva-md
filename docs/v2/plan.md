@@ -763,7 +763,7 @@ The build is done by a team of coding agents working in parallel, with one lead 
 
 - v2 is built on `main`, in new packages beside the old, behind one mode key that defaults to v1's behaviour. `main` stays releasable, and the real install can run shadow modes from ordinary releases.
 - Before the way back has closed, no package deletes or changes a v1 path that is scheduled for deletion. Packages that v2 keeps evolve in place, each change behind a switch that defaults to today's behaviour. With the key at `v1` and every switch off, v1's own tests and benchmark are unchanged on every merge.
-- A diff stays inside the paths on its card. CI checks it.
+- A diff stays inside the paths on its card. The lead checks it at the merge, until the ownership check (EV-11) does.
 - v1 packages scheduled for deletion are frozen from the day the counters release is cut. Nobody improves code that is going away. Exceptions, each named on its card: DV-11, DV-12 and DV-13, which put v1's update behind the new runner, worker and budget, each behind a switch that defaults to today's behaviour. Before the freeze, Stage 0's counters add content-free fields in `internal/update`, `internal/resume`, `internal/catchup` and `internal/hook`.
 - Shared files have one writer, the lead. The seams of SEAM-0 keep that list short: a new command, hook handler, status row, config key or benchmark scenario is a new file.
 - Each track's interface lands in Stage 1 as types and signatures. After that a contract changes only through a decision record.

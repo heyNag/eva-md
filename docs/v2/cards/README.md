@@ -2,7 +2,7 @@
 
 A card is the lead's order for one work package of [the v2 plan](../plan.md). A builder starts from its card and reads nothing else it does not point to. The plan governs: where a card and the plan differ, the plan is right and the card is fixed.
 
-How a package runs (plan section 9): the builder works on a branch in its own worktree and commits there; reviewers who were given only the card and the diff try to break it; the builder fixes what they find; the lead runs the project's checks on the result, merges it into `main` and pushes. Nothing is released by a merge.
+How a package runs (plan section 9): the builder works on a branch in its own worktree and commits there; reviewers who were given only the card and the diff try to break it; the builder fixes what they find; the lead runs the quick document and script tests `AGENTS.md` names, merges it into `main` and pushes, and the project's checks and CI run on that commit after it (`AGENTS.md`, the standing leave), with a failure fixed forward at once. Only the lead pushes. Nothing is released by a merge.
 
 Rules every card carries, so they are said once here:
 
