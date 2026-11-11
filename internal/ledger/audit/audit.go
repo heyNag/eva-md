@@ -94,9 +94,9 @@ type Recovery struct {
 	Refused      int // the record names one the rules refuse now
 	Gone         int // the record names one that no longer exists
 	OffNow       int // the chat is off the record now: not opened
-	// OffUnplaced counts chats that were off the record once, where neither
-	// the inbox nor the host's record shows the range, paired either way:
-	// not counted.
+	// OffUnplaced counts chats read by the transcript their record names
+	// that were off the record once, where neither the inbox nor the host's
+	// record shows the range: not paired.
 	OffUnplaced int
 	Unreadable  int // the record or the transcript could not be read
 }
@@ -115,6 +115,9 @@ type Lookup struct {
 	Refused    int
 	Gone       int // gone before it was opened
 	Unreadable int // opened and could not be read
+	// OffUnplaced counts those read that were off the record once, where
+	// neither the inbox nor the host's record shows the range: not paired.
+	OffUnplaced int
 }
 
 // Row is one paired session's coverage, and how it was paired.
@@ -296,7 +299,11 @@ func (r *Report) session(ctx context.Context, o Options, away func(string) bool,
 			return ctx.Err()
 		}
 		if err != nil || was {
-			r.Recovery.OffUnplaced++
+			if way == ByID {
+				r.Lookup.OffUnplaced++
+			} else {
+				r.Recovery.OffUnplaced++
+			}
 			ok = false
 		}
 	}

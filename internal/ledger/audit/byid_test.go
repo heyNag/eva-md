@@ -152,8 +152,10 @@ func TestNothingOffTheRecordIsCountedByID(t *testing.T) {
 // from inside them, or under another home than its record's, and a file
 // that is a symlink, are never opened; a Codex file that says it is another
 // session's, or another folder's, is opened and refused; one gone before it
-// was opened is counted gone; and a chat off the record once whose range
-// neither side shows is read and not paired.
+// was opened is counted gone; one that cannot be read once opened is
+// counted unreadable; and a chat off the record once whose range neither
+// side shows is read and not paired, and counted apart among those looked
+// for.
 func TestWhatIsLookedForByIDAndOpened(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -299,7 +301,13 @@ func TestWhatIsLookedForByIDAndOpened(t *testing.T) {
 			if err := markers.SetContext(ctx, "claude-code", id, session.WasOff, "1"); err != nil {
 				t.Fatal(err)
 			}
-		}, want{"NoneNamed", "", "true"}},
+		}, want{"NoneNamed", "OffUnplaced", "true"}},
+		// Opened, and it cannot be read: the stand-in below gives it a
+		// handle on its folder.
+		"claude unreadable": {"claude-code", func(id string) {
+			claude(id, "-"+marker+"-cwd")
+			f.register("claude-code", id, "")
+		}, want{"NoneNamed", "Unreadable", "true"}},
 		"codex paired": {"codex", func(id string) {
 			codex(id, "02", "10-00-00")
 			f.register("codex", id, "")
@@ -360,6 +368,7 @@ func TestWhatIsLookedForByIDAndOpened(t *testing.T) {
 	var opened []string
 	saved := openUnregistered
 	t.Cleanup(func() { openUnregistered = saved })
+	unreadable := marker + "-claude-unreadable"
 	openUnregistered = func(s catchup.Source) (*os.File, error) {
 		if s.Session == gone {
 			if err := os.Remove(s.Path); err != nil {
@@ -368,6 +377,11 @@ func TestWhatIsLookedForByIDAndOpened(t *testing.T) {
 		}
 		file, err := saved(s)
 		opened = append(opened, fmt.Sprintf("%s %v", s.Session, err == nil))
+		if s.Session == unreadable && err == nil {
+			file.Close()
+			// A folder opens, and reading it fails.
+			return os.Open(filepath.Dir(s.Path))
+		}
 		return file, err
 	}
 	r, out := f.run("", 0)
@@ -394,7 +408,6 @@ func TestWhatIsLookedForByIDAndOpened(t *testing.T) {
 			wantOpened = append(wantOpened, s.id+" "+w.opened)
 		}
 	}
-	wantRecovery.OffUnplaced = 1 // the one off the record once
 	wantOpened = append(wantOpened, gone+" false")
 	if r.Recovery != wantRecovery {
 		t.Errorf("recovery %+v, want %+v", r.Recovery, wantRecovery)
@@ -410,6 +423,15 @@ func TestWhatIsLookedForByIDAndOpened(t *testing.T) {
 	if len(r.Rows) != wantLookup.Paired {
 		t.Errorf("rows %+v", r.Rows)
 	}
+	for _, want := range []string{
+		fmt.Sprintf("paired %d, no file by that id %d, more than one %d, refused %d, gone %d, unreadable %d, read and off the record once with its range not found %d\n",
+			wantLookup.Paired, wantLookup.None, wantLookup.Many, wantLookup.Refused, wantLookup.Gone, wantLookup.Unreadable, wantLookup.OffUnplaced),
+		"sessions read by the recovery record and not paired, off the record once with its range not found: 0\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report lacks %q:\n%s", want, out)
+		}
+	}
 	for _, leak := range []string{marker, f.home, "0000-4000-8000"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("the report holds %q:\n%s", leak, out)
@@ -419,3 +441,78 @@ func TestWhatIsLookedForByIDAndOpened(t *testing.T) {
 
 // at0 is the time the fixtures' hooks register at.
 func at0() time.Time { return time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC) }
+
+// A session is paired by its id, and scored as by its recovery record,
+// when the home is reached through a link, as the record names it, as the
+// audit is given it, or both, and when ~/.claude and ~/.codex are links to
+// another folder, as a dotfiles setup makes them: the folder of chats is
+// listed where it leads, and the file found there is admitted under the
+// home the record names. eva-md's own folders stay on the home itself,
+// since it refuses them under a linked folder.
+func TestPairedByIDThroughALink(t *testing.T) {
+	a := newFixture(t)
+	a.claudeSession()
+	a.codexSession()
+	ra, _ := a.run("", 0)
+	for _, c := range []struct {
+		name                string
+		recordLink, runLink bool
+		dotfiles            bool
+	}{
+		{name: "the record's home", recordLink: true},
+		{name: "the audit's home", runLink: true},
+		{name: "both", recordLink: true, runLink: true},
+		{name: "dotfiles", dotfiles: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.claudeSession()
+			f.codexSession()
+			// Named through a link in a temporary folder of its own, which
+			// on macOS is itself reached through /var.
+			link := filepath.Join(t.TempDir(), "home")
+			symlink(t, f.home, link)
+			for _, host := range []string{"claude-code", "codex"} {
+				id := map[string]string{"claude-code": claudeID, "codex": codexID}[host]
+				f.unname(host, id)
+				if c.recordLink {
+					if err := os.Remove(filepath.Join(f.dirs.State, "catchup", host, id+".json")); err != nil {
+						t.Fatal(err)
+					}
+					e := inbox.Entry{V: 1, Host: host, Session: id, Project: marker + "-project", Branch: marker + "-branch", Cwd: marker + "-cwd"}
+					if err := catchup.Register(context.Background(), f.dirs, link, "", f.cwd, e, false, false, at0()); err != nil {
+						t.Fatal(err)
+					}
+					if s, _, err := catchup.Record(context.Background(), f.dirs, host, id); err != nil || s.Home == f.home {
+						t.Fatalf("the record names %v, %v", s.Home == f.home, err)
+					}
+				}
+			}
+			if c.dotfiles {
+				dotfiles := filepath.Join(f.home, marker+"-dotfiles")
+				mkdirs(t, dotfiles)
+				for _, d := range []string{".claude", ".codex"} {
+					if err := os.Rename(filepath.Join(f.home, d), filepath.Join(dotfiles, d)); err != nil {
+						t.Fatal(err)
+					}
+					symlink(t, filepath.Join(dotfiles, d), filepath.Join(f.home, d))
+				}
+			}
+			home := f.home
+			if c.runLink {
+				home = link
+			}
+			opened := spyOpens(t)
+			r, err := Run(context.Background(), Options{Dirs: f.dirs, Home: home, TempDir: filepath.Join(f.home, "tmp")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(*opened) != 2 {
+				t.Errorf("opened %q", *opened)
+			}
+			if got := byRecord(t, r, 2); !reflect.DeepEqual(got, ra) {
+				t.Errorf("paired by their id through a link, the sessions are scored otherwise:\n%+v\n%+v", got, ra)
+			}
+		})
+	}
+}

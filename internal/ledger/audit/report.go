@@ -61,9 +61,9 @@ func (r Report) Write(w io.Writer) error {
 	p.f("sessions not paired by the recovery record: no recovery record %d, payload named none %d, path named and refused %d, path named and not written yet %d, missing for a reason an older record does not keep %d, refused now %d, gone %d, off the record now %d, unreadable %d\n",
 		v.NoRecord, v.NoneNamed, v.NamedRefused, v.NotWritten, v.WhyUnknown, v.Refused, v.Gone, v.OffNow, v.Unreadable)
 	l := r.Lookup
-	p.f("of those named none, not written yet, missing for a reason not kept or gone, looked for by the session's id in the host's folder of chats: paired %d, no file by that id %d, more than one %d, refused %d, gone %d, unreadable %d\n",
-		l.Paired, l.None, l.Many, l.Refused, l.Gone, l.Unreadable)
-	p.f("sessions read and not paired, off the record once with its range not found: %d\n", v.OffUnplaced)
+	p.f("of those named none, not written yet, missing for a reason not kept or gone, looked for by the session's id in the host's folder of chats: paired %d, no file by that id %d, more than one %d, refused %d, gone %d, unreadable %d, read and off the record once with its range not found %d\n",
+		l.Paired, l.None, l.Many, l.Refused, l.Gone, l.Unreadable, l.OffUnplaced)
+	p.f("sessions read by the recovery record and not paired, off the record once with its range not found: %d\n", v.OffUnplaced)
 	if r.Stores == nil {
 		p.f("host sessions with no eva-md file: counted only when every session is audited\n")
 	}
