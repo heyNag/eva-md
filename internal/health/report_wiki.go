@@ -2,7 +2,9 @@ package health
 
 import (
 	"context"
+	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -46,6 +48,9 @@ type CodeFigures struct {
 // maxWikiFiles or when ctx ends.
 func wikiPages(ctx context.Context, wiki string) (pages map[string]int, complete bool, err error) {
 	pages = map[string]int{"thread": 0, "rules": 0, "knowledge": 0, "system": 0, "index": 0, other: 0}
+	if info, err := os.Stat(wiki); err != nil || !info.IsDir() {
+		return pages, true, errors.New("health: the wiki is not a folder")
+	}
 	seen := 0
 	complete = true
 	err = filepath.WalkDir(wiki, func(path string, e fs.DirEntry, err error) error {

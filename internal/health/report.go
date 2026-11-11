@@ -127,12 +127,13 @@ const maxCommitRecords = 8 << 20
 // eva-md's config, state and inbox and the wiki's folder listing; it runs
 // no command, makes no network or model call, repairs nothing and writes no
 // file. A part whose records are missing or can't be read holds zeros, and
-// says so in Parts; without a wiki, the wiki's part is left out. When ctx
+// says so in Parts; without a wiki, or with a config that can't be read,
+// the wiki's part is left out, and Parts says which. When ctx
 // ends, what is left to read is counted as far as it was read and the
 // parts say so.
 func Field(ctx context.Context, d paths.Dirs, now time.Time) FieldReport {
 	r := FieldReport{Format: ReportFormat, Version: Version, Day: now.Format(time.DateOnly), Parts: map[string]string{}}
-	c, cfgErr := config.LoadContext(ctx, d.ConfigFile())
+	c, cfgErr := config.Load(d.ConfigFile())
 	r.Operations = operations(ctx, d, c, cfgErr, now)
 	r.Parts["operations"] = PartCounted
 
@@ -153,10 +154,10 @@ func Field(ctx context.Context, d paths.Dirs, now time.Time) FieldReport {
 	if cfgErr == nil && c.WikiPath != "" {
 		wiki = wikiRoots(c.WikiPath)
 	}
-	record, tools, complete, err := readRecord(ctx, d.Inbox(), wiki, now.Location())
+	record, tools, complete, recordErr := readRecord(ctx, d.Inbox(), wiki, now.Location())
 	r.Record = record
 	switch {
-	case err != nil:
+	case recordErr != nil:
 		r.Parts["record"] = PartUnreadable
 	case !complete:
 		r.Parts["record"] = PartIncomplete
@@ -164,7 +165,11 @@ func Field(ctx context.Context, d paths.Dirs, now time.Time) FieldReport {
 		r.Parts["record"] = partState(record.Sessions[update.HostClaude]+record.Sessions[update.HostCodex] > 0)
 	}
 
-	if wiki == nil {
+	switch {
+	case cfgErr != nil && !errors.Is(cfgErr, fs.ErrNotExist):
+		r.Parts["wiki"] = PartUnreadable
+		return r
+	case wiki == nil:
 		r.Parts["wiki"] = PartNoWiki
 		return r
 	}
@@ -174,7 +179,7 @@ func Field(ctx context.Context, d paths.Dirs, now time.Time) FieldReport {
 	code, codeErr := codeFigures(d)
 	w.Code = code
 	switch {
-	case err != nil || codeErr != nil:
+	case err != nil || codeErr != nil || recordErr != nil:
 		r.Parts["wiki"] = PartUnreadable
 	case !w.Complete:
 		r.Parts["wiki"] = PartIncomplete
