@@ -49,7 +49,8 @@ Rules every card carries, so they are said once here:
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | ready |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
-| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | after ST-03a |
+| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | ready |
+| [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | ready |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | ready |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | built; in review |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | after EV-14a |
