@@ -6,7 +6,7 @@
 
 The `latency` job of `.github/workflows/ci.yml`, on macOS and apart from the tests, runs the gate on every push to `main` and every pull request, and saves an artifact named `latency` that holds two files:
 
-- `gate.json`: the verdict, every figure's comparison, each run's full report, the ceilings, and every sample, by role and run, unrounded.
+- `gate.json`: the verdict, every figure's comparison, each run's full report, the ceilings, the scenario each figure comes from, and every sample, by role and run, unrounded.
 - `latency-macos.json`: the change's own binary's figures over its runs, `new` and `new_again`, in the format below.
 
 To refresh the baseline, open the run of the commit to take it from (a push to `main`), download its `latency` artifact, check that `gate.json` says `"verdict": "pass"`, and copy its `latency-macos.json` over this folder's, unchanged. A pass means the machine was quiet enough: every figure's controls stayed within the gate's rule. The load average the file records says little on the CI machine, where it reads about 15 on 3 CPUs at the start of a job that has only just built two binaries. Commit it with the run's link in the message. The file names its commit, so the run can be found again.

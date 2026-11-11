@@ -13,9 +13,9 @@ little on a quiet machine, by as much as the figure's runs differ in the
 saved gates, and gates that differ from each other in that too. --gates
 takes the base samples from saved gate.json files of an unchanged binary
 instead: each seed takes one gate's eight runs and deals them to the four
-roles at random, each run's samples of a figure topped up to the gate's
-count by drawing from that run's own (a saved gate's chat-start figures
-have 10 a run, from before the gate took more). On that base it puts a load
+roles at random, with the samples they have (a saved gate's chat-start
+figures have 10 a run, from before the gate took more, and are too few to
+judge there; a gate that lost a run is not drawn). On that base it puts a load
 (none, light bursts, heavy bursts, whole runs, a drift, one run of each of
 the new binary's roles, or three or all four of the new binary's runs and
 none of the old one's) and a change to the new binary (none, every hook
