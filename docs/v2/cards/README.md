@@ -34,6 +34,7 @@ Rules every card carries, so they are said once here:
 | [CT-4](CT-4.md) | Counters release: a content-free report | merged |
 | [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 building since 2026-11-11: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; Part 2 may come later |
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | building since 2026-11-11, on a branch; merges only after the owner has cut the counters release, since it changes the binary |
+| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | ready after EV-14d; merges after the owner has cut the counters release, before DV-13 |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | built on `pkg/dl-04`, in review; the baseline is accepted again on `main` after the merge |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
