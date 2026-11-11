@@ -141,6 +141,86 @@ func TestAnUnreadRowMayHaveOpenedARange(t *testing.T) {
 	}
 }
 
+// countedItems names the items of a record outside every range it says
+// was off the record, as the audit counts them.
+func countedItems(rec hostRecord) []string {
+	var out []string
+	for _, it := range rec.items {
+		if !within(it.at, rec.pauses) {
+			out = append(out, itemNames(hostRecord{items: []hostItem{it}})...)
+		}
+	}
+	return out
+}
+
+// Of two rows since the last control that could not be read, the first
+// opens the range a control that brings the chat back closes, on both
+// hosts: the prompt between them, whose row has a time, and the rows after
+// it are counted in nothing, though a row with a later time and no item
+// comes before the second. On Codex a row that is not JSON is such a row.
+func TestTheFirstUnreadRowOpensTheRange(t *testing.T) {
+	notJSON := `{"type":"` + marker
+	claude := jsonl(t,
+		cUser("T1", at(0, 0), marker+" before"),
+		notJSON,
+		cUser("T2", at(1, 0), marker+" between"),
+		map[string]any{"type": "user", "sessionId": claudeID, "isMeta": true, "timestamp": at(2, 0), "message": map[string]any{"role": "user", "content": marker}},
+		notJSON,
+		cUser("T3", at(3, 0), "back on the record"),
+		cUser("T4", at(4, 0), marker+" after"),
+	)
+	codex := jsonl(t,
+		cx(at(0, 0), "event_msg", map[string]any{"type": "user_message", "turn_id": "U1", "message": marker + " before"}),
+		notJSON,
+		cx(at(1, 0), "event_msg", map[string]any{"type": "user_message", "turn_id": "U2", "message": marker + " between"}),
+		cx(at(2, 0), "turn_context", map[string]any{"turn_id": "U2"}),
+		notJSON,
+		cx(at(3, 0), "event_msg", map[string]any{"type": "user_message", "turn_id": "U3", "message": "back on the record"}),
+		cx(at(4, 0), "event_msg", map[string]any{"type": "user_message", "turn_id": "U4", "message": marker + " after"}),
+	)
+	start, _ := time.Parse(time.RFC3339, at(0, 0))
+	end, _ := time.Parse(time.RFC3339, at(3, 1))
+	for _, c := range []struct {
+		s     catchup.Source
+		data  string
+		count string
+	}{
+		{claudeSource, claude, "prompts:T4"},
+		{codexSource, codex, "prompts:U4"},
+	} {
+		rec, err := readHost(context.Background(), c.s, nil, strings.NewReader(c.data), maxRow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(countedItems(rec), ","); got != c.count || rec.paused != 1 || len(rec.pauses) != 1 ||
+			!rec.pauses[0].start.Equal(start) || !rec.pauses[0].end.Equal(end) {
+			t.Errorf("%s: counted %q, paused %d, %+v", c.s.Host, got, rec.paused, rec.pauses)
+		}
+	}
+}
+
+// A Codex chat whose first record names a folder the hooks leave out, and
+// no turn's context names another, has its prompts, replies and tool calls
+// counted apart, its interrupts not at all.
+func TestACodexChatInAFolderLeftOut(t *testing.T) {
+	rows := jsonl(t,
+		cx(at(0, 0), "session_meta", map[string]any{"id": codexID, "cwd": "/" + marker + "-away"}),
+		cx(at(0, 1), "event_msg", map[string]any{"type": "task_started", "turn_id": "U1"}),
+		cx(at(0, 2), "event_msg", map[string]any{"type": "user_message", "turn_id": "U1", "message": marker}),
+		cx(at(0, 3), "response_item", map[string]any{"type": "function_call", "name": "shell", "call_id": "c1"}),
+		cx(at(0, 4), "event_msg", map[string]any{"type": "task_complete", "turn_id": "U1", "last_agent_message": marker}),
+		cx(at(0, 5), "event_msg", map[string]any{"type": "turn_aborted", "turn_id": "U1"}),
+	)
+	outside := func(dir string) bool { return dir == "/"+marker+"-away" }
+	rec, err := readHost(context.Background(), codexSource, outside, strings.NewReader(rows), maxRow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(itemNames(rec), ","); got != "away:,away:,away:" {
+		t.Errorf("items %q", got)
+	}
+}
+
 // A Claude Code prompt with an attachment is a prompt, by its text; a
 // prompt of an attachment alone, a tool's result, a meta, compaction or
 // compaction's copy row, a subagent's row named by its agent id alone, and

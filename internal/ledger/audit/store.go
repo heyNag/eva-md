@@ -31,36 +31,64 @@ type Store struct {
 	Folders  bool // the file names tell the folders, so ByDesign is known
 }
 
-// stores counts each host's folder of chats under o.Home against the
+// storeHosts are the hosts whose folders of chats the audit lists.
+var storeHosts = []Store{{Host: "claude-code", Folders: true}, {Host: "codex"}}
+
+// storeFile is one entry of a host's folder of chats named as a session's
+// file: the name of its project folder on Claude Code, its session id, its
+// path, its last write, and whether it is a regular file, and not a
+// symlink.
+type storeFile struct {
+	folder, id, path string
+	mod              time.Time
+	regular          bool
+}
+
+// listing is the session files of each host's folder of chats, by host.
+type listing map[string][]storeFile
+
+// listStore lists the hosts' folders of chats under a home. Tests replace
+// it to count the listings.
+var listStore = func(home string) listing {
+	out := listing{}
+	for _, s := range storeHosts {
+		walkStore(home, s.Host, func(f storeFile) { out[s.Host] = append(out[s.Host], f) })
+	}
+	return out
+}
+
+// stores counts each host's session files under o.Home against the
 // sessions the inbox knows, by host. first is the inbox's oldest line.
-func stores(o Options, known map[string]map[string]bool, first time.Time) []Store {
+func stores(o Options, files listing, known map[string]map[string]bool, first time.Time) []Store {
 	left := leftOut(o)
 	var out []Store
-	for _, s := range []Store{{Host: "claude-code", Folders: true}, {Host: "codex"}} {
-		host := s.Host
-		walkStore(o.Home, host, func(folder, id string, mod time.Time) {
+	for _, s := range storeHosts {
+		for _, f := range files[s.Host] {
+			if !f.regular {
+				continue
+			}
 			s.Files++
 			switch {
-			case known[host][id]:
-			case !first.IsZero() && mod.Before(first):
+			case known[s.Host][f.id]:
+			case !first.IsZero() && f.mod.Before(first):
 				s.Older++
 			default:
 				s.NoEvaFile++
-				if s.Folders && left(folder) {
+				if s.Folders && left(f.folder) {
 					s.ByDesign++
 				}
 			}
-		})
+		}
 		out = append(out, s)
 	}
 	return out
 }
 
 // walkStore calls f for each session file of the host's folder of chats
-// under home, with the name of its project folder on Claude Code, its
-// session id and its last write. It follows the folder itself where a
-// symlink leads, as recovery does, and no symlink inside it.
-func walkStore(home, host string, f func(folder, id string, mod time.Time)) {
+// under home, by its name alone: no file is opened. It follows the folder
+// itself where a symlink leads, as recovery does, and no symlink inside
+// it; a symlink named as a session's file is given as not regular.
+func walkStore(home, host string, f func(storeFile)) {
 	root := filepath.Join(home, ".claude", "projects")
 	depth := 2 // projects/<folder>/<id>.jsonl
 	if host == "codex" {
@@ -83,7 +111,8 @@ func walkStore(home, host string, f func(folder, id string, mod time.Time)) {
 			}
 			return nil
 		}
-		if n != depth || !d.Type().IsRegular() {
+		regular := d.Type().IsRegular()
+		if n != depth || !regular && d.Type()&fs.ModeSymlink == 0 {
 			return nil
 		}
 		id, ok := sessionID(host, d.Name())
@@ -94,7 +123,7 @@ func walkStore(home, host string, f func(folder, id string, mod time.Time)) {
 		if err != nil {
 			return nil
 		}
-		f(filepath.Base(filepath.Dir(p)), id, info.ModTime())
+		f(storeFile{folder: filepath.Base(filepath.Dir(p)), id: id, path: p, mod: info.ModTime(), regular: regular})
 		return nil
 	})
 }

@@ -44,6 +44,28 @@ func OpenTranscript(s Source) (*os.File, error) {
 		f.Close()
 		return nil, errors.New("catchup: transcript replaced or truncated")
 	}
+	return identified(f, s)
+}
+
+// OpenUnregistered opens, read-only, a file of the host's folder of chats
+// that no recovery record registered, at the path s names, as the
+// transcript of the session s names: under the rules Admits judges, as a
+// regular file with one link reached through no symlink, and on Codex with
+// a first record that names the session and its folder. With no record of
+// the file, nothing of recovery's cursor is checked. The caller closes the
+// file.
+func OpenUnregistered(s Source) (*os.File, error) {
+	f, err := openTranscript(s)
+	if err != nil {
+		return nil, err
+	}
+	return identified(f, s)
+}
+
+// identified returns f when it is the session's, as its Codex first record
+// tells, and closes it otherwise. A Claude Code file is the session's by
+// its name.
+func identified(f *os.File, s Source) (*os.File, error) {
 	if s.Host == "codex" {
 		header := make([]byte, 64<<10)
 		n, _ := f.ReadAt(header, 0)

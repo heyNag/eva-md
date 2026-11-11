@@ -30,7 +30,7 @@ Rules every card carries, so they are said once here:
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
-| [CT-3b](CT-3b.md) | Counters release: the capture audit pairs a session by its id too | built; moved onto `main` and in review |
+| [CT-3b](CT-3b.md) | Counters release: the capture audit pairs a session by its id too | merged |
 | [CT-4](CT-4.md) | Counters release: a content-free report | merged |
 | [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | card written; not started. Its Part 1 serves the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md), cut to a core path; Part 2 may come later |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | started 2026-11-11; paused while the counters are fixed |
