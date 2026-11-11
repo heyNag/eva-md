@@ -51,8 +51,8 @@ func queueMaintain(t *turn, start bool) {
 	}
 }
 
-// due reports whether launch starts j now, by its reason. An update always is. The
-// day's maintain is due for the day's first event, the one whose open
+// due reports whether launch starts j now, by its reason. An update always
+// is. The day's maintain is due for the day's first event, the one whose open
 // creates <state>/commit/attempt-<YYYY-MM-DD>; every later event that day
 // finds the file and starts nothing. A push retry is due when no maintain
 // started with it and retryDue says so. started records whether this hook
