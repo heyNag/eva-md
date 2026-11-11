@@ -11,6 +11,10 @@
 // gates and the baseline default to spec/metrics.json, eval/gates.json and
 // eval/baselines/baseline.json in the repository.
 //
+// An instrument, which measures something and writes rows, adds its own
+// command from its own file with register, as "eva-eval <name> ...", and
+// the usage lists it after these three.
+//
 // gate prints a line that names the rows' commit, whether its tree was
 // dirty, the baseline's commit and the base, then one line for each gate,
 // and exits 0 when every gate holds and 1 when one fails; every command
@@ -34,6 +38,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/heyNag/eva-md/internal/eval/results"
@@ -51,6 +58,48 @@ const usageText = `usage:
   eva-eval diff [--catalogue file] first second
   eva-eval baseline accept [--repo dir] [--catalogue file] [--out file] rows`
 
+// An instrument is a command that an instrument's own file adds.
+type instrument struct {
+	name     string // the command's name, the first argument
+	synopsis string // its usage line, after "eva-eval "
+	run      func(ctx context.Context, args []string, out, errOut io.Writer) int
+}
+
+// instruments holds the commands the instruments added, by name.
+var instruments = map[string]instrument{}
+
+// register adds an instrument's command. Its file calls it from init, so
+// adding an instrument changes no other file. It panics on a name that is
+// taken, that is not lower-case letters and dashes, or on a command with
+// no usage line or nothing to run: each is a mistake in the program.
+func register(i instrument) {
+	_, taken := instruments[i.name]
+	switch {
+	case i.name == "gate" || i.name == "diff" || i.name == "baseline" || taken:
+		panic("eva-eval: the command " + i.name + " is registered twice")
+	case i.name == "" || strings.Trim(i.name, "abcdefghijklmnopqrstuvwxyz-") != "":
+		panic("eva-eval: a command's name is lower-case letters and dashes, not " + strconv.Quote(i.name))
+	case !strings.HasPrefix(i.synopsis, i.name) || strings.Contains(i.synopsis, "\n") || i.run == nil:
+		panic("eva-eval: the command " + i.name + " needs a usage line that starts with its name, and something to run")
+	}
+	instruments[i.name] = i
+}
+
+// usageLines is the usage: the three commands, then the instruments' by
+// name.
+func usageLines() string {
+	names := make([]string, 0, len(instruments))
+	for name := range instruments {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	text := usageText
+	for _, name := range names {
+		text += "\n  eva-eval " + instruments[name].synopsis
+	}
+	return text
+}
+
 // run runs the command and returns its exit code.
 func run(ctx context.Context, args []string, out, errOut io.Writer) int {
 	if len(args) == 0 {
@@ -64,11 +113,14 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) int {
 	case args[0] == "baseline" && len(args) > 1 && args[1] == "accept":
 		return accept(ctx, args[2:], out, errOut)
 	}
+	if i, ok := instruments[args[0]]; ok {
+		return i.run(ctx, args[1:], out, errOut)
+	}
 	return usage(errOut, "there is no command "+args[0])
 }
 
 func usage(w io.Writer, msg string) int {
-	fmt.Fprintln(w, "eva-eval: "+msg+"\n"+usageText)
+	fmt.Fprintln(w, "eva-eval: "+msg+"\n"+usageLines())
 	return 2
 }
 

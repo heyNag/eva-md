@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -372,6 +374,75 @@ func TestOnlyEvasNameShows(t *testing.T) {
 	}
 	_, _, errOut := cmd()
 	if !strings.HasPrefix(errOut, "eva-eval: ") {
+		t.Errorf("usage: %q", errOut)
+	}
+}
+
+// An instrument adds its command from its own file: run reaches it, the
+// usage lists it after the three commands, by name, and a name that is
+// taken or malformed, or a command with no usage line or nothing to run,
+// stops the program.
+func TestAnInstrumentAddsItsCommand(t *testing.T) {
+	saved := instruments
+	instruments = map[string]instrument{}
+	t.Cleanup(func() { instruments = saved })
+	ran := func(word string) func(context.Context, []string, io.Writer, io.Writer) int {
+		return func(_ context.Context, args []string, out, _ io.Writer) int {
+			fmt.Fprintln(out, word, strings.Join(args, " "))
+			return 7
+		}
+	}
+	register(instrument{name: "zeta", synopsis: "zeta --out dir", run: ran("zeta ran")})
+	register(instrument{name: "alpha-two", synopsis: "alpha-two", run: ran("alpha ran")})
+
+	if code, out, errOut := cmd("zeta", "--out", "x"); code != 7 || out != "zeta ran --out x\n" || errOut != "" {
+		t.Errorf("zeta: %d %q %q", code, out, errOut)
+	}
+	if code, out, _ := cmd("alpha-two"); code != 7 || out != "alpha ran \n" {
+		t.Errorf("alpha-two: %d %q", code, out)
+	}
+	if code, _, _ := cmd("gate"); code != 2 {
+		t.Errorf("gate with no rows: %d", code)
+	}
+	_, _, errOut := cmd("unknown")
+	want := "eva-eval: there is no command unknown\n" + usageText + "\n  eva-eval alpha-two\n  eva-eval zeta --out dir\n"
+	if errOut != want {
+		t.Errorf("usage:\n%s\nwant:\n%s", errOut, want)
+	}
+
+	for name, i := range map[string]instrument{
+		"a name taken by an instrument": {name: "zeta", synopsis: "zeta", run: ran("")},
+		"a name taken by gate":          {name: "gate", synopsis: "gate", run: ran("")},
+		"a name taken by diff":          {name: "diff", synopsis: "diff", run: ran("")},
+		"a name taken by baseline":      {name: "baseline", synopsis: "baseline", run: ran("")},
+		"no name":                       {synopsis: "x", run: ran("")},
+		"a name with a capital":         {name: "Score", synopsis: "Score", run: ran("")},
+		"a name with a space":           {name: "two words", synopsis: "two words", run: ran("")},
+		"no usage line":                 {name: "score", run: ran("")},
+		"a usage line of another name":  {name: "score", synopsis: "other --out dir", run: ran("")},
+		"a usage line of two lines":     {name: "score", synopsis: "score\n  more", run: ran("")},
+		"nothing to run":                {name: "score", synopsis: "score"},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: register did not stop the program", name)
+				}
+			}()
+			register(i)
+		}()
+	}
+	if len(instruments) != 2 {
+		t.Errorf("a refused command was kept: %d commands", len(instruments))
+	}
+}
+
+// With no instrument added the usage is the three commands, as before.
+func TestUsageWithNoInstrument(t *testing.T) {
+	saved := instruments
+	instruments = map[string]instrument{}
+	t.Cleanup(func() { instruments = saved })
+	if _, _, errOut := cmd(); errOut != "eva-eval: it needs a command\n"+usageText+"\n" {
 		t.Errorf("usage: %q", errOut)
 	}
 }
