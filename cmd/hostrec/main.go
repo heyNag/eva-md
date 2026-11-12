@@ -97,7 +97,7 @@ var commands = map[string]command{
 	"voice-check": {cmdVoiceCheck, true, "voice-check: the voice call's counts"},
 	"scan":        {cmdScan, false, "scan <dir>: look for what must not be handed over"},
 	"scrub":       {cmdScrub, false, "scrub <dir> <text>: replace a hit everywhere"},
-	"pack":        {cmdPack, true, "pack <dir> --to <dir> | pack --clean: the archive to hand over"},
+	"pack":        {cmdPack, true, "pack [<recording folder>] [--to <dir>] | pack --clean: the recording's archive to hand over"},
 	"teardown":    {cmdTeardown, true, "teardown: remove what the sittings made"},
 	"fixtures":    {cmdFixtures, false, "fixtures --rec <dir> --out <dir> [--host <host>]: fixtures with every value made up"},
 	"check":       {cmdCheck, false, "check --rec <dir> --fixtures <dir>: fail on a recorded value a fixture holds"},

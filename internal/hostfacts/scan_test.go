@@ -172,14 +172,50 @@ func TestCommittedFixtures(t *testing.T) {
 	for _, h := range hits {
 		t.Errorf("testdata/%s:%d holds %s", h.File, h.Line, h.Kind)
 	}
-	dirs, _ := filepath.Glob(filepath.Join("testdata", "*", "*", "fixture.json"))
-	for _, meta := range dirs {
-		problems, err := CheckFixtureDir(filepath.Dir(meta))
-		if err != nil {
-			t.Errorf("%s: %v", meta, err)
+	problems, err := CheckTestdata("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range problems {
+		t.Errorf("testdata/%s", p)
+	}
+	// A fixture at any depth is checked, and a file no fixture.json
+	// lists is a problem.
+	td := t.TempDir()
+	rec := madeUpRecording(t)
+	deep := filepath.Join(td, "claude-code", "9.9.9", "extra")
+	if _, err := WriteFixtures(FixtureOptions{Rec: rec, Out: deep, Seed: []byte("a made-up seed")}); err != nil {
+		t.Fatal(err)
+	}
+	if problems, err := CheckTestdata(td); err != nil || len(problems) != 0 {
+		t.Errorf("a fixture written by the generator: %v %v", problems, err)
+	}
+	for _, stray := range []string{filepath.Join(td, "codex", "stray.jsonl"), filepath.Join(deep, "unlisted.json")} {
+		if err := os.MkdirAll(filepath.Dir(stray), 0o755); err != nil {
+			t.Fatal(err)
 		}
-		for _, p := range problems {
-			t.Errorf("%s: %s", filepath.Dir(meta), p)
+		if err := os.WriteFile(stray, []byte(`{"a":"`+recPrompt+`"}`+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(deep, EventsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, EventsFile), []byte(strings.Replace(string(data), "\"v\":1", "\"v\":1,\"x\":\""+recPrompt+"\"", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	problems, err = CheckTestdata(td)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	for _, p := range problems {
+		files = append(files, p.File)
+	}
+	for _, want := range []string{"codex/stray.jsonl", "claude-code/9.9.9/extra/unlisted.json", "claude-code/9.9.9/extra/events.jsonl"} {
+		if !slices.Contains(files, want) {
+			t.Errorf("CheckTestdata finds no problem in %s: %v", want, problems)
 		}
 	}
 	// The same patterns find what a committed fixture must not hold.

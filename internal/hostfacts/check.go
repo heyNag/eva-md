@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -154,6 +156,73 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 		return a.Line - b.Line
 	})
 	return problems, nil
+}
+
+// CheckTestdata checks every fixture under dir, at any depth: each folder
+// that holds a fixture.json is checked by CheckFixtureDir, and a JSON or
+// JSON-lines file that no fixture.json beside it lists is a problem of its
+// own, since no check would rebuild its values.
+func CheckTestdata(dir string) ([]Problem, error) {
+	var problems []Problem
+	listed := map[string]bool{}
+	var folders []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Name() != "fixture.json" {
+			return err
+		}
+		folders = append(folders, filepath.Dir(p))
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		var meta FixtureMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			problems = append(problems, Problem{relTo(dir, p), 1, "fixture.json does not read"})
+			return nil
+		}
+		for _, f := range meta.Files {
+			listed[filepath.Join(filepath.Dir(p), f)] = true
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		ext := filepath.Ext(p)
+		if (ext == ".json" || ext == ".jsonl") && d.Name() != "fixture.json" && !listed[p] {
+			problems = append(problems, Problem{relTo(dir, p), 1, "a file no fixture.json beside it lists, whose values no check rebuilds"})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range folders {
+		ps, err := CheckFixtureDir(f)
+		if err != nil {
+			problems = append(problems, Problem{relTo(dir, filepath.Join(f, "fixture.json")), 1, err.Error()})
+			continue
+		}
+		for _, p := range ps {
+			p.File = relTo(dir, filepath.Join(f, p.File))
+			problems = append(problems, p)
+		}
+	}
+	return problems, nil
+}
+
+func relTo(dir, p string) string {
+	if rel, err := filepath.Rel(dir, p); err == nil {
+		return filepath.ToSlash(rel)
+	}
+	return p
 }
 
 // madeSet draws enough values of one shape to hold every one the writer
