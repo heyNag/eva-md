@@ -92,14 +92,113 @@ type tableRow struct {
 	cells []string
 }
 
+var (
+	// listItem is a line that starts a list item.
+	listItem = regexp.MustCompile(`^ {0,3}([-*+]|[0-9]{1,9}[.)])([ \t]|$)`)
+	// fenceOpen is a line that opens a fenced code block: three or more
+	// backticks or tildes, after the indentation a list allows.
+	fenceOpen = regexp.MustCompile("^[ \t]*(`{3,}|~{3,})")
+)
+
+// indent returns the width of a line's leading blanks, a tab counting four.
+func indent(line string) int {
+	n := 0
+	for _, c := range line {
+		switch c {
+		case ' ':
+			n++
+		case '\t':
+			n += 4
+		default:
+			return n
+		}
+	}
+	return n
+}
+
+// codeLines marks the lines that are code, not prose: a fenced code block,
+// its fences included, and an indented code block, lines indented four or
+// more outside a list that follow a blank line or another such line. What
+// is in code is never read as a table, a heading or a label.
+func codeLines(lines []string) []bool {
+	code := make([]bool, len(lines))
+	fence := ""           // the open fence's marks, or "" outside one
+	inList := false       // within a list item, where indentation is no code
+	prevBlank := true     // the line before was blank, or there was none
+	prevIndented := false // the last line that was not blank was indented code
+	for i, line := range lines {
+		if fence != "" {
+			code[i] = true
+			t := strings.TrimSpace(line)
+			if strings.HasPrefix(t, fence) && strings.Trim(t, fence[:1]) == "" {
+				fence = ""
+			}
+			continue
+		}
+		if strings.TrimSpace(line) == "" {
+			prevBlank = true
+			continue
+		}
+		ind := indent(line)
+		if ind >= 4 && !inList && (prevBlank || prevIndented) {
+			code[i] = true
+			prevBlank, prevIndented = false, true
+			continue
+		}
+		prevBlank, prevIndented = false, false
+		if m := fenceOpen.FindStringSubmatch(line); m != nil && (ind < 4 || inList) {
+			// A backtick fence's info string holds no backtick; a line
+			// that does is a code span.
+			info := line[strings.Index(line, m[1])+len(m[1]):]
+			if m[1][0] != '`' || !strings.Contains(info, "`") {
+				fence = m[1]
+				code[i] = true
+				continue
+			}
+		}
+		switch {
+		case listItem.MatchString(line):
+			inList = true
+		case ind == 0:
+			inList = false
+		}
+	}
+	return code
+}
+
+// quoted reports whether a line is in a block quote.
+func quoted(line string) bool {
+	return indent(line) < 4 && strings.HasPrefix(strings.TrimLeft(line, " \t"), ">")
+}
+
+// headerIs reports whether a table's header is exactly the names given.
+func headerIs(header []string, names ...string) bool {
+	if len(header) != len(names) {
+		return false
+	}
+	for i, h := range header {
+		if plain(h) != names[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // tables returns every table of text from the line start (from 0) to the
-// line end (exclusive), each with the "## " heading it sits under.
+// line end (exclusive), each with the "## " heading it sits under. A table
+// is a run of lines that start with "|", outside code; a quoted table
+// starts with ">" and is none.
 func tables(lines []string, start, end int) []table {
+	code := codeLines(lines)
 	var out []table
 	heading := ""
 	var cur *table
 	for i := start; i < end; i++ {
 		line := lines[i]
+		if code[i] {
+			cur = nil
+			continue
+		}
 		if strings.HasPrefix(line, "## ") {
 			heading = strings.TrimSpace(strings.TrimPrefix(line, "## "))
 		}
@@ -127,9 +226,10 @@ func tables(lines []string, start, end int) []table {
 // table sits under Stage 2.
 func parsePlan(text string) (map[string]int, error) {
 	lines := strings.Split(text, "\n")
+	code := codeLines(lines)
 	start := -1
 	for i, line := range lines {
-		if strings.HasPrefix(line, "## 8. ") {
+		if !code[i] && strings.HasPrefix(line, "## 8. ") {
 			start = i + 1
 			break
 		}
@@ -141,6 +241,9 @@ func parsePlan(text string) (map[string]int, error) {
 	stage := -1
 	for i := start; i < len(lines); i++ {
 		line := lines[i]
+		if code[i] {
+			continue
+		}
 		if strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "### What runs in parallel") {
 			break
 		}
@@ -150,7 +253,7 @@ func parsePlan(text string) (map[string]int, error) {
 		}
 		stage, _ = strconv.Atoi(m[1])
 		end := i + 1
-		for end < len(lines) && !strings.HasPrefix(lines[end], "#") {
+		for end < len(lines) && (code[end] || !strings.HasPrefix(lines[end], "#")) {
 			end++
 		}
 		for _, t := range tables(lines, i+1, end) {
@@ -182,11 +285,17 @@ type needKey struct {
 func (k needKey) String() string { return k.id + " (" + k.design + ")" }
 
 // parseDesignNeeds returns the ids of the rows of the design's section
-// headed "## <n>. Contracts" whose direction holds "need", in order.
+// headed "## <n>. Contracts" whose direction holds "need", in order, once
+// for each row. Only a table whose header starts "Id | With | Direction"
+// is a contracts table.
 func parseDesignNeeds(text string) []string {
 	lines := strings.Split(text, "\n")
+	code := codeLines(lines)
 	start, end := -1, len(lines)
 	for i, line := range lines {
+		if code[i] {
+			continue
+		}
 		if start < 0 {
 			if contractsHead.MatchString(line) {
 				start = i + 1
@@ -203,12 +312,15 @@ func parseDesignNeeds(text string) []string {
 	}
 	var ids []string
 	for _, t := range tables(lines, start, end) {
+		if len(t.header) < 3 || !headerIs(t.header[:3], "Id", "With", "Direction") {
+			continue
+		}
 		for _, r := range t.rows {
 			if len(r.cells) < 3 {
 				continue
 			}
 			id := plain(r.cells[0])
-			if id == "" || id == "Id" || !strings.Contains(r.cells[2], "need") {
+			if id == "" || !strings.Contains(r.cells[2], "need") {
 				continue
 			}
 			ids = append(ids, id)
@@ -225,11 +337,21 @@ type card struct {
 	depends  []string // the ids of its "Depends on" label
 }
 
+// boldLabel is a bold label such as "**Part of:**": a capitalised word,
+// maybe more, and a colon.
+var boldLabel = regexp.MustCompile(`\*\*[A-Z][^*\n]*:\*\*`)
+
+// inCodeSpan reports whether the byte at i of line is inside a code span:
+// an odd number of backticks comes before it.
+func inCodeSpan(line string, i int) bool {
+	return strings.Count(line[:i], "`")%2 == 1
+}
+
 // parseCard reads a card: its packages are its id less a trailing
 // lowercase part, if the plan lists that, and every plan id in brackets in
 // its title line; its dependencies are every id in its "**Depends on:**"
-// label, up to the next bold label or the end of the line. A label quoted
-// in a code span is not one.
+// label, up to the next bold label or the end of its paragraph. A label in
+// a code span, a code block or a quote is not one.
 func parseCard(file, text string, plan map[string]int) card {
 	c := card{file: file, id: strings.TrimSuffix(path.Base(file), path.Ext(file))}
 	seen := map[string]bool{}
@@ -242,8 +364,10 @@ func parseCard(file, text string, plan map[string]int) card {
 	if m := cardName.FindStringSubmatch(c.id); m != nil {
 		add(m[1])
 	}
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(line, "# ") {
+	lines := strings.Split(text, "\n")
+	code := codeLines(lines)
+	for i, line := range lines {
+		if !code[i] && strings.HasPrefix(line, "# ") {
 			for _, b := range bracketed.FindAllStringSubmatch(line, -1) {
 				for _, id := range planID.FindAllString(b[1], -1) {
 					add(id)
@@ -253,49 +377,78 @@ func parseCard(file, text string, plan map[string]int) card {
 		}
 	}
 	const label = "**Depends on:**"
-	rest := text
-	for {
-		i := strings.Index(rest, label)
-		if i < 0 {
-			break
-		}
-		quoted := i > 0 && rest[i-1] == '`'
-		rest = rest[i+len(label):]
-		if quoted {
+	for i, line := range lines {
+		if code[i] || quoted(line) {
 			continue
 		}
-		span := rest
-		if j := strings.IndexByte(span, '\n'); j >= 0 {
-			span = span[:j]
+		for from := 0; ; {
+			j := strings.Index(line[from:], label)
+			if j < 0 {
+				break
+			}
+			j += from
+			from = j + len(label)
+			if inCodeSpan(line, j) {
+				continue
+			}
+			c.depends = append(c.depends, cardRef.FindAllString(dependsSpan(lines, code, i, from), -1)...)
 		}
-		if j := strings.Index(span, "**"); j >= 0 {
-			span = span[:j]
-		}
-		c.depends = append(c.depends, cardRef.FindAllString(span, -1)...)
 	}
 	return c
 }
 
-// readCards reads every file of the cards folder but its README.
-func readCards(fsys fs.FS, plan map[string]int) ([]card, error) {
+// dependsSpan returns the text of a label that starts at byte from of line
+// i: up to the next bold label, or else the end of its paragraph, where a
+// blank line, code, a quote, a heading, a list item or a table starts.
+func dependsSpan(lines []string, code []bool, i, from int) string {
+	var b strings.Builder
+	text := lines[i][from:]
+	for {
+		if loc := boldLabel.FindStringIndex(text); loc != nil {
+			b.WriteString(text[:loc[0]])
+			return b.String()
+		}
+		b.WriteString(text)
+		b.WriteByte('\n')
+		i++
+		if i >= len(lines) || code[i] || quoted(lines[i]) || listItem.MatchString(lines[i]) {
+			return b.String()
+		}
+		if t := strings.TrimSpace(lines[i]); t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "|") {
+			return b.String()
+		}
+		text = lines[i]
+	}
+}
+
+// readCards reads every Markdown file of the cards folder but its README,
+// and returns the other files apart, from the repository root. A hidden
+// file, such as the .DS_Store macOS's Finder leaves or an editor's swap
+// file, is neither: git ignores it or no one meant it as a card.
+func readCards(fsys fs.FS, plan map[string]int) (cards []card, others []string, err error) {
 	entries, err := fs.ReadDir(fsys, CardsDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var cards []card
 	for _, e := range entries {
-		if e.IsDir() || e.Name() == "README.md" {
+		name := e.Name()
+		if e.IsDir() || name == "README.md" || strings.HasPrefix(name, ".") {
 			continue
 		}
-		file := path.Join(CardsDir, e.Name())
+		file := path.Join(CardsDir, name)
+		if path.Ext(name) != ".md" {
+			others = append(others, file)
+			continue
+		}
 		data, err := fs.ReadFile(fsys, file)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		cards = append(cards, parseCard(file, string(data), plan))
 	}
 	sort.Slice(cards, func(i, j int) bool { return cards[i].file < cards[j].file })
-	return cards, nil
+	sort.Strings(others)
+	return cards, others, nil
 }
 
 // needRow is one row of the matrix's table of needs.
@@ -313,9 +466,29 @@ func (r needRow) item() string { return r.key.String() }
 
 // fakeRow is one row of the matrix's table of interfaces and fakes.
 type fakeRow struct {
-	name  string
-	fake  string
-	cells int
+	name      string
+	providers []string
+	fake      string
+	cells     int
+}
+
+// The headers of the matrix's two tables, which the rules read by column.
+var (
+	needsHeader = []string{"Need", "Design", "Consumer", "Provider", "Where"}
+	fakesHeader = []string{"Interface", "Go name", "Provider", "Fake"}
+)
+
+// The headings the two tables sit under.
+const (
+	needsHeading = "Needs"
+	fakesHeading = "Interfaces and fakes"
+)
+
+// badTable is a table under one of the matrix's headings whose header is
+// not that table's.
+type badTable struct {
+	heading string
+	header  string
 }
 
 // matrix is the contract matrix as read.
@@ -324,6 +497,7 @@ type matrix struct {
 	fakes      []fakeRow
 	needsTable bool
 	fakesTable bool
+	bad        []badTable
 }
 
 // list splits a cell into its comma-separated parts.
@@ -337,17 +511,15 @@ func list(cell string) []string {
 	return out
 }
 
-// parseMatrix reads the table headed "Need" under "## Needs" and the table
-// headed "Interface" under "## Interfaces and fakes".
+// parseMatrix reads the table under "## Needs" and the table under "##
+// Interfaces and fakes". Any other table under either heading, such as
+// one whose columns are moved, is returned as bad, not read.
 func parseMatrix(text string) matrix {
 	var m matrix
 	lines := strings.Split(text, "\n")
 	for _, t := range tables(lines, 0, len(lines)) {
-		if len(t.header) == 0 {
-			continue
-		}
 		switch {
-		case t.heading == "Needs" && plain(t.header[0]) == "Need":
+		case t.heading == needsHeading && headerIs(t.header, needsHeader...):
 			m.needsTable = true
 			for _, r := range t.rows {
 				row := needRow{cells: len(r.cells)}
@@ -366,15 +538,22 @@ func parseMatrix(text string) matrix {
 				}
 				m.needs = append(m.needs, row)
 			}
-		case t.heading == "Interfaces and fakes" && plain(t.header[0]) == "Interface":
+		case t.heading == fakesHeading && headerIs(t.header, fakesHeader...):
 			m.fakesTable = true
 			for _, r := range t.rows {
 				row := fakeRow{name: plain(r.cells[0]), cells: len(r.cells)}
 				if len(r.cells) == 4 {
+					row.providers = list(r.cells[2])
 					row.fake = plain(r.cells[3])
 				}
 				m.fakes = append(m.fakes, row)
 			}
+		case t.heading == needsHeading || t.heading == fakesHeading:
+			var h []string
+			for _, c := range t.header {
+				h = append(h, plain(c))
+			}
+			m.bad = append(m.bad, badTable{t.heading, strings.Join(h, " | ")})
 		}
 	}
 	return m

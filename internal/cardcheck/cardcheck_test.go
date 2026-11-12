@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -75,8 +76,8 @@ func TestTheParsersReadTheRepository(t *testing.T) {
 		t.Errorf("the designs have %d need rows, not at least 80", len(needs))
 	}
 	designs := map[string]int{}
-	for k := range needs {
-		designs[k.design]++
+	for k, n := range needs {
+		designs[k.design] += n
 	}
 	for _, d := range []string{"ledger.md", "store.md", "derive.md", "deliver.md", "hosts.md", "evaluate.md"} {
 		if designs[d] == 0 {
@@ -87,17 +88,17 @@ func TestTheParsersReadTheRepository(t *testing.T) {
 		t.Errorf("needs read from %v, not the six designs", designs)
 	}
 	for _, k := range []needKey{{"C-S4", "store.md"}, {"C-D1", "ledger.md"}, {"V-D10", "deliver.md"}, {"E-X2", "evaluate.md"}} {
-		if !needs[k] {
-			t.Errorf("%s is not read as a need", k)
+		if needs[k] != 1 {
+			t.Errorf("%s is read as a need %d times, not once", k, needs[k])
 		}
 	}
 	for _, k := range []needKey{{"C-D1", "derive.md"}, {"C-S2", "ledger.md"}, {"S-D1", "store.md"}} {
-		if needs[k] {
+		if needs[k] != 0 {
 			t.Errorf("%s, a promise, is read as a need", k)
 		}
 	}
 
-	cards, err := readCards(fsys, plan)
+	cards, others, err := readCards(fsys, plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,21 +108,23 @@ func TestTheParsersReadTheRepository(t *testing.T) {
 	}
 	var want, got []string
 	for _, e := range entries {
-		if !e.IsDir() && e.Name() != "README.md" {
+		if !e.IsDir() && e.Name() != "README.md" && !strings.HasPrefix(e.Name(), ".") {
 			want = append(want, path.Join(CardsDir, e.Name()))
 		}
 	}
 	for _, c := range cards {
 		got = append(got, c.file)
 	}
+	got = append(got, others...)
 	slices.Sort(want)
-	if len(want) == 0 || !slices.Equal(got, want) {
+	slices.Sort(got)
+	if len(cards) == 0 || !slices.Equal(got, want) {
 		t.Errorf("cards read %q, want %q", got, want)
 	}
 
 	m := parseMatrix(readText(t, fsys, MatrixFile))
-	if len(m.needs) < 80 || len(m.fakes) < 7 {
-		t.Errorf("the matrix has %d need rows and %d fakes", len(m.needs), len(m.fakes))
+	if len(m.needs) < 80 || len(m.fakes) < 7 || len(m.bad) != 0 {
+		t.Errorf("the matrix has %d need rows, %d fakes and %d tables under a wrong header", len(m.needs), len(m.fakes), len(m.bad))
 	}
 }
 
@@ -152,6 +155,15 @@ func TestParseCard(t *testing.T) {
 		{"docs/v2/cards/CT-3b.md", "# CT-3b: the capture audit\n\n**Follows:** [CT-3](CT-3.md).\n", nil, nil},
 		{"docs/v2/cards/XY-1.md", "# XY-1: x\n\n**Depends on:** EV-16's baseline, CT-1 and CT-2. **Part of:** DV-12.\nlater\n\nRule: a `**Depends on:**` label names LG-99;\n", nil, []string{"EV-16", "CT-1", "CT-2"}},
 		{"docs/v2/cards/SEAM-0a.md", "# SEAM-0a: tables\n\n**Depends on:** nothing.\n**Depends on:** HO-10b merged\n", []string{"SEAM-0"}, []string{"HO-10b"}},
+		// A bold word inside the label does not end it; the next label does.
+		{"docs/v2/cards/XY-2.md", "# XY-2: x\n\n**Depends on:** SEAM-0a (**merged**), ZZ-99, c and d. **Part of:** IF-01.\n", nil, []string{"SEAM-0a", "ZZ-99"}},
+		// The label runs to the end of its paragraph, and no further.
+		{"docs/v2/cards/XY-3.md", "# XY-3: x\n\n**Depends on:** SEAM-0a and\nLG-10, both merged.\n\nZZ-98 is no dependency.\n- ZZ-97 neither\n", nil, []string{"SEAM-0a", "LG-10"}},
+		{"docs/v2/cards/XY-4.md", "# XY-4: x\n\n**Depends on:** SEAM-0a\n- ZZ-97 is a list\n", nil, []string{"SEAM-0a"}},
+		// A label in a code block or a quote is an example, not the card's.
+		{"docs/v2/cards/XY-5.md", "# XY-5: x\n\n```\n**Depends on:** ZZ-99\n```\n\n~~~~md\n**Depends on:** ZZ-96\n~~~~\n\n    **Depends on:** ZZ-95\n\n> **Depends on:** ZZ-94\n", nil, nil},
+		// A title in a code block is not the card's title.
+		{"docs/v2/cards/XY-6.md", "```\n# XY-6: x (DV-12)\n```\n# XY-6: y (LG-01)\n", []string{"LG-01"}, nil},
 	} {
 		got := parseCard(c.file, c.text, plan)
 		if !slices.Equal(got.packages, c.packages) || !slices.Equal(got.depends, c.depends) {
@@ -165,6 +177,53 @@ func TestSplitRowKeepsPipesInCode(t *testing.T) {
 	want := []string{"S-H5", "hosts", "promise", "`remote set|show|remove` and a|b"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// What renders as code is never read as a table.
+func TestCodeIsNoTable(t *testing.T) {
+	text := strings.Join([]string{
+		"## Real",
+		"| A | B |",
+		"| --- | --- |",
+		"| a1 | b1 |",
+		"",
+		"```",
+		"## Fenced",
+		"| C | D |",
+		"| --- | --- |",
+		"```",
+		"",
+		"````md",
+		"```",
+		"| E | F |",
+		"```",
+		"````",
+		"",
+		"    | G | H |",
+		"    | --- | --- |",
+		"",
+		"    | I | J |",
+		"",
+		"> | K | L |",
+		"",
+		"- a list item",
+		"",
+		"    | M | N |",
+		"    | --- | --- |",
+		"",
+		"```code``` in a line",
+		"| O | P |",
+	}, "\n")
+	var got []string
+	for _, tb := range tables(strings.Split(text, "\n"), 0, strings.Count(text, "\n")+1) {
+		got = append(got, tb.heading+":"+strings.Join(tb.header, ","))
+	}
+	// The table inside the list item is the list's, not code; the line with
+	// a code span opens no fence.
+	want := []string{"Real:A,B", "Real:M,N", "Real:O,P"}
+	if !slices.Equal(got, want) {
+		t.Errorf("tables %q, want %q", got, want)
 	}
 }
 
@@ -200,7 +259,9 @@ func readText(t *testing.T, fsys fs.FS, name string) string {
 	return string(data)
 }
 
-// edit replaces old, which must be in the file once, with new.
+// edit replaces old, which must be in the file once, with new. Tests edit
+// only the matrix, this package's own, or text they added themselves; a
+// broken input in the lead's files is built from made-up rows and cards.
 func edit(t *testing.T, m fstest.MapFS, file, old, new string) {
 	t.Helper()
 	f, ok := m[file]
@@ -211,6 +272,94 @@ func edit(t *testing.T, m fstest.MapFS, file, old, new string) {
 		t.Fatalf("%q is in %s %d times, not once", old, file, n)
 	}
 	f.Data = []byte(strings.Replace(string(f.Data), old, new, 1))
+}
+
+// insertAfter inserts text after the first line of file, outside code,
+// that starts with prefix.
+func insertAfter(t *testing.T, m fstest.MapFS, file, prefix, text string) {
+	t.Helper()
+	f, ok := m[file]
+	if !ok {
+		t.Fatalf("no %s", file)
+	}
+	lines := strings.Split(string(f.Data), "\n")
+	code := codeLines(lines)
+	for i, line := range lines {
+		if !code[i] && strings.HasPrefix(line, prefix) {
+			lines = slices.Insert(lines, i+1, strings.Split(text, "\n")...)
+			f.Data = []byte(strings.Join(lines, "\n"))
+			return
+		}
+	}
+	t.Fatalf("no line of %s starts %q", file, prefix)
+}
+
+// contractsHeading returns the heading line of a design's contracts section.
+func contractsHeading(t *testing.T, m fstest.MapFS, design string) string {
+	t.Helper()
+	for _, line := range strings.Split(string(m[path.Join(DesignDir, design)].Data), "\n") {
+		if contractsHead.MatchString(line) {
+			return line
+		}
+	}
+	t.Fatalf("%s has no contracts section", design)
+	return ""
+}
+
+// addNeed adds a made-up need row to a design: a contracts table of its
+// own at the top of the design's contracts section.
+func addNeed(t *testing.T, m fstest.MapFS, design, id string) {
+	t.Helper()
+	insertAfter(t, m, path.Join(DesignDir, design), contractsHeading(t, m, design),
+		"\n| Id | With | Direction | One line |\n| --- | --- | --- | --- |\n| "+id+" | store | need | made up |\n")
+}
+
+// addCard adds a made-up card to the copy.
+func addCard(m fstest.MapFS, name, text string) {
+	m[path.Join(CardsDir, name)] = &fstest.MapFile{Data: []byte(text), Mode: 0o644}
+}
+
+// freePlanID returns a plan id of at least the stage given that no card of
+// the copy names as its package.
+func freePlanID(t *testing.T, m fstest.MapFS, minStage int) string {
+	t.Helper()
+	plan, err := parsePlan(string(m[PlanFile].Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cards, _, err := readCards(m, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := map[string]bool{}
+	for _, c := range cards {
+		for _, p := range c.packages {
+			named[p] = true
+		}
+	}
+	var free []string
+	for id, stage := range plan {
+		if stage >= minStage && !named[id] {
+			free = append(free, id)
+		}
+	}
+	if len(free) == 0 {
+		t.Fatalf("every plan id of stage %d or later has a card", minStage)
+	}
+	sort.Strings(free)
+	return free[0]
+}
+
+// anyCard returns the id of a card of the copy.
+func anyCard(t *testing.T, m fstest.MapFS) string {
+	t.Helper()
+	for f := range m {
+		if path.Dir(f) == CardsDir && path.Ext(f) == ".md" && path.Base(f) != "README.md" {
+			return strings.TrimSuffix(path.Base(f), ".md")
+		}
+	}
+	t.Fatal("the copy has no card")
+	return ""
 }
 
 // row returns the matrix's row of a need, which must be there once.
@@ -228,15 +377,40 @@ func row(t *testing.T, m fstest.MapFS, id, design string) string {
 	return found[0]
 }
 
+// fakeLine returns the matrix's interface row whose provider is the one
+// given.
+func fakeLine(t *testing.T, m fstest.MapFS, provider string) string {
+	t.Helper()
+	var found []string
+	for _, line := range strings.Split(string(m[MatrixFile].Data), "\n") {
+		if cells := splitRow(line); strings.HasPrefix(line, "|") && len(cells) == 4 && plain(cells[2]) == provider {
+			found = append(found, line)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("the matrix has %d interface rows provided by %s", len(found), provider)
+	}
+	return found[0]
+}
+
+// withCell returns a table row with its cell i replaced.
+func withCell(t *testing.T, line string, i int, cell string) string {
+	t.Helper()
+	cells := splitRow(line)
+	if i >= len(cells) {
+		t.Fatalf("row %q has %d cells", line, len(cells))
+	}
+	cells[i] = cell
+	return "| " + strings.Join(cells, " | ") + " |"
+}
+
 // withCells returns a matrix row with its consumer and provider replaced.
 func withCells(t *testing.T, line, consumer, provider string) string {
 	t.Helper()
-	cells := splitRow(line)
-	if len(cells) != 5 {
-		t.Fatalf("row %q has %d cells", line, len(cells))
+	if n := len(splitRow(line)); n != 5 {
+		t.Fatalf("row %q has %d cells", line, n)
 	}
-	cells[2], cells[3] = consumer, provider
-	return "| " + strings.Join(cells, " | ") + " |"
+	return withCell(t, withCell(t, line, 2, consumer), 3, provider)
 }
 
 // broken runs Check on the copy before and after break, and returns what
@@ -279,6 +453,33 @@ func once(t *testing.T, ps []Problem, rule, file string, names ...string) {
 	}
 }
 
+// none fails the test unless ps is empty.
+func none(t *testing.T, ps []Problem) {
+	t.Helper()
+	for _, p := range ps {
+		t.Errorf("unexpected: %v", p)
+	}
+}
+
+// has fails the test unless one problem of ps is of the rule, in file, and
+// names each of names.
+func has(t *testing.T, ps []Problem, rule, file string, names ...string) {
+	t.Helper()
+	for _, p := range ps {
+		if p.Rule != rule || p.File != file {
+			continue
+		}
+		all := true
+		for _, n := range names {
+			all = all && strings.Contains(p.Item+" "+p.Text, n)
+		}
+		if all {
+			return
+		}
+	}
+	t.Errorf("no problem of rule %s in %s names %q: %v", rule, file, names, ps)
+}
+
 func TestRuleAEveryNeedOnceAndNothingElse(t *testing.T) {
 	t.Run("a need with no row", func(t *testing.T) {
 		once(t, broken(t, func(m fstest.MapFS) {
@@ -291,16 +492,26 @@ func TestRuleAEveryNeedOnceAndNothingElse(t *testing.T) {
 			edit(t, m, MatrixFile, r+"\n", r+"\n"+r+"\n")
 		}), "a", MatrixFile, "V-D9 (deliver.md)", "2 rows")
 	})
-	t.Run("a row for a promise", func(t *testing.T) {
+	t.Run("a row for no need", func(t *testing.T) {
 		once(t, broken(t, func(m fstest.MapFS) {
-			r := row(t, m, "C-D2", "derive.md")
-			edit(t, m, MatrixFile, r+"\n", r+"\n"+strings.Replace(r, "| derive.md |", "| ledger.md |", 1)+"\n")
-		}), "a", MatrixFile, "C-D2 (ledger.md)", "not a need row")
+			r := row(t, m, "C-D1", "ledger.md")
+			edit(t, m, MatrixFile, r+"\n", r+"\n"+withCell(t, r, 0, "Q-Z9")+"\n")
+		}), "a", MatrixFile, "Q-Z9 (ledger.md)", "not a need row")
 	})
 	t.Run("a design gains a need", func(t *testing.T) {
 		once(t, broken(t, func(m fstest.MapFS) {
-			edit(t, m, path.Join(DesignDir, "ledger.md"), "| C-D2 | derive | promise |", "| C-D2 | derive | need |")
-		}), "a", MatrixFile, "C-D2 (ledger.md)", "no row")
+			addNeed(t, m, "ledger.md", "Q-Z9")
+		}), "a", MatrixFile, "Q-Z9 (ledger.md)", "no row")
+	})
+	t.Run("a design lists a need twice", func(t *testing.T) {
+		design := path.Join(DesignDir, "ledger.md")
+		once(t, broken(t, func(m fstest.MapFS) {
+			ids := parseDesignNeeds(string(m[design].Data))
+			if len(ids) == 0 {
+				t.Fatal("ledger.md has no need")
+			}
+			addNeed(t, m, "ledger.md", ids[0])
+		}), "a", design, "(ledger.md)", "2 need rows")
 	})
 	t.Run("a row with a cell missing", func(t *testing.T) {
 		once(t, broken(t, func(m fstest.MapFS) {
@@ -309,6 +520,93 @@ func TestRuleAEveryNeedOnceAndNothingElse(t *testing.T) {
 			edit(t, m, MatrixFile, r, "| "+strings.Join(cells[:4], " | ")+" |")
 		}), "a", MatrixFile, "S-L1 (store.md)", "4 cells")
 	})
+	t.Run("no table of needs", func(t *testing.T) {
+		ps := broken(t, func(m fstest.MapFS) {
+			edit(t, m, MatrixFile, "| Need | Design | Consumer | Provider | Where |", "Need, Design, Consumer, Provider, Where")
+		})
+		has(t, ps, "a", MatrixFile, "the matrix", "has no table headed")
+	})
+	t.Run("the table of needs with its columns moved", func(t *testing.T) {
+		ps := broken(t, func(m fstest.MapFS) {
+			edit(t, m, MatrixFile, "| Need | Design | Consumer | Provider | Where |", "| Need | Design | Provider | Consumer | Where |")
+		})
+		has(t, ps, "a", MatrixFile, "Need | Design | Provider | Consumer | Where", "is under")
+		has(t, ps, "a", MatrixFile, "the matrix", "has no table headed")
+	})
+}
+
+// What renders as code, a quote, or a table that is no contracts table is
+// never read as a need, a matrix row, a plan id or a label.
+func TestExamplesAreNotRead(t *testing.T) {
+	fenced := "\n```\n| Id | With | Direction | One line |\n| --- | --- | --- | --- |\n| Q-Z9 | store | need | an example |\n```\n"
+	for name, text := range map[string]string{
+		"a fenced table":          fenced,
+		"a tilde fence":           strings.ReplaceAll(fenced, "```", "~~~~"),
+		"an indented table":       "\n    | Id | With | Direction | One line |\n    | --- | --- | --- | --- |\n    | Q-Z9 | store | need | an example |\n",
+		"a quoted table":          "\n> | Id | With | Direction | One line |\n> | --- | --- | --- | --- |\n> | Q-Z9 | store | need | an example |\n",
+		"another table":           "\n| Area | Owner | Needs |\n| --- | --- | --- |\n| store | ST-05 | needs review |\n",
+		"a fenced heading":        "\n```\n## 99. Not a heading\n```\n",
+		"a heading in a code run": "\n    ## 99. Not a heading\n",
+	} {
+		t.Run("a design's "+name, func(t *testing.T) {
+			none(t, broken(t, func(m fstest.MapFS) {
+				insertAfter(t, m, path.Join(DesignDir, "ledger.md"), contractsHeading(t, m, "ledger.md"), text)
+			}))
+		})
+	}
+	t.Run("a fenced copy of a matrix row", func(t *testing.T) {
+		none(t, broken(t, func(m fstest.MapFS) {
+			r := row(t, m, "V-D9", "deliver.md")
+			insertAfter(t, m, MatrixFile, "## Needs", "\n```\n| Need | Design | Consumer | Provider | Where |\n| --- | --- | --- | --- | --- |\n"+r+"\n```\n")
+		}))
+	})
+	t.Run("a matrix row moved into a fence", func(t *testing.T) {
+		once(t, broken(t, func(m fstest.MapFS) {
+			r := row(t, m, "V-D9", "deliver.md")
+			edit(t, m, MatrixFile, r+"\n", "")
+			insertAfter(t, m, MatrixFile, "## Needs", "\n```\n| Need | Design | Consumer | Provider | Where |\n| --- | --- | --- | --- | --- |\n"+r+"\n```\n")
+		}), "a", MatrixFile, "V-D9 (deliver.md)", "no row")
+	})
+	for name, text := range map[string]string{
+		"a fenced Id table": "\n```\n| Id | Package |\n| --- | --- |\n| ZZ-77 | an example |\n```\n",
+		"a quoted Id table": "\n> | Id | Package |\n> | --- | --- |\n> | ZZ-77 | an example |\n",
+		"another table":     "\n| Track | Package |\n| --- | --- |\n| ZZ-77 | an example |\n",
+	} {
+		t.Run("the plan's "+name, func(t *testing.T) {
+			ps := broken(t, func(m fstest.MapFS) {
+				insertAfter(t, m, PlanFile, "### Stage 1", text)
+				plan, err := parsePlan(string(m[PlanFile].Data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, ok := plan["ZZ-77"]; ok {
+					t.Error("ZZ-77 is read as a plan id")
+				}
+				addCard(m, "ZZ-77.md", "# ZZ-77: a made-up card\n")
+			})
+			once(t, ps, "d", path.Join(CardsDir, "ZZ-77.md"), "ZZ-77")
+		})
+	}
+	// The same table, plain, does make a plan id, so the cases above test
+	// the fence and the header, not the card.
+	t.Run("the plan's Id table", func(t *testing.T) {
+		none(t, broken(t, func(m fstest.MapFS) {
+			insertAfter(t, m, PlanFile, "### Stage 1", "\n| Id | Package |\n| --- | --- |\n| ZZ-77 | an example |\n")
+			addCard(m, "ZZ-77.md", "# ZZ-77: a made-up card\n")
+		}))
+	})
+	for name, label := range map[string]string{
+		"fenced":   "```\n**Depends on:** ZZ-99\n```",
+		"indented": "    **Depends on:** ZZ-99",
+		"quoted":   "> **Depends on:** ZZ-99",
+		"in code":  "A `**Depends on:** ZZ-99` label.",
+	} {
+		t.Run("a card's "+name+" label", func(t *testing.T) {
+			none(t, broken(t, func(m fstest.MapFS) {
+				addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card ("+freePlanID(t, m, 0)+")\n\n"+label+"\n")
+			}))
+		})
+	}
 }
 
 func TestRuleBIdsAndWords(t *testing.T) {
@@ -327,6 +625,12 @@ func TestRuleBIdsAndWords(t *testing.T) {
 			}), "b", MatrixFile, "C-D1 (ledger.md)", c.says)
 		})
 	}
+	t.Run("nowhere", func(t *testing.T) {
+		once(t, broken(t, func(m fstest.MapFS) {
+			r := row(t, m, "C-D1", "ledger.md")
+			edit(t, m, MatrixFile, r, withCell(t, r, 4, ""))
+		}), "b", MatrixFile, "C-D1 (ledger.md)", "nowhere")
+	})
 }
 
 func TestRuleCNoProviderAfterItsConsumer(t *testing.T) {
@@ -335,63 +639,92 @@ func TestRuleCNoProviderAfterItsConsumer(t *testing.T) {
 		edit(t, m, MatrixFile, r, withCells(t, r, "LG-21", "DV-12, DL-16"))
 	}), "c", MatrixFile, "C-D1 (ledger.md)", "DL-16 is in Stage 3", "LG-21 in Stage 2")
 	// The same stage, and an earlier one, are allowed.
-	if ps := broken(t, func(m fstest.MapFS) {
+	none(t, broken(t, func(m fstest.MapFS) {
 		r := row(t, m, "C-D1", "ledger.md")
 		edit(t, m, MatrixFile, r, withCells(t, r, "LG-21, DL-16", "DV-12, ST-05, SEAM-0"))
-	}); len(ps) != 0 {
-		t.Errorf("got %v", ps)
-	}
+	}))
 }
 
 func TestRuleDEveryCardNamesAPlanPackage(t *testing.T) {
-	t.Run("a title with its id dropped", func(t *testing.T) {
+	t.Run("a card with no plan id", func(t *testing.T) {
 		once(t, broken(t, func(m fstest.MapFS) {
-			edit(t, m, path.Join(CardsDir, "CT-3.md"), "# CT-3: capture checked against the host's own record (LG-02)", "# CT-3: capture checked against the host's own record")
-		}), "d", path.Join(CardsDir, "CT-3.md"), "CT-3")
+			addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card\n")
+		}), "d", path.Join(CardsDir, "ZZ-1.md"), "ZZ-1")
 	})
-	t.Run("a new card", func(t *testing.T) {
+	t.Run("a card whose brackets hold no plan id", func(t *testing.T) {
 		once(t, broken(t, func(m fstest.MapFS) {
-			m[path.Join(CardsDir, "ZZ-1.md")] = &fstest.MapFile{Data: []byte("# ZZ-1: a made-up card (ZZ-2, LG-03)\n")}
+			addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card (ZZ-2, LG-03)\n")
+		}), "d", path.Join(CardsDir, "ZZ-1.md"), "ZZ-1")
+	})
+	t.Run("a card whose plan id is only in code", func(t *testing.T) {
+		once(t, broken(t, func(m fstest.MapFS) {
+			addCard(m, "ZZ-1.md", "```\n# ZZ-1: an example ("+freePlanID(t, m, 0)+")\n```\n# ZZ-1: a made-up card\n")
 		}), "d", path.Join(CardsDir, "ZZ-1.md"), "ZZ-1")
 	})
 	t.Run("a card named by its plan id in brackets", func(t *testing.T) {
-		if ps := broken(t, func(m fstest.MapFS) {
-			m[path.Join(CardsDir, "ZZ-1.md")] = &fstest.MapFile{Data: []byte("# ZZ-1: a made-up card (EV-12)\n")}
-		}); len(ps) != 0 {
-			t.Errorf("got %v", ps)
-		}
+		none(t, broken(t, func(m fstest.MapFS) {
+			addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card ("+freePlanID(t, m, 0)+")\n")
+		}))
+	})
+	t.Run("a card named by its file", func(t *testing.T) {
+		none(t, broken(t, func(m fstest.MapFS) {
+			addCard(m, freePlanID(t, m, 0)+"b.md", "# a made-up card\n")
+		}))
+	})
+	t.Run("a file that is no Markdown", func(t *testing.T) {
+		once(t, broken(t, func(m fstest.MapFS) {
+			addCard(m, "ZZ-1.txt", "# ZZ-1: a made-up card\n")
+		}), "d", path.Join(CardsDir, "ZZ-1.txt"), "no Markdown")
+	})
+	t.Run("hidden files", func(t *testing.T) {
+		none(t, broken(t, func(m fstest.MapFS) {
+			addCard(m, ".DS_Store", "\x00\x00\x00\x01Bud1")
+			addCard(m, ".ZZ-1.md.swp", "b0VIM")
+		}))
 	})
 }
 
 func TestRuleEDependsOnPlanIdsAndCards(t *testing.T) {
-	file := path.Join(CardsDir, "IF-01a.md")
+	file := path.Join(CardsDir, "ZZ-1.md")
 	once(t, broken(t, func(m fstest.MapFS) {
-		edit(t, m, file, "**Depends on:** SEAM-0a, c and d,", "**Depends on:** SEAM-0a, LG-03, c and d,")
-	}), "e", file, "IF-01a", "LG-03")
-	// A card's id and a plan id are both allowed.
-	if ps := broken(t, func(m fstest.MapFS) {
-		edit(t, m, file, "**Depends on:** SEAM-0a, c and d,", "**Depends on:** SEAM-0a, CT-3b, DL-26, c and d,")
-	}); len(ps) != 0 {
-		t.Errorf("got %v", ps)
-	}
+		addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card ("+freePlanID(t, m, 0)+")\n\n**Plan:** none. **Depends on:** SEAM-0a, LG-03, c and d. **Part of:** nothing.\n")
+	}), "e", file, "ZZ-1", "LG-03")
+	t.Run("after a bold word", func(t *testing.T) {
+		once(t, broken(t, func(m fstest.MapFS) {
+			addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card ("+freePlanID(t, m, 0)+")\n\n**Depends on:** SEAM-0 (**merged**), ZZ-99, c and d. **Part of:** nothing.\n")
+		}), "e", file, "ZZ-1", "ZZ-99")
+	})
+	t.Run("on the paragraph's next line", func(t *testing.T) {
+		once(t, broken(t, func(m fstest.MapFS) {
+			addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card ("+freePlanID(t, m, 0)+")\n\n**Depends on:** SEAM-0 and\nZZ-99.\n")
+		}), "e", file, "ZZ-1", "ZZ-99")
+	})
+	t.Run("a card's id and a plan id", func(t *testing.T) {
+		none(t, broken(t, func(m fstest.MapFS) {
+			addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card ("+freePlanID(t, m, 0)+")\n\n**Depends on:** "+anyCard(t, m)+", DL-26, c and d.\n")
+		}))
+	})
 }
 
 func TestRuleFACardFailsOnANeedWithNoProvider(t *testing.T) {
+	file := path.Join(CardsDir, "ZZ-1.md")
 	for _, word := range []string{"open", "later", "dropped"} {
 		t.Run(word, func(t *testing.T) {
 			once(t, broken(t, func(m fstest.MapFS) {
+				pkg := freePlanID(t, m, 2)
+				addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card ("+pkg+")\n")
 				r := row(t, m, "C-D1", "ledger.md")
-				edit(t, m, MatrixFile, r, withCells(t, r, "LG-11", word))
-			}), "f", path.Join(CardsDir, "LG-11.md"), "LG-11", "C-D1 (ledger.md)", "provider is "+word)
+				edit(t, m, MatrixFile, r, withCells(t, r, pkg, word))
+			}), "f", file, "ZZ-1", "C-D1 (ledger.md)", "provider is "+word)
 		})
 	}
 	// A card whose package is a consumer of a row with a provider passes.
-	if ps := broken(t, func(m fstest.MapFS) {
+	none(t, broken(t, func(m fstest.MapFS) {
+		pkg := freePlanID(t, m, 2)
+		addCard(m, "ZZ-1.md", "# ZZ-1: a made-up card ("+pkg+")\n")
 		r := row(t, m, "C-D1", "ledger.md")
-		edit(t, m, MatrixFile, r, withCells(t, r, "LG-21, LG-11", "DV-12"))
-	}); len(ps) != 0 {
-		t.Errorf("got %v", ps)
-	}
+		edit(t, m, MatrixFile, r, withCells(t, r, "LG-21, "+pkg, "DV-12"))
+	}))
 }
 
 func TestRuleGEveryFakeExistsOrWaits(t *testing.T) {
@@ -399,26 +732,64 @@ func TestRuleGEveryFakeExistsOrWaits(t *testing.T) {
 		{"waits on no package", "`waits: ZZ-1`", "waits: ZZ-1"},
 		{"no such folder", "`internal/ledger/nowhere`", "internal/ledger/nowhere"},
 		{"a path out of the root", "`../internal/ledger`", "../internal/ledger"},
+		{"the root", "`.`", `"."`},
+		{"open where the card names a fake", "`open`", "ST-05, LG-22, LG-23"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			once(t, broken(t, func(m fstest.MapFS) {
-				edit(t, m, MatrixFile, "| The reader | `ledger.Reader` | LG-10 | `waits: IF-01b` |", "| The reader | `ledger.Reader` | LG-10 | "+c.fake+" |")
-			}), "g", MatrixFile, "The reader", c.says)
+				r := fakeLine(t, m, "LG-10")
+				edit(t, m, MatrixFile, r, withCell(t, r, 3, c.fake))
+			}), "g", MatrixFile, "reader", c.says)
 		})
 	}
+	t.Run("open for a package the card lets be", func(t *testing.T) {
+		none(t, broken(t, func(m fstest.MapFS) {
+			r := fakeLine(t, m, "ST-05")
+			edit(t, m, MatrixFile, r, withCell(t, r, 3, "`open`"))
+		}))
+	})
 	t.Run("a folder that exists", func(t *testing.T) {
-		if ps := broken(t, func(m fstest.MapFS) {
+		none(t, broken(t, func(m fstest.MapFS) {
 			m["internal/ledger/ledgertest/fake.go"] = &fstest.MapFile{Data: []byte("package ledgertest\n")}
-			edit(t, m, MatrixFile, "| The reader | `ledger.Reader` | LG-10 | `waits: IF-01b` |", "| The reader | `ledger.Reader` | LG-10 | `internal/ledger/ledgertest` |")
-		}); len(ps) != 0 {
-			t.Errorf("got %v", ps)
-		}
+			r := fakeLine(t, m, "LG-10")
+			edit(t, m, MatrixFile, r, withCell(t, r, 3, "`internal/ledger/ledgertest`"))
+		}))
 	})
 	t.Run("a file is no folder", func(t *testing.T) {
 		once(t, broken(t, func(m fstest.MapFS) {
 			m["internal/ledger/ledgertest/fake.go"] = &fstest.MapFile{Data: []byte("package ledgertest\n")}
-			edit(t, m, MatrixFile, "| The reader | `ledger.Reader` | LG-10 | `waits: IF-01b` |", "| The reader | `ledger.Reader` | LG-10 | `internal/ledger/ledgertest/fake.go` |")
-		}), "g", MatrixFile, "The reader")
+			r := fakeLine(t, m, "LG-10")
+			edit(t, m, MatrixFile, r, withCell(t, r, 3, "`internal/ledger/ledgertest/fake.go`"))
+		}), "g", MatrixFile, "reader")
+	})
+	t.Run("an interface the card lists with no row", func(t *testing.T) {
+		once(t, broken(t, func(m fstest.MapFS) {
+			edit(t, m, MatrixFile, fakeLine(t, m, "LG-10")+"\n", "")
+		}), "g", MatrixFile, "LG-10")
+	})
+	t.Run("no table of interfaces", func(t *testing.T) {
+		once(t, broken(t, func(m fstest.MapFS) {
+			text := string(m[MatrixFile].Data)
+			i := strings.Index(text, "| Interface | Go name | Provider | Fake |")
+			if i < 0 {
+				t.Fatal("the matrix has no table of interfaces")
+			}
+			end := strings.Index(text[i:], "\n\n")
+			if end < 0 {
+				end = len(text) - i
+			}
+			m[MatrixFile].Data = []byte(text[:i] + text[i+end:])
+		}), "g", MatrixFile, "the matrix", "has no table headed")
+	})
+	t.Run("the table of interfaces with its columns moved", func(t *testing.T) {
+		ps := broken(t, func(m fstest.MapFS) {
+			edit(t, m, MatrixFile, "| Interface | Go name | Provider | Fake |", "| Interface | Go name | Fake | Provider |")
+		})
+		if len(ps) != 2 {
+			t.Fatalf("want two problems, got %v", ps)
+		}
+		has(t, ps, "g", MatrixFile, "Interface | Go name | Fake | Provider", "is under")
+		has(t, ps, "g", MatrixFile, "the matrix", "has no table headed")
 	})
 }
 

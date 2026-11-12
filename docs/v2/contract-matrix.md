@@ -103,7 +103,7 @@ A card fails the check when one of its packages consumes a row whose provider is
 
 ## Interfaces and fakes
 
-Each track's interface is written by its first package, and IF-01 adds a fake of it that other tracks' tests import. A fake is a folder, `waits:` and the package or card that will build it, or `open`.
+Each track's interface is written by its first package, and IF-01 adds a fake of it that other tracks' tests import. A fake is a folder, or `waits:` and the package or card that will build it; for ST-05, LG-22 and LG-23 alone, it may be `open`.
 
 | Interface | Go name | Provider | Fake |
 | --- | --- | --- | --- |
