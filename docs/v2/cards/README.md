@@ -43,7 +43,7 @@ Rules every card carries, so they are said once here:
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | ready |
 | [EV-03b](EV-03b.md) | The pilot's driver | after EV-03a; the live run waits for the owner's leave, a ceiling and decision 28's keys |
 | [EV-03c](EV-03c.md) | The pilot's report and its README | after EV-03a; beside EV-03b |
-| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | ready after EV-14d; merges before DV-13 |
+| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | ready; merges before DV-13 |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
@@ -79,7 +79,7 @@ Rules every card carries, so they are said once here:
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged; owed as test files only: one case for the second exemption's "still in force" |
 | [EV-14c](EV-14c.md) | Six new families, half held out | ready |
-| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | ready; before EV-10a |
+| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged; owed: no suite row from fewer than twelve pages |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | ready |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | after EV-17a |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
