@@ -47,16 +47,16 @@ Rules every card carries, so they are said once here:
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
-| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | building since 2026-11-11 |
+| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | built, on a branch; in review since 2026-11-12 (redaction), and merges when its reviewers and a verifier pass it |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | ready |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | built, on a branch; in review since 2026-11-12 (it changes every hook), and merges when its reviewers and a verifier pass it |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | ready |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
-| [HO-10b](HO-10b.md) | Install and setup ask the adapter | built, on a branch; in review since 2026-11-12, and merges when its reviewer and a verifier pass it |
-| [HO-11](HO-11.md) | The install manifest | after HO-10a and HO-10b |
-| [HO-12a](HO-12a.md) | Health's host names through the adapter | after HO-10b |
+| [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
+| [HO-11](HO-11.md) | The install manifest | ready |
+| [HO-12a](HO-12a.md) | Health's host names through the adapter | ready |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b and SEAM-0b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
@@ -67,17 +67,17 @@ Rules every card carries, so they are said once here:
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | building since 2026-11-11 |
+| [EV-11](EV-11.md) | Ownership and size checks | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
-| [IF-01b](IF-01b.md) | The reader's fake | building since 2026-11-11 |
+| [IF-01b](IF-01b.md) | The reader's fake | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
-| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | building since 2026-11-11 |
+| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | built, on a branch; its review waits for room on the build machine |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
-| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | building since 2026-11-11 |
+| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | built, on a branch; its review waits for room on the build machine |
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
-| [ST-04](ST-04.md) | The migrator and the minimum reader version | building since 2026-11-11 |
+| [ST-04](ST-04.md) | The migrator and the minimum reader version | built, on a branch; in review since 2026-11-12 |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
-| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | building since 2026-11-11 |
+| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | built and fixed, on a branch; its closing verification runs since 2026-11-12 |
 | [EV-14c](EV-14c.md) | Six new families, half held out | after EV-14a and EV-14b |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | after EV-14a and EV-14b, before EV-10a |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | ready |
