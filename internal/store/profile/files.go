@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/ledger/event"
+	"github.com/heyNag/eva-md/internal/store/codec"
 )
 
 // handEdits reads every hand-edit record, so the checks of each file know
@@ -83,7 +84,7 @@ func (c *checker) textFile(l loc) ([]string, bool) {
 		c.fault(l.path, "", "unreadable", "cannot be read")
 		return nil, false
 	}
-	if why := unreadableReason(b); why != "" {
+	if why := codec.UnreadableText(b); why != "" {
 		c.fault(l.path, "", "unreadable", "a record or static file holds "+why)
 		return nil, false
 	}
@@ -114,7 +115,7 @@ func (c *checker) file(l loc) {
 	case "index":
 		if c.hand[l.path] {
 			// A person's index is their text; it need only be readable.
-			if b, err := c.read(l.path); err != nil || unreadableReason(b) != "" {
+			if b, err := c.read(l.path); err != nil || codec.UnreadableText(b) != "" {
 				c.fault(l.path, "", "unreadable", "a static file cannot be read")
 			}
 			return
@@ -138,7 +139,7 @@ func (c *checker) file(l loc) {
 	if max := caps[l.class]; max > 0 && len(b) > max {
 		c.fault(l.path, "", "size", "is "+itoa(len(b))+" bytes, over "+itoa(max))
 	}
-	d := parseDoc(l.path, b)
+	d := load(l.path, b)
 	d.loc, d.hand = l, c.hand[l.path]
 	if d.unreadable != "" {
 		if l.class == "readme" {
@@ -154,8 +155,8 @@ func (c *checker) file(l loc) {
 	if l.class == "readme" && !d.hand && namesLibrary(string(b)) {
 		c.fault(l.path, "", "name", "the file names the library")
 	}
-	if p := d.protection(); p != (Protection{}) {
-		c.rep.Protected[l.path] = p
+	if d.prot != (Protection{}) {
+		c.rep.Protected[l.path] = d.prot
 	}
 	c.frontmatter(d)
 	c.files[l.path] = d
@@ -187,19 +188,25 @@ func (c *checker) file(l loc) {
 // frontmatter checks what holds for every document's block.
 func (c *checker) frontmatter(d *doc) {
 	seen := map[string]bool{}
+	mayProtect := slices.Contains([]string{"item-file", "workstream-file", "system-page"}, d.loc.class)
+	// Which marks an entry's fault has named: an unknown key or a merge is
+	// faulted once, under locked, and names both.
+	var carriedLocked, carriedVerified bool
 	for _, e := range d.entries {
-		if namesLibrary(e.key) {
-			c.fault(d.path, e.key, "name", "a key names the library")
+		if namesLibrary(e.Key) {
+			c.fault(d.path, e.Key, "name", "a key names the library")
 		}
-		if e.key == "locked" || e.key == "verified" || e.key == unknownKey || e.key == mergeKey {
-			if !slices.Contains([]string{"item-file", "workstream-file", "system-page"}, d.loc.class) {
-				rule := e.key
+		if e.Key == "locked" || e.Key == "verified" || e.Key == unknownKey || e.Key == mergeKey {
+			if !mayProtect {
+				rule := e.Key
 				if rule != "verified" {
 					rule = "locked"
 				}
-				c.fault(d.path, e.key, rule, "only items, workstreams and system pages may carry it")
+				c.fault(d.path, e.Key, rule, "only items, workstreams and system pages may carry it")
+				carriedLocked = carriedLocked || e.Key != "verified"
+				carriedVerified = carriedVerified || e.Key != "locked"
 			}
-			if e.key == "verified" && e.written {
+			if e.Key == "verified" && e.Written {
 				checkVerified(c, d, e)
 			}
 			continue
@@ -207,13 +214,22 @@ func (c *checker) frontmatter(d *doc) {
 		if d.hand || d.loc.class == "system-page" {
 			continue
 		}
-		if seen[e.key] {
-			c.fault(d.path, e.key, "frontmatter", "the key is repeated")
+		if seen[e.Key] {
+			c.fault(d.path, e.Key, "frontmatter", "the key is repeated")
 		}
-		seen[e.key] = true
-		if !slices.Contains(allowed[d.loc.class], e.key) {
-			c.fault(d.path, e.key, "frontmatter", "the key is not one of the class's")
+		seen[e.Key] = true
+		if !slices.Contains(allowed[d.loc.class], e.Key) {
+			c.fault(d.path, e.Key, "frontmatter", "the key is not one of the class's")
 		}
+	}
+	// A mark on no entry the codec reads as the key, such as "locked:false"
+	// or a line with a tab before its key, still protects, and is still
+	// carried: each mark no entry's fault named has a fault of its own.
+	if !mayProtect && d.prot.Locked && !carriedLocked {
+		c.fault(d.path, "locked", "locked", "only items, workstreams and system pages may carry it")
+	}
+	if !mayProtect && d.prot.Verified && !carriedVerified {
+		c.fault(d.path, "verified", "verified", "only items, workstreams and system pages may carry it")
 	}
 	if d.hand || d.loc.class == "system-page" {
 		return
@@ -222,16 +238,16 @@ func (c *checker) frontmatter(d *doc) {
 		c.fault(d.path, "", "written-form", "line "+itoa(n)+" is in no written form")
 	}
 	for _, e := range d.entries {
-		if !e.written {
-			c.fault(d.path, e.key, "written-form", "line "+itoa(e.line)+" is in no written form")
+		if !e.Written {
+			c.fault(d.path, e.Key, "written-form", "line "+itoa(e.Line)+" is in no written form")
 		}
 	}
 }
 
-func checkVerified(c *checker, d *doc, e *entry) {
-	list, isList := e.val.([]any)
+func checkVerified(c *checker, d *doc, e codec.Entry) {
+	list, isList := e.Value.([]any)
 	if !isList {
-		list = []any{e.val}
+		list = []any{e.Value}
 	}
 	for _, v := range list {
 		m, _ := v.(map[string]any)
@@ -568,7 +584,7 @@ func (c *checker) workstream(f fc) {
 	}
 	seen := map[string]bool{}
 	for _, sec := range []struct{ name, letter string }{{"Next steps", "n"}, {"Open questions", "q"}} {
-		lines, _ := f.section(sec.name)
+		lines, _ := f.d.under(sec.name)
 		for _, line := range lines {
 			m := reWorkLine.FindStringSubmatch(line)
 			if m == nil || !validID(m[2], sec.letter[0]) || seen[m[2]] {
@@ -578,7 +594,7 @@ func (c *checker) workstream(f fc) {
 			seen[m[2]] = true
 		}
 	}
-	lines, _ := f.section("Decisions in force")
+	lines, _ := f.d.under("Decisions in force")
 	for _, line := range lines {
 		m := reInForce.FindStringSubmatch(line)
 		if m == nil {
@@ -591,7 +607,7 @@ func (c *checker) workstream(f fc) {
 			if c.rep.Protected[target].Unreadable && strings.HasPrefix(target, l.area+"/items/") {
 				return // what it holds cannot be read, so it cannot be held against the link
 			}
-			if t == nil || t.loc.class != "item-file" || t.loc.area != l.area || t.get("type") == nil || t.get("type").raw != "decision" || t.get("state") == nil || t.get("state").raw != "active" {
+			if t == nil || t.loc.class != "item-file" || t.loc.area != l.area || t.get("type") == nil || t.get("type").Scalar != "decision" || t.get("state") == nil || t.get("state").Scalar != "active" {
 				f.fault("", "decisions-in-force", "/"+target+" is not an active decision of the project")
 			} else if by := c.supersededBy(t.loc.id); by != "" {
 				f.fault("", "decisions-in-force", "/"+target+" is superseded by "+by)
@@ -611,17 +627,17 @@ func (c *checker) supersededBy(id string) string {
 	for _, p := range paths {
 		d := c.files[p]
 		state, sup := d.get("state"), d.get("supersedes")
-		if d.loc.class != "item-file" || state == nil || state.raw != "active" || sup == nil {
+		if d.loc.class != "item-file" || state == nil || state.Scalar != "active" || sup == nil {
 			continue
 		}
-		if !sup.written {
+		if !sup.Written {
 			// A person's line, read for the id in any form.
-			if strings.Contains(sup.rest+"\n"+strings.Join(sup.cont, "\n"), id) {
+			if strings.Contains(sup.Text, id) {
 				return d.loc.id
 			}
 			continue
 		}
-		list, _ := sup.val.([]any)
+		list, _ := sup.Value.([]any)
 		for _, v := range list {
 			if s, _ := v.(string); s == id {
 				return d.loc.id
@@ -655,7 +671,7 @@ func (c *checker) session(f fc) {
 	f.generated()
 	c.covers(f)
 	srcs, srcOK := f.sources(0, 0, false)
-	lines, found := f.section("Log")
+	lines, found := f.d.under("Log")
 	if !found {
 		f.fault("", "log", "there is no ## Log")
 	}
