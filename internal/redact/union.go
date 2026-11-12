@@ -23,9 +23,14 @@ import (
 // only the current rules run, and TestOracle holds them to the baseline on
 // the labelled corpus and the generated secrets of its tests, and on nothing
 // else: there, no secret the baseline rules remove is kept, but for the gap
-// classes it records, shapes in which the current rules alone are known to
-// keep such secrets (testdata/corpus/oracle_gaps.txt). So the switch is not
-// safe to turn on while a gap class remains. It reaches Redact through
+// classes it records (testdata/corpus/oracle_gaps.txt). Every shape of code
+// the current rules keep on purpose (plainCode, and the comparison
+// floorValue leaves alone), such as a YAML alias, a name before an index, a
+// type annotation or a regular expression literal, is one the baseline rules
+// remove, so a secret in that shape is kept with the switch on and removed
+// with it off. The switch is not safe to turn on until a rule change has
+// closed each of those shapes and the oracle holds the rules to each, not
+// merely until the recorded gap classes are gone. It reaches Redact through
 // SetBaselineAtRunTime, which config.LoadContext calls. Redacting the result
 // again changes nothing then too.
 //

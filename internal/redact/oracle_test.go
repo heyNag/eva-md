@@ -1,10 +1,13 @@
 package redact
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/heyNag/eva-md/internal/redact/baseline"
 )
 
 // The frozen baseline as an oracle (decision 7 of the plan): for every
@@ -22,6 +25,50 @@ import (
 // other class is held to none.
 func oracleGap(class string) bool {
 	return strings.HasPrefix(strings.TrimPrefix(class, "gen_"), "oracle_gap_")
+}
+
+// oracleGapShapes are the gap classes, as oracle_gap_<shape>: each shape of
+// code that the current rules keep on purpose (plainCode in redact.go, and
+// the comparison floorValue leaves alone) and the baseline rules remove,
+// where a secret can take that shape. Each has cases in
+// corpus/oracle_gaps.txt and a generator, and examples, one for each
+// exception it stands for, made up and joined from parts so no line holds a
+// whole one. The value is the part of the example the baseline rules
+// replace.
+var oracleGapShapes = []struct {
+	shape    string
+	examples []struct{ text, value string }
+}{
+	{"regex_value", []struct{ text, value string }{
+		// After a spaced separator, a regular expression literal.
+		{"SECRET_KEY: /Qm7Rt2+" + "Wx9Lp4Zk/n", "/Qm7Rt2+" + "Wx9Lp4Zk/n"},
+	}},
+	{"yaml_alias", []struct{ text, value string }{
+		// After ':', a YAML alias made of words.
+		{"password: *Summer2" + "Winter", "*Summer2" + "Winter"},
+		// After a spaced "==", a comparison, which floorValue leaves to the
+		// other rules: they keep a value of words after a '*'.
+		{"token == *Winter0" + "Meadow", "*Winter0" + "Meadow"},
+	}},
+	{"name_index", []struct{ text, value string }{
+		// An index on a member path or an instance variable.
+		{"password: Summer." + "Winter[2]", "Summer." + "Winter"},
+		{"password: @summer_" + "winter[x9]", "@summer_" + "winter"},
+		// A block after a member path.
+		{"password: Walnut." + "Cobalt { x }", "Walnut." + "Cobalt"},
+		// An index by a quoted name.
+		{`password: hunter` + `Two["ab"]`, "hunter" + "Two"},
+		// After ':' or a spaced '=', a literal or index on a name of two or
+		// more words.
+		{"password = hunter" + "Two[x9]", "hunter" + "Two"},
+		{"api_key: canyon" + "River{ab}", "canyon" + "River"},
+	}},
+	{"type_annotation", []struct{ text, value string }{
+		// A type annotation, as a union of types.
+		{"secret: aB3dE5" + "fG7hJ2 | None", "aB3dE5" + "fG7hJ2"},
+		// A chained assignment.
+		{"password: Xk9mP2" + "vLq7Rt = 1", "Xk9mP2" + "vLq7Rt"},
+	}},
 }
 
 // oracleViolations returns, for each secret of cases that the baseline
@@ -90,10 +137,18 @@ func TestOracle(t *testing.T) {
 		}
 		t.Errorf("the current rules alone keep a secret the baseline rules remove: %s", b)
 	}
-	if !gapClasses["oracle_gap_regex_value"] || !gapClasses["gen_oracle_gap_regex_value"] {
-		t.Fatalf("the gap the oracle found is not in the corpus and the generators: %v", gapClasses)
+	known := map[string]bool{}
+	for _, g := range oracleGapShapes {
+		class := "oracle_gap_" + g.shape
+		known[class], known["gen_"+class] = true, true
+		if !gapClasses[class] || !gapClasses["gen_"+class] {
+			t.Errorf("gap class %s is not in the corpus and the generators: %v", class, gapClasses)
+		}
 	}
 	for _, class := range slices.Sorted(boolKeys(gapClasses)) {
+		if !known[class] {
+			t.Errorf("gap class %s is not in oracleGapShapes", class)
+		}
 		if gaps[class] == 0 {
 			t.Errorf("gap class %s has no violation left: move its cases to the class of their shape", class)
 		}
@@ -152,26 +207,62 @@ func TestOracleExcusesOnlyTheGapClasses(t *testing.T) {
 	m := measure(t)
 	alone := func(i int) string { return m.alone[i].out }
 	cases := slices.Clone(m.cases)
-	moved := 0
+	moved := map[string]bool{}
 	for i := range cases {
 		if oracleGap(cases[i].class) {
 			cases[i].class = strings.Replace(cases[i].class, "oracle_gap_", "key_value_", 1)
-			moved++
+			moved[cases[i].class] = true
 		}
 	}
-	if moved == 0 {
-		t.Fatal("no gap class")
+	if len(moved) != 2*len(oracleGapShapes) {
+		t.Fatalf("gap classes moved: %v, want the corpus's and the generators' of %d shapes", moved, len(oracleGapShapes))
 	}
 	bad, gaps, _ := oracleViolations(m, cases, alone)
 	if len(bad) == 0 || len(gaps) != 0 {
 		t.Fatalf("with the gap classes renamed: %d violations, gaps %v", len(bad), gaps)
 	}
+	seen := map[string]bool{}
 	for _, b := range bad {
-		if !strings.Contains(b, "_regex_value, ") {
-			t.Fatalf("a violation outside the gap's cases: %s", b)
+		class, _, _ := strings.Cut(strings.TrimPrefix(b, "class "), ",")
+		if !moved[class] {
+			t.Fatalf("a violation outside the gaps' cases: %s", b)
 		}
+		seen[class] = true
+	}
+	if len(seen) != len(moved) {
+		t.Fatalf("violations in %v, want one in each of %v", seen, moved)
 	}
 	if bad, gaps, _ := oracleViolations(m, m.cases, func(int) string { return "" }); len(bad)+len(gaps) != 0 {
 		t.Fatalf("an engine that keeps nothing: %v, gaps %v", bad, gaps)
+	}
+}
+
+// Each gap class stands for exceptions of plainCode that a secret can take:
+// on each example, the baseline rules and v1 remove the value, and the
+// current rules alone, as Redact runs them with the switch on, keep it. When
+// a rule change closes an exception, this fails on its example: drop the
+// example, and once a shape has none left, move its cases to the class of
+// their shape and drop the shape. An exception of plainCode with no example
+// here is a gap the oracle may not see.
+func TestOracleGapShapesAreWhatPlainCodeKeeps(t *testing.T) {
+	isolate(t)
+	currentRulesOnly(t)
+	for _, g := range oracleGapShapes {
+		if len(g.examples) == 0 {
+			t.Errorf("gap shape %s has no example", g.shape)
+		}
+		for _, e := range g.examples {
+			if !strings.Contains(e.text, e.value) {
+				t.Fatalf("%s: example %q does not hold %q", g.shape, e.text, e.value)
+			}
+			base, _ := baseline.Redact(e.text)
+			v1 := Apply(driver{ctx: context.Background()}.scan(e.text))
+			if keeps(base, e.value) || keeps(v1, e.value) {
+				t.Errorf("%s: the baseline rules or v1 keep the value of %q: %q, %q", g.shape, e.text, base, v1)
+			}
+			if alone, _ := Redact(e.text); !keeps(alone, e.value) {
+				t.Errorf("%s: the current rules alone now remove the value of %q (%q): this exception is closed", g.shape, e.text, alone)
+			}
+		}
 	}
 }

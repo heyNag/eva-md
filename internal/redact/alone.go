@@ -11,12 +11,14 @@ var baselineOff atomic.Bool
 // of what both remove, as v1 does, or run the current rules alone (decision
 // 7 of the plan). TestOracle holds the current rules alone to remove every
 // secret of its corpus and generators that the baseline rules remove, but
-// for the gap classes it records (see Redact): while one remains, the
-// current rules alone keep secrets v1 removes. It is on until a caller
-// turns it off; config.LoadContext sets it from the switch
-// redaction_current_rules_only of every config it returns. It is safe for
-// concurrent use. RedactKnown and Identifier never run the baseline rules
-// and do not change with it.
+// for the gap classes it records: the shapes of code the current rules keep
+// on purpose and the baseline rules remove. With the baseline rules off,
+// Redact keeps every secret in such a shape, which v1 removes, so they stay
+// on until each shape is closed and the oracle holds the rules to it (see
+// Redact). It is on until a caller turns it off; config.LoadContext sets it
+// from the switch redaction_current_rules_only of every config it returns.
+// It is safe for concurrent use. RedactKnown and Identifier never run the
+// baseline rules and do not change with it.
 func SetBaselineAtRunTime(on bool) { baselineOff.Store(!on) }
 
 // BaselineAtRunTime reports whether Redact and Scan run the baseline rules

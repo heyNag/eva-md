@@ -71,11 +71,23 @@ rules.
 `TestOracle` holds the current rules alone to the frozen baseline: a secret
 the baseline rules remove must not be kept. A class whose name starts with
 `oracle_gap_`, in `oracle_gaps.txt`, or `gen_oracle_gap_` from a generator,
-records a shape in which the oracle found the current rules alone keeping
-such secrets. No rule is changed for it here, and the measure is not
-loosened: its violations are counted apart, as `oracle_gap_violations` in
+records a shape in which the current rules alone keep such secrets: a shape
+of code that the current rules keep on purpose (the exceptions `plainCode`
+in `redact.go` lists, and the comparison `floorValue` leaves alone) and the
+baseline rules remove. A secret can take any of those shapes, so each is a
+gap. The classes are `regex_value`, `yaml_alias`, `name_index` and
+`type_annotation`; `oracleGapShapes` in `oracle_test.go` names them, with an
+example of each exception, and `TestOracleGapShapesAreWhatPlainCodeKeeps`
+checks that the current rules alone keep each example and the baseline rules
+remove it. No rule is changed for them here, and the measure is not
+loosened: their violations are counted apart, as `oracle_gap_violations` in
 `../rates.txt`, every other class is still held to none, and `TestOracle`
 fails when a gap class has no violation left, so the rule change that closes
-it (LG-26) moves its cases to the class of their shape. While a gap class
-exists, the switch `redaction_current_rules_only` keeps secrets that v1
-removes, and stays off.
+one (LG-26) moves its cases to the class of their shape.
+
+The switch `redaction_current_rules_only` keeps every secret in such a
+shape, which v1 removes. It stays off until a rule change has closed each of
+those shapes and the oracle holds the rules to each: not merely until the
+recorded gap classes are gone, since a new exception of the current rules
+for code is a new gap, which the oracle sees only once its shape is in the
+corpus and the generators.

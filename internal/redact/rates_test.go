@@ -44,6 +44,8 @@ var ratesHeader = `# Redaction rates of v1's engine (Redact with the baseline ru
 # spans_on_a_secret    those of them that hold part of a labelled or
 #                      generated secret.
 # precision            spans_on_a_secret over spans_replaced.
+# *.corpus             the same three, of the corpus files' cases only, whose
+#                      negatives and code the generated cases outnumber.
 # fact_loss_rate       the share of facts whose value the output no longer
 #                      holds whole.
 # hex32_kept_rate      the share of the 32-character hex keys after a trigger
@@ -53,8 +55,9 @@ var ratesHeader = `# Redaction rates of v1's engine (Redact with the baseline ru
 # oracle_gap_violations
 #                      those of them in the gap classes (*oracle_gap_*), the
 #                      shapes recorded in corpus/oracle_gaps.txt, where the
-#                      current rules alone are known to keep secrets the
-#                      baseline rules remove. TestOracle fails on any other.
+#                      current rules alone keep on purpose code that the
+#                      baseline rules remove, and so secrets in its shape.
+#                      TestOracle fails on any other.
 #
 `
 
@@ -140,6 +143,8 @@ func figures(m *measured, cases []corpusCase, run func(i int) engineRun) engineF
 func ratesTable(m *measured, cases []corpusCase) string {
 	v1 := figures(m, cases, func(i int) engineRun { return m.v1[i] })
 	cur := figures(m, cases, func(i int) engineRun { return m.alone[i] })
+	v1Corpus := figures(m, cases[:m.corpusCount], func(i int) engineRun { return m.v1[i] })
+	curCorpus := figures(m, cases[:m.corpusCount], func(i int) engineRun { return m.alone[i] })
 	ratio := func(a, b int) string {
 		if b == 0 {
 			return "-"
@@ -157,6 +162,9 @@ func ratesTable(m *measured, cases []corpusCase) string {
 		rateRow{"spans_replaced", "-", fmt.Sprint(v1.spans), fmt.Sprint(cur.spans)},
 		rateRow{"spans_on_a_secret", "-", fmt.Sprint(v1.onSecret), fmt.Sprint(cur.onSecret)},
 		rateRow{"precision", "-", ratio(v1.onSecret, v1.spans), ratio(cur.onSecret, cur.spans)},
+		rateRow{"spans_replaced.corpus", "-", fmt.Sprint(v1Corpus.spans), fmt.Sprint(curCorpus.spans)},
+		rateRow{"spans_on_a_secret.corpus", "-", fmt.Sprint(v1Corpus.onSecret), fmt.Sprint(curCorpus.onSecret)},
+		rateRow{"precision.corpus", "-", ratio(v1Corpus.onSecret, v1Corpus.spans), ratio(curCorpus.onSecret, curCorpus.spans)},
 		rateRow{"fact_loss_rate", fmt.Sprint(v1.facts), ratio(v1.lost, v1.facts), ratio(cur.lost, cur.facts)},
 		rateRow{"hex32_kept_rate", fmt.Sprint(v1.hex), ratio(v1.hexKept, v1.hex), ratio(cur.hexKept, cur.hex)},
 		rateRow{"oracle_violations", fmt.Sprint(v1.oracleAll), fmt.Sprint(v1.violations), fmt.Sprint(cur.violations)},

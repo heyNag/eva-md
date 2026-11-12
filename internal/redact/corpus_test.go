@@ -267,9 +267,11 @@ var genCounts = map[string]int{
 	"gen_random":   6000,
 	"gen_password": 6000,
 	"gen_hex32":    3000,
-	// The shape of oracle_gaps.txt: a value after a secret-looking key that
-	// reads as a regular expression literal.
-	"gen_oracle_gap_regex_value": 1000,
+	// The shapes of oracle_gaps.txt, one generator each (see oracleGapShapes).
+	"gen_oracle_gap_regex_value":     1000,
+	"gen_oracle_gap_yaml_alias":      1000,
+	"gen_oracle_gap_name_index":      1000,
+	"gen_oracle_gap_type_annotation": 1000,
 }
 
 func genCount(class string) int {
@@ -524,24 +526,87 @@ func generatedCases() []corpusCase {
 	for i := 0; i < genCount("gen_hex32"); i++ {
 		add("gen_hex32", "32 hex characters after a phrase", g.pick(hexCarriers), func() string { return g.chars(32, hexLower) })
 	}
-	// Values that read as regular expression literals after a secret-looking
-	// key, unquoted after ':' or ' = ': base64 that starts with '/', holds a
-	// '+', and ends with '/' and up to two flags. Where the current rules
-	// alone keep one that the baseline rules remove, TestOracle counts it as
-	// a gap of its class, not as a violation (see oracle_gaps.txt).
+	// The gap classes' generators: secrets in the shapes of code that the
+	// current rules keep on purpose and the baseline rules remove, after a
+	// secret-looking key and each separator such a key takes. Where the
+	// current rules alone keep one that the baseline rules remove, TestOracle
+	// counts it as a gap of its class, not as a violation (see
+	// oracleGapShapes and oracle_gaps.txt).
+	gapKeys := []string{"SECRET_KEY", "secret_key", "SecretKey", "db_password", "api_key", "ACCESS_TOKEN", "client_secret", "aws_secret_access_key", "private_key", "auth_token", "password", "token"}
+	gapSeps := []string{": ", ":", " = ", " := ", " => ", " == "}
+	// gapLine picks a line of shapes, each with a %s for the key, the
+	// separator and the value, and fills in a key and a separator of seps.
+	gapLine := func(g *gen, shapes, seps []string) string {
+		return fmt.Sprintf(g.pick(shapes), g.pick(gapKeys), g.pick(seps), "%s")
+	}
+	// Values that read as regular expression literals: base64 that starts
+	// with '/', holds a '+', and ends with '/' and up to two flags.
 	g = newGen(1205)
-	gapKeys := []string{"SECRET_KEY", "secret_key", "SecretKey", "db_password", "api_key", "ACCESS_TOKEN", "client_secret", "aws_secret_access_key", "private_key", "auth_token"}
-	gapShapes := []string{"%s: %s", "%s:%s", "%s = %s", "  %s: %s", "%s: %s # rotated"}
 	gapFlags := []string{"", "g", "i", "m", "u", "gi", "im"}
 	for i := 0; i < genCount("gen_oracle_gap_regex_value"); i++ {
-		shape := strings.Replace(g.pick(gapShapes), "%s", g.pick(gapKeys), 1)
+		shape := gapLine(g, []string{"%s%s%s", "  %s%s%s", "%s%s%s # rotated", "%s%s%s and more", "%s%s%s;", "%s%s%s,"}, gapSeps)
 		add("gen_oracle_gap_regex_value", "regex-like value after a key", shape, func() string {
 			body := []byte(g.chars(16+g.r.Intn(25), base64Set))
 			body[1+g.r.Intn(len(body)-1)] = '+'
 			return "/" + string(body) + "/" + g.pick(gapFlags)
 		})
 	}
+	// Passwords made of words after a '*', which read as a YAML alias.
+	g = newGen(1206)
+	for i := 0; i < genCount("gen_oracle_gap_yaml_alias"); i++ {
+		shape := gapLine(g, []string{"%s%s%s", "  %s%s%s", "db:\n  %s%s%s\n  port: 5432"}, []string{": ", ":", " := ", " == "})
+		add("gen_oracle_gap_yaml_alias", "a password of words after a star", shape, func() string { return "*" + wordsValue(g) })
+	}
+	// Passwords made of words, as a name, a member path or an instance
+	// variable, followed by an index, a literal or a block.
+	g = newGen(1207)
+	for i := 0; i < genCount("gen_oracle_gap_name_index"); i++ {
+		tails := []string{"[0]", "[i]", "[x9]", `["ab"]`, "{a}", "[i] = 1"}
+		value := func() string { return wordsValue(g) }
+		switch i % 4 {
+		case 2:
+			value = func() string { return g.pick(gapWords) + "." + g.pick(gapWords) }
+			tails = append(tails, " { x }")
+		case 3:
+			value = func() string {
+				return "@" + strings.ToLower(g.pick(gapWords)) + "_" + strings.ToLower(g.pick(gapWords))
+			}
+			tails = append(tails, " { x }")
+		}
+		shape := gapLine(g, []string{"%s%s%s" + g.pick(tails)}, gapSeps)
+		add("gen_oracle_gap_name_index", "a password of words before an index", shape, value)
+	}
+	// Random tokens followed by what reads as an assignment or a union of
+	// types, as in "api_key: Xk9mP2vLq = 1" or "token: Xk9mP2vLq | None".
+	g = newGen(1208)
+	for i := 0; i < genCount("gen_oracle_gap_type_annotation"); i++ {
+		tail := g.pick([]string{" = 1", " = None", " = x", " | None", " | str", " | None = None"})
+		shape := gapLine(g, []string{"%s%s%s" + tail, "  %s%s%s" + tail}, gapSeps)
+		add("gen_oracle_gap_type_annotation", "a token before an assignment", shape, func() string {
+			return g.chars(1, alnum[:52]) + g.mixed(9+g.r.Intn(14))
+		})
+	}
 	return all
+}
+
+// gapWords are the words of the made-up passwords of the gap classes, each
+// of five letters or more and none part of a key or a marker.
+var gapWords = []string{"Summer", "Winter", "Autumn", "Orange", "Tiger", "Falcon", "Harbor", "Maple", "Copper", "Silver", "River", "Canyon", "Meadow", "Thunder", "Garden", "Pepper", "Marble", "Velvet", "Window", "Rocket", "Basket", "Candle", "Pillow", "Lantern", "Walnut", "Cobalt"}
+
+// wordsValue makes a password of words, as people choose them:
+// Summer2Winter, mapleCopper, Falcon7Harbor3 or river_canyon_walnut.
+func wordsValue(g *gen) string {
+	a, b := g.pick(gapWords), g.pick(gapWords)
+	switch g.r.Intn(4) {
+	case 0:
+		return a + g.chars(1+g.r.Intn(2), digits) + b
+	case 1:
+		return strings.ToLower(a) + b
+	case 2:
+		return a + g.chars(1, digits) + b + g.chars(1, digits)
+	default:
+		return strings.ToLower(a) + "_" + strings.ToLower(b) + "_" + strings.ToLower(g.pick(gapWords))
+	}
 }
 
 // engineRun is what a rule set made of a case's text.
