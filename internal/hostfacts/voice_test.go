@@ -49,7 +49,9 @@ func TestVoiceSkeletons(t *testing.T) {
 	field := func(s string, start, end bool) VoiceField {
 		return VoiceField{Len: len(s), Hash: h(s), CutStart: start, CutEnd: end}
 	}
-	line := func(head, rest string) TranscriptLine { return TranscriptLine{Head: head, Len: len(rest), Hash: h(rest)} }
+	line := func(head, rest string) TranscriptLine {
+		return TranscriptLine{Head: head, Len: len(rest), Hash: h(rest)}
+	}
 	delta := func(s string, start, end bool, lines ...TranscriptLine) *VoiceTranscript {
 		return &VoiceTranscript{Len: len(s), Hash: h(s), CutStart: start, CutEnd: end, Lines: lines}
 	}
