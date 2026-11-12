@@ -9,7 +9,9 @@ redaction_current_rules_only keeps these secrets. See README.md for the format.
 Each class is a shape of code that the current rules keep on purpose (the
 exceptions plainCode in redact.go lists) and the baseline rules remove. A
 secret can take any of them, so each is a gap; oracleGapShapes in
-oracle_test.go names them all, with an example of each exception.
+oracle_test.go names them all, with an example of each exception. Each has a
+near class in oracle_near.txt, held to the baseline, so an exception that
+widens past its shape fails the oracle.
 
 regex_value: the value of a secret-looking key that reads as a regular
 expression literal: it starts with '/', holds a metacharacter such as '+', and

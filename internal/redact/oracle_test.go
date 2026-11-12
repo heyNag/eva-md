@@ -3,6 +3,7 @@ package redact
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -71,6 +72,61 @@ var oracleGapShapes = []struct {
 	}},
 }
 
+// oracleNear reports whether class is the near class of a gap shape: secrets
+// just outside the exceptions that make the shape, as oracle_near_<shape> in
+// corpus/oracle_near.txt and gen_oracle_near_<shape> from a generator. A gap
+// class excuses its whole shape, so without them an exception that widens
+// would keep secrets the baseline rules remove and no class would see it.
+// They are held to the baseline like any class that is no gap.
+func oracleNear(class string) bool {
+	return strings.HasPrefix(strings.TrimPrefix(class, "gen_"), "oracle_near_")
+}
+
+// oracleNearShapes are, for each gap shape, the edges of the exceptions of
+// plainCode that its near class plants secrets on, each with an example: a
+// made-up secret just outside the exception, which the baseline rules and
+// the current rules alone remove. The value is the part of the example the
+// baseline rules replace.
+var oracleNearShapes = map[string][]struct{ text, value string }{
+	"regex_value": {
+		// A shell assignment is no code.
+		{"SECRET_KEY=/Qm7Rt2+" + "Wx9Lp4Zk/n", "/Qm7Rt2+" + "Wx9Lp4Zk/n"},
+		// No metacharacter.
+		{"SECRET_KEY: /Qm7Rt2" + "Wx9Lp4Zk/n", "/Qm7Rt2" + "Wx9Lp4Zk/n"},
+		// Flags that repeat.
+		{"SECRET_KEY: /Qm7Rt2+" + "Wx9Lp4Zk/gg", "/Qm7Rt2+" + "Wx9Lp4Zk/gg"},
+	},
+	"yaml_alias": {
+		// A random token is no alias name.
+		{"password: *Hmyhyb" + "bz82", "*Hmyhyb" + "bz82"},
+		// More on the line after the alias.
+		{"password: *Summer2" + "Winter # x", "*Summer2" + "Winter"},
+		// After '=', not ':'.
+		{"password = *Summer2" + "Winter", "*Summer2" + "Winter"},
+	},
+	"name_index": {
+		// A random token before an index or a literal.
+		{"password: Xk9mP2" + "vLq7Rt[x9]", "Xk9mP2" + "vLq7Rt"},
+		{"password = Xk9mP2" + "vLq7Rt{ab}", "Xk9mP2" + "vLq7Rt"},
+		// A member path and an instance variable of random names.
+		{"password: Xk9mP2." + "vLq7Rt[2]", "Xk9mP2." + "vLq7Rt"},
+		{"password: @Xk9mP2" + "vLq7Rt[i]", "@Xk9mP2" + "vLq7Rt"},
+		// Words before brackets that hold no expression.
+		{"password: hunter" + "Two[a;b]", "hunter" + "Two"},
+		// Words before an index that goes on as no code does.
+		{"password: hunter" + "Two[x9]:", "hunter" + "Two"},
+		// Words before an index in a shell assignment.
+		{"PASSWORD=hunter" + "Two[x9]", "hunter" + "Two"},
+	},
+	"type_annotation": {
+		// No space around the '=' or the '|'.
+		{"password: Xk9mP2" + "vLq7Rt=1", "Xk9mP2" + "vLq7Rt"},
+		{"secret: aB3dE5" + "fG7hJ2|None", "aB3dE5" + "fG7hJ2"},
+		// A shell assignment.
+		{"PASSWORD=Xk9mP2" + "vLq7Rt = 1", "Xk9mP2" + "vLq7Rt"},
+	},
+}
+
 // oracleViolations returns, for each secret of cases that the baseline
 // rules' output, as m measured it, does not keep and engine's output does,
 // the class and the case, outside the gap classes; the number of such
@@ -109,7 +165,9 @@ func oracleViolations(m *measured, cases []corpusCase, engine func(i int) string
 // labelled secret and on at least 20,000 generated ones (under the race
 // detector, a twentieth of them), but for the gap classes. Each gap class
 // must still have a violation: when a rule change closes one, its cases
-// move to the class of their shape and are held to none.
+// move to the class of their shape and are held to none. Each gap shape must
+// have a near class, whose every secret the baseline rules remove, so the
+// oracle holds the current rules on the edges of each gap.
 func TestOracle(t *testing.T) {
 	isolate(t)
 	m := measure(t)
@@ -144,6 +202,33 @@ func TestOracle(t *testing.T) {
 		if !gapClasses[class] || !gapClasses["gen_"+class] {
 			t.Errorf("gap class %s is not in the corpus and the generators: %v", class, gapClasses)
 		}
+	}
+	// Each gap shape has a near class, in the corpus and from a generator,
+	// whose every secret the baseline rules remove, so the oracle judges each
+	// one. A near secret the baseline rules keep would hold the current rules
+	// to nothing.
+	near := map[string]int{}
+	for i, c := range m.cases {
+		if !oracleNear(c.class) {
+			continue
+		}
+		near[c.class] += len(c.secrets)
+		for _, s := range c.secrets {
+			if keeps(m.baseline[i].out, c.value(s)) {
+				t.Errorf("the baseline rules keep a secret of near class %s, which the oracle then does not judge: %s", c.class, c)
+			}
+		}
+	}
+	for _, g := range oracleGapShapes {
+		for _, class := range []string{"oracle_near_" + g.shape, "gen_oracle_near_" + g.shape} {
+			if near[class] == 0 {
+				t.Errorf("gap shape %s has no near class %s", g.shape, class)
+			}
+			delete(near, class)
+		}
+	}
+	if len(near) > 0 {
+		t.Errorf("near classes of no gap shape: %v", near)
 	}
 	for _, class := range slices.Sorted(boolKeys(gapClasses)) {
 		if !known[class] {
@@ -263,6 +348,100 @@ func TestOracleGapShapesAreWhatPlainCodeKeeps(t *testing.T) {
 			if alone, _ := Redact(e.text); !keeps(alone, e.value) {
 				t.Errorf("%s: the current rules alone now remove the value of %q (%q): this exception is closed", g.shape, e.text, alone)
 			}
+		}
+	}
+}
+
+// Each near shape is a gap shape's, and on each of its examples the baseline
+// rules, v1 and the current rules alone, as Redact runs them with the switch
+// on, remove the value: the current rules remove a secret just outside each
+// exception today.
+func TestOracleNearShapesAreRemoved(t *testing.T) {
+	isolate(t)
+	currentRulesOnly(t)
+	shapes := map[string]bool{}
+	for _, g := range oracleGapShapes {
+		shapes[g.shape] = true
+		if len(oracleNearShapes[g.shape]) == 0 {
+			t.Errorf("gap shape %s has no near example", g.shape)
+		}
+	}
+	for shape, examples := range oracleNearShapes {
+		if !shapes[shape] {
+			t.Errorf("near shape %s is no gap shape", shape)
+		}
+		for _, e := range examples {
+			if !strings.Contains(e.text, e.value) {
+				t.Fatalf("%s: example %q does not hold %q", shape, e.text, e.value)
+			}
+			base, _ := baseline.Redact(e.text)
+			v1 := Apply(driver{ctx: context.Background()}.scan(e.text))
+			alone, _ := Redact(e.text)
+			if keeps(base, e.value) || keeps(v1, e.value) || keeps(alone, e.value) {
+				t.Errorf("%s: a rule set keeps the value of %q: baseline %q, v1 %q, the current rules alone %q", shape, e.text, base, v1, alone)
+			}
+		}
+	}
+}
+
+// widenedExceptions stand for rule changes that widen an exception of
+// plainCode past its gap shape: each keeps the text of every line of that
+// shape whole, as the current rules alone would with the exception widened,
+// and leaves every other case to the current rules alone.
+var widenedExceptions = []struct {
+	shape, change string
+	line          *regexp.Regexp
+}{
+	// After ':', any '*' value read as an alias, not only a name of words:
+	// aliasName dropped.
+	{"yaml_alias", "an alias of any name", regexp.MustCompile(`(?m)^[ \t]*[A-Za-z_][\w.]*[ \t]*:=?[ \t]*\*[A-Za-z_][A-Za-z0-9_.-]*[ \t]*$`)},
+	// Any name before an index or a literal, not only one of words:
+	// wordLike(v, 2) dropped.
+	{"name_index", "an index on any name", regexp.MustCompile(`(?m)^[ \t]*[A-Za-z_][\w.]*(?:[ \t]*:=?[ \t]*|[ \t]+=>?[ \t]+)@?[A-Za-z_][A-Za-z0-9_.]*(?:\[[^\]\n;~#]*[A-Za-z0-9][^\]\n;~#]*\]|\{[^}\n;~#]*[A-Za-z0-9][^}\n;~#]*\}|[ \t]+\{[^}\n]*\})(?:[ \t,;)\]}.\[(]|$)`)},
+	// A regular expression literal with no metacharacter.
+	{"regex_value", "a slashed value of any characters", regexp.MustCompile(`(?m)^[ \t]*[A-Za-z_][\w.]*[ \t]*(?::|[ \t]=)[ \t]*/[^/\s]+/[a-z]*(?:[ \t;,]|$)`)},
+	// A type annotation with no space around its '=' or '|'.
+	{"type_annotation", "an unspaced annotation", regexp.MustCompile(`(?m)^[ \t]*[A-Za-z_][\w.]*[ \t]*(?::|[ \t]=)[ \t]*[A-Za-z_][\w.]*[ \t]*[=|][ \t]*\S`)},
+}
+
+// The oracle fails a rule change that widens an exception past its gap
+// shape: each widened exception keeps secrets of its shape's near class,
+// labelled and generated, which the oracle reports. Without the near
+// classes the gap class excuses the whole shape and no other class plants a
+// secret there, so the oracle would take such a change.
+func TestOracleFailsAWidenedException(t *testing.T) {
+	isolate(t)
+	m := measure(t)
+	shapes := map[string]bool{}
+	for _, w := range widenedExceptions {
+		shapes[w.shape] = true
+		t.Run(w.shape, func(t *testing.T) {
+			widened := func(i int) string {
+				if w.line.MatchString(m.cases[i].text) {
+					return m.cases[i].text
+				}
+				return m.alone[i].out
+			}
+			if !slices.ContainsFunc(oracleNearShapes[w.shape], func(e struct{ text, value string }) bool { return w.line.MatchString(e.text) }) {
+				t.Fatalf("%s matches no near example of %s", w.change, w.shape)
+			}
+			bad, _, _ := oracleViolations(m, m.cases, widened)
+			seen := map[string]bool{}
+			for _, b := range bad {
+				class, _, _ := strings.Cut(strings.TrimPrefix(b, "class "), ",")
+				seen[class] = true
+			}
+			for _, class := range []string{"oracle_near_" + w.shape, "gen_oracle_near_" + w.shape} {
+				if !seen[class] {
+					t.Errorf("the oracle took %s: no violation in %s (violations in %v)", w.change, class, seen)
+				}
+			}
+			t.Logf("%s: %d violations, in %v", w.change, len(bad), seen)
+		})
+	}
+	for _, g := range oracleGapShapes {
+		if !shapes[g.shape] {
+			t.Errorf("gap shape %s has no widened exception", g.shape)
 		}
 	}
 }

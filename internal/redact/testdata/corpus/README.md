@@ -18,6 +18,7 @@ before its first case are comments.
 | `commands.txt` | command-line passwords, a password in prose, random tokens near a trigger word |
 | `misses.txt` | the shapes the audit found kept (F2, redact-m2), as `secret`: recorded as misses, not fixed |
 | `oracle_gaps.txt` | the shapes `TestOracle` found where the current rules alone keep a secret the baseline rules remove, as `secret` of a class whose name starts with `oracle_gap_`: recorded, not fixed (see below) |
+| `oracle_near.txt` | for each gap class, secrets just outside its shape, which the current rules remove, as `secret` of a class whose name starts with `oracle_near_`: held to the baseline (see below) |
 | `negatives.txt` | code, prose, docs, chat-like lines written by hand, SHAs, UUIDs, `op://` and `$VAR` references |
 | `facts.txt` | facts about authentication written as `key: value`, the T3 row of the ledger design's section 10.3 and more like them |
 
@@ -84,6 +85,22 @@ loosened: their violations are counted apart, as `oracle_gap_violations` in
 `../rates.txt`, every other class is still held to none, and `TestOracle`
 fails when a gap class has no violation left, so the rule change that closes
 one (LG-26) moves its cases to the class of their shape.
+
+A gap class excuses its whole shape, so each has a near class, held to the
+baseline like any class that is no gap: `oracle_near_<shape>` in
+`oracle_near.txt` and `gen_oracle_near_<shape>` from a generator. Its
+secrets stand just outside the exceptions that make the shape, where the
+current rules remove them today: a random token where the gap class has a
+password of words, more on the line, another separator, a shell assignment,
+brackets that hold no expression, a slashed value with no metacharacter, an
+'=' or '|' with no space. So a rule change that widens an exception past its
+shape keeps one of them and fails the oracle. `TestOracle` fails when a gap
+shape has no near class or the baseline rules keep a near secret, which the
+oracle would then not judge; `oracleNearShapes` in `oracle_test.go` gives an
+example of each edge, and `TestOracleFailsAWidenedException` widens each
+exception and checks that the oracle sees it. A near class does not use the
+spaced `==` separator: after a comparison the floor takes nothing, so every
+value there is in the gap shape.
 
 The switch `redaction_current_rules_only` keeps every secret in such a
 shape, which v1 removes. It stays off until a rule change has closed each of

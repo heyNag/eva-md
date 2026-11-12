@@ -272,6 +272,12 @@ var genCounts = map[string]int{
 	"gen_oracle_gap_yaml_alias":      1000,
 	"gen_oracle_gap_name_index":      1000,
 	"gen_oracle_gap_type_annotation": 1000,
+	// Secrets just outside each of those shapes, held to the baseline (see
+	// oracleNearShapes).
+	"gen_oracle_near_regex_value":     1000,
+	"gen_oracle_near_yaml_alias":      1000,
+	"gen_oracle_near_name_index":      1000,
+	"gen_oracle_near_type_annotation": 1000,
 }
 
 func genCount(class string) int {
@@ -586,7 +592,114 @@ func generatedCases() []corpusCase {
 			return g.chars(1, alnum[:52]) + g.mixed(9+g.r.Intn(14))
 		})
 	}
+	// The near classes' generators: for each gap shape, secrets just outside
+	// the exceptions of plainCode that make it, where the current rules
+	// remove them today. They are held to the baseline like any class, so an
+	// exception that widens fails the oracle (see oracleNearShapes).
+	nearShapes := []string{"%s%s%s", "  %s%s%s", "%s%s%s # rotated", "db:\n  %s%s%s\n  port: 5432"}
+	// After a spaced "==", a comparison, the floor takes nothing (see
+	// floorValue): each gap class has that separator, so a near class does
+	// not.
+	nearSeps := []string{": ", ":", " = ", " := ", " => "}
+	g = newGen(1209)
+	for i := 0; i < genCount("gen_oracle_near_regex_value"); i++ {
+		// A value as a shell assignment, or one that is no regular
+		// expression: no metacharacter, flags that repeat, or a character
+		// after it that goes on as no code does.
+		switch i % 4 {
+		case 0:
+			shape := fmt.Sprintf(g.pick([]string{"%s=%s", "export %s=%s", "%s=%s # rotated"}), g.pick(gapKeys), "%s")
+			add("gen_oracle_near_regex_value", "a regex-like value in a shell assignment", shape, func() string { return nearRegex(g, true, g.pick(gapFlags)) })
+		case 1:
+			add("gen_oracle_near_regex_value", "a slashed value with no metacharacter", gapLine(g, nearShapes, nearSeps), func() string { return nearRegex(g, false, g.pick(gapFlags)) })
+		case 2:
+			add("gen_oracle_near_regex_value", "a regex-like value with repeated flags", gapLine(g, nearShapes, nearSeps), func() string { return nearRegex(g, true, g.pick([]string{"gg", "ii", "mm", "gig"})) })
+		default:
+			shape := gapLine(g, []string{"%s%s%s" + g.pick([]string{")", "]", "}", "<x"})}, []string{": ", ":", " = ", " := "})
+			add("gen_oracle_near_regex_value", "a regex-like value before a bracket", shape, func() string { return nearRegex(g, true, g.pick(gapFlags)) })
+		}
+	}
+	g = newGen(1210)
+	for i := 0; i < genCount("gen_oracle_near_yaml_alias"); i++ {
+		// After ':', a random token after a '*', which reads as no alias name;
+		// or a password of words after a '*' with more on its line, or after
+		// a separator other than ':'.
+		switch i % 3 {
+		case 0:
+			add("gen_oracle_near_yaml_alias", "a random token after a star", gapLine(g, nearShapes[:2], []string{": ", ":", " := "}), func() string { return "*" + nearToken(g) })
+		case 1:
+			shape := gapLine(g, []string{"%s%s%s" + g.pick([]string{" # rotated", " and more", ",", ";"})}, []string{": ", ":", " := "})
+			add("gen_oracle_near_yaml_alias", "a password of words after a star with more on its line", shape, func() string { return "*" + wordsValue(g) })
+		default:
+			add("gen_oracle_near_yaml_alias", "a password of words after a star and an equals sign", gapLine(g, nearShapes, []string{" = ", " => "}), func() string { return "*" + wordsValue(g) })
+		}
+	}
+	g = newGen(1211)
+	for i := 0; i < genCount("gen_oracle_near_name_index"); i++ {
+		// A random token, a member path or an instance variable of random
+		// names, before an index, a literal or a block; or a password of words
+		// before brackets that hold no expression or are not followed by code,
+		// or in a shell assignment.
+		seps := nearSeps
+		switch i % 6 {
+		case 0:
+			shape := gapLine(g, []string{"%s%s%s" + g.pick([]string{"[x9]", "{ab}", `["ab"]`, "[0]", "[i]", "[i];"})}, seps)
+			add("gen_oracle_near_name_index", "a random token before an index", shape, func() string { return nearToken(g) })
+		case 1:
+			shape := gapLine(g, []string{"%s%s%s" + g.pick([]string{"[2]", "[i]", "[x9]", " { x }"})}, seps)
+			add("gen_oracle_near_name_index", "a member path of random names before an index", shape, func() string { return nearToken(g) + "." + nearToken(g) })
+		case 2:
+			shape := gapLine(g, []string{"%s%s%s" + g.pick([]string{"[i]", "[x9]", "[0]"})}, seps)
+			add("gen_oracle_near_name_index", "an instance variable of a random name before an index", shape, func() string { return "@" + nearToken(g) })
+		case 3:
+			shape := gapLine(g, []string{"%s%s%s" + g.pick([]string{"[x9]q", "[a;b]", "[~1]", "{#}", "[--]", "[x9]:", "[0]!"})}, seps)
+			add("gen_oracle_near_name_index", "a password of words before brackets that are no index", shape, func() string { return wordsValue(g) })
+		case 4:
+			shape := fmt.Sprintf(g.pick([]string{"%s=%s[x9]", "export %s=%s{ab}", "%s=%s[0]"}), g.pick(gapKeys), "%s")
+			add("gen_oracle_near_name_index", "a password of words before an index in a shell assignment", shape, func() string { return wordsValue(g) })
+		default:
+			shape := gapLine(g, []string{"%s%s%s" + g.pick([]string{"[0]", "{a}", "[x9]"})}, seps)
+			add("gen_oracle_near_name_index", "a password of one word before an index", shape, func() string {
+				// The baseline rules take 8 characters or more.
+				w := g.pick(gapWords)
+				return w + g.chars(max(1, 8-len(w))+g.r.Intn(2), digits)
+			})
+		}
+	}
+	g = newGen(1212)
+	for i := 0; i < genCount("gen_oracle_near_type_annotation"); i++ {
+		// A random token before an assignment or a union with no space on a
+		// side, or in a shell assignment.
+		if i%3 == 2 {
+			shape := fmt.Sprintf(g.pick([]string{"%s=%s", "export %s=%s"}), g.pick(gapKeys), "%s") + g.pick([]string{" = 1", " | None", " = None"})
+			add("gen_oracle_near_type_annotation", "a token before an assignment in a shell assignment", shape, func() string { return nearToken(g) })
+			continue
+		}
+		tail := g.pick([]string{"=1", " =1", "= 1", "|None", " |None", "| str"})
+		add("gen_oracle_near_type_annotation", "a token before an unspaced assignment", gapLine(g, []string{"%s%s%s" + tail, "  %s%s%s" + tail}, nearSeps), func() string { return nearToken(g) })
+	}
 	return all
+}
+
+// nearToken makes a random token of 10 to 22 letters and digits that starts
+// with a letter and reads as no name of words, as a generated password does.
+func nearToken(g *gen) string {
+	for {
+		s := g.chars(1, alnum[:52]) + g.mixed(9+g.r.Intn(13))
+		if !wordLike(s, 1) {
+			return s
+		}
+	}
+}
+
+// nearRegex makes a value between slashes, of letters and digits and, with
+// meta, a '+', followed by flags.
+func nearRegex(g *gen, meta bool, flags string) string {
+	body := []byte(g.mixed(16 + g.r.Intn(25)))
+	if meta {
+		body[1+g.r.Intn(len(body)-1)] = '+'
+	}
+	return "/" + string(body) + "/" + flags
 }
 
 // gapWords are the words of the made-up passwords of the gap classes, each

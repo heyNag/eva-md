@@ -1,0 +1,79 @@
+Secrets just outside each shape of oracle_gaps.txt, as secrets of a class
+whose name starts with oracle_near_: in the place of a gap class's secrets,
+but past the edge of the exception of plainCode in redact.go that makes the
+shape, where the current rules alone remove them today as the baseline rules
+do. A gap class excuses its whole shape, so without these a rule change that
+widened an exception would keep secrets the baseline rules remove and
+TestOracle would not see it. They are held to the baseline like any class
+that is no gap. See README.md for the format.
+
+regex_value: a value between slashes in a shell assignment, with no
+metacharacter, or with flags that repeat.
+
+yaml_alias: a random token after a '*', or a password of words after a '*'
+with more on its line or after '=' rather than ':'.
+
+name_index: a random token, or a member path or an instance variable of
+random names, before an index, a literal or a block; or a password of words
+before brackets that hold no expression, or in a shell assignment.
+
+type_annotation: a random token before an '=' or a '|' with no space on a
+side, or in a shell assignment.
+
+=== secret oracle_near_regex_value regex-like value in a shell assignment
+SECRET_KEY='⟦/Pk4Nd8+Rw2¦Hs6Vm1Cx9/n⟧'
+
+=== secret oracle_near_regex_value slashed value with no metacharacter
+db_password: '⟦/Lw5Gt9Bq3¦Xe7Jn2Dk6/g⟧'
+
+=== secret oracle_near_regex_value regex-like value with repeated flags
+access_token: '⟦/Rc8Vy2+Mh5¦Kp1Wz4Tb7/gg⟧'
+
+=== secret oracle_near_regex_value regex-like value before a bracket
+api_key = '⟦/Fz6Qe3+Nb8¦Ls2Gx5Hj9/i⟧')
+
+=== secret oracle_near_yaml_alias random token after a star
+password: '⟦*Hmyhy¦bbz82⟧'
+
+=== secret oracle_near_yaml_alias random mixed token with no space after the colon
+client_secret:'⟦*Tq7Wn¦3Ks9Bv⟧'
+
+=== secret oracle_near_yaml_alias words after a star with a comment after them
+db:
+  password: '⟦*Velvet4¦Rocket⟧' # rotated
+
+=== secret oracle_near_yaml_alias words after a star and an equals sign
+secret = '⟦*Garden7¦Pillow⟧'
+
+=== secret oracle_near_name_index random token before an index
+password: '⟦Xk9mP2¦vLq7Rt⟧'[x9]
+
+=== secret oracle_near_name_index random token before a literal
+password = '⟦Jd4Hs8¦Wq2Nc6⟧'{ab}
+
+=== secret oracle_near_name_index random token before a quoted index
+api_key: '⟦Gm5Tz1¦Ry8Pv3⟧'["ab"]
+
+=== secret oracle_near_name_index member path of random names before an index
+secret: '⟦Bn7Kx2.¦qW4mZ9⟧'[2]
+
+=== secret oracle_near_name_index instance variable of a random name before an index
+auth_token: '⟦@Vc3Lp¦8Hy5Mt⟧'[i]
+
+=== secret oracle_near_name_index words before brackets that hold no expression
+password: '⟦lantern¦Marble⟧'[a;b]
+
+=== secret oracle_near_name_index words before an index that goes on as no code
+token: '⟦silver_¦window_harbor⟧'[x9]:
+
+=== secret oracle_near_name_index words before an index in a shell assignment
+DB_PASSWORD='⟦candle¦Basket⟧'[x9]
+
+=== secret oracle_near_type_annotation random token before an unspaced assignment
+password: '⟦Wt6Ns1¦Kd9Fq4⟧'=1
+
+=== secret oracle_near_type_annotation random token before an unspaced union
+secret: '⟦Yh2Mc7¦Pz5Lr8⟧'|None
+
+=== secret oracle_near_type_annotation random token in a shell assignment before an assignment
+API_KEY='⟦Qs9Dv4¦Bx1Hn7⟧' = 1
