@@ -552,17 +552,47 @@ func (g *groups) flagFile(f file) {
 // has put its chat out or not. A file whose chat is out by then, by any of
 // its files or by eva-md's records, joins nothing by what its rows name, so
 // that nothing inside a session left out reaches another chat's figures.
+// A file still in that names a chat put out goes out with that chat, and
+// joins no chat still in, so that a thread of a Codex thread put out on its
+// own, which names the root thread too, does not put the root's chat out;
+// that is repeated until nothing changes, so a thread of that thread
+// follows it. Only then do the files still in join the chats they name,
+// all of which are still in, so the order of the files decides nothing.
 func (g *groups) joinNamed(files []file) {
-	out := make([]bool, len(files))
+	out := func(n string) bool { return g.flag[g.find(n)] != 0 }
+	// joins is what each file may join: nil for a file whose chat is out
+	// already, or that was not read.
+	joins := make([][]string, len(files))
 	for i, f := range files {
-		out[i] = g.flag[g.find(f.name)] != 0
+		if f.f != nil && !out(f.name) {
+			joins[i] = f.f.nodes
+		}
+	}
+	// gone is a file that was in and went out here: by naming a chat put
+	// out, or because a file of its own chat did.
+	gone := make([]bool, len(files))
+	for changed := true; changed; {
+		changed = false
+		for i, f := range files {
+			if joins[i] == nil || gone[i] || !out(f.name) && !slices.ContainsFunc(joins[i], out) {
+				continue
+			}
+			for _, n := range joins[i] {
+				if out(n) {
+					g.union(f.name, n)
+				}
+			}
+			gone[i], changed = true, true
+		}
 	}
 	for i, f := range files {
-		if out[i] || f.f == nil {
-			continue
-		}
-		for _, n := range f.f.nodes {
-			g.union(f.name, n)
+		for _, n := range joins[i] {
+			// A file gone out joins the other chats put out it names,
+			// which may have gone out after it did; one still in joins
+			// every chat it names, none of which is out.
+			if !gone[i] || out(n) {
+				g.union(f.name, n)
+			}
 		}
 	}
 }

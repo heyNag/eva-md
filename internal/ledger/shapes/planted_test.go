@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -443,6 +444,92 @@ func TestACodexSubagentThreadCountsWithItsChat(t *testing.T) {
 	for _, path := range []string{"F-018/codex/source/rows/exec", "F-018/codex/source/rows/other", "F-132/codex/row_types/rows/session_meta"} {
 		if got := get(r.Facts, path); got != 0 {
 			t.Errorf("a thread of a chat off the record adds %d to %s", got, path)
+		}
+	}
+}
+
+// A Codex fork or subagent's thread put out on its own, by its own rows or
+// by eva-md's records of it, is left out alone, as v1's record control is
+// per session: the chat it was forked or spawned from stays in, with every
+// figure a home without it gives. A thread of that thread or fork goes out
+// with it, though it names the root thread too, and so does a fork of that
+// fork; they then make one chat off the record. That holds whichever of
+// the files is listed first.
+func TestACodexForkOrThreadPutOutAloneLeavesItsChatIn(t *testing.T) {
+	// planted is a fork or thread, by the names of the chats its first
+	// record names: a fork names the chat it was forked from, and a thread
+	// names the thread that spawned it, in both places Codex writes it, and
+	// the root thread as its session.
+	type planted struct {
+		forkOf, threadOf, session string
+		off                       bool
+	}
+	const root, put, child = "root", "put", "child"
+	for _, tc := range []struct {
+		name     string
+		files    map[string]planted
+		offFiles int
+	}{
+		{"a thread", map[string]planted{put: {threadOf: root, session: root, off: true}}, 1},
+		{"a thread with a thread of its own", map[string]planted{
+			put: {threadOf: root, session: root, off: true}, child: {threadOf: put, session: root}}, 2},
+		{"a fork", map[string]planted{put: {forkOf: root, off: true}}, 1},
+		{"a fork with a thread of its own", map[string]planted{
+			put: {forkOf: root, off: true}, child: {threadOf: put, session: put}}, 2},
+		{"a fork with a fork of its own", map[string]planted{
+			put: {forkOf: root, off: true}, child: {forkOf: put}}, 2},
+	} {
+		for _, how := range []string{"its own rows", "eva-md's records"} {
+			for _, reversed := range []bool{false, true} {
+				// The ids decide the order the files are listed in.
+				ids := codexIDs(3)
+				if reversed {
+					slices.Reverse(ids)
+				}
+				id := map[string]string{root: ids[0], put: ids[1], child: ids[2]}
+				home := func(with bool) Report {
+					f := newFixture(t, noLink)
+					chat := func(name string, p planted) {
+						meta := map[string]any{"source": "cli", "session_id": id[name]}
+						if p.forkOf != "" {
+							meta["forked_from_id"] = id[p.forkOf]
+						}
+						if p.threadOf != "" {
+							meta["source"], meta["parent_thread_id"], meta["session_id"] = spawned(id[p.threadOf]), id[p.threadOf], id[p.session]
+						}
+						rows := []any{xMeta(f, id[name], meta),
+							xRow(at(0, 2), "event_msg", map[string]any{"type": "user_message", "message": marker + " prompt"})}
+						if p.off && how == "its own rows" {
+							rows = append(rows, xRow(at(0, 3), "event_msg", map[string]any{"type": "user_message", "message": "off the record"}))
+						}
+						f.session(codex, id[name], f.codexFile(2, id[name], rows...))
+						if p.off && how == "eva-md's records" {
+							f.mark(codex, id[name], session.OffRecord)
+						}
+					}
+					chat(root, planted{})
+					if with {
+						for name, p := range tc.files {
+							chat(name, p)
+						}
+					}
+					r, _ := f.run()
+					return r
+				}
+				name := fmt.Sprintf("%s put out by %s, listed reversed %v", tc.name, how, reversed)
+				base, r := home(false), home(true)
+				for path, want := range map[string]int{
+					"codex/chats/read": 1, "codex/chats/files_per_chat/1": 1, "codex/files/read": 1,
+					"codex/chats/off_the_record": 1, "codex/files/off_the_record": tc.offFiles,
+				} {
+					if got := get(r.Hosts, path); got != want {
+						t.Errorf("%s: %s is %d, want %d", name, path, got, want)
+					}
+				}
+				if got, want := leaves(r.Facts), leaves(base.Facts); !maps.Equal(got, want) {
+					t.Errorf("%s: the facts are\n%v\nwant those of the chat alone\n%v", name, got, want)
+				}
+			}
 		}
 	}
 }
