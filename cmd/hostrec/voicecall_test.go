@@ -186,6 +186,39 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 			}
 		}
 	}
+	// Each skeleton of a fixture's payload is filed under the path its
+	// payload_hashes has, which names, in the fixture's payload, a hand-over
+	// rebuilt from one of the event's recorded skeletons, here too for the
+	// hand-overs under keys the fixture made up.
+	for i, ev := range fixtures {
+		hashes, _ := ev["payload_hashes"].(map[string]any)
+		var want, got []string
+		for _, v := range eventVoices(t, events[i]) {
+			want = append(want, shapeOf(v))
+		}
+		for p := range eventVoices(t, ev) {
+			var at any = ev["payload"]
+			for _, seg := range strings.Split(p, ".") {
+				m, _ := at.(map[string]any)
+				at = m[seg]
+			}
+			s, _ := at.(string)
+			v, ok := hostfacts.VoiceOf(key, s)
+			if _, joined := hashes[p]; !joined || !ok {
+				t.Errorf("event %d: the skeleton at %s names no hand-over in the fixture's payload", i, p)
+				continue
+			}
+			got = append(got, shapeOf(v))
+		}
+		slices.Sort(want)
+		slices.Sort(got)
+		if !slices.Equal(want, got) {
+			t.Errorf("event %d: the fixture's hand-overs under its skeletons' paths are not the recorded ones:\n%v\n%v", i, want, got)
+		}
+	}
+	if n := len(eventVoices(t, fixtures[len(calls)])); n != 8 {
+		t.Errorf("the fixture keeps %d skeletons of the sourced hand-overs, want 8", n)
+	}
 	// Item 4's equalities, as text: a request equal to a line, a request
 	// equal to the transcript, a line repeated in another hand-over, and
 	// a payload string with a line's hash.
