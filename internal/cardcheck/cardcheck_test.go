@@ -587,6 +587,11 @@ func TestExamplesAreNotRead(t *testing.T) {
 			once(t, ps, "d", path.Join(CardsDir, "ZZ-77.md"), "ZZ-77")
 		})
 	}
+	t.Run("the plan's fenced stage heading", func(t *testing.T) {
+		none(t, broken(t, func(m fstest.MapFS) {
+			insertAfter(t, m, PlanFile, "### Stage 1", "\n```\n### Stage 9: an example\n## 9. Not a section\n```\n")
+		}))
+	})
 	// The same table, plain, does make a plan id, so the cases above test
 	// the fence and the header, not the card.
 	t.Run("the plan's Id table", func(t *testing.T) {
