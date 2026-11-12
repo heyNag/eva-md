@@ -139,8 +139,22 @@ The second round's rule (EV-16b) is the gate's from the commit that merged it, a
 | Run | Commit | Verdict |
 | --- | --- | --- |
 | 110 | f62c9ce | not judged |
+| 111 | 267a182 | not judged |
+| 112 | 509f874 | not judged |
+| 113 | 52e6f82 | not judged |
+| 114 | 58b73bc | not judged |
+| 115 | 07a6da3 | not judged |
+| 116 | 3720998 | not judged |
+| 117 | 2565fde | not judged |
+| 118 | 3639fa6 | not judged |
+| 119 | 245fc65 | not judged, and not judged again when the run was started a second time |
+| 120 | d734c7e | pass |
+| 121 | 7e80307 | not judged |
+| 122 | adc9fd2 | not judged |
 
 Run 110 is the second rule's first: every figure but one was too noisy to judge. The job had waited its five minutes, and the load was still 8.9 on 3 CPUs, down from 40 when the machine started.
+
+Of these thirteen runs the rule judged one, run 120, whose job began timing at a load of 2.9. The others began at loads of 4.6 to 16 where the lead read them (runs 119 to 122), after the same wait. So on CI's runner the second rule seldom gives a verdict, and the count stands at 1. Two of these runs changed what a hook runs: 119 (install and setup ask the host adapter) and 121 (the hook's handler list). Neither was judged. What stands in for a verdict there is each run's `latency` artifact, which holds the new binary's own figures on macOS: every figure was inside its target in runs 119 to 122, and the ratios of new to old lay on both sides of 1. The third round (EV-16d) takes up a rule that can judge on this runner.
 
 ## What the counters cost
 
