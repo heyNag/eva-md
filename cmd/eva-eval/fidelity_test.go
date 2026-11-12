@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/heyNag/eva-md/internal/eval/results"
 	"github.com/heyNag/eva-md/internal/eval/scenario"
 	"github.com/heyNag/eva-md/internal/eval/score"
+	"github.com/heyNag/eva-md/internal/eval/v1page"
 )
 
 // fidelityRepo makes a repository with one commit, and returns it and its
@@ -30,27 +32,62 @@ func fidelityRepo(t *testing.T) (string, string) {
 // five scripts, as threadpage.Render writes them.
 var committedPages = []string{"v1.01", "v1.03", "v1.04", "v1.06", "v1.09"}
 
-// copyPages copies testdata/fidelity to a new folder, where edit may
-// change a page, and returns the folder.
+// emptyStore is a page that holds nothing: the least a page needs to be
+// read, its Now with the markers that open and close it. v1page reads a
+// page with no Now as an error, so an empty file would not do.
+const emptyStore = "## Now\n<!-- eva:now:start -->\n<!-- eva:now:end -->\n"
+
+// copyPages copies testdata/fidelity to a new folder and gives each of the
+// seven scenarios with no committed page a page that holds nothing, so the
+// folder holds all twelve; edit may change a page. It returns the folder.
 func copyPages(t *testing.T, edit func(name, text string) string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "pages")
+	for _, sc := range scenario.V1() {
+		name := sc.ID + ".md"
+		text := emptyStore
+		if slices.Contains(committedPages, sc.ID) {
+			data, err := os.ReadFile(filepath.Join("testdata", "fidelity", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			text = string(data)
+		}
+		if edit != nil {
+			text = edit(name, text)
+		}
+		write(t, filepath.Join(dir, name), text)
+	}
+	return dir
+}
+
+// A page that holds nothing reads as a store with no item, which is what
+// the command scored a missing page as: the scorer gives it the result of
+// an empty export.
+func TestEmptyStorePage(t *testing.T) {
+	ex, err := v1page.ReadThread(emptyStore)
+	if err != nil || len(ex.Items) != 0 {
+		t.Fatalf("%+v %v", ex, err)
+	}
+	for _, sc := range scenario.V1() {
+		if got, want := score.Score(sc, ex), score.Score(sc, score.Export{}); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %+v, want %+v", sc.ID, got, want)
+		}
+	}
+	if _, err := v1page.ReadThread(""); err == nil {
+		t.Error("an empty file reads as a page")
+	}
 	entries, err := os.ReadDir(filepath.Join("testdata", "fidelity"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	var names []string
 	for _, e := range entries {
-		data, err := os.ReadFile(filepath.Join("testdata", "fidelity", e.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(data)
-		if edit != nil {
-			text = edit(e.Name(), text)
-		}
-		write(t, filepath.Join(dir, e.Name()), text)
+		names = append(names, strings.TrimSuffix(e.Name(), ".md"))
 	}
-	return dir
+	if !slices.Equal(names, committedPages) {
+		t.Errorf("testdata/fidelity holds %v", names)
+	}
 }
 
 // fidelityRows runs the command on pages and returns its rows and what it
@@ -95,14 +132,14 @@ func required(sc scenario.Scenario) int {
 
 // The committed pages of v1's correct runs hold every fact of their
 // scenarios; each of the 12 scenarios gets a row for each of the nine
-// metrics, a missing page as an empty store, and the suite its totals.
-// Every row is of the repository's commit and the flags' host and model,
-// passes results.Load and the committed catalogue, and holds no planted
-// word; nothing printed does either. Two runs give the same rows apart
-// from the time.
+// metrics, a page that holds nothing as an empty store, and the suite its
+// totals. Every row is of the repository's commit and the flags' host and
+// model, passes results.Load and the committed catalogue, and holds no
+// planted word; nothing printed does either. Two runs give the same rows
+// apart from the time.
 func TestFidelityCommand(t *testing.T) {
 	repo, commit := fidelityRepo(t)
-	pages := filepath.Join("testdata", "fidelity")
+	pages := copyPages(t, nil)
 	cat, err := results.LoadCatalogue(filepath.Join(moduleRoot(t), "eval", "fidelity", "metrics.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -170,9 +207,9 @@ func TestFidelityCommand(t *testing.T) {
 			}
 		} else {
 			if v := value(t, rows, sc.ID, score.MetricFactHolds); v != 0 || n == 0 {
-				t.Errorf("%s with no page: fact_holds %v of %d facts", sc.ID, v, n)
+				t.Errorf("%s with a page that holds nothing: fact_holds %v of %d facts", sc.ID, v, n)
 			}
-			if !strings.Contains(line, "; no_page") || !strings.Contains(line, " missing") {
+			if strings.Contains(line, "no_page") || !strings.Contains(line, " missing") {
 				t.Errorf("%s: %s", sc.ID, line)
 			}
 		}
@@ -198,6 +235,93 @@ func TestFidelityCommand(t *testing.T) {
 	if !strings.HasPrefix(lines[12], "v1: fact_recall ") || !strings.HasPrefix(lines[13], "[1] ") || !strings.HasPrefix(lines[14], "[2] ") ||
 		!strings.HasPrefix(lines[15], "Wrote 117 rows of commit "+commit[:12]+" to ") {
 		t.Errorf("the closing lines:\n%s", strings.Join(lines[12:], "\n"))
+	}
+}
+
+// A folder that lacks any of the twelve pages, as after a run that stopped
+// part way, gets no row at all, since the suite's row from fewer pages
+// would read like v1's: the command still prints each scenario's line, as
+// a run on all twelve prints it for each page it finds and a missing page
+// as an empty store marked no_page, then the notes, but no suite's line;
+// it says on stderr how many pages were missing, naming none, and exits 1.
+func TestFidelityMissingPages(t *testing.T) {
+	repo, _ := fidelityRepo(t)
+	_, printed := fidelityRows(t, repo, copyPages(t, nil))
+	all := strings.Split(strings.TrimSuffix(printed, "\n"), "\n")
+	var forbid []string
+	for _, sc := range scenario.V1() {
+		forbid = append(forbid, scenario.Forbid(sc)...)
+	}
+	without := func(names ...string) string {
+		dir := copyPages(t, nil)
+		for _, n := range names {
+			if err := os.Remove(filepath.Join(dir, n+".md")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	var uncommitted []string
+	for _, sc := range scenario.V1() {
+		if !slices.Contains(committedPages, sc.ID) {
+			uncommitted = append(uncommitted, sc.ID)
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		pages   string
+		missing []string
+	}{
+		{"eleven pages, a committed one missing", without("v1.04"), []string{"v1.04"}},
+		{"eleven pages, one that holds nothing missing", without("v1.12"), []string{"v1.12"}},
+		{"the five committed pages alone", filepath.Join("testdata", "fidelity"), uncommitted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "out")
+			code, stdout, stderr := cmd("fidelity", "--repo", repo, "--pages", tc.pages, "--out", out)
+			if code != 1 {
+				t.Fatalf("exit %d: %s\n%s", code, stderr, stdout)
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Fatalf("rows were written: %v", err)
+			}
+			want := fmt.Sprintf("eva-eval: %d of v1's 12 pages are missing, so no row was written: ", len(tc.missing))
+			if !strings.HasPrefix(stderr, want) || strings.Count(stderr, "\n") != 1 || strings.Contains(stderr, "v1.") {
+				t.Errorf("stderr %q, want it to start %q and name no page", stderr, want)
+			}
+			low := strings.ToLower(stdout + stderr)
+			for _, w := range forbid {
+				if strings.Contains(low, strings.ToLower(w)) {
+					t.Errorf("the output holds %q", w)
+				}
+			}
+			lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+			if len(lines) != 14 || lines[12] != all[13] || lines[13] != all[14] {
+				t.Fatalf("%d lines:\n%s", len(lines), stdout)
+			}
+			for i, sc := range scenario.V1() {
+				line := lines[i]
+				switch {
+				case !slices.Contains(tc.missing, sc.ID):
+					if line != all[i] {
+						t.Errorf("%s: %s\nwant the line of a run on all twelve pages\n%s", sc.ID, line, all[i])
+					}
+				case slices.Contains(committedPages, sc.ID):
+					if !strings.HasPrefix(line, sc.ID+": fact_recall 0.00, fact_holds 0.00, ") || !strings.Contains(line, "; no_page") {
+						t.Errorf("%s: %s", sc.ID, line)
+					}
+				default:
+					// A page that held nothing, and none, score alike.
+					head, marks, _ := strings.Cut(all[i], " [")
+					if marks != "" {
+						marks = " [" + marks
+					}
+					if line != head+"; no_page"+marks {
+						t.Errorf("%s: %s\nwant\n%s", sc.ID, line, head+"; no_page"+marks)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -255,7 +379,7 @@ func TestMustHold(t *testing.T) {
 // any scenario, as the model, or a page cannot be read.
 func TestFidelityErrors(t *testing.T) {
 	repo, _ := fidelityRepo(t)
-	pages := filepath.Join("testdata", "fidelity")
+	pages := copyPages(t, nil)
 	unread := copyPages(t, func(name, text string) string {
 		if name == "v1.09.md" {
 			return "## Now\nsome text\n"
