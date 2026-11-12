@@ -35,7 +35,7 @@ Rules every card carries, so they are said once here:
 | [CT-4](CT-4.md) | Counters release: a content-free report | merged |
 | [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 merged: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; its allowlist and vocabulary are approved; Part 2 may come later |
 | [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | ready; merges before the owner's first sitting; it also keeps a model's name out of the recording and carries the notes of HF-00's verifier |
-| [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | built and fixed, on a branch; its closing verification runs since 2026-11-12, and it merges when that passes |
+| [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged; owed as a small follow-up of test files only: two more cases for the rule on a fork or thread put out alone |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | ready |
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | after DV-03a |
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b and EV-14b |
