@@ -20,8 +20,8 @@ name_index. See README.md for the format.
 === secret oracle_near_regex_value regex.shell: a regular expression literal is never read in a shell assignment
 SECRET_KEY='⟦/Pk4Nd8+Rw2¦Hs6Vm1Cx9/n⟧'
 
-=== secret oracle_near_regex_value regex.whole: a regular expression literal is the whole value: '/', a body with no '/', '/' and flags
-SECRET_KEY: '⟦/Qm7+Rt2/¦Wx9Lp4Zk/g⟧'
+=== secret oracle_near_regex_value regex.whole: a regular expression literal is the whole value: '/', a body with no '/' unescaped, '/' and flags
+SECRET_KEY: '⟦/Qm7+Rt2/¦g.source/i⟧'
 
 === secret oracle_near_regex_value regex.meta: a regular expression's body holds a metacharacter, one of \ ^ $ | * + ?
 db_password: '⟦/Lw5Gt9Bq3X¦e7.Jn2Dk6/g⟧'
@@ -39,7 +39,7 @@ SECRET_KEY: '⟦/Hb4Zq8+Lm2¦Wx6/dgimsuv⟧'
 access_token: '⟦/Rc8Vy2+Mh5¦Kp1Wz4Tb7/gg⟧'
 
 === secret oracle_near_regex_value regex.after: after a regular expression comes nothing, a blank, a quote, a backslash, ';' or ','
-api_key = '⟦/Fz6Qe3+Nb8¦Ls2Gx5Hj9/i⟧')
+api_key = '⟦/Fz6Qe3¦+Nb8/i⟧')
 
 === secret oracle_near_yaml_alias floor.call: the floor takes nothing before '(', as the baseline rules do, and takes the value before any other character
 password: '⟦*Hmyh¦ybbz82⟧')
@@ -69,7 +69,7 @@ password: '⟦*Lant¦ernsx⟧'
 password: '⟦*lant¦ern42⟧'
 
 === secret oracle_near_yaml_alias alias.whole: an alias's line ends within maxCodeScan of it
-password: '⟦*Velvet¦4Rocket⟧'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        x
+password: '⟦*Velvet¦4Rocket⟧'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        # c
 
 === secret oracle_near_yaml_alias alias.rest: an alias has nothing but blanks after it on its line
 password: '⟦*Summer¦2Winter⟧' # x

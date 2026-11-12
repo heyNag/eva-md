@@ -1000,8 +1000,10 @@ var oracleBounds = []oracleBound{
 	},
 	{
 		id: "alias.whole", shape: "yaml_alias",
-		what:    "an alias's line ends within maxCodeScan of it",
-		example: ex("password: *Velvet4"+"Rocket"+strings.Repeat(" ", 520)+"x", "*Velvet4"+"Rocket"),
+		what: "an alias's line ends within maxCodeScan of it",
+		// A comment, which the value rules cut off the line, so that they read
+		// the alias as code and the floor decides.
+		example: ex("password: *Velvet4"+"Rocket"+strings.Repeat(" ", 520)+"# c", "*Velvet4"+"Rocket"),
 		widen:   []edit{{`aliasName(v[1:]) && whole && strings.TrimSpace(rest) == ""`, `aliasName(v[1:]) && strings.TrimSpace(rest) == ""`}},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, []string{": ", ":"}, strings.Repeat(" ", maxCodeScan+1+n%8)+g.pick([]string{"x", "# c"})), func() string { return "*" + wordsValue(g) }
@@ -1022,18 +1024,30 @@ var oracleBounds = []oracleBound{
 		id: "regex.shell", shape: "regex_value",
 		what:    "a regular expression literal is never read in a shell assignment",
 		example: ex("SECRET_KEY=/Pk4Nd8"+"+Rw2Hs6Vm1Cx9/n", "/Pk4Nd8"+"+Rw2Hs6Vm1Cx9/n"),
-		widen:   []edit{{"return !shell && regexLiteral(v)", "return regexLiteral(v)"}},
+		widen: []edit{
+			{"return !shell && regexLiteral(v)", "return regexLiteral(v)"},
+			// The value rules read no regular expression after KEY= (isCode).
+			{"} else if shell {", "} else if shell && len(v) < 0 {"},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return shellLine(g, g.pick([]string{"", " # rotated"})), func() string { return nearRegex(g, true, g.pick(gapFlags)) }
 		},
 	},
 	{
 		id: "regex.whole", shape: "regex_value",
-		what:    "a regular expression literal is the whole value: '/', a body with no '/', '/' and flags",
-		example: ex("SECRET_KEY: /Qm7+Rt2"+"/Wx9Lp4Zk/g", "/Qm7+Rt2"+"/Wx9Lp4Zk/g"),
+		what: "a regular expression literal is the whole value: '/', a body with no '/' unescaped, '/' and flags",
+		// After the literal's own flags, what the value rules read as code
+		// goes on (codeEnd), then a second '/' and valid flags, so that only
+		// this bound refuses it.
+		example: ex("SECRET_KEY: /Qm7+Rt2"+"/g.source/i", "/Qm7+Rt2"+"/g.source/i"),
 		widen:   []edit{{"if m == nil || m[1] != len(v) {", "if m == nil {"}},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, ""), func() string {
+				if n%2 == 1 {
+					// Short enough for the entropy rule to leave it to the floor.
+					mid := nthOf([]string{"g.source", `\d`, "?.x", "i.test", ".flags", `\w+`}, n/2)
+					return "/" + g.mixed(3+g.r.Intn(3)) + "+" + g.chars(2, alnum) + "/" + mid + "/" + g.pick(gapFlags)
+				}
 				return "/" + g.mixed(5+g.r.Intn(6)) + "+/" + g.mixed(5+g.r.Intn(6)) + "/" + g.pick(gapFlags)
 			}
 		},
@@ -1090,8 +1104,10 @@ var oracleBounds = []oracleBound{
 	},
 	{
 		id: "regex.after", shape: "regex_value",
-		what:    "after a regular expression comes nothing, a blank, a quote, a backslash, ';' or ','",
-		example: ex("api_key = /Fz6Qe3"+"+Nb8Ls2Gx5Hj9/i)", "/Fz6Qe3"+"+Nb8Ls2Gx5Hj9/i"),
+		what: "after a regular expression comes nothing, a blank, a quote, a backslash, ';' or ','",
+		// Shorter than 20 characters, which the entropy rule would take after
+		// api_key whatever the floor does.
+		example: ex("api_key = /Fz6Qe3"+"+Nb8/i)", "/Fz6Qe3"+"+Nb8/i"),
 		widen:   []edit{{"strings.IndexByte(\" \\t;,\\\"'`\\\\\", rest[0])", "strings.IndexByte(\" \\t;,\\\"'`\\\\)\", rest[0])"}},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{")", "]", "}", "<", ">", "&", "[", "{", "\v", "\f"}, n)+g.pick([]string{"", "x"})), func() string { return nearRegex(g, true, g.pick(gapFlags)) }
