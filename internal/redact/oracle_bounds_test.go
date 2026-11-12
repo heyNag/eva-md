@@ -32,8 +32,8 @@ import (
 //
 // Every near case's line is keyLine's, or shellLine's where the bound is a
 // shell assignment's: a key bare, in double or single quotes or with a tab
-// before its separator, at the start of a line, indented, or after '{' or
-// ", " inside one. A far side is sampled, not exhausted. Where it is a set of
+// before its separator (but before "=="), at the start of a line, indented,
+// or after '{' or ", " inside one. A far side is sampled, not exhausted. Where it is a set of
 // characters or operators, the generator draws each in turn from the
 // printable marks that can stand there, at the start, inside or at the end
 // of a name where that matters, and for the operators of a type from many
@@ -54,10 +54,13 @@ import (
 // on to draw one exact name, and a name that shares 6 characters with a key
 // or a marker, as secrets does, stands in no case (checkCase). The tripwire,
 // TestOracleBoundsWidenRedactGo, is its guard: it fails on any change to the
-// source of the exceptions (see exceptionSource), and whoever then updates
-// its fingerprint adds near cases, labelled and generated, for what the
-// change lets through; the switch stays off until the oracle holds the new
-// shape. Such widenings that reviewers made are listed in named.
+// source of the exceptions, floorValue, plainCode and what they call, and of
+// the rules' run that asks them, pass, apply with the filter every picked
+// span passes and the rules table with each rule's check and hints, in turn
+// with every declaration these name (see exceptionSource). Whoever then
+// updates its fingerprint adds near cases, labelled and generated, for what
+// the change lets through; the switch stays off until the oracle holds the
+// new shape. Such widenings that reviewers made are listed in named.
 //
 // TestOracleBoundsHaveNearCases fails when a bound has no near case, labelled
 // or generated, or a near case names no bound. Each bound also says how to
@@ -177,7 +180,7 @@ var (
 // tail, as code and configuration write a key: bare, in double quotes, in
 // single quotes or with a tab before the separator, at the start of the
 // line, indented, or inside a line after '{' or ", ". A tab before "==" would
-// make a comparison, which is of the gap shape: that key is bare.
+// make a comparison, which is of the gap shape: a key before "==" has none.
 func keyLine(g *gen, seps []string, tail string) string {
 	key, sep := g.pick(gapKeys), g.pick(seps)
 	switch g.r.Intn(6) {
@@ -491,7 +494,9 @@ var oracleBounds = []oracleBound{
 		example: ex("token==*Rv8Kd"+"2Wm5Qx", "*Rv8Kd"+"2Wm5Qx"),
 		widen:   []edit{{`strings.Contains(sep, "==") && strings.ContainsAny(sep, " \t")`, `strings.Contains(sep, "==")`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return g.pick(gapKeys) + "==%s", func() string { return "*" + nearToken(g) }
+			// An unspaced "==" after a key, as keyLine writes one: bare or in
+			// quotes, never with a tab before it.
+			return keyLine(g, []string{"=="}, ""), func() string { return "*" + nearToken(g) }
 		},
 	},
 	{
@@ -694,6 +699,13 @@ var oracleBounds = []oracleBound{
 			{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op://") || strings.HasPrefix(v, "ref+") }`}},
 			// A reviewer's: bws://.
 			{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op://") || strings.HasPrefix(v, "bws://") }`}},
+			// A reviewer's: apply's pick, which the value rules and the floor
+			// ask, leaves alone a value that starts with vals:.
+			{{`if containedBy(marks, s) || cuts(marks, s) || inRef(refs, s) {`, `if containedBy(marks, s) || cuts(marks, s) || inRef(refs, s) || strings.HasPrefix(text[s.start:s.end], "vals:") {`}},
+			// A reviewer's: the rules table gives the value rule of the token
+			// words a check that refuses a value that starts with kmsref:,
+			// which pick asks of the floor's value at its keys too.
+			{{"\t\tresume: true,\n\t\tfamily: 2,\n", "\t\tresume: true,\n\t\tfamily: 2,\n\t\tcheck:  func(s string) bool { return !strings.HasPrefix(s, \"kmsref:\") },\n"}},
 		},
 		weight: 6,
 		near: func(g *gen, n int) (string, func() string) {
@@ -2217,7 +2229,7 @@ func TestOracleBoundsWidenRedactGo(t *testing.T) {
 
 // tripwireAdvice is what TestOracleBoundsWidenRedactGo tells whoever changed
 // an exception for code.
-const tripwireAdvice = `A changed declaration may widen an exception for code: with the switch redaction_current_rules_only on, a secret in a shape the change lets through would be kept. TestOracle holds a bound only where a near case stands past it, and a widening to one more name that is on no list, a prefix, a scope or a scheme, is not required to fail it: this test is its guard. Before you write the new fingerprint into exceptionSource (oracle_tripwire_test.go), add for what the change lets through a near case labelled in corpus/oracle_near.txt and near cases its bound's generator draws, and the change alone as a widening of its bound in oracleBounds (oracle_bounds_test.go): in more for a new shape, in named for one more name; a new condition is a new bound, with all of these. Then run TestOracleHoldsEachBound with -args -widen-bounds. The switch stays off until the oracle holds the new shape.`
+const tripwireAdvice = `This test holds the source of the exceptions for code (floorValue, plainCode and what they call) and of the rules' run that asks them (pass, apply with the filter every picked span passes, and the rules table with each rule's check and hints), so a change to any rule fails it. A changed declaration may widen an exception for code: with the switch redaction_current_rules_only on, a secret in a shape the change lets through would be kept. TestOracle holds a bound only where a near case stands past it, and a widening to one more name that is on no list, a prefix, a scope or a scheme, is not required to fail it: this test is its guard. Before you write the new fingerprint into exceptionSource (oracle_tripwire_test.go), add for what the change lets through a near case labelled in corpus/oracle_near.txt and near cases its bound's generator draws, and the change alone as a widening of its bound in oracleBounds (oracle_bounds_test.go): in more for a new shape, in named for one more name; a new condition is a new bound, with all of these. Then run TestOracleHoldsEachBound with -args -widen-bounds. The switch stays off until the oracle holds the new shape.`
 
 // listingDiff names the lines of want that got lacks and those of got that
 // want lacks.

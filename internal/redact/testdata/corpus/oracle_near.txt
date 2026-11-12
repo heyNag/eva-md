@@ -83,6 +83,12 @@ token = '⟦ref+Qw4e¦Rt7yUi9o⟧'
 === secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a reference of bws://, which only the tripwire need see
 password: '⟦bws://Xk9m¦P2vLq7Rt⟧'
 
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a value of vals: that apply's pick leaves alone, which only the tripwire need see
+password: '⟦vals:Xk9m¦P2vLq7Rt⟧'
+
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a value of kmsref: that a check of the rules table refuses, which only the tripwire need see
+api_key: '⟦kmsref:Xk9m¦P2vLq7Rt⟧'
+
 === secret oracle_near_yaml_alias floor.undefined: the floor leaves alone the word undefined, in lower case and alone
 password: '⟦undefine¦d_Xk9mP2⟧'
 

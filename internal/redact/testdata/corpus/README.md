@@ -114,8 +114,8 @@ is in the gap shape.
 The oracle holds the bounds that `oracleBounds` lists, against the
 widenings it names and others like them, on the near cases it draws. Each
 near case's key is written as code and configuration write one: bare, in
-double or single quotes or with a tab before its separator, at the start of
-a line, indented, or after `{` or `, ` inside one. A far side is sampled,
+double or single quotes or with a tab before its separator (but before
+`==`), at the start of a line, indented, or after `{` or `, ` inside one. A far side is sampled,
 not exhausted: where it is a set of characters or operators, the generator
 draws each mark that can stand there in turn, at the start, inside or at
 the end of a name where that matters, and an operator of a type with a
@@ -139,9 +139,17 @@ on to draw one exact name, and a name that shares 6 characters with a key
 or a marker, such as `secrets`, can stand in no case (see "Marks in a
 case's text"). Its guard is the tripwire, `TestOracleBoundsWidenRedactGo`:
 it holds a fingerprint of the source of every declaration the exceptions
-for code are made of (`exceptionSource` in `oracle_tripwire_test.go`), and
-fails on any change to one, in `redact.go`, `passwords.go` or any other file
-of the package, until a person writes the new fingerprint there. Whoever
+for code are made of, `floorValue`, `plainCode` and what they call, and of
+the rules' run that asks them: `pass`, `apply`, which asks the floor and
+holds the filter every span a rule or the floor picks must pass, and the
+rules table, with each rule's check and hints, and every declaration these
+name in turn, which is in effect every rule (`exceptionSource` in
+`oracle_tripwire_test.go`). It fails on any change to one, in `redact.go`,
+`passwords.go` or any other file of the package, until a person writes the
+new fingerprint there. It reads the files themselves, so a change made with
+`go test -overlay` does not reach it; `TestOracleTripwireSeesEveryWidening`
+applies each widening `oracleBounds` lists, named ones too, and checks that
+the fingerprint changes. Whoever
 does adds, for what the change lets through, a near case labelled here and
 near cases its bound's generator draws, and the change as a widening of its
 bound; a new condition is a new bound. The switch stays off until the
