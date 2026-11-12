@@ -400,3 +400,137 @@ func TestTheRepositoryCheckRebuildsHandOvers(t *testing.T) {
 		}
 	}
 }
+
+// skeletonRecording writes a recording of one event whose payload holds a
+// hand-over and whose record holds the same hand-over and one no payload
+// holds, an empty request beside a transcript long enough that its byte
+// length is a number the survival check would otherwise flag.
+func skeletonRecording(t *testing.T) (rec string, payloadSkel, rowSkel *Voice) {
+	t.Helper()
+	key := []byte("a made-up key")
+	long := strings.Repeat("made up talk ", 80)
+	w := wrap(nil, sp("made up request"), sp("user: made up request\nassistant: made up reply"))
+	row := wrap(nil, sp(""), sp("user: "+long+"\nassistant: made up"))
+	payloadSkel, _ = VoiceOf(key, w)
+	rowSkel, _ = VoiceOf(key, row)
+	field := func(s string, v *Voice) map[string]any {
+		return map[string]any{"path": "payload.message", "type": "string", "len": len(s), "hash": Hash(key, s), "voice": v}
+	}
+	ev := map[string]any{
+		"v": 1, "host": "codex", "event": "UserPromptSubmit",
+		"payload":        map[string]any{"prompt": w},
+		"payload_hashes": map[string]any{"prompt": Hash(key, w)},
+		"voice":          map[string]any{"prompt": payloadSkel},
+		"record": map[string]any{"size": 2048, "rows": []any{
+			map[string]any{"offset": 0, "size": 300, "index": 0, "fields": []any{field(w, payloadSkel)}},
+			map[string]any{"offset": 300, "size": 1200, "index": 1, "fields": []any{field(row, rowSkel)}},
+		}},
+	}
+	line, err := Marshal(ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = t.TempDir()
+	if err := os.WriteFile(filepath.Join(rec, EventsFile), append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return rec, payloadSkel, rowSkel
+}
+
+// A fixture keeps each skeleton's byte lengths as recorded, a row's that
+// no payload holds too, so its empty request is still empty; check passes
+// them, though a transcript's length is a recorded number, and fails a
+// fixture whose skeleton gives a length its hand-over or its own lines do
+// not.
+func TestFixtureSkeletonsKeepTheirLengths(t *testing.T) {
+	rec, payloadSkel, rowSkel := skeletonRecording(t)
+	if rowSkel.Transcript.Len < 1000 {
+		t.Fatalf("the row's transcript is %d bytes, too short to be a number the survival check flags", rowSkel.Transcript.Len)
+	}
+	fx := t.TempDir()
+	if _, err := WriteFixtures(FixtureOptions{Rec: rec, Out: fx, Seed: []byte("a made-up seed")}); err != nil {
+		t.Fatal(err)
+	}
+	if problems, err := CheckFixtureDir(fx); err != nil || len(problems) != 0 {
+		t.Fatalf("the repository's check: %v %v", problems, err)
+	}
+	if problems, err := CheckSurvival(rec, fx); err != nil || len(problems) != 0 {
+		t.Fatalf("the survival check: %v %v", problems, err)
+	}
+	data, err := os.ReadFile(filepath.Join(fx, EventsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev map[string]any
+	if err := json.Unmarshal(data, &ev); err != nil {
+		t.Fatal(err)
+	}
+	decode := func(x any) *Voice {
+		v, ok := decodeVoice(x)
+		if !ok {
+			t.Fatalf("a skeleton does not read: %v", x)
+		}
+		return v
+	}
+	rows := ev["record"].(map[string]any)["rows"].([]any)
+	got := []*Voice{
+		decode(ev["voice"].(map[string]any)["prompt"]),
+		decode(rows[0].(map[string]any)["fields"].([]any)[0].(map[string]any)["voice"]),
+		decode(rows[1].(map[string]any)["fields"].([]any)[0].(map[string]any)["voice"]),
+	}
+	for i, want := range []*Voice{payloadSkel, payloadSkel, rowSkel} {
+		if got[i].shape() != want.shape() {
+			t.Errorf("skeleton %d in the fixture:\n%s\nwant\n%s", i, got[i].shape(), want.shape())
+		}
+	}
+	if got[2].Input.Len != 0 || got[2].Transcript.Lines[1].Len != len("made up") {
+		t.Errorf("the row's skeleton no payload holds: %+v", got[2])
+	}
+	// A length changed in a skeleton: of the payload's, which its
+	// hand-over shows; of a row's line, which its transcript's length
+	// shows; of a row's request, which no other part shows but a
+	// transcript of the same hash would. And a head off the list.
+	skel := func(ev map[string]any, i int) map[string]any {
+		if i < 0 {
+			return ev["voice"].(map[string]any)["prompt"].(map[string]any)
+		}
+		return ev["record"].(map[string]any)["rows"].([]any)[i].(map[string]any)["fields"].([]any)[0].(map[string]any)["voice"].(map[string]any)
+	}
+	lastLine := func(v map[string]any) map[string]any {
+		lines := v["transcript_delta"].(map[string]any)["lines"].([]any)
+		return lines[len(lines)-1].(map[string]any)
+	}
+	for _, bad := range []struct {
+		name   string
+		change func(ev map[string]any)
+	}{
+		{"a payload skeleton's request", func(ev map[string]any) { skel(ev, -1)["input"].(map[string]any)["len"] = json.Number("14") }},
+		{"a row's line", func(ev map[string]any) { lastLine(skel(ev, 1))["len"] = json.Number("8") }},
+		{"a row's request against the payload's", func(ev map[string]any) { skel(ev, 0)["input"].(map[string]any)["len"] = json.Number("16") }},
+		{"a head off the list", func(ev map[string]any) { lastLine(skel(ev, 1))["head"] = "narrator: " }},
+	} {
+		dir := t.TempDir()
+		for _, name := range []string{"fixture.json", EventsFile} {
+			b, err := os.ReadFile(filepath.Join(fx, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if name == EventsFile {
+				v, err := Decode(b)
+				if err != nil {
+					t.Fatal(err)
+				}
+				bad.change(v.(map[string]any))
+				if b, err = Marshal(v); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if problems, err := CheckFixtureDir(dir); err != nil || len(problems) == 0 {
+			t.Errorf("the repository's check passes %s changed: %v", bad.name, err)
+		}
+	}
+}
