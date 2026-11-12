@@ -3,12 +3,16 @@ of oracle_gaps.txt, as secrets of a class whose name starts with
 oracle_near_. A bound is one condition of floorValue or plainCode in
 redact.go, or of a predicate they call, that limits an exception: a
 character class, a length, a count or a refusal. oracleBounds in
-oracle_bounds_test.go lists every one, with what it says, a change of
-redact.go that widens the exception past it alone, and a generator of near
-cases. Each case here is the labelled near case of one bound: its name starts
-with the bound's id and a colon, and its text is the bound's example. There
-the exception does not hold, and the current rules alone remove the secret
-today as the baseline rules do.
+oracle_bounds_test.go lists every one, with what it says, changes of
+redact.go that widen the exception past it alone, and a generator of near
+cases. Each case here is a labelled near case of one bound: its name starts
+with the bound's id and a colon, and one case of each bound has the text of
+the bound's example; a bound with more than one widening has a case each
+widening keeps. There the exception does not hold, and the current rules
+alone remove the secret today as the baseline rules do. Where the value
+rules would take the secret before the floor is asked, the case would hold
+nothing, so each case stands where the value rules read code and only the
+floor's exception refuses it.
 
 A gap class excuses its whole shape, so without these a rule change that
 widened an exception past one of its bounds would keep secrets the baseline

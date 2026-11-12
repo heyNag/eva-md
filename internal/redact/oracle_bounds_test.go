@@ -67,9 +67,15 @@ import (
 //     end (index.closes.line) and maxCodeScan past the value
 //     (index.closes.scan, alias.whole).
 //
-// Some exceptions are read twice: lineValue, for the value rules, reads a
-// type annotation as plainCode does, so a widening of a type's bound widens
-// both, or the value rules take the secret before the floor is asked.
+// Most exceptions are read twice: the value rules, which run before the
+// floor, have their own reading of code (lineValue's type annotation,
+// isCode with codeHead, codeEnd and closeBracket), and the floor is asked
+// only for a value they leave. A bound that both readings hold is crossed
+// only when both widen, so its widening changes both, and its near cases
+// stand where the value rules read code and only the floor's exception
+// refuses the secret: a near case the value rules take holds nothing.
+// TestOracleHoldsEachBound found each bound below that the value rules hold
+// too, as one whose widening of the floor alone kept nothing.
 
 // edit is a change of redact.go: old, which occurs there exactly once,
 // becomes new.
