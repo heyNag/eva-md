@@ -17,11 +17,15 @@ import (
 // work, or its commit not yet acknowledged.
 const journalFile = "migrate-journal.json"
 
+// A journal records the run's pass, its step, the commit before, and the
+// store id the run gives a store without one, so a recovery writes the
+// same bytes whatever id the machine offers then.
 type journal struct {
-	Pass   string `json:"pass"`
-	From   int    `json:"from"`
-	To     int    `json:"to"`
-	Before string `json:"before"`
+	Pass    string `json:"pass"`
+	From    int    `json:"from"`
+	To      int    `json:"to"`
+	Before  string `json:"before"`
+	StoreID string `json:"store_id,omitempty"`
 }
 
 var reCommit = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -38,7 +42,8 @@ func readJournal(stateDir string) (*journal, error) {
 		return nil, errJournal
 	}
 	var j journal
-	if json.Unmarshal(b, &j) != nil || !rePass.MatchString(j.Pass) || !reCommit.MatchString(j.Before) || j.From < 1 || j.To <= j.From {
+	if json.Unmarshal(b, &j) != nil || !rePass.MatchString(j.Pass) || !reCommit.MatchString(j.Before) || j.From < 1 || j.To <= j.From ||
+		j.StoreID != "" && !reStoreID.MatchString(j.StoreID) {
 		return nil, errJournal
 	}
 	return &j, nil

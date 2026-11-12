@@ -120,9 +120,10 @@ func TestRecoveryKeepsAPersonsEdit(t *testing.T) {
 }
 
 // TestRecoveryClearsWhatACutGitLeft leaves what a run cut short inside git
-// or inside a write would: lock files, a temporary file, and files half
-// written, staged and removed. The rerun clears them and gives the clean
-// run's tree under the journal's pass.
+// or inside a write would: lock files, a temporary file holding part of a
+// write (a write is atomic, so no file it names is ever half written), and
+// files written, staged and removed. The rerun clears them and gives the
+// clean run's tree under the journal's pass.
 func TestRecoveryClearsWhatACutGitLeft(t *testing.T) {
 	isolate(t)
 	_, want := record(t, synthetic)
@@ -132,8 +133,8 @@ func TestRecoveryClearsWhatACutGitLeft(t *testing.T) {
 	if err := writeJournal(o.StateDir, journal{Pass: passA, From: 1, To: 2, Before: before}); err != nil {
 		t.Fatal(err)
 	}
-	writeT(t, filepath.Join(dir, "legacy", "v1", "log.md"), "half")
-	writeT(t, filepath.Join(dir, ".eva-md", "store.toml"), "schema = 2\n")
+	writeT(t, filepath.Join(dir, "legacy", "v1", "log.md"), v1Files["log.md"])
+	writeT(t, filepath.Join(dir, ".eva-md", "store.toml"), "schema = 2\nmin_reader = 2\nstore_id = \""+storeID+"\"\nepoch = 1\n")
 	writeT(t, filepath.Join(dir, ".gitattributes"), "* -text -filter -ident\n")
 	gitT(t, dir, "add", "-A")
 	if err := os.Remove(filepath.Join(dir, "log.md")); err != nil {
@@ -179,7 +180,8 @@ func TestRecoveryCutShortToo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(again, "git reset") || !slices.Contains(again, "git checkout") || !slices.Contains(again, "git commit") {
+	reset := slices.Index(again, "git reset")
+	if reset < 0 || slices.Index(again[reset:], "write") < 0 || !slices.Contains(again, "git commit") {
 		t.Fatalf("the recovery did not go back and commit: %v", again)
 	}
 

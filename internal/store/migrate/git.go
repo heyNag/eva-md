@@ -113,10 +113,19 @@ func (c *capped) Write(p []byte) (int, error) {
 
 // tree is the tree of one commit, read whole: a step sees nothing else.
 type tree struct {
-	paths []string
-	data  map[string][]byte
-	bad   map[string]bool // entries that are no file, such as a submodule
+	paths   []string
+	data    map[string][]byte    // each blob's bytes, a symlink's target too
+	bad     map[string]bool      // entries that are no file: a symlink or a submodule
+	entries map[string]treeEntry // each entry's mode and object
 }
+
+type treeEntry struct{ mode, oid string }
+
+// symlinkMode and gitlinkMode are the modes of entries that are no file.
+const (
+	symlinkMode = "120000"
+	gitlinkMode = "160000"
+)
 
 func (t *tree) Paths() []string { return append([]string(nil), t.paths...) }
 
@@ -137,7 +146,7 @@ func readTree(ctx context.Context, dir, commit string) (*tree, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &tree{data: map[string][]byte{}, bad: map[string]bool{}}
+	t := &tree{data: map[string][]byte{}, bad: map[string]bool{}, entries: map[string]treeEntry{}}
 	var oids []string
 	var blobs []string
 	for _, entry := range strings.Split(strings.TrimSuffix(string(list), "\x00"), "\x00") {
@@ -150,8 +159,14 @@ func readTree(ctx context.Context, dir, commit string) (*tree, error) {
 			return nil, errors.New("migrate: unexpected tree listing")
 		}
 		t.paths = append(t.paths, path)
-		if f[1] != "blob" {
+		t.entries[path] = treeEntry{mode: f[0], oid: f[2]}
+		// A symlink is a blob of its target, but no file: the format
+		// holds none, and v1 never opens one. Its bytes are kept for a
+		// recovery to put it back, but a step cannot read it.
+		if f[1] != "blob" || f[0] == symlinkMode {
 			t.bad[path] = true
+		}
+		if f[1] != "blob" {
 			continue
 		}
 		oids = append(oids, f[2])

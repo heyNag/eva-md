@@ -51,7 +51,9 @@ const maxManifest = 4 << 10
 
 // Check applies the reader rule to the store at root for a binary that
 // knows generations up to known. It reads only .eva-md/store.toml, never
-// through a symlink and at most 4 KiB. A min_reader above known allows
+// through a symlink and at most 4 KiB, and of it only schema, min_reader
+// and store_id, so no other key, of whatever shape a newer generation
+// gives it, keeps the refusal from being said. A min_reader above known allows
 // nothing and returns a *TooOldError; a schema above known allows reading
 // only; a missing or unreadable manifest allows nothing and returns
 // ErrNoManifest.
@@ -60,7 +62,7 @@ func Check(root string, known int) (Access, error) {
 	if err != nil {
 		return Access{}, fmt.Errorf("%w: %v", ErrNoManifest, err)
 	}
-	m, err := parseManifest(b)
+	m, err := readManifestKeys(b, false)
 	if err != nil {
 		return Access{}, fmt.Errorf("%w: %v", ErrNoManifest, err)
 	}

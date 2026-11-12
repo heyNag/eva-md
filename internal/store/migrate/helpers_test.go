@@ -42,6 +42,7 @@ func isolate(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	if err := os.WriteFile(filepath.Join(home, "gitconfig"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

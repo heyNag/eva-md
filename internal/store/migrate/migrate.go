@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -99,19 +98,39 @@ var (
 	ErrNotMain     = errors.New("migrate: the store is not on main")
 	ErrMoved       = errors.New("migrate: main moved during an unfinished step")
 	ErrJournalStep = errors.New("migrate: an unfinished step of other generations is recorded")
+	ErrUnderWay    = errors.New("migrate: a merge, rebase, cherry-pick or revert is under way in the store")
+	ErrBeforeRef   = errors.New("migrate: the ref that keeps the store before a migration holds another commit")
 )
+
+// BeforeRefError is the refusal to move refs/eva-md/before-schema-<To>
+// when it holds a commit other than the one before: that ref is the only
+// way back to a store as it was before a migration, so nothing moves it
+// unasked. It is ErrBeforeRef by errors.Is.
+type BeforeRefError struct{ Ref string }
+
+func (e *BeforeRefError) Error() string {
+	return fmt.Sprintf("migrate: %s already keeps another commit; to let a migration replace it, remove it with git update-ref -d %s", e.Ref, e.Ref)
+}
+
+func (e *BeforeRefError) Is(target error) bool { return target == ErrBeforeRef }
+
+// maxWalk bounds the walk back along main for the step's commit.
+const maxWalk = 10000
 
 // hook marks a point a crash can stop a run at: after every file write,
 // git call and journal write or removal. Tests set it.
 var hook = func(string) {}
 
-// Run carries the store at root through step. At the step's To it makes no
-// commit; at any generation but From it refuses. It takes the store lock
-// without waiting, refuses a tree with changes it did not leave, and makes
-// no commit when the step leaves anything unaccounted for or a written line
-// looks like a secret. A journal found at the start is a run cut short: its
-// commit is finished, or the store goes back to the commit before and the
-// step runs again under the journal's pass.
+// Run carries the store at root through step. It takes the store lock
+// without waiting. At the step's To it makes no commit, whatever the work
+// tree holds; at any generation but From, or with a min_reader above
+// Known, it refuses. It refuses a tree with changes it did not leave, a
+// merge or the like under way, and a before ref that keeps another
+// commit, and makes no commit when the step leaves anything unaccounted
+// for, a file v1 hid would show, or a written line looks like a secret. A
+// journal found at the start is a run cut short: its commit, found on
+// main, is finished, or what the run left goes back to the commit before
+// and the step runs again under the journal's pass.
 func Run(ctx context.Context, root string, step Step, o Options) (Result, error) {
 	if err := checkStep(step); err != nil {
 		return Result{}, err
@@ -134,20 +153,25 @@ func Run(ctx context.Context, root string, step Step, o Options) (Result, error)
 	if err != nil {
 		return Result{}, err
 	}
-	pass := o.Pass
+	pass, storeID := o.Pass, o.StoreID
 	j, err := readJournal(o.StateDir)
 	if err != nil {
 		return Result{}, err
 	}
-	var p planned
 	if j != nil {
 		if j.From != step.From || j.To != step.To {
 			return Result{}, ErrJournalStep
 		}
 		pass = j.Pass
+		if j.StoreID != "" {
+			storeID = j.StoreID
+		}
 		if head != j.Before {
-			if !passCommit(ctx, root, head, *j) {
-				return Result{}, ErrMoved
+			// The step's commit is on main, though maybe no longer at
+			// its tip: the run was cut before it removed the journal.
+			commit, err := findPassCommit(ctx, root, head, *j)
+			if err != nil {
+				return Result{}, err
 			}
 			p, err := plan(ctx, root, step, j.Before)
 			if err != nil {
@@ -156,12 +180,31 @@ func Run(ctx context.Context, root string, step Step, o Options) (Result, error)
 			if err := removeJournal(o.StateDir); err != nil {
 				return Result{}, err
 			}
-			return Result{Generation: p.gen, Committed: true, Commit: head, Before: j.Before, Pass: pass, Counts: p.counts}, nil
+			return Result{Generation: p.gen, Committed: true, Commit: commit, Before: j.Before, Pass: pass, Counts: p.counts}, nil
 		}
-		if p, err = plan(ctx, root, step, head); err != nil {
-			return Result{}, err
-		}
-		if err := goBack(ctx, root, head, step.To, p); err != nil {
+	}
+	p, err := plan(ctx, root, step, head)
+	if err != nil {
+		return Result{}, err
+	}
+	if p.gen == step.To {
+		// Done already: no commit, whatever a person has changed since.
+		return Result{Generation: p.gen}, nil
+	}
+	if p.old.storeID == "" && storeID == "" {
+		return Result{}, errors.New("migrate: a store without an id needs one")
+	}
+	ref := fmt.Sprintf("refs/eva-md/before-schema-%d", step.To)
+	refOld, err := checkBeforeRef(ctx, root, ref, head)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := checkIndex(ctx, root); err != nil {
+		return Result{}, err
+	}
+	owned := ownedFiles(p.old, step.To, step.MinReader, storeID)
+	if j != nil {
+		if err := goBack(ctx, root, head, step.To, p, owned); err != nil {
 			return Result{}, err
 		}
 	}
@@ -170,31 +213,28 @@ func Run(ctx context.Context, root string, step Step, o Options) (Result, error)
 	} else if dirty {
 		return Result{}, ErrDirty
 	}
-	if j == nil {
-		if p, err = plan(ctx, root, step, head); err != nil {
-			return Result{}, err
-		}
+	shown, err := exposed(ctx, root, owned[ignorePath])
+	if err != nil {
+		return Result{}, err
 	}
+	p.counts.Unaccounted += shown
 	r := Result{Generation: p.gen, Before: head, Pass: pass, Counts: p.counts}
 	switch {
-	case p.gen == step.To:
-		return Result{Generation: p.gen}, nil
 	case p.counts.Unaccounted > 0:
 		return r, ErrUnaccounted
 	case p.counts.HeldBack > 0:
 		return r, ErrHeldBack
-	case p.old.storeID == "" && o.StoreID == "":
-		return Result{}, errors.New("migrate: a store without an id needs one")
 	}
 	if j == nil {
-		if err := writeJournal(o.StateDir, journal{Pass: pass, From: step.From, To: step.To, Before: head}); err != nil {
+		if err := writeJournal(o.StateDir, journal{Pass: pass, From: step.From, To: step.To, Before: head, StoreID: storeID}); err != nil {
 			return Result{}, err
 		}
 	}
-	if _, err := git(ctx, root, nil, nil, "update-ref", fmt.Sprintf("refs/eva-md/before-schema-%d", step.To), head); err != nil {
+	// With the old value given, git moves the ref only from what was
+	// checked: absent, or already the commit before.
+	if _, err := git(ctx, root, nil, nil, "update-ref", ref, head, refOld); err != nil {
 		return Result{}, err
 	}
-	owned := ownedFiles(p.old, step.To, step.MinReader, o.StoreID)
 	if err := writeFiles(ctx, root, p.change, owned); err != nil {
 		return Result{}, err
 	}
@@ -210,8 +250,9 @@ func Run(ctx context.Context, root string, step Step, o Options) (Result, error)
 }
 
 // DryRun plans step on the tree committed at root's HEAD and returns its
-// counts. It takes no lock and writes nothing anywhere. At the step's To
-// the counts are zero.
+// counts, with the files v1 hid that the step's run would show counted as
+// unaccounted, as Run counts them. It takes no lock and writes nothing
+// anywhere. At the step's To the counts are zero.
 func DryRun(ctx context.Context, root string, step Step) (Counts, error) {
 	if err := checkStep(step); err != nil {
 		return Counts{}, err
@@ -224,6 +265,11 @@ func DryRun(ctx context.Context, root string, step Step) (Counts, error) {
 	if err != nil || p.gen == step.To {
 		return Counts{}, err
 	}
+	shown, err := exposed(ctx, root, ownedFiles(p.old, step.To, step.MinReader, "")[ignorePath])
+	if err != nil {
+		return Counts{}, err
+	}
+	p.counts.Unaccounted += shown
 	return p.counts, nil
 }
 
@@ -245,6 +291,11 @@ func plan(ctx context.Context, root string, step Step, commit string) (planned, 
 	gen, old, err := generation(t)
 	if err != nil {
 		return planned{}, err
+	}
+	// The reader rule holds for the runner too: a store that needs a
+	// newer reader is neither read for a step nor written.
+	if old.minReader > Known {
+		return planned{}, &TooOldError{StoreID: old.storeID, Schema: old.schema, MinReader: old.minReader, Known: Known}
 	}
 	if gen == step.To {
 		return planned{gen: gen}, nil
@@ -339,7 +390,7 @@ func checkChange(step Step, t *tree, c Change) error {
 	final := maps.Clone(inTree)
 	removed := map[string]bool{}
 	for _, p := range c.Remove {
-		if err := checkPath(p); err != nil {
+		if err := checkPath(p, false); err != nil {
 			return err
 		}
 		if !inTree[p] || removed[p] {
@@ -352,10 +403,18 @@ func checkChange(step Step, t *tree, c Change) error {
 		delete(final, p)
 	}
 	for p := range c.Write {
-		if err := checkPath(p); err != nil {
+		if err := checkPath(p, true); err != nil {
 			return err
 		}
 		final[p] = true
+	}
+	// A git settings file of the old tree that the result keeps, but the
+	// runner's two, would change the bytes git takes in beside it, or
+	// what it hides: the step removes it, or carries it under another name.
+	for p := range final {
+		if !slices.Contains(owned, p) && slices.ContainsFunc(gitFiles, func(g string) bool { return strings.EqualFold(path.Base(p), g) }) {
+			return errors.New("migrate: the result keeps a git settings file of the old tree")
+		}
 	}
 	for _, p := range owned {
 		final[p] = true
@@ -403,14 +462,18 @@ func checkChange(step Step, t *tree, c Change) error {
 }
 
 // checkPath refuses a path that is not plain and relative, names a folder
-// .git in any case, or is one of the runner's.
-func checkPath(p string) error {
+// .git in any case, or is one of the runner's; and, for a path written, a
+// git settings file at any depth, in any case.
+func checkPath(p string, write bool) error {
 	if p == "" || !utf8.ValidString(p) || strings.HasPrefix(p, "/") || strings.ContainsFunc(p, func(r rune) bool { return r < 0x20 || r == 0x7f || r == '\\' }) {
 		return errors.New("migrate: the step names a path that is not plain")
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == "" || seg == "." || seg == ".." || strings.EqualFold(seg, ".git") {
 			return errors.New("migrate: the step names a path that is not plain")
+		}
+		if write && slices.ContainsFunc(gitFiles, func(g string) bool { return strings.EqualFold(seg, g) }) {
+			return errors.New("migrate: the step writes a git settings file")
 		}
 	}
 	for _, q := range owned {
@@ -436,94 +499,4 @@ func dirty(ctx context.Context, root string) (bool, error) {
 		return false, err
 	}
 	return len(out) > 0, nil
-}
-
-// passCommit reports whether commit is the journal's pass's commit: one
-// parent, the commit before, and the pass's trailers.
-func passCommit(ctx context.Context, root, commit string, j journal) bool {
-	out, err := git(ctx, root, nil, nil, "cat-file", "commit", commit)
-	if err != nil {
-		return false
-	}
-	header, body, _ := strings.Cut(string(out), "\n\n")
-	var parents []string
-	for _, line := range strings.Split(header, "\n") {
-		if p, ok := strings.CutPrefix(line, "parent "); ok {
-			parents = append(parents, p)
-		}
-	}
-	lines := strings.Split(body, "\n")
-	return len(parents) == 1 && parents[0] == j.Before &&
-		slices.Contains(lines, "Eva-Pass: "+j.Pass) && slices.Contains(lines, "Eva-Kind: migrate") &&
-		slices.Contains(lines, fmt.Sprintf("Eva-Schema: %d", j.To))
-}
-
-// goBack returns the paths the step's run writes or removes, and the four
-// the runner owns, to the commit before, which HEAD still is, in the index
-// and the work tree, and removes the temporary files a write cut short
-// left. No other path is touched: a change a person made elsewhere stays,
-// and the run then finds the tree dirty and refuses. Lock files a git cut
-// short left are cleared first: only a writer holding the store lock runs
-// git here.
-func goBack(ctx context.Context, root, before string, to int, p planned) error {
-	gitDir, err := git(ctx, root, nil, nil, "rev-parse", "--absolute-git-dir")
-	if err != nil {
-		return err
-	}
-	for _, name := range []string{"index.lock", "HEAD.lock", "refs/heads/main.lock", fmt.Sprintf("refs/eva-md/before-schema-%d.lock", to)} {
-		err := os.Remove(filepath.Join(strings.TrimSpace(string(gitDir)), filepath.FromSlash(name)))
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("migrate: %w", err)
-		}
-	}
-	inBefore := map[string]bool{}
-	for _, q := range p.tree.paths {
-		inBefore[q] = true
-	}
-	var touched, restore []string
-	drop := map[string]bool{}
-	for _, q := range slices.Concat(owned, slices.Sorted(maps.Keys(p.change.Write)), p.change.Remove) {
-		touched = append(touched, q)
-		if inBefore[q] {
-			restore = append(restore, q)
-		} else {
-			drop[q] = true
-		}
-	}
-	if _, err := git(ctx, root, nil, nulList(touched), "reset", "-q", before, "--pathspec-from-file=-", "--pathspec-file-nul"); err != nil {
-		return err
-	}
-	out, err := git(ctx, root, nil, nil, "ls-files", "-o", "-z")
-	if err != nil {
-		return err
-	}
-	r, err := paths.OpenRoot(root, false)
-	if err != nil {
-		return fmt.Errorf("migrate: %w", err)
-	}
-	defer r.Close()
-	for _, f := range strings.Split(string(out), "\x00") {
-		if f == "" || !drop[f] && !strings.HasPrefix(path.Base(f), paths.TempPrefix) {
-			continue
-		}
-		if err := r.Remove(filepath.FromSlash(f)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("migrate: %w", err)
-		}
-		hook("remove")
-	}
-	if len(restore) == 0 {
-		return nil
-	}
-	_, err = git(ctx, root, nil, nulList(restore), "checkout", before, "--pathspec-from-file=-", "--pathspec-file-nul")
-	return err
-}
-
-// nulList is paths as git reads them with --pathspec-file-nul.
-func nulList(list []string) []byte {
-	var b strings.Builder
-	for _, p := range list {
-		b.WriteString(p)
-		b.WriteByte(0)
-	}
-	return []byte(b.String())
 }
