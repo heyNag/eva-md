@@ -17,6 +17,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/health"
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/okfadapter"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -163,7 +164,7 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return usage(errOut, "invalid arguments for setup")
 	}
-	if *host != "all" && *host != "claude" && *host != "codex" {
+	if _, ok := adapter.ByInstallName(*host); *host != "all" && !ok {
 		return usage(errOut, "setup --host must be claude, codex or all")
 	}
 	// Setup uses only the host of the address --git-host gives.
@@ -255,22 +256,23 @@ func runSetup(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	}
 	ck.pass("git")
 	var hosts, absent []string
-	for _, h := range []struct{ name, cli string }{{"Claude Code", "claude"}, {"Codex", "codex"}} {
-		switch _, err := env.lookPath(h.cli); {
-		case err != nil:
-			absent = append(absent, h.name)
-		case *host == "all" || *host == h.cli:
-			hosts = append(hosts, h.name)
+	for _, h := range adapter.All() {
+		switch {
+		case h.FindCLI(env.lookPath) == "":
+			absent = append(absent, h.Names.App)
+		case *host == "all" || *host == h.Names.InstallName:
+			hosts = append(hosts, h.Names.App)
 		}
 	}
 	switch {
 	case len(hosts) == 0 && *host != "all":
-		name := map[string]string{"claude": "Claude Code", "codex": "Codex"}[*host]
+		chosen, _ := adapter.ByInstallName(*host)
+		name := chosen.Names.App
 		fix := "install " + name + ", or leave out --host"
 		if src["host"] != "--host" {
 			fix = "install " + name + ", or change " + src["host"]
 		}
-		ck.fail(name+" isn't installed (no "+*host+" command)", fix)
+		ck.fail(name+" isn't installed (no "+chosen.Names.CLI+" command)", fix)
 		return 1
 	case len(hosts) == 0:
 		ck.fail("Neither Claude Code nor Codex is installed (no claude or codex command)", "install Claude Code or Codex")

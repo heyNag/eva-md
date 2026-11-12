@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
@@ -43,33 +44,17 @@ type hostError struct {
 func (e *hostError) Error() string { return e.msg }
 
 // folderMissing says whether a host command failed only because the
-// marketplace Codex has registered as eva-md, at path, has no manifest.
-// Codex 0.166.0 names each marketplace it can't load on a line of its own,
-// such as "- `eva-md` at <path>: marketplace root does not contain a
-// supported manifest", with the folder as it was when it was added, its
-// symlinks resolved. A failure that names any other marketplace, or no
-// marketplace, is not this.
+// marketplace the host has registered as eva-md, at path, has no manifest,
+// in the words the adapter reads (MarketplaceFolderMissing): Codex names the
+// folder as it was when it was added, its symlinks resolved. A failure that
+// names any other marketplace, or no marketplace, is not this. Only a host
+// whose Plugin has MissingFolderFails is asked.
 func folderMissing(err error, path string) bool {
 	var e *hostError
 	if !errors.As(err, &e) {
 		return false
 	}
-	want := map[string]bool{}
-	for _, p := range []string{path, realPath(path)} {
-		want["- `eva-md` at "+p+": marketplace root does not contain a supported manifest"] = true
-	}
-	found := false
-	for _, line := range strings.Split(e.diagnostics, "\n") {
-		i := strings.Index(line, "- `")
-		if i < 0 {
-			continue
-		}
-		if !want[strings.TrimSpace(line[i:])] {
-			return false
-		}
-		found = true
-	}
-	return found
+	return adapter.MarketplaceFolderMissing(e.diagnostics, path, realPath(path))
 }
 
 // realPath is path with the symlinks of its deepest folder that exists
@@ -114,10 +99,11 @@ var (
 	HostWaitDelay = time.Second
 )
 
-func native(ctx context.Context, host string, args ...string) ([]byte, error) {
+// native runs a host's CLI by its command, the adapter's Names.CLI.
+func native(ctx context.Context, cli string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, HostTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, host, args...)
+	cmd := exec.CommandContext(ctx, cli, args...)
 	// From /, no project's own settings take part. Claude Code reads the
 	// folder it runs in as a project, and from the home folder its project
 	// settings are the user settings file, so a marketplace removed from
@@ -131,7 +117,7 @@ func native(ctx context.Context, host string, args ...string) ([]byte, error) {
 	// The diagnostics are only matched (see folderMissing).
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, &hostError{msg: fmt.Sprintf("install: %s failed", commandDescription(host, args)), diagnostics: stderr.String()}
+		return nil, &hostError{msg: fmt.Sprintf("install: %s failed", commandDescription(cli, args)), diagnostics: stderr.String()}
 	}
 	if stdout.overflow {
 		return nil, errors.New("install: host inventory exceeded limit")
@@ -163,20 +149,32 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 
 func (b *limitedBuffer) String() string { return b.buffer.String() }
 
+// hostFor is the adapter's host of an install name its caller has checked,
+// or the zero Host for a name eva-md doesn't know.
+func hostFor(host string) adapter.Host {
+	h, _ := adapter.ByInstallName(host)
+	return h
+}
+
+// command is the command that runs the host of an install name.
+func command(host string) string { return hostFor(host).Names.CLI }
+
 func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Status, error) {
 	s := Status{Host: host}
-	if host != "claude" && host != "codex" {
+	h, ok := adapter.ByInstallName(host)
+	if !ok {
 		return s, errors.New("install: host must be claude or codex")
 	}
-	if _, err := exec.LookPath(host); err != nil {
+	if h.FindCLI(nil) == "" {
 		s.Reason = "host CLI not found"
 		return s, nil
 	}
 	s.Available = true
-	data, err := run(ctx, host, "plugin", "marketplace", "list", "--json")
+	plugin := h.Plugin()
+	data, err := run(ctx, h.Names.CLI, "plugin", "marketplace", "list", "--json")
 	if err != nil {
 		// Install stops there, and uninstall removes the registration.
-		if host == "codex" && folderMissing(err, marketplacePath(dirs.Share, host)) {
+		if plugin.MissingFolderFails && folderMissing(err, marketplacePath(dirs.Share, host)) {
 			s.Marketplace, s.FolderMissing = true, true
 			s.Reason = "eva-md's marketplace folder is missing"
 			return s, nil
@@ -187,7 +185,7 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 	if err != nil {
 		return s, err
 	}
-	list, err := installed(ctx, host, markets, run)
+	list, err := installed(ctx, h, markets, run)
 	if err != nil {
 		return s, err
 	}
@@ -216,17 +214,9 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 			s.Valid = false
 			s.Reason = "host reports plugin errors"
 		}
-		if host == "claude" {
-			if str(p, "readFromFolder") != pluginPath(dirs.Share, host) || str(p, "folderVersion") != "1" {
-				s.Valid = false
-				s.Reason = "Claude source folder or folder version differs"
-			}
-		} else {
-			source, _ := p["source"].(map[string]any)
-			if str(source, "path") != pluginPath(dirs.Share, host) {
-				s.Valid = false
-				s.Reason = "Codex source folder differs"
-			}
+		if !plugin.LoadsFrom(p, pluginPath(dirs.Share, host)) {
+			s.Valid = false
+			s.Reason = plugin.SourceDiffers
 		}
 	}
 	if count > 1 {
@@ -240,15 +230,7 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 			return s, conflict("install: duplicate eva-md marketplaces")
 		}
 		s.Marketplace = true
-		root := str(m, "root", "path", "installLocation")
-		if root == "" {
-			source, _ := m["marketplaceSource"].(map[string]any)
-			root = str(source, "source")
-		}
-		if root == "" {
-			source, _ := m["source"].(map[string]any)
-			root = str(source, "path", "source")
-		}
+		root := adapter.MarketplaceRoot(m)
 		if filepath.Clean(root) != marketplacePath(dirs.Share, host) {
 			return s, conflict("install: eva-md marketplace name belongs to another folder")
 		}
@@ -266,14 +248,15 @@ func inspect(ctx context.Context, dirs paths.Dirs, host string, run runner) (Sta
 	return s, nil
 }
 
-// installed lists the plugins the host has installed. Codex is asked one of
-// its marketplaces at a time, by name, which it answers from this Mac: its
-// list of every plugin also asks chatgpt.com for the account's remote ones,
-// and waits 30 seconds on a network that holds the request. A plugin from
-// Codex's remote catalog is not among them. Each marketplace is asked once.
-func installed(ctx context.Context, host string, markets []map[string]any, run runner) ([]map[string]any, error) {
-	if host == "claude" {
-		data, err := run(ctx, host, "plugin", "list", "--json")
+// installed lists the plugins the host has installed. A host whose Plugin
+// has ListPerMarketplace, as Codex, is asked one of its marketplaces at a
+// time, by name, which it answers from this Mac: Codex's list of every
+// plugin also asks chatgpt.com for the account's remote ones, and waits 30
+// seconds on a network that holds the request. A plugin from Codex's remote
+// catalog is not among them. Each marketplace is asked once.
+func installed(ctx context.Context, h adapter.Host, markets []map[string]any, run runner) ([]map[string]any, error) {
+	if !h.Plugin().ListPerMarketplace {
+		data, err := run(ctx, h.Names.CLI, "plugin", "list", "--json")
 		if err != nil {
 			return nil, err
 		}
@@ -287,7 +270,7 @@ func installed(ctx context.Context, host string, markets []map[string]any, run r
 			continue
 		}
 		asked[name] = true
-		data, err := run(ctx, host, "plugin", "list", "--json", "--marketplace="+name)
+		data, err := run(ctx, h.Names.CLI, "plugin", "list", "--json", "--marketplace="+name)
 		if err != nil {
 			return nil, err
 		}
@@ -298,25 +281,6 @@ func installed(ctx context.Context, host string, markets []map[string]any, run r
 		list = append(list, plugins...)
 	}
 	return list, nil
-}
-
-// cliPath is the host's CLI as PATH finds it, by absolute path, or "". Its
-// folder's symlinks are resolved, since a folder a version manager puts on
-// PATH for one shell, as fnm does, is gone once that shell exits; the CLI
-// keeps its own name, which the job checks, in the folder that holds what
-// its #! line names.
-func cliPath(host string) string {
-	path, err := exec.LookPath(host)
-	if err != nil {
-		return ""
-	}
-	if path, err = filepath.Abs(path); err != nil {
-		return ""
-	}
-	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
-		path = filepath.Join(dir, filepath.Base(path))
-	}
-	return path
 }
 
 func objects(data []byte, key string) ([]map[string]any, error) {

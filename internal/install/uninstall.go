@@ -87,13 +87,19 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 	if err != nil {
 		return result, err
 	}
+	// Every host, in the adapter's order.
+	hosts, _ := selectedHosts("all")
 	if root != nil {
 		defer root.Close()
 		if owned, err = hasMarker(root, installMarker, installMarkerValue); err != nil {
 			return result, err
 		}
 		if !owned {
-			for _, name := range []string{"bin/eva-md", "marketplace/claude", "marketplace/codex"} {
+			names := []string{"bin/eva-md"}
+			for _, host := range hosts {
+				names = append(names, filepath.Join("marketplace", host))
+			}
+			for _, name := range names {
 				if _, e := root.Lstat(name); !errors.Is(e, fs.ErrNotExist) {
 					return result, errors.New("install: refusing to uninstall an unmanaged installation")
 				}
@@ -101,7 +107,7 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 		}
 	}
 	var plans []*hostPlan
-	for _, host := range []string{"claude", "codex"} {
+	for _, host := range hosts {
 		if owned {
 			files, e := render(host, result.Binary)
 			if e != nil {
@@ -194,12 +200,12 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 		// With its marketplace's folder missing, Codex can't say whether it
 		// has the plugin, and removes it either way.
 		if p.before.Installed || p.before.FolderMissing {
-			if _, err = run(ctx, p.host, removeArgs(p.host)...); err != nil {
+			if _, err = run(ctx, command(p.host), removeArgs(p.host)...); err != nil {
 				return result, err
 			}
 		}
 		if p.before.Marketplace {
-			if _, err = run(ctx, p.host, marketRemoveArgs(p.host)...); err != nil {
+			if _, err = run(ctx, command(p.host), marketRemoveArgs(p.host)...); err != nil {
 				return result, err
 			}
 		}
