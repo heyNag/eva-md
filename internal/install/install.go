@@ -14,15 +14,16 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
@@ -89,7 +90,7 @@ var ErrHooksOff = errors.New("install: Codex's hooks feature is off")
 // it says to install Claude Code first.
 func hooksOff(dirs paths.Dirs) error {
 	only := "install for Claude Code only"
-	if _, err := exec.LookPath("claude"); err != nil {
+	if claudeCode, _ := adapter.ByID(string(adapter.ClaudeCode)); claudeCode.FindCLI(nil) == "" {
 		only = "install Claude Code, then install for Claude Code only"
 	}
 	return fmt.Errorf("%w; turn it on with codex features enable hooks, or %s: set EVA_MD_HOSTS=claude in %s for setup and upgrades, or pass --host claude", ErrHooksOff, only, dirs.AnswersFile())
@@ -174,18 +175,16 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		if err != nil {
 			return result, err
 		}
-		plans = append(plans, &hostPlan{host: host, cli: cliPath(host), before: status, files: files})
+		h := hostFor(host)
+		plans = append(plans, &hostPlan{host: host, cli: h.FindCLI(nil), before: status, files: files})
 		result.Hosts = append(result.Hosts, host)
-		if host == "codex" {
-			features, err := run(ctx, host, "features", "list")
+		if args := h.Plugin().FeaturesArgs; args != nil {
+			features, err := run(ctx, h.Names.CLI, args...)
 			if err != nil {
 				return result, err
 			}
-			for _, line := range strings.Split(string(features), "\n") {
-				fields := strings.Fields(line)
-				if len(fields) >= 2 && fields[0] == "hooks" && fields[len(fields)-1] == "false" {
-					return result, hooksOff(opts.Dirs)
-				}
+			if adapter.ReadHooksRows(features).Off() {
+				return result, hooksOff(opts.Dirs)
 			}
 		}
 	}
@@ -238,6 +237,8 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			return result, err
 		}
 	}
+	// reviewHost is the host whose changed plugin needs a review in it.
+	reviewHost := ""
 	for _, p := range plans {
 		p.changed = true
 		if share != nil {
@@ -259,8 +260,9 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		if p.changed || !p.before.Installed {
 			result.Actions = append(result.Actions, p.host+": install and verify through native CLI")
 		}
-		if p.host == "codex" && (p.changed || !p.before.Installed) {
+		if hostFor(p.host).Plugin().NeedsReview && (p.changed || !p.before.Installed) {
 			result.NeedsTrust = true
+			reviewHost = p.host
 		}
 	}
 	if !bytes.Equal(binary, previousBinary) {
@@ -353,9 +355,9 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 				return result, err
 			}
 		}
-		if p.host == "claude" {
+		if validate := hostFor(p.host).Plugin().ValidateArgs; validate != nil {
 			for _, path := range []string{marketplacePath(opts.Dirs.Share, p.host), pluginPath(opts.Dirs.Share, p.host)} {
-				if _, err = run(ctx, p.host, "plugin", "validate", "--strict", "--json", path); err != nil {
+				if _, err = run(ctx, command(p.host), slices.Concat(validate, []string{path})...); err != nil {
 					return result, err
 				}
 			}
@@ -365,13 +367,13 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		}
 		p.registrationAttempted = true
 		if !p.before.Marketplace {
-			if _, err = run(ctx, p.host, "plugin", "marketplace", "add", marketplacePath(opts.Dirs.Share, p.host), "--json"); err != nil {
+			if _, err = run(ctx, command(p.host), "plugin", "marketplace", "add", marketplacePath(opts.Dirs.Share, p.host), "--json"); err != nil {
 				return result, err
 			}
 		}
 		// A host may refuse to add a plugin it has. It loads the plugin's
 		// folder in place, so a registration that still verifies is enough.
-		_, addErr := run(ctx, p.host, addArgs(p.host)...)
+		_, addErr := run(ctx, command(p.host), addArgs(p.host)...)
 		if addErr != nil && !p.before.Installed {
 			err = addErr
 			return result, err
@@ -396,7 +398,7 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			return result, err
 		}
 		defer state.Close()
-		err = paths.WriteFileAtomicAt(ctx, state, "needs-trust.json", []byte("{\"host\":\"codex\",\"needs_trust\":true}\n"), 0o600)
+		err = paths.WriteFileAtomicAt(ctx, state, "needs-trust.json", []byte("{\"host\":\""+reviewHost+"\",\"needs_trust\":true}\n"), 0o600)
 		if err != nil {
 			return result, err
 		}
@@ -447,29 +449,24 @@ func recordCLIs(ctx context.Context, dirs paths.Dirs, plans []*hostPlan) {
 	}
 }
 
+// selectedHosts gives the install names --host chooses: every host, in the
+// adapter's order, for "" or all, and otherwise the one it names.
 func selectedHosts(host string) ([]string, error) {
-	switch host {
-	case "", "all":
-		return []string{"claude", "codex"}, nil
-	case "claude", "codex":
-		return []string{host}, nil
-	default:
-		return nil, errors.New("install: --host must be claude, codex or all")
+	if host == "" || host == "all" {
+		var names []string
+		for _, h := range adapter.All() {
+			names = append(names, h.Names.InstallName)
+		}
+		return names, nil
 	}
+	if _, ok := adapter.ByInstallName(host); ok {
+		return []string{host}, nil
+	}
+	return nil, errors.New("install: --host must be claude, codex or all")
 }
 
-func addArgs(host string) []string {
-	if host == "claude" {
-		return []string{"plugin", "install", "eva-md@eva-md", "--scope", "user", "--json"}
-	}
-	return []string{"plugin", "add", "eva-md@eva-md", "--json"}
-}
-func removeArgs(host string) []string {
-	if host == "claude" {
-		return []string{"plugin", "uninstall", "eva-md@eva-md", "--scope", "user", "--json"}
-	}
-	return []string{"plugin", "remove", "eva-md@eva-md", "--json"}
-}
+func addArgs(host string) []string    { return hostFor(host).Plugin().AddArgs }
+func removeArgs(host string) []string { return hostFor(host).Plugin().RemoveArgs }
 
 // marketRemoveArgs removes the eva-md marketplace. Claude Code 2.1.316 keeps
 // listing a marketplace removed with --scope while another scope declares it,
@@ -490,12 +487,12 @@ func rollback(ctx context.Context, dirs paths.Dirs, root *os.Root, plans []*host
 			return err
 		}
 		if !p.before.Installed && live.Installed {
-			if _, err = run(ctx, p.host, removeArgs(p.host)...); err != nil {
+			if _, err = run(ctx, command(p.host), removeArgs(p.host)...); err != nil {
 				return err
 			}
 		}
 		if !p.before.Marketplace && live.Marketplace {
-			if _, err = run(ctx, p.host, marketRemoveArgs(p.host)...); err != nil {
+			if _, err = run(ctx, command(p.host), marketRemoveArgs(p.host)...); err != nil {
 				return err
 			}
 		}
@@ -527,7 +524,7 @@ func rollback(ctx context.Context, dirs paths.Dirs, root *os.Root, plans []*host
 	}
 	for _, p := range plans {
 		if p.before.Installed && p.registrationAttempted {
-			_, addErr := run(ctx, p.host, addArgs(p.host)...)
+			_, addErr := run(ctx, command(p.host), addArgs(p.host)...)
 			reconciled, err := inspect(ctx, dirs, p.host, run)
 			if err != nil {
 				return err
