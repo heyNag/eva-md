@@ -20,6 +20,10 @@ import (
 // the text holds another value of its class that no slot of the fact
 // holds: another date, another quantity of the same kind, another path,
 // version, number or name-like word.
+//
+// A day written with slashes, as 3/3/2026, is not read as one: whether the
+// day or the month comes first is not written. A scenario that needs it
+// lists the form on its slot.
 
 // words returns the lower-case words of s: runs of letters, digits and the
 // characters _ - . / inside a word, with . - / trimmed from both ends.
@@ -98,23 +102,26 @@ func (t text) holds(s scenario.Slot) bool {
 	return false
 }
 
-// condMarkers start a condition; stop are words a condition may lose.
+// condMarkers start a condition, unless one of the opposite sense; stop
+// are words a condition may lose.
 var (
 	condMarkers = []string{"if", "when", "whenever", "unless", "once"}
 	stop        = []string{"a", "an", "the", "of", "in", "on", "at", "to", "for", "by", "with", "and", "or", "is", "are", "be"}
 	marker      = regexp.MustCompile(`\b(?:if|when|whenever|unless|once)\b`)
-	// clauseBreak ends a clause: a comma, a semicolon, or a full stop, a
-	// question or an exclamation mark before a space or the end.
-	clauseBreak = regexp.MustCompile(`[,;]|[.!?](?:\s|$)`)
+	// clauseBreak ends a clause: a semicolon, or a full stop, a question or
+	// an exclamation mark before a space or the end. A comma ends one only
+	// where the part it closes holds nothing of the condition.
+	clauseBreak = regexp.MustCompile(`;|[.!?](?:\s|$)`)
 )
 
 // cond is a condition as a slot gives it: its quantities and dates, the
-// rest of its words but its marker and its small words, and how many
-// clause breaks it holds past its marker.
+// rest of its words but its marker and its small words, whether its marker
+// is unless, and how many clause breaks it holds past its marker.
 type cond struct {
 	quant  []quantity
 	dates  []string
 	words  []string
+	unless bool
 	breaks int
 }
 
@@ -129,10 +136,18 @@ func readCond(s string) cond {
 	}
 	rest := masked
 	if m := marker.FindStringIndex(masked); m != nil {
-		rest = masked[m[1]:]
+		rest, c.unless = masked[m[1]:], masked[m[0]:m[1]] == "unless"
 	}
 	c.breaks = len(clauseBreak.FindAllStringIndex(strings.TrimRight(rest, " \t.,;!?"), -1))
 	return c
+}
+
+// touches reports whether span holds any quantity, date or word of c.
+func (c cond) touches(span string) bool {
+	qs, ds, ws := quantities(span), dates(span), words(span)
+	return slices.ContainsFunc(c.quant, func(q quantity) bool { return slices.ContainsFunc(qs, q.equal) }) ||
+		slices.ContainsFunc(c.dates, func(d string) bool { return slices.Contains(ds, d) }) ||
+		slices.ContainsFunc(c.words, func(w string) bool { return slices.Contains(ws, w) })
 }
 
 // heldBy reports whether span holds every quantity, date and word of c.
@@ -144,11 +159,15 @@ func (c cond) heldBy(span string) bool {
 }
 
 // holdsCond reports whether the text states condition s: whether, after a
-// marker and within the clause it opens, it holds each of the condition's
-// quantities and dates, compared as their classes are, and each of its
-// other words but its marker and its small words. A quantity or a date
-// never ends a clause, so the comma in "March 3, 2026" does not, and a
-// condition with clause breaks of its own spans as many more clauses.
+// marker of the same sense, unless or any other, and within the clause it
+// opens, it holds each of the condition's quantities and dates, compared
+// as their classes are, and each of its other words but its marker and its
+// small words. A quantity or a date never ends a clause, so the comma in
+// "March 3, 2026" does not; a condition with clause breaks of its own
+// spans as many more clauses. A comma ends the clause only where the part
+// it closes holds nothing of the condition, so "if BenchmarkBrief, in
+// scripts/benchmark.py, passes" is one clause, and "if the tests pass,
+// deploy, and BenchmarkBrief passes" ends at its first comma.
 func (t text) holdsCond(s string) bool {
 	c := readCond(s)
 	if len(c.quant)+len(c.dates)+len(c.words) == 0 {
@@ -156,12 +175,25 @@ func (t text) holdsCond(s string) bool {
 	}
 	masked := maskValues(t.lower)
 	for _, m := range marker.FindAllStringIndex(masked, -1) {
+		if (masked[m[0]:m[1]] == "unless") != c.unless {
+			continue
+		}
 		end := len(masked)
 		if bs := clauseBreak.FindAllStringIndex(masked[m[1]:], c.breaks+1); len(bs) > c.breaks {
 			end = m[1] + bs[c.breaks][0]
 		}
-		if c.heldBy(t.lower[m[1]:end]) {
-			return true
+		for lo := m[1]; ; {
+			hi := end
+			if k := strings.IndexByte(masked[lo:end], ','); k >= 0 {
+				hi = lo + k
+			}
+			if c.heldBy(t.lower[m[1]:hi]) {
+				return true
+			}
+			if hi == end || !c.touches(t.lower[lo:hi]) {
+				break
+			}
+			lo = hi + 1
 		}
 	}
 	return false
@@ -331,10 +363,11 @@ var units = map[string]quantity{
 	"gb": {"size", 1e9}, "gib": {"size", 1 << 30}, "%": {"ratio", 0.01}, "percent": {"ratio", 0.01},
 }
 
-var numberUnit = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s?([a-z%]+)`)
+var numberUnit = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)(?:\s|-)?([a-z%]+)`)
 
-// quantities returns the quantities s writes as a number and a unit. A
-// number that ends a word, as in KITE-5, is not one.
+// quantities returns the quantities s writes as a number and a unit, apart,
+// joined or joined by a hyphen, as in 5 min, 300ms and 5-minute. A number
+// that ends a word, as in KITE-5, is not one.
 func quantities(s string) []quantity {
 	var out []quantity
 	for _, sp := range quantitySpans(strings.ToLower(s)) {

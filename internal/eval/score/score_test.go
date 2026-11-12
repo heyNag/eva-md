@@ -119,8 +119,9 @@ func TestOutcomes(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		spoil   func(*score.Export)
-		item    score.Outcome     // of the last item
-		facts   map[string]string // outcome and problems of facts that change
+		item    score.Outcome         // of the last item
+		items   map[int]score.Outcome // of items by place in the export
+		facts   map[string]string     // outcome and problems of facts that change
 		metrics func(score.Metrics) bool
 	}{
 		{name: "the value in another form", spoil: func(e *score.Export) { e.Items[0] = k5("Cache entries for 300 s, KITE-5") },
@@ -158,21 +159,21 @@ func TestOutcomes(t *testing.T) {
 			e.Items = append(e.Items, active(scenario.KindNext, score.TagStated, "Skip the lint, LINT-1", src(7)))
 		}, item: score.Supports},
 		{name: "another's suggestion under the user's tag", spoil: func(e *score.Export) { e.Items[1].Authority = score.TagStated },
-			facts: map[string]string{"p2": "found [authority]"}, metrics: func(m score.Metrics) bool {
+			items: map[int]score.Outcome{1: score.Found}, facts: map[string]string{"p2": "found [authority]"}, metrics: func(m score.Metrics) bool {
 				return m.Misattributed == 1 && m.FactRecall == 1 && m.FactHolds == fiveSixths
 			}},
 		{name: "an unknown tag", spoil: func(e *score.Export) { e.Items[1].Authority = "bogus" },
-			facts: map[string]string{"p2": "found [authority]"}, metrics: func(m score.Metrics) bool { return m.Misattributed == 0 }},
+			items: map[int]score.Outcome{1: score.Found}, facts: map[string]string{"p2": "found [authority]"}, metrics: func(m score.Metrics) bool { return m.Misattributed == 0 }},
 		{name: "an unknown scope", spoil: func(e *score.Export) { e.Items[0].Scope = "everywhere" },
-			facts: map[string]string{"k5": "found [scope]"}},
-		{name: "a known scope", spoil: func(e *score.Export) { e.Items[0].Scope = "project" }},
+			items: map[int]score.Outcome{0: score.Found}, facts: map[string]string{"k5": "found [scope]"}},
+		{name: "a known scope", spoil: func(e *score.Export) { e.Items[0].Scope = "project" }, items: map[int]score.Outcome{0: score.Supports}},
 		{name: "a dated line under another day", spoil: func(e *score.Export) { e.Items[5].Date = "2026-03-01" },
-			facts: map[string]string{"t1": "found [date]"}},
+			items: map[int]score.Outcome{5: score.Found}, facts: map[string]string{"t1": "found [date]"}},
 		{name: "a fact in force retired", spoil: func(e *score.Export) { e.Items[0].State = score.StateRetired },
-			facts: map[string]string{"k5": "found [validity]"}},
+			items: map[int]score.Outcome{0: score.Found}, facts: map[string]string{"k5": "found [validity]"}},
 		{name: "a fact in force only as a dated line", spoil: func(e *score.Export) {
 			e.Items[0] = score.Item{Kind: scenario.KindLog, State: score.StateLog, Authority: score.TagStated, Date: "2026-03-02", Text: "Cache entries for 5 minutes, KITE-5", Sources: []score.Source{src(1)}}
-		}, facts: map[string]string{"k5": "found [kind]"}, metrics: func(m score.Metrics) bool { return m.FactRecall == 1 && m.FactHolds == fiveSixths }},
+		}, items: map[int]score.Outcome{0: score.Supports}, facts: map[string]string{"k5": "found [kind]"}, metrics: func(m score.Metrics) bool { return m.FactRecall == 1 && m.FactHolds == fiveSixths }},
 		{name: "a fact in force nowhere", spoil: func(e *score.Export) { e.Items = e.Items[1:] },
 			facts: map[string]string{"k5": "missing []"}, metrics: func(m score.Metrics) bool { return m.FactRecall == fiveSixths && m.FactHolds == fiveSixths }},
 		{name: "a fact that ended kept in force", spoil: func(e *score.Export) {
@@ -241,16 +242,32 @@ func TestOutcomes(t *testing.T) {
 		{name: "an item that holds none of its line's values", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Something else entirely", src(1)))
 		}, item: score.ValueDropped, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 && m.FactHolds == 1 }},
+		// A pasted line's item that holds none of its values is tied to
+		// nothing: it is a write that drops every value, not a violation.
+		{name: "an item under the user's tag that holds none of the pasted line's values", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "The user pasted an old note", src(6)))
+		}, item: score.ValueDropped, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 && m.Violations == 0 }},
+		{name: "a dropped limit and a dropped value", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "The freeze is on 3 March 2026", src(8)))
+		}, item: score.LimitDropped, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 && m.Dupes == 0 }},
+		// Two items in force tied to one fact are a duplicate, whatever
+		// the tie says of the fact.
+		{name: "a fact said off the record stored twice", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindFact, score.TagStated, "The budget is BUDGET-9", src(4)),
+				active(scenario.KindFact, score.TagStated, "The budget is large", src(4)))
+		}, item: score.Violation, facts: map[string]string{"b9": "violation []"}, metrics: func(m score.Metrics) bool {
+			return m.Dupes == 1 && m.OTRStored == 2 && m.Violations == 2
+		}},
 		{name: "a wrong value and a dropped date", spoil: func(e *score.Export) { e.Items[2].Text = "FREEZE-8; until the release" },
 			facts: map[string]string{"f7": "value_wrong []"}, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 }},
 		{name: "a dated line in force", spoil: func(e *score.Export) { e.Items[5].State = score.StateActive },
-			facts: map[string]string{"t1": "found [kind]"}},
+			items: map[int]score.Outcome{5: score.Found}, facts: map[string]string{"t1": "found [kind]"}},
 		{name: "the item with the fewest problems names them", spoil: func(e *score.Export) {
 			e.Items[0].Scope, e.Items[0].Authority = "everywhere", score.TagSuggested
 			second := k5("Cache entries for 5 minutes, KITE-5")
 			second.Scope = "everywhere"
 			e.Items = append(e.Items, second)
-		}, facts: map[string]string{"k5": "found [scope]"}},
+		}, items: map[int]score.Outcome{0: score.Found}, item: score.Found, facts: map[string]string{"k5": "found [scope]"}},
 		{name: "a retired item in another kind, lacking a value, beside a dated line", spoil: func(e *score.Export) {
 			e.Items[0] = score.Item{Kind: scenario.KindLog, State: score.StateLog, Authority: score.TagStated, Date: "2026-03-02", Text: "Cache entries for 5 minutes, KITE-5", Sources: []score.Source{src(1)}}
 			e.Items = append(e.Items, score.Item{Kind: scenario.KindNext, State: score.StateRetired, Authority: score.TagStated, Text: "Cache entries, KITE-5", Sources: []score.Source{src(1)}})
@@ -274,6 +291,11 @@ func TestOutcomes(t *testing.T) {
 			if tc.item != "" && r.Items[len(r.Items)-1].Outcome != tc.item {
 				t.Errorf("the item is %s, want %s", r.Items[len(r.Items)-1].Outcome, tc.item)
 			}
+			for i, want := range tc.items {
+				if got := r.Items[i].Outcome; got != want {
+					t.Errorf("item %d is %s, want %s", i, got, want)
+				}
+			}
 			for i, fr := range r.Facts {
 				got := fmt.Sprintf("%s %v", fr.Outcome, fr.Problems)
 				want, ok := tc.facts[fr.Fact]
@@ -288,6 +310,40 @@ func TestOutcomes(t *testing.T) {
 				t.Errorf("metrics %+v", r.Metrics)
 			}
 		})
+	}
+}
+
+// TestSlotOrder: an item that lacks several values of a fact gives the
+// worst of what it lacks, in the order wrong, date, condition, limit, then
+// any other value.
+func TestSlotOrder(t *testing.T) {
+	sc := cases()
+	turns := &sc.Sessions[0].Turns
+	*turns = append(*turns, scenario.Turn{At: (*turns)[13].At.Add(time.Minute), Author: event.AuthorTyped, Kind: event.KindPrompt,
+		Text: "If the index grows past 2 MiB, shard it on 10 March 2026 until the release, PUFFIN-3.", Plants: []string{"p3"}})
+	sc.Facts = append(sc.Facts, scenario.Fact{ID: "p3", Kinds: []scenario.Kind{scenario.KindDecision}, Authority: scenario.AuthorityUser, Must: scenario.MustStore,
+		Slots: []scenario.Slot{{Class: scenario.SlotIdent, Value: "PUFFIN-3"}, {Class: scenario.SlotCond, Value: "if the index grows past 2 MiB"},
+			{Class: scenario.SlotDate, Value: "10 March 2026"}, {Class: scenario.SlotLimit, Value: "until the release"}}})
+	if err := sc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for text, want := range map[string]score.Outcome{
+		"If the index grows past 2 MiB, shard it on 10 March 2026 until the release, PUFFIN-3": score.Supports,
+		"If the index grows past 2 MiB, shard it on 17 March 2026, PUFFIN-3":                   score.ValueWrong,
+		"Shard it, PUFFIN-3":                                                         score.DateDropped,
+		"Shard it on 10 March 2026, PUFFIN-3":                                        score.CondDropped,
+		"If the index grows past 2 MiB, shard it on 10 March 2026":                   score.LimitDropped,
+		"If the index grows past 2 MiB, shard it on 10 March 2026 until the release": score.ValueDropped,
+	} {
+		ex := base()
+		ex.Items = append(ex.Items, active(scenario.KindDecision, score.TagStated, text, src(15)))
+		r := score.Score(sc, ex)
+		if got := r.Items[len(r.Items)-1].Outcome; got != want {
+			t.Errorf("%q is %s, want %s", text, got, want)
+		}
+		if got := r.Facts[len(r.Facts)-1].Outcome; want != score.Supports && got != want {
+			t.Errorf("%q: the fact is %s, want %s", text, got, want)
+		}
 	}
 }
 
@@ -344,6 +400,21 @@ func TestRows(t *testing.T) {
 		score.MetricMisattributed: "count", score.MetricStaleInForce: "count", score.MetricDupes: "count", score.MetricOTRStored: "count", score.MetricViolations: "count"}
 	template := results.Row{Commit: strings.Repeat("0123456789abcdef", 4)[:40], Instrument: "fidelity", Scenario: "not-this-one", Seed: 7,
 		Host: string(adapter.Codex), HostVersion: "0.1.0", Time: time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)}
+	// Each row holds its own metric's figure: every figure differs, so no
+	// two fields swapped give the same rows.
+	m := score.Metrics{FactRecall: 0.25, FactHolds: 0.125, WrongWrite: 3, Noise: 4, Misattributed: 5, StaleInForce: 6, Dupes: 7, OTRStored: 8, Violations: 9}
+	values := map[string]float64{score.MetricFactRecall: 0.25, score.MetricFactHolds: 0.125, score.MetricWrongWrite: 3, score.MetricNoise: 4,
+		score.MetricMisattributed: 5, score.MetricStaleInForce: 6, score.MetricDupes: 7, score.MetricOTRStored: 8, score.MetricViolations: 9}
+	rows := score.Result{Scenario: "test.rows", Metrics: m}.Rows(template)
+	if len(rows) != len(values) {
+		t.Fatalf("%d rows", len(rows))
+	}
+	for _, row := range rows {
+		if v, ok := values[row.Metric]; !ok || row.Value != v {
+			t.Errorf("row %s holds %v, want %v", row.Metric, row.Value, v)
+		}
+		delete(values, row.Metric)
+	}
 	for _, sc := range append(scenario.V1(), cases()) {
 		ex, _ := score.Distort(score.Ideal(sc), sc, score.DistortValueWrong)
 		r := score.Score(sc, ex)

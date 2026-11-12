@@ -327,6 +327,9 @@ func TestV1Condition(t *testing.T) {
 		"If BenchmarkBrief in scripts/benchmark.py passes 300ms, switch to the streaming parser, CONDOR-8":                   score.Holds,
 		"If BenchmarkBrief in scripts/benchmark.py passes 0.3 s, switch to the streaming parser, CONDOR-8":                   score.Holds,
 		"If the build fails, switch to the streaming parser; BenchmarkBrief in scripts/benchmark.py passes 300 ms, CONDOR-8": score.CondDropped,
+		"If BenchmarkBrief, in scripts/benchmark.py, passes 300 ms, switch to the streaming parser, CONDOR-8":                score.Holds,
+		"If BenchmarkBrief in scripts/benchmark.py passes a 300-ms limit, switch to the streaming parser, CONDOR-8":          score.Holds,
+		"Unless BenchmarkBrief in scripts/benchmark.py passes 300 ms, switch to the streaming parser, CONDOR-8":              score.CondDropped,
 	} {
 		p := threadpage.Page{Now: threadpage.Now{Decisions: []threadpage.Item{item(text, "stated", ref(sc, 0, 1))}}}
 		r := score.Score(sc, read(t, p))
@@ -335,6 +338,35 @@ func TestV1Condition(t *testing.T) {
 		}
 		if bad := clean(sc, r); want == score.Holds && len(bad) != 0 || want != score.Holds && r.Metrics.WrongWrite != 1 {
 			t.Errorf("%q: %v, metrics %+v", text, bad, r.Metrics)
+		}
+	}
+}
+
+// TestV1Forms: a value written in another form the normalizers read is
+// held; a day written with slashes is not read, by choice.
+func TestV1Forms(t *testing.T) {
+	ported := scenario.V1()
+	for _, tc := range []struct {
+		scenario int
+		fact     string
+		text     string
+		want     score.Outcome
+	}{
+		{10, "KITE-5", "Cache entries with a 5-minute TTL, KITE-5", score.Holds},
+		{10, "KITE-5", "Cache entries for 300 seconds, KITE-5", score.Holds},
+		{1, "FROST-9", "Freeze releases on March 3, 2026, FROST-9", score.Holds},
+		{1, "FROST-9", "Freeze releases on 3/3/2026, FROST-9", score.DateDropped},
+	} {
+		sc := ported[tc.scenario]
+		p := idealV1(sc)
+		p.Now.Decisions[0].Text = tc.text
+		r := score.Score(sc, read(t, p))
+		i := slices.IndexFunc(sc.Facts, func(f scenario.Fact) bool { return f.Slots[0].Value == tc.fact })
+		if r.Facts[i].Outcome != tc.want {
+			t.Errorf("%s %q: %s is %s, want %s", sc.ID, tc.text, tc.fact, r.Facts[i].Outcome, tc.want)
+		}
+		if bad := clean(sc, r); tc.want == score.Holds && len(bad) != 0 || tc.want != score.Holds && r.Metrics.WrongWrite != 1 {
+			t.Errorf("%s %q: %v, metrics %+v", sc.ID, tc.text, bad, r.Metrics)
 		}
 	}
 }

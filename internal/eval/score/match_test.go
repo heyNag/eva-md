@@ -18,6 +18,7 @@ func TestDates(t *testing.T) {
 		"on 31 February 2026":             nil,
 		"2026-13-01 and 2026-02-30":       nil,
 		"KITE-5 and 1.26":                 nil,
+		"on 3/3/2026":                     nil,
 	} {
 		if got := dates(in); !slices.Equal(got, want) {
 			t.Errorf("dates(%q) = %q, want %q", in, got, want)
@@ -30,12 +31,16 @@ func TestDates(t *testing.T) {
 func TestQuantities(t *testing.T) {
 	five := quantity{"time", 300}
 	for in, want := range map[string][]quantity{
-		"Cache entries for 5 minutes":  {five},
-		"5 min, or 300 s, or 300000ms": {five, five, five},
-		"costs 3 s at startup":         {{"time", 3}},
-		"KITE-5 s and v2.3 s":          nil,
-		"3 March 2026":                 nil,
-		"under 2 MiB, 50%":             {{"size", 2 << 20}, {"ratio", 0.5}},
+		"Cache entries for 5 minutes":                   {five},
+		"5 min, or 300 s, or 300000ms":                  {five, five, five},
+		"costs 3 s at startup":                          {{"time", 3}},
+		"KITE-5 s and v2.3 s":                           nil,
+		"3 March 2026":                                  nil,
+		"under 2 MiB, 50%":                              {{"size", 2 << 20}, {"ratio", 0.5}},
+		"a 5-minute TTL, a 300-ms limit, a 2-MiB cap":   {five, {"time", 0.3}, {"size", 2 << 20}},
+		"KITE-5-minute":                                 {},
+		"1 byte, 1 KB, 1 KiB, 1 MB, 1 MiB, 1 GB, 1 GiB": {{"size", 1}, {"size", 1e3}, {"size", 1 << 10}, {"size", 1e6}, {"size", 1 << 20}, {"size", 1e9}, {"size", 1 << 30}},
+		"2 msec, 2 hrs, 2 days, 2 weeks, 2 percent":     {{"time", 0.002}, {"time", 7200}, {"time", 172800}, {"time", 1209600}, {"ratio", 0.02}},
 	} {
 		got := quantities(in)
 		if len(got) != len(want) || !slices.EqualFunc(got, want, quantity.equal) {
@@ -78,6 +83,20 @@ func TestHolds(t *testing.T) {
 		{"Freeze on 2026-03-03", scenario.Slot{Class: scenario.SlotDate, Value: "3 March 2026"}, true},
 		{"Freeze on 2026-03-04", scenario.Slot{Class: scenario.SlotDate, Value: "3 March 2026"}, false},
 		{"Cache for 300 s", scenario.Slot{Class: scenario.SlotQuantity, Value: "5 minutes"}, true},
+		{"Cache for 300 bytes", scenario.Slot{Class: scenario.SlotQuantity, Value: "300 s"}, false},
+		{"Cache with a 5-minute TTL", scenario.Slot{Class: scenario.SlotQuantity, Value: "5 minutes"}, true},
+		{"If BenchmarkBrief (scripts/benchmark.py) passes 300 ms, switch", cond, true},
+		{"If BenchmarkBrief at scripts/benchmark.py passes 300 ms, switch", cond, true},
+		{"If BenchmarkBrief in scripts/benchmark.py passes a 300-ms limit, switch", cond, true},
+		{"If BenchmarkBrief, in scripts/benchmark.py, passes 300 ms, switch", cond, true},
+		{"If the tests pass, deploy, and BenchmarkBrief in scripts/benchmark.py passes 300 ms", cond, false},
+		{"If within 300 ms, BenchmarkBrief in scripts/benchmark.py passes, switch", cond, true},
+		{"Ship once on 3 March 2026, the freeze ends", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, true},
+		{"Unless BenchmarkBrief in scripts/benchmark.py passes 300 ms, switch", cond, false},
+		{"Unless the index grows past 2 MiB, keep one file", scenario.Slot{Class: scenario.SlotCond, Value: "unless the index grows past 2 MiB"}, true},
+		{"If the index grows past 2 MiB, shard it", scenario.Slot{Class: scenario.SlotCond, Value: "unless the index grows past 2 MiB"}, false},
+		{"If the index grows past 2-MiB, shard it", scenario.Slot{Class: scenario.SlotCond, Value: "if the index grows past 2 MiB"}, true},
+		{"if the", scenario.Slot{Class: scenario.SlotCond, Value: "if the"}, false},
 		{"switch when BenchmarkBrief in scripts/benchmark.py passes 300 ms", cond, true},
 		{"switch: BenchmarkBrief in scripts/benchmark.py passes 300 ms", cond, false},
 		{"if scripts/benchmark.py passes 300 ms", cond, false},
