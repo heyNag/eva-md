@@ -232,12 +232,12 @@ func TestCoverageIsInTheTree(t *testing.T) {
 	}
 }
 
-// A locked or unreadable session file refuses a note, whatever its
-// authority, and takes no coverage, so its ranges stay in the queue; the
-// pass's other operations go on. A session file a hand edit only changed
-// takes both.
+// A session file that is locked, verified or unreadable refuses a note,
+// whatever its authority, and takes no coverage, so its ranges stay in the
+// queue; the pass's other operations go on. A session file a hand edit
+// only changed takes both.
 func TestAProtectedSessionFileRefusesAppendsAndCoverage(t *testing.T) {
-	for _, c := range []struct{ edit, reason string }{{EditLock, store.ReasonLocked}, {EditGarble, store.ReasonUnreadable}, {EditChange, ""}} {
+	for _, c := range []struct{ edit, reason string }{{EditLock, store.ReasonLocked}, {EditVerify, store.ReasonVerified}, {EditGarble, store.ReasonUnreadable}, {EditChange, ""}} {
 		m, st, _ := opened(t)
 		path := sessionPath("codex:b2")
 		st = edit(t, m, st, path, Edit{Kind: c.edit, Text: "a line the person wrote"})
@@ -276,7 +276,98 @@ func TestAProtectedSessionFileRefusesAppendsAndCoverage(t *testing.T) {
 		if covered || len(last.Covers) != 0 {
 			t.Fatalf("%s: the session took coverage: %+v, commit %+v", c.edit, cov, last.Covers)
 		}
+		// A note under the model's authority, alone, is refused alike and
+		// makes no commit.
+		n := len(m.History())
+		res, err = st.Apply(store.Txn{Pass: pass(3), Kind: store.KindFast, Session: "codex:b2", Covers: []store.Range{{From: 3, To: 4, Outcome: "done", Contract: "1"}}, Ops: []store.Op{
+			{Type: store.OpSessionAppend, Authority: store.AuthorityModel, Fields: map[string]any{"text": "did another thing"}},
+		}})
+		if err != nil || res.Outcomes[0].Reason != c.reason || res.Commit != "" || len(m.History()) != n || !bytes.Equal(m.Files()[path], before) {
+			t.Fatalf("%s: a model's note gave %+v, %v", c.edit, res, err)
+		}
 		st.Close()
+	}
+}
+
+// A pass keeps the frontmatter lines of a session file that it does not
+// own, as a person wrote them.
+func TestAPassKeepsTheLinesOfASessionFileItDoesNotOwn(t *testing.T) {
+	m, st, _ := opened(t)
+	path := sessionPath("codex:b2")
+	st.Close()
+	b := m.folder.files[path]
+	m.folder.files[path] = append([]byte("---\ntags: [kept]\n"), b[len("---\n"):]...)
+	st, err := m.Open(fixed, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := st.Apply(store.Txn{Pass: pass(2), Kind: store.KindFast, Session: "codex:b2", Covers: []store.Range{{From: 3, To: 4, Outcome: "done", Contract: "1"}}, Ops: []store.Op{
+		{Type: store.OpSessionAppend, Authority: store.AuthorityModel, Fields: map[string]any{"text": "did a thing"}},
+	}})
+	if err != nil || res.Outcomes[0].Result != store.ResultApplied {
+		t.Fatalf("the note gave %+v, %v", res, err)
+	}
+	got := string(m.Files()[path])
+	if !strings.Contains(got, "\ntags: [kept]\n") || !strings.Contains(got, "- did: did a thing") {
+		t.Fatalf("the pass dropped the person's line or the note:\n%s", got)
+	}
+	if cov, _ := st.Coverage("codex:b2"); len(cov) != 2 {
+		t.Fatalf("coverage %+v", cov)
+	}
+}
+
+// Two sessions never share a file: a session of a safe host and key is
+// <host>.<key>.md, and any other a hash with no dot.
+func TestTwoSessionsNeverShareAFile(t *testing.T) {
+	if got := sessionPath("claude-code:a_1-B"); got != "sessions/claude-code.a_1-B.md" {
+		t.Fatalf("a safe session is %s", got)
+	}
+	all := []string{"claude-code:x.y", "claude-code.x:y", "claude-code:x:y", "claude-code:x", "claude-code.x", "x", "", ":x", "claude-code:", "claude-code:" + strings.Repeat("a", 81)}
+	seen := map[string]string{}
+	for _, s := range all {
+		p := sessionPath(s)
+		if other, ok := seen[p]; ok {
+			t.Errorf("%q and %q share %s", s, other, p)
+		}
+		seen[p] = s
+		if name := strings.TrimSuffix(strings.TrimPrefix(p, "sessions/"), ".md"); strings.Count(name, ".") > 1 || strings.Contains(s, ".") && strings.Contains(name, ".") {
+			t.Errorf("%q is %s", s, p)
+		}
+	}
+	m, st, _ := opened(t)
+	defer st.Close()
+	if _, err := st.Apply(store.Txn{Pass: pass(2), Kind: store.KindFast, Session: "claude-code:x.y", Covers: []store.Range{{From: 1, To: 9, Outcome: "done", Contract: "1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if cov, _ := st.Coverage("claude-code.x:y"); len(cov) != 0 {
+		t.Fatalf("one session's coverage shows as another's: %+v", cov)
+	}
+	if _, ok := m.SessionFile("claude-code.x:y"); ok {
+		t.Fatal("the other session has a file")
+	}
+}
+
+// ExactlyOnce counts a pass in history only when it applied an operation
+// or covered a line no pass had covered: a pass whose only range is
+// covered already, or whose session file is locked, makes no commit, and
+// the property holds for it.
+func TestExactlyOnceCountsWhatAPassDid(t *testing.T) {
+	note := fact{do: doNote, text: "s1 the hook stays local"}
+	sch := &schedule{
+		record: []chunk{
+			{session: "codex:b2", from: 1, to: 2, facts: []fact{{do: doCreate, kind: "fact", title: "t1", text: "s2 the cache lives under bin"}}},
+			{session: "codex:b2", from: 1, to: 2, facts: []fact{{do: doRevise, title: "no such title", text: "s3"}}},
+			{session: "codex:b2", from: 3, to: 4, facts: []fact{note}},
+		},
+		events: []event{
+			{what: evPass, chunk: 0},
+			{what: evPass, chunk: 1},
+			{what: evEdit, session: true, edit: Edit{Kind: EditLock}},
+			{what: evPass, chunk: 2},
+		},
+	}
+	if err := checkExactlyOnce(newModel, 1, sch); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -168,7 +168,23 @@ func results(outs []store.Outcome) []string {
 // commit and changes nothing; a pass is in history once if it applied or
 // covered anything, and never twice; and one seed gives one tree.
 func CheckExactlyOnce(newSubject func() Subject, seed int64) error {
-	sch := newSchedule(seed, options{edits: true})
+	return checkExactlyOnce(newSubject, seed, newSchedule(seed, options{edits: true}))
+}
+
+// covered is the lines of a session's coverage, none when the pass names
+// no session.
+func (r *runner) covered(session string) (map[int]bool, error) {
+	if session == "" {
+		return map[int]bool{}, nil
+	}
+	c, err := r.st.Coverage(session)
+	if err != nil {
+		return nil, r.fail("Coverage: %v", err)
+	}
+	return lines(c), nil
+}
+
+func checkExactlyOnce(newSubject func() Subject, seed int64, sch *schedule) error {
 	r := newRunner(PropExactlyOnce, newSubject(), seed)
 	if err := r.open(); err != nil {
 		return err
@@ -190,6 +206,10 @@ func CheckExactlyOnce(newSubject func() Subject, seed int64) error {
 				return err
 			}
 			continue
+		}
+		had, err := r.covered(txn.Session)
+		if err != nil {
+			return err
 		}
 		before := r.snap()
 		plan, err := r.st.Plan(txn)
@@ -230,9 +250,20 @@ func CheckExactlyOnce(newSubject func() Subject, seed int64) error {
 				n++
 			}
 		}
-		did := len(txn.Covers) > 0 || slices.ContainsFunc(res.Outcomes, func(o store.Outcome) bool { return o.Result == store.ResultApplied })
+		// The pass did something if it applied an operation or covered a
+		// line no pass covered before it, not merely if it carried ranges:
+		// a range covered again, or one of a session file that is shut,
+		// covers nothing.
+		has, err := r.covered(txn.Session)
+		if err != nil {
+			return err
+		}
+		did := slices.ContainsFunc(res.Outcomes, func(o store.Outcome) bool { return o.Result == store.ResultApplied })
+		for l := range has {
+			did = did || !had[l]
+		}
 		if did && n != 1 || !did && n != 0 {
-			return r.fail("the pass is in history %d times", n)
+			return r.fail("the pass is in history %d times; it applied or newly covered something: %v", n, did)
 		}
 	}
 	seen := map[string]bool{}
@@ -261,15 +292,28 @@ func CheckExactlyOnce(newSubject func() Subject, seed int64) error {
 	return nil
 }
 
-// mark is what the harness did to an item's file by hand.
+// mark is what the harness did to a file by hand, an item's or a
+// session's.
 type mark struct {
+	session                            bool
 	locked, verified, garbled, unacked bool
 }
 
 // expect is the reason an operation with that authority is refused for.
+// A session file that holds a lock or a verified mark, or cannot be read,
+// refuses whatever the authority, since no operation can clear the mark
+// there; a hand edit of one refuses nothing, since none can acknowledge it.
 func (k *mark) expect(authority string) string {
 	switch {
 	case k == nil:
+		return ""
+	case k.session && k.garbled:
+		return store.ReasonUnreadable
+	case k.session && k.locked:
+		return store.ReasonLocked
+	case k.session && k.verified:
+		return store.ReasonVerified
+	case k.session:
 		return ""
 	case k.garbled:
 		return store.ReasonUnreadable
@@ -292,7 +336,10 @@ var protectionReasons = []string{store.ReasonLocked, store.ReasonVerified, store
 // file is refused for protection; and a locked item is byte-identical
 // after LockedPasses passes aimed at it.
 func CheckProtection(newSubject func() Subject, seed int64) error {
-	sch := newSchedule(seed, options{edits: true})
+	return checkProtection(newSubject, seed, newSchedule(seed, options{edits: true}))
+}
+
+func checkProtection(newSubject func() Subject, seed int64, sch *schedule) error {
 	r := newRunner(PropProtection, newSubject(), seed)
 	if err := r.open(); err != nil {
 		return err
@@ -314,7 +361,7 @@ func CheckProtection(newSubject func() Subject, seed int64) error {
 			}
 			k := marks[path]
 			if k == nil {
-				k = &mark{}
+				k = &mark{session: ev.session}
 				marks[path] = k
 			}
 			k.locked = k.locked || ev.edit.Kind == EditLock
@@ -351,11 +398,24 @@ func (r *runner) protected(txn store.Txn, marks map[string]*mark) (store.Result,
 	for _, it := range r.s.Items() {
 		paths[it.ID] = it.Path
 	}
+	// The session file, when the pass names a session whose file is there.
+	var session string
+	if txn.Session != "" {
+		if p, ok := r.s.SessionFile(txn.Session); ok {
+			session = p
+		}
+	}
+	target := func(op store.Op) string {
+		if op.Type == store.OpSessionAppend {
+			return session
+		}
+		return paths[op.ID]
+	}
 	reasons := map[int]string{}
 	without := map[int][]store.Outcome{}
 	for k, op := range txn.Ops {
-		path, ok := paths[op.ID]
-		if !ok {
+		path := target(op)
+		if path == "" {
 			continue
 		}
 		if reasons[k] = marks[path].expect(op.Authority); reasons[k] == "" {
@@ -367,28 +427,66 @@ func (r *runner) protected(txn store.Txn, marks map[string]*mark) (store.Result,
 		}
 		without[k] = plan
 	}
+	had, err := r.covered(txn.Session)
+	if err != nil {
+		return store.Result{}, err
+	}
 	before := r.s.Files()
 	res, err := r.apply(txn, nil)
 	if err != nil {
 		return res, err
 	}
 	files := r.s.Files()
+	has, err := r.covered(txn.Session)
+	if err != nil {
+		return res, err
+	}
+	// A session file that is shut takes no coverage and keeps its bytes;
+	// any other takes every range of the pass no pass covered before, as
+	// the pass goes on beside a refusal.
+	shut := ""
+	if session != "" {
+		shut = marks[session].expect(store.AuthorityUser)
+	}
+	for _, c := range txn.Covers {
+		for l := c.From; l <= c.To; l++ {
+			switch {
+			case shut != "" && has[l] && !had[l]:
+				return res, r.fail("the session file refuses as %s, yet the pass covered line %d of it", shut, l)
+			case shut == "" && !has[l] && !had[l]:
+				return res, r.fail("the pass did not cover line %d, of a session file nothing protects", l)
+			}
+		}
+	}
+	if shut != "" && !bytes.Equal(before[session], files[session]) {
+		return res, r.fail("the session file refuses as %s, yet the pass changed it", shut)
+	}
 	for k, op := range txn.Ops {
 		o, reason := res.Outcomes[k], reasons[k]
 		if reason == "" {
-			if o.Result == store.ResultRefused && slices.Contains(protectionReasons, o.Reason) && op.ID != "" {
+			if o.Result == store.ResultRefused && slices.Contains(protectionReasons, o.Reason) && (op.ID != "" || op.Type == store.OpSessionAppend) {
 				return res, r.fail("operation %d, aimed at a file nothing protects, was refused as %s", k, o.Reason)
 			}
 			continue
 		}
+		// An operation whose requirement was refused is refused as
+		// requires, before any reason of its own file.
+		if slices.ContainsFunc(op.Requires, func(q int) bool { return q >= 0 && q < k && res.Outcomes[q].Result == store.ResultRefused }) {
+			reason = store.ReasonRequires
+		}
 		if o.Result != store.ResultRefused || o.Reason != reason {
 			return res, r.fail("operation %d (%s, %s) aimed at a file that refuses it as %s gave %s %s", k, op.Type, op.Authority, reason, o.Result, o.Reason)
 		}
-		if path := paths[op.ID]; !bytes.Equal(before[path], files[path]) {
+		if path := target(op); !bytes.Equal(before[path], files[path]) {
 			return res, r.fail("operation %d was refused as %s but its file changed", k, reason)
 		}
 		deps := dependents(txn, k)
 		for j := range txn.Ops {
+			if deps[j] {
+				if got := res.Outcomes[j]; got.Result != store.ResultRefused || got.Reason != store.ReasonRequires {
+					return res, r.fail("operation %d requires operation %d, which was refused, yet gave %s %s", j, k, got.Result, got.Reason)
+				}
+			}
 			if j == k || deps[j] {
 				continue
 			}

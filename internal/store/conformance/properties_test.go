@@ -48,10 +48,12 @@ var variants = []struct {
 	{"filesBeforeJournal", PropCrashSafety, 1, "neither as before the pass nor as after it", func(m *Model) { m.filesBeforeJournal = true }},
 	{"filesBeforeJournal", PropExactlyOnce, 1, "Plan gave", func(m *Model) { m.filesBeforeJournal = true }},
 	{"skipPassLookup", PropExactlyOnce, 1, "the pass run again gave", func(m *Model) { m.skipPassLookup = true }},
-	{"skipPassLookup", PropCrashSafety, 1, "the pass run again after a crash", func(m *Model) { m.skipPassLookup = true }},
+	{"skipPassLookup", PropCrashSafety, 3, "the pass run again after a crash", func(m *Model) { m.skipPassLookup = true }},
 	{"bareLock", PropProtection, 1, "refuses it as locked", func(m *Model) { m.bareLock = true }},
-	{"refusalDropsPass", PropProtection, 1, "without it", func(m *Model) { m.refusalDropsPass = true }},
-	{"refusalDropsPass", PropExactlyOnce, 1, "in history 0 times", func(m *Model) { m.refusalDropsPass = true }},
+	{"refusalDropsPass", PropProtection, 1, "the pass did not cover line", func(m *Model) { m.refusalDropsPass = true }},
+	{"refusalDropsPass", PropReplay, 2, "the queue is not", func(m *Model) { m.refusalDropsPass = true }},
+	{"sessionUnguarded", PropProtection, 5, "the session file refuses as locked, yet the pass covered", func(m *Model) { m.sessionUnguarded = true }},
+	{"requiresIgnored", PropProtection, 14, "which was refused, yet gave applied", func(m *Model) { m.requiresIgnored = true }},
 	{"coverageOutside", PropRestore, 1, "coverage is not the last push's", func(m *Model) { m.coverageOutside = true }},
 	{"coverageOutside", PropReplay, 1, "the queue is not", func(m *Model) { m.coverageOutside = true }},
 	{"queueFromJobs", PropReplay, 1, "the queue is not", func(m *Model) { m.queueFromJobs = true }},
@@ -137,6 +139,9 @@ func TestEverySeedRunsEachKindOfEvent(t *testing.T) {
 			}
 			if ev.what == evEdit {
 				counts[ev.edit.Kind]++
+				if ev.session {
+					counts["session "+ev.edit.Kind]++
+				}
 			}
 		}
 		for _, c := range sch.record {
@@ -145,7 +150,7 @@ func TestEverySeedRunsEachKindOfEvent(t *testing.T) {
 			}
 		}
 	}
-	for _, k := range []string{evPass, evEdit, evAck, evPush, evLose, EditChange, EditLock, EditVerify, EditGarble, doCreate, doRevise, doState, doNote} {
+	for _, k := range []string{evPass, evEdit, evAck, evPush, evLose, EditChange, EditLock, EditVerify, EditGarble, "session " + EditChange, "session " + EditLock, "session " + EditVerify, "session " + EditGarble, doCreate, doRevise, doState, doNote} {
 		if counts[k] < 5 {
 			t.Errorf("50 seeds hold %d of %s", counts[k], k)
 		}

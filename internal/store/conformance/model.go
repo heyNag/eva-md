@@ -42,8 +42,8 @@ const (
 )
 
 var (
-	reItemID  = regexp.MustCompile(`^i[0-9a-hjkmnp-tv-z]{13}$`)
-	reSession = regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`)
+	reItemID = regexp.MustCompile(`^i[0-9a-hjkmnp-tv-z]{13}$`)
+	reKey    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
 )
 
 // Model is the reference model of the store: an in-memory state machine
@@ -67,6 +67,8 @@ type Model struct {
 	refusalDropsPass   bool // one refusal refuses the whole pass
 	coverageOutside    bool // keep coverage in the folder, outside the tree
 	queueFromJobs      bool // read coverage from the local job list too
+	sessionUnguarded   bool // write notes and coverage into a protected session file
+	requiresIgnored    bool // treat every requirement as met
 }
 
 // folder is the store folder.
@@ -363,7 +365,7 @@ func (h *handle) Coverage(session string) ([]store.Range, error) {
 	if h.m.coverageOutside {
 		out = slices.Clone(h.f.outside[session])
 	} else {
-		out, _ = parseSession(h.f.head()[sessionPath(session)])
+		out, _, _ = parseSession(h.f.head()[sessionPath(session)])
 	}
 	if h.m.queueFromJobs {
 		out = merge(out, h.m.jobs[session])
@@ -442,13 +444,13 @@ func (m *Model) plan(f *folder, txn store.Txn) (*planned, error) {
 	}
 	path := sessionPath(txn.Session)
 	b, ok := read(path)
-	if ok && m.shut(b) != "" {
-		// The store writes nothing into a locked or unreadable file, so
-		// its session takes no coverage, and the ranges stay in the queue
-		// until a person repairs the file.
+	if ok && m.sessionShut(b) != "" {
+		// The store writes nothing into a session file that is locked,
+		// verified or unreadable, so its session takes no coverage, and
+		// the ranges stay in the queue until a person repairs the file.
 		return p, nil
 	}
-	have, log := parseSession(b)
+	have, keep, log := parseSession(b)
 	if m.coverageOutside {
 		have = f.outside[txn.Session]
 	}
@@ -463,7 +465,7 @@ func (m *Model) plan(f *folder, txn store.Txn) (*planned, error) {
 		}
 	}
 	if len(p.covers) > 0 && !m.coverageOutside {
-		p.writes[path] = renderSession(txn.Session, merge(have, p.covers), log)
+		p.writes[path] = renderSession(txn.Session, keep, merge(have, p.covers), log)
 	}
 	return p, nil
 }
@@ -481,7 +483,7 @@ func (m *Model) planOp(txn store.Txn, i int, p *planned, read func(string) ([]by
 		}
 	}
 	for _, r := range op.Requires {
-		if res := p.outcomes[r].Result; res != store.ResultApplied && res != store.ResultNoop {
+		if res := p.outcomes[r].Result; res != store.ResultApplied && res != store.ResultNoop && !m.requiresIgnored {
 			return refused(store.ReasonRequires, op.ID)
 		}
 	}
@@ -500,11 +502,11 @@ func (m *Model) planOp(txn store.Txn, i int, p *planned, read func(string) ([]by
 		}
 		path := sessionPath(txn.Session)
 		b, ok := read(path)
-		if reason := m.shut(b); ok && reason != "" {
+		if reason := m.sessionShut(b); ok && reason != "" {
 			return refused(reason, op.ID)
 		}
-		have, log := parseSession(b)
-		p.writes[path] = renderSession(txn.Session, have, log+"- did: "+text+"\n")
+		have, keep, log := parseSession(b)
+		p.writes[path] = renderSession(txn.Session, keep, have, log+"- did: "+text+"\n")
 		return store.Outcome{Result: store.ResultApplied, ID: op.ID}
 	}
 	return refused(store.ReasonInvalid, op.ID)
@@ -621,6 +623,25 @@ func (m *Model) shut(b []byte) string {
 	return ""
 }
 
+// sessionShut is the reason a session file refuses a note and takes no
+// coverage, whatever the authority: unreadable, locked, then verified. The
+// format lets no one lock or verify a session file, and no operation can
+// clear either mark there, so one that is there shuts the file until a
+// person repairs it. An unacknowledged hand edit shuts nothing, as no
+// operation can acknowledge a session file.
+func (m *Model) sessionShut(b []byte) string {
+	if m.sessionUnguarded {
+		return ""
+	}
+	if reason := m.shut(b); reason != "" {
+		return reason
+	}
+	if m.protection(b).Verified {
+		return store.ReasonVerified
+	}
+	return ""
+}
+
 // line is a value that is a string of one line, 1 to max bytes.
 func line(v any, max int) (string, bool) {
 	s, ok := v.(string)
@@ -634,15 +655,17 @@ func hash(b []byte) string {
 
 func itemPath(id string) string { return "items/" + id + ".md" }
 
-// sessionPath is the session's file: its name when that is safe, else a
-// hash of it.
+// sessionPath is the session's file, <host>.<key>.md as the format names
+// it, when the session is <host>:<key> and both are 1 to 80 of
+// A-Za-z0-9_-; else x and a hash of the whole session. A safe name holds
+// one dot and a hashed one none, so two sessions never share a file.
 func sessionPath(session string) string {
-	key := strings.ReplaceAll(session, ":", ".")
-	if !reSession.MatchString(key) || strings.Trim(key, ".") == "" {
+	host, key, ok := strings.Cut(session, ":")
+	if !ok || !reKey.MatchString(host) || !reKey.MatchString(key) {
 		sum := sha256.Sum256([]byte(session))
-		key = "x" + hex.EncodeToString(sum[:8])
+		return "sessions/x" + hex.EncodeToString(sum[:8]) + ".md"
 	}
-	return "sessions/" + key + ".md"
+	return "sessions/" + host + "." + key + ".md"
 }
 
 func renderItem(id, kind, title, state, statement string) []byte {
@@ -704,26 +727,35 @@ func readItem(b []byte) Item {
 	return it
 }
 
-// parseSession reads a session file's ranges and its log.
-func parseSession(b []byte) ([]store.Range, string) {
+// parseSession reads a session file's ranges, the frontmatter lines the
+// store does not own, which a pass keeps as they are, and its log.
+func parseSession(b []byte) ([]store.Range, []string, string) {
 	front, body := split(b)
 	var out []store.Range
+	var keep []string
 	for _, l := range front {
 		if s, ok := strings.CutPrefix(l, "  - "); ok {
 			var r store.Range
 			if json.Unmarshal([]byte(s), &r) == nil {
 				out = append(out, r)
+				continue
 			}
+		}
+		if !strings.HasPrefix(l, "session: ") && l != "covers:\n" {
+			keep = append(keep, l)
 		}
 	}
 	log, _ := strings.CutPrefix(body, "## Log\n")
-	return out, log
+	return out, keep, log
 }
 
-func renderSession(session string, covers []store.Range, log string) []byte {
+// renderSession writes a session file: its session, the lines it keeps,
+// its ranges and its log.
+func renderSession(session string, keep []string, covers []store.Range, log string) []byte {
 	q, _ := json.Marshal(session)
 	var b strings.Builder
 	b.WriteString("---\nsession: " + string(q) + "\n")
+	b.WriteString(strings.Join(keep, ""))
 	if len(covers) > 0 {
 		b.WriteString("covers:\n")
 		for _, r := range covers {
@@ -771,6 +803,17 @@ func (m *Model) History() []Commit {
 		out[i].Covers = slices.Clone(c.Covers)
 	}
 	return out
+}
+
+// SessionFile is the path of the session's file, and whether it is in the
+// working tree.
+func (m *Model) SessionFile(session string) (string, bool) {
+	if m.folder == nil {
+		return "", false
+	}
+	path := sessionPath(session)
+	_, ok := m.folder.files[path]
+	return path, ok
 }
 
 // Items is every item file in the working tree, by path.

@@ -47,11 +47,12 @@ type crash struct {
 }
 
 type event struct {
-	what  string
-	chunk int    // a pass's chunk of the record
-	crash *crash // where a pass crashes before its retry
-	pick  int    // the item an edit or an acknowledgement aims at
-	edit  Edit
+	what    string
+	chunk   int    // a pass's chunk of the record
+	crash   *crash // where a pass crashes before its retry
+	pick    int    // the file an edit or an acknowledgement aims at
+	session bool   // the edit aims at a session file, not an item
+	edit    Edit
 }
 
 // schedule is a made-up record and what happens around it.
@@ -127,7 +128,9 @@ func newSchedule(seed int64, o options) *schedule {
 	}
 	for i := range sch.record {
 		if o.edits && rng.IntN(3) == 0 {
-			sch.events = append(sch.events, event{what: evEdit, pick: rng.IntN(1000), edit: Edit{Kind: edits[rng.IntN(len(edits))], Text: words(1000 + i)}})
+			ev := event{what: evEdit, pick: rng.IntN(1000), edit: Edit{Kind: edits[rng.IntN(len(edits))], Text: words(1000 + i)}}
+			ev.session = rng.IntN(3) == 0
+			sch.events = append(sch.events, ev)
 		}
 		if o.edits && rng.IntN(4) == 0 {
 			sch.events = append(sch.events, event{what: evAck, pick: rng.IntN(1000)})

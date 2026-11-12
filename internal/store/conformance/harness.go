@@ -28,7 +28,11 @@ type Subject interface {
 	History() []Commit
 	// Items is every item file, by path.
 	Items() []Item
-	// HandEdit changes a file as a person or another tool would.
+	// SessionFile is the path of a session's file, and whether that file
+	// is in the working tree.
+	SessionFile(session string) (path string, ok bool)
+	// HandEdit changes a file, an item's or a session's, as a person or
+	// another tool would.
 	HandEdit(path string, e Edit) error
 }
 
@@ -269,20 +273,44 @@ func (r *runner) pick(n int) (Item, bool) {
 	return items[n%len(items)], true
 }
 
+// pickSession is the session file an edit aims at, among those there.
+func (r *runner) pickSession(n int) (string, bool) {
+	var paths []string
+	for _, s := range sessions {
+		if p, ok := r.s.SessionFile(s); ok {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 {
+		return "", false
+	}
+	return paths[n%len(paths)], true
+}
+
 // handEdit makes an edit with the store closed, and reopens, so the store
-// adopts it. It returns the path, or "" when there was no item.
+// adopts it. It returns the path, or "" when there was no file to edit.
 func (r *runner) handEdit(ev event) (string, error) {
-	it, ok := r.pick(ev.pick)
-	if !ok {
-		return "", nil
+	var path string
+	if ev.session {
+		p, ok := r.pickSession(ev.pick)
+		if !ok {
+			return "", nil
+		}
+		path = p
+	} else {
+		it, ok := r.pick(ev.pick)
+		if !ok {
+			return "", nil
+		}
+		path = it.Path
 	}
 	if err := r.close(); err != nil {
 		return "", err
 	}
-	if err := r.s.HandEdit(it.Path, ev.edit); err != nil {
+	if err := r.s.HandEdit(path, ev.edit); err != nil {
 		return "", r.fail("hand edit: %v", err)
 	}
-	return it.Path, r.open()
+	return path, r.open()
 }
 
 // ackTxn is a person's acknowledgement of an item's hand edit.

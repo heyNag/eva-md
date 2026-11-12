@@ -6,19 +6,19 @@ Sources are in brackets: **P** is [the plan](../../../docs/v2/plan.md) by sectio
 
 ## Subjects and schedules
 
-A subject is a store under test (`Subject`): `Open(clock, fault)` returns a `store.Store`; `Files`, `History` and `Items` show its tree, its commits and its items; `HandEdit` changes a file as a person would, with a change, a lock written `locked: true  # note`, a verified mark or a garble that makes it unreadable. A `Restorable` subject can also `Push`, `Lose` its store folder and nothing else, and `Restore` it.
+A subject is a store under test (`Subject`): `Open(clock, fault)` returns a `store.Store`; `Files`, `History` and `Items` show its tree, its commits and its items, and `SessionFile` the path of a session's file and whether it is there; `HandEdit` changes a file, an item's or a session's, as a person would, with a change, a lock written `locked: true  # note`, a verified mark or a garble that makes it unreadable. A `Restorable` subject can also `Push`, `Lose` its store folder and nothing else, and `Restore` it.
 
-A seed gives a schedule: a made-up record of two or three sessions, cut into chunks, and around it hand edits, acknowledgements, pushes and lost folders. Each chunk is one pass of a fake derive, which covers the chunk's range of the record and finds the items it revises or retires by title through `Items`. Half the passes crash at a step of `Apply`, and every step is reached across the schedules; a crashed pass is reopened and run again, as the worker would. The clock moves only between passes. No check sleeps, reads the wall clock, runs git or writes to disk.
+A seed gives a schedule: a made-up record of two or three sessions, cut into chunks, and around it hand edits of items and of session files, acknowledgements, pushes and lost folders. Each chunk is one pass of a fake derive, which covers the chunk's range of the record and finds the items it revises or retires by title through `Items`. Half the passes crash at a step of `Apply`, and every step is reached across the schedules; a crashed pass is reopened and run again, as the worker would. The clock moves only between passes. No check sleeps, reads the wall clock, runs git or writes to disk.
 
 ## The properties
 
 | Property | Source | Check | Killed by |
 | --- | --- | --- | --- |
 | CrashSafety | P6.2 design 3; S7.1, S7.3; S10, finding update-write F9 | `CheckCrashSafety` | `filesBeforeJournal`, `skipPassLookup` |
-| ExactlyOnce | S7.1 steps 1 to 3; F3, F8 (`Eva-Pass`); S10, model-1 | `CheckExactlyOnce` | `skipPassLookup`, `filesBeforeJournal`, `refusalDropsPass` |
-| Protection | P6.2 design 4; P8 row ST-05; F6, F7; S5.7 | `CheckProtection` | `bareLock`, `refusalDropsPass` |
+| ExactlyOnce | S7.1 steps 1 to 3; F3, F8 (`Eva-Pass`); S10, model-1 | `CheckExactlyOnce` | `skipPassLookup`, `filesBeforeJournal` |
+| Protection | P6.2 design 4; P8 row ST-05; F6, F7; S5.7 | `CheckProtection` | `bareLock`, `refusalDropsPass`, `sessionUnguarded`, `requiresIgnored` |
 | Restore | P6.2 bars; P8 row ST-08; S9.3, finding restore-1 | `CheckRestore` | `coverageOutside`, `queueFromJobs` |
-| Replay | P6.2 design 3; P8 row ST-08; S7.5, S9.3, finding replay-1 | `CheckReplay` | `queueFromJobs`, `coverageOutside` |
+| Replay | P6.2 design 3; P8 row ST-08; S7.5, S9.3, finding replay-1 | `CheckReplay` | `queueFromJobs`, `coverageOutside`, `refusalDropsPass` |
 
 `TestThePropertiesTable` fails if a property has no variant here, or if a variant listed is not shown failing it.
 
@@ -32,19 +32,19 @@ Variants: `filesBeforeJournal` writes the files before the journal, so a crash a
 
 ### ExactlyOnce
 
-A pass id is in history at most once, and once if it applied an operation or covered a range. A pass run again, before or after a reopen, returns the first outcomes, ids and commit, and changes nothing. `Plan` returns `Apply`'s outcomes and writes nothing. One seed gives one tree.
+A pass id is in history at most once, and once if it applied an operation or covered a line no pass had covered; a pass that did neither, such as one whose only range is covered already or whose session file is shut, is not in history. A pass run again, before or after a reopen, returns the first outcomes, ids and commit, and changes nothing. `Plan` returns `Apply`'s outcomes and writes nothing. One seed gives one tree.
 
-The check plans each pass, applies it, then applies it twice more with a reopen between, and counts the pass in history. At the end it plays the same schedule plainly, with no plan and no second run, on a new subject, and the two trees and histories must be equal.
+The check plans each pass, applies it, then applies it twice more with a reopen between, and counts the pass in history against what it did: the outcomes, and the session's `Coverage` before and after. At the end it plays the same schedule plainly, with no plan and no second run, on a new subject, and the two trees and histories must be equal.
 
-Variants: `skipPassLookup` refuses the second run as a conflict. `filesBeforeJournal` adopts a crashed pass's files as a hand edit, so the pass run again is refused where `Plan` said it would apply. `refusalDropsPass` drops a pass that covered a range.
+Variants: `skipPassLookup` refuses the second run as a conflict. `filesBeforeJournal` adopts a crashed pass's files as a hand edit, so the pass run again is refused where `Plan` said it would apply.
 
 ### Protection
 
-A file a person locked or verified, one that cannot be read, or one a hand edit changed and nobody acknowledged, refuses the operation aimed at it: a lock and an unreadable file refuse every operation; a verified mark and an unacknowledged hand edit refuse each operation without the user's authority. The refusal carries its reason (`locked`, `unreadable`, `verified`, `hand_edit`, in that order), the file's bytes do not change, and the pass goes on: every other operation gets the outcome it gets without that one, unless it requires it. No operation aimed at a file nothing protects is refused for protection. A locked item is byte-identical after 1,000 passes aimed at it.
+A file a person locked or verified, one that cannot be read, or one a hand edit changed and nobody acknowledged, refuses the operation aimed at it: a lock and an unreadable file refuse every operation; on an item, a verified mark and an unacknowledged hand edit refuse each operation without the user's authority. A session file is shut by a lock, a verified mark or a garble, whatever the authority, since no operation can clear the mark there: it refuses every note (`session.append`) and takes no coverage, so its ranges stay in the queue until a person repairs it. The refusal carries its reason (`unreadable`, `locked`, `verified`, `hand_edit`, in that order), the file's bytes do not change, and the pass goes on: every other operation gets the outcome it gets without that one, each operation that requires it, directly or not, is refused as `requires`, and every range of a session file nothing shuts is covered. An operation whose requirement was refused is refused as `requires` before any reason of its own file. No operation aimed at a file nothing protects is refused for protection. A locked item is byte-identical after 1,000 passes aimed at it.
 
-The check marks each file it edits by hand and each acknowledgement that applied, so it knows each refusal before the pass. For each operation it expects refused, it plans the pass without that operation first, its requirements renumbered, and compares every other outcome but those that require it. At the end it locks an item by hand and aims 1,000 passes at it: revisions of its statement and title, both states, an acknowledgement, under both authorities.
+The check marks each file it edits by hand, items and session files, and each acknowledgement that applied, so it knows each refusal before the pass. For each operation it expects refused, it plans the pass without that operation first, its requirements renumbered, and compares every other outcome but those that require it, which must be refused as `requires`. It reads the session's `Coverage` before and after each pass: a shut session file keeps its bytes and coverage, and any other gains every range of the pass not covered before. At the end it locks an item by hand and aims 1,000 passes at it: revisions of its statement and title, both states, an acknowledgement, under both authorities.
 
-Variants: `bareLock` reads a lock only as the line `locked: true`, as v1 did, so `locked: true  # note` does not lock. `refusalDropsPass` refuses the whole pass when one operation is refused.
+Variants: `bareLock` reads a lock only as the line `locked: true`, as v1 did, so `locked: true  # note` does not lock. `refusalDropsPass` refuses the whole pass when one operation is refused, and drops its coverage. `sessionUnguarded` writes notes and coverage into a shut session file. `requiresIgnored` treats every requirement as met, so a note goes on beside the refused operation it requires.
 
 ### Restore
 
@@ -60,7 +60,7 @@ Coverage never shrinks but by a loss. After a restore the queue, the record less
 
 The check has no hand edits, since a rebuild from the record cannot bring back what is not in it (S9.3: a person's explicit writes must be events of the record). It checks coverage after each step, loses the folder at the end, compares the queue with the chunks run after the last push, line by line, replays the queue in the record's order, and compares coverage and items.
 
-Variants: `queueFromJobs` leaves out of the queue the ranges the local job list ran after the last push, so their items never come back. `coverageOutside` restores no coverage, so the queue holds ranges the restored tree already covers.
+Variants: `queueFromJobs` leaves out of the queue the ranges the local job list ran after the last push, so their items never come back. `coverageOutside` restores no coverage, so the queue holds ranges the restored tree already covers. `refusalDropsPass` drops the coverage of a pushed pass with a refusal, so the queue holds a range the pushed head was to cover.
 
 ## What the model chooses where the format is silent
 
@@ -68,5 +68,7 @@ Variants: `queueFromJobs` leaves out of the queue the ranges the local job list 
 - A range a pass covers again exactly is not covered anew, and makes no commit by itself; a range that overlaps a covered one but is not it refuses the whole pass.
 - An acknowledgement is an operation, `doc.acknowledge`, aimed at the item, under the user's authority. A lock refuses it too, as it refuses every operation.
 - A hand edit is adopted at every recovery: at open and at the start of each `Apply`. `Plan` recovers a copy of the folder, so it writes nothing.
-- A session file, which the format does not let a person lock (F6), still refuses a note when it holds a lock or cannot be read, and then takes no coverage: the store writes nothing into it, and its ranges stay in the queue until a person repairs it. A verified mark or an unacknowledged hand edit on a session file refuses nothing, as no operation can acknowledge one.
+- A session file, which the format lets no one lock or verify (F6), still refuses a note, whatever its authority, when it holds a lock or a verified mark or cannot be read, and then takes no coverage: the store writes nothing into it, and its ranges stay in the queue until a person repairs it. An unacknowledged hand edit on a session file refuses nothing, as no operation can acknowledge one. A pass keeps every frontmatter line of a session file that it does not own.
+- An operation whose requirement was refused is refused as `requires`, before any other reason.
+- A session `<host>:<key>` whose host and key are each 1 to 80 of `A-Za-z0-9_-` has the file `<host>.<key>.md`; any other has `x` and a hash, with no dot, so two sessions never share a file.
 - The model refuses as `invalid` any operation type but `item.create`, `item.revise`, `item.state`, `session.append` and `doc.acknowledge`, and scans no text for secrets.
