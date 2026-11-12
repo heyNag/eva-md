@@ -378,6 +378,24 @@ func TestTheHookMovesOnOnlyOnceTheEventIsWritten(t *testing.T) {
 	h := newHome(t)
 	h.setup(t)
 	h.must(t, "", "mark", "C-02")
+	// The mark is put an hour back, so a file's time, which a file system
+	// may keep coarser than the clock, is after it whatever the machine.
+	st := filepath.Join(h.rec, hostfacts.StateFile)
+	data, err := os.ReadFile(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s state
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	s.MarkWall = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	if data, err = json.Marshal(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(st, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HF_PROGRAM_MARK", "made-up")
 	tr := newTranscript(t, filepath.Join(h.home, ".claude", "projects", "-made-up", sessionID+".jsonl"))
 	tr.add(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": "made up"}})

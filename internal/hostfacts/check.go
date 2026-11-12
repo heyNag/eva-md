@@ -70,18 +70,23 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 		for i, l := range lines {
 			at := func(what string) { problems = append(problems, Problem{name, i + 1, what}) }
 			str := func(s string) string {
-				shape, times := shapeOf(s)
-				for _, t := range times {
-					p, ok := parseTime(t, 0)
-					switch {
-					case !ok || !strings.HasSuffix(t, "Z"):
-						at("a time is not in UTC with Z")
-					case p.Before(Epoch) || !p.Before(EpochEnd):
-						at("a time is not on the made-up epoch")
+				// The writer makes up an id inside a longer string as it
+				// makes up the id alone, and the text around it piece by
+				// piece: each piece is checked by itself.
+				for _, piece := range splitIDs(s) {
+					shape, times := shapeOf(piece)
+					for _, t := range times {
+						p, ok := parseTime(t, 0)
+						switch {
+						case !ok || !strings.HasSuffix(t, "Z"):
+							at("a time is not in UTC with Z")
+						case p.Before(Epoch) || !p.Before(EpochEnd):
+							at("a time is not on the made-up epoch")
+						}
 					}
-				}
-				if hasClass(shape) {
-					byShape[shape] = append(byShape[shape], seen{name, i + 1, s})
+					if hasClass(shape) {
+						byShape[shape] = append(byShape[shape], seen{name, i + 1, piece})
+					}
 				}
 				return s
 			}
@@ -105,7 +110,7 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 					}
 				case keptNumber(n, key):
 				default:
-					if unit, v, ok := epochUnit(n); ok {
+					if unit, v, ok := epochRange(n); ok {
 						t := time.Unix(0, v*int64(unit))
 						if !t.Before(Epoch) && t.Before(EpochEnd) {
 							return n

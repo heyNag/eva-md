@@ -10,9 +10,11 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -80,9 +82,22 @@ func keptNumber(n json.Number, key string) bool {
 	return Vocab().ExitField(key) && i < 256
 }
 
-// epochUnit gives the unit of a number that reads as a Unix time between
-// 2015 and 2040: seconds or milliseconds.
-func epochUnit(n json.Number) (time.Duration, int64, bool) {
+// epochUnit gives the unit of a number under a key that names a time and
+// that reads as a Unix time between 2015 and 2040: seconds or
+// milliseconds. Under any other key, such a number, as a byte count, is a
+// number like any other.
+func epochUnit(n json.Number, key string) (time.Duration, int64, bool) {
+	if !timeKey(key) {
+		return 0, 0, false
+	}
+	return epochRange(n)
+}
+
+// epochRange gives the unit of a number that reads as a Unix time between
+// 2015 and 2040, whatever its key. The repository's check, which sees a
+// fixture's keys made up, takes such a number on the made-up epoch as a
+// mapped time.
+func epochRange(n json.Number) (time.Duration, int64, bool) {
 	i, err := strconv.ParseInt(string(n), 10, 64)
 	if err != nil {
 		return 0, 0, false
@@ -95,6 +110,22 @@ func epochUnit(n json.Number) (time.Duration, int64, bool) {
 		return time.Millisecond, i, true
 	}
 	return 0, 0, false
+}
+
+// timeWords are the words of a key that names a time.
+var timeWords = []string{"time", "epoch", "date", "created", "updated", "modified", "expires", "expiry", "resets", "started", "ended", "finished", "deadline"}
+
+// timeKey reports a key that names a time: one holding a word of
+// timeWords, in any case, or ending in "At", "_at" or "_ts", or "at" or
+// "ts" itself, as timestamp, created_at, resetsAt or epoch_ms.
+func timeKey(key string) bool {
+	lower := strings.ToLower(key)
+	for _, w := range timeWords {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return lower == "at" || lower == "ts" || strings.HasSuffix(key, "At") || strings.HasSuffix(lower, "_at") || strings.HasSuffix(lower, "_ts")
 }
 
 // readLines decodes every line of a JSON-lines file.
@@ -255,7 +286,7 @@ func (f *faker) scanTimes(v any) {
 				if i, err := t.Int64(); err == nil && (!f.monoOK || i < f.mono0) {
 					f.mono0, f.monoOK = i, true
 				}
-			} else if unit, i, ok := epochUnit(t); ok {
+			} else if unit, i, ok := epochUnit(t, key); ok {
 				see(time.Unix(0, i*int64(unit)))
 			}
 		}
@@ -274,7 +305,66 @@ func (f *faker) scanTimes(v any) {
 
 func (f *faker) mapTime(t time.Time) time.Time { return Epoch.Add(t.Sub(f.t0)) }
 
+// str gives the made-up value of a recorded string. An id inside a longer
+// string, as a session id in a transcript's file name, is made up as the
+// same id standing alone is, so the file name still joins the session id;
+// the text around it is made up piece by piece.
 func (f *faker) str(s string) string {
+	if out, ok := f.memo[s]; ok {
+		return out
+	}
+	if parts := splitIDs(s); len(parts) > 1 {
+		var b strings.Builder
+		for _, p := range parts {
+			b.WriteString(f.str(p))
+		}
+		out := b.String()
+		f.memo[s] = out
+		f.used[out] = true
+		return out
+	}
+	return f.whole(s)
+}
+
+var (
+	idPieceOnce sync.Once
+	idPieceRe   *regexp.Regexp
+)
+
+// splitIDs splits s into the ids it holds, each standing as a word of its
+// own, and the text between them, in order. A string that holds no id, or
+// is one, is one part.
+func splitIDs(s string) []string {
+	idPieceOnce.Do(func() {
+		var prefixes []string
+		for _, p := range Vocab().IDPrefixes {
+			prefixes = append(prefixes, regexp.QuoteMeta(p))
+		}
+		idPieceRe = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|(?:` + strings.Join(prefixes, "|") + `)[A-Za-z0-9]+`)
+	})
+	var parts []string
+	last := 0
+	for _, m := range idPieceRe.FindAllStringIndex(s, -1) {
+		if !wordEdge(s, m[0], m[1]) {
+			continue
+		}
+		if m[0] > last {
+			parts = append(parts, s[last:m[0]])
+		}
+		parts = append(parts, s[m[0]:m[1]])
+		last = m[1]
+	}
+	if last == 0 {
+		return []string{s}
+	}
+	if last < len(s) {
+		parts = append(parts, s[last:])
+	}
+	return parts
+}
+
+// whole makes up a string that holds no id inside it, by its shape.
+func (f *faker) whole(s string) string {
 	if out, ok := f.memo[s]; ok {
 		return out
 	}
@@ -339,7 +429,7 @@ func (f *faker) num(n json.Number, key string) json.Number {
 	if keptNumber(n, key) {
 		return n
 	}
-	if unit, i, ok := epochUnit(n); ok {
+	if unit, i, ok := epochUnit(n, key); ok {
 		t := f.mapTime(time.Unix(0, i*int64(unit)))
 		return json.Number(strconv.FormatInt(t.UnixNano()/int64(unit), 10))
 	}

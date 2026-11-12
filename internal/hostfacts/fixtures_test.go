@@ -22,6 +22,9 @@ const (
 	recToolID   = "toolu_01MadeUpToolUse"
 	recTurnID   = "7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d"
 	recBigCount = 48213
+	// A byte count of ten digits, which reads as a Unix time in 2020 but
+	// is not under a key that names a time.
+	recByteCount = "1600000000"
 )
 
 // madeUpRecording writes a recording as the hook writes one: two events
@@ -61,8 +64,8 @@ func madeUpRecording(t *testing.T) string {
 	prompt := map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": sessionUUID, "prompt_id": recTurnID, "prompt": recPrompt,
 		"cwd": recCwd, "transcript_path": "/Users/madeupowner/.claude/projects/-Users-madeupowner-scratch/" + sessionUUID + ".jsonl",
 		"model": madeUpModel, "permission_mode": "default", "tool_input": map[string]any{recPathKey: recBigCount}, "started": "2026-05-01T12:00:00+02:00",
-		"local_time": "2026-05-01T12:00:00", "epoch_ms": json.Number("1777629600123")}
-	stop := map[string]any{"hook_event_name": "Stop", "session_id": sessionUUID, "prompt_id": recTurnID, "last_assistant_message": recReply,
+		"local_time": "2026-05-01T12:00:00", "epoch_ms": json.Number("1777629600123"), "size": json.Number(recByteCount)}
+	stop := map[string]any{"hook_event_name": "Stop", "session_id": sessionUUID, "prompt_id": recTurnID, "last_assistant_message": recReply, "model": "default",
 		"tool_use_id": recToolID, "stop_hook_active": false, "cwd": recCwd, "list": []any{"a", "bb", recCwd}}
 	for i, p := range []map[string]any{prompt, stop} {
 		decoded, err := Decode([]byte(mustJSON(t, p)))
@@ -221,6 +224,36 @@ func TestFixturesReplaceEveryValueAndKeepTheShape(t *testing.T) {
 	}
 	if m := at(prompt, "payload", "model"); m == madeUpModel || len(m.(string)) != len(madeUpModel) {
 		t.Errorf("the model is %v", m)
+	}
+	if m := at(stop, "payload", "model"); m == "default" || len(m.(string)) != len("default") {
+		t.Errorf("a model that reads as a host word is kept: %v", m)
+	}
+	if at(prompt, "payload", "permission_mode") != "default" {
+		t.Error("a host word off a model's key was replaced")
+	}
+	// An id inside a path is made up as the same id alone is, so the
+	// transcript's name still joins the session id.
+	if tp := at(prompt, "payload", "transcript_path").(string); !strings.Contains(tp, "/"+sid.(string)+".") || strings.Contains(tp, "madeupowner") {
+		t.Errorf("the transcript's path does not join the session id: %s", tp)
+	}
+	// A ten-digit number under a key that names no time is drawn as a
+	// number, not mapped as a time; one under a key that names a time is
+	// mapped onto the epoch.
+	if b, _ := at(prompt, "payload", "size").(json.Number); b == json.Number(recByteCount) || len(b) != len(recByteCount) {
+		t.Errorf("the byte count is %v", b)
+	}
+	ms := 0
+	for _, v := range at(prompt, "payload").(map[string]any) {
+		if n, ok := v.(json.Number); ok && len(n) == 13 {
+			i, _ := n.Int64()
+			if tm := time.UnixMilli(i); tm.Before(Epoch) || !tm.Before(EpochEnd) {
+				t.Errorf("a time in milliseconds is off the epoch: %s", n)
+			}
+			ms++
+		}
+	}
+	if ms != 1 {
+		t.Errorf("%d times in milliseconds", ms)
 	}
 	// Times are in UTC with Z from the made-up epoch, and keep their gaps.
 	var times []time.Time
