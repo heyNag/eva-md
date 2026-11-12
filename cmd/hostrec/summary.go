@@ -216,8 +216,10 @@ func cmdVoiceCheck(c *cli, args []string) int {
 	}
 	rowTypes := map[string]int{}
 	var versionPaths []string
+	// The paths of version and model fields, never their values.
 	addPath := func(p string) {
-		if strings.Contains(strings.ToLower(p), "version") && !slices.Contains(versionPaths, p) {
+		lower := strings.ToLower(p)
+		if (strings.Contains(lower, "version") || strings.Contains(lower, "model")) && !slices.Contains(versionPaths, p) {
 			versionPaths = append(versionPaths, p)
 		}
 	}
@@ -272,7 +274,7 @@ func cmdVoiceCheck(c *cli, args []string) int {
 		c.say("Hand-over %d: closest to the script's line %s, %d of its %d words kept; %d bytes of talk before it.", i+1, h.label, h.kept, h.of, h.talk)
 		results = append(results, map[string]any{"line": h.label, "kept": h.kept, "of": h.of, "talk_bytes": h.talk})
 	}
-	c.say("Version fields carried: %s.", orNoneList(versionPaths))
+	c.say("Version and model fields carried: %s.", orNoneList(versionPaths))
 	for _, p := range slices.Sorted(maps.Keys(voiceValues)) {
 		c.say("  %s names the voice feature's version: %s", p, voiceValues[p])
 	}

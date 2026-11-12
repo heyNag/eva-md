@@ -137,18 +137,19 @@ func TestVoiceCheck(t *testing.T) {
 		"Create a file named fig.txt in the orchard folder containing the single word ripe.",
 	} {
 		h.hook(t, "codex", "UserPromptSubmit", map[string]any{"session_id": sessionID, "transcript_path": rollout.path,
-			"prompt": "<realtime_delegation>\n  <input>" + request + "</input>\n</realtime_delegation>", "voice": map[string]any{"realtime_version": "made-up-v9"}})
+			"prompt": "<realtime_delegation>\n  <input>" + request + "</input>\n</realtime_delegation>",
+			"voice":  map[string]any{"realtime_version": "made-up-v9", "voice_model": "made-up-voice-model-q"}})
 	}
 	h.hook(t, "codex", "Stop", map[string]any{"session_id": sessionID, "transcript_path": rollout.path})
 	out := h.must(t, "", "voice-check")
 	for _, want := range []string{"3 events from Codex, 2 hand-overs", "realtime_item: 2", "session_meta: 1",
 		"Hand-over 1: closest to the script's line 1", "Hand-over 2: closest to the script's line 2",
-		"voice.realtime_version names the voice feature's version: made-up-v9"} {
+		"voice.realtime_version names the voice feature's version: made-up-v9", "voice.voice_model", "carried: model and "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("voice-check does not say %q:\n%s", want, out)
 		}
 	}
-	for _, bad := range []string{"fig.txt", "spoken", "sleep 30"} {
+	for _, bad := range []string{"fig.txt", "spoken", "sleep 30", "made-up-voice-model-q", madeUpModelID} {
 		if strings.Contains(out, bad) {
 			t.Errorf("voice-check prints %q", bad)
 		}
