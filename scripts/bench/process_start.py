@@ -6,10 +6,9 @@ itself for Claude Code, a shell that runs it for Codex. This scenario says
 so in the report, and times a hook that reads no payload and exits at once
 on each launch path, which is the floor under every other hook figure.
 """
-import subprocess
 import time
 
-from evabench import LAUNCH_PATHS, LAUNCH_PROCESSES, Home, launch, scenario
+from evabench import LAUNCH_PATHS, LAUNCH_PROCESSES, Home, launch, run_hook, scenario
 
 SAMPLES = 100
 
@@ -27,11 +26,11 @@ def process_start(run):
             times = []
             for _ in range(SAMPLES):
                 start = time.perf_counter()
-                r = subprocess.run(argv, input="", text=True, capture_output=True, env=h.env, timeout=4)
+                code, out, err = run_hook(argv, "", h.env)
                 times.append((time.perf_counter()-start)*1000)
                 # An empty payload is no event: the hook writes nothing and
                 # adds nothing to a chat, on either path.
-                if r.returncode or r.stderr or r.stdout.strip() not in ("", "{}"):
+                if code or err or out.strip() not in ("", "{}"):
                     raise RuntimeError("a hook with no payload failed or wrote output")
             if h.state.exists() and any(h.state.rglob("*")):
                 raise RuntimeError("a hook with no payload wrote state")
