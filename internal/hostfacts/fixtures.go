@@ -669,15 +669,15 @@ func (f *faker) voices(events []any) {
 	if len(skels)+len(rows) == 0 {
 		return
 	}
-	texts := map[string]string{}
-	assignVoice(skels, texts, f.voiceDraw)
+	texts, cuts := map[string]string{}, knownCuts(slices.Concat(skels, rows))
+	assignVoice(skels, cuts, texts, f.voiceDraw)
 	sources := map[*Voice]string{}
 	for _, v := range skels {
 		if v.Source != nil && v.Source.Value != TailFlush {
 			sources[v] = f.voiceDraw(v.Source.Len)
 		}
 	}
-	assignVoice(rows, texts, f.voiceDraw)
+	assignVoice(rows, cuts, texts, f.voiceDraw)
 	for i, l := range events {
 		ev, _ := l.(map[string]any)
 		vm := vms[i]

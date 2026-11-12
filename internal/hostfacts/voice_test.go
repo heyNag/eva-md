@@ -91,9 +91,18 @@ func TestVoiceSkeletons(t *testing.T) {
 			&Voice{Input: field(esc, false, false), Transcript: delta("user: "+esc, false, false, line(HeadUser, esc))}},
 		{"white space around it", " \t\r\n" + wrap(nil, sp(req), nil) + "\n\n ",
 			&Voice{Lead: " \t\r\n", Trail: "\n\n ", Input: field(req, false, false)}},
+		// Only a leading cut mark is set aside before the transcript is
+		// split: a trailing one stays in the last line's rest, so a request
+		// that ends as the last line does is equal to it.
 		{"a cut mark at both ends and in the middle", wrap(nil, sp("…a … b…"), sp("…user: c\nassistant: d…")),
-			&Voice{Input: field("…a … b…", true, true), Transcript: delta("…user: c\nassistant: d…", true, true, line(HeadUser, "c"), line(HeadAssist, "d"))}},
+			&Voice{Input: field("…a … b…", true, true), Transcript: delta("…user: c\nassistant: d…", true, true, line(HeadUser, "c"), line(HeadAssist, "d…"))}},
+		{"a request equal to a last line that ends with the cut mark", wrap(nil, sp(req+"…"), sp("assistant: "+reply+"\nuser: "+req+"…")),
+			&Voice{Input: field(req+"…", false, true), Transcript: delta("assistant: "+reply+"\nuser: "+req+"…", false, true, line(HeadAssist, reply), line(HeadUser, req+"…"))}},
 		{"a cut mark alone", wrap(nil, sp("…"), nil), &Voice{Input: field("…", true, false)}},
+		{"a transcript of a cut mark alone", wrap(nil, sp(req), sp("…")),
+			&Voice{Input: field(req, false, false), Transcript: delta("…", true, false, line(HeadOther, ""))}},
+		{"a transcript of two cut marks", wrap(nil, sp(req), sp("……")),
+			&Voice{Input: field(req, false, false), Transcript: delta("……", true, true, line(HeadOther, "…"))}},
 	} {
 		got, ok := VoiceOf(key, c.in)
 		if !ok || !reflect.DeepEqual(got, c.want) {
@@ -106,6 +115,9 @@ func TestVoiceSkeletons(t *testing.T) {
 	// transcript, has that line's or the transcript's hash.
 	if v, _ := VoiceOf(key, wrap(nil, sp(req), sp("assistant: "+reply+"\nuser: "+req))); v.Input.Hash != v.Transcript.Lines[1].Hash {
 		t.Error("a request equal to a line does not show it")
+	}
+	if v, _ := VoiceOf(key, wrap(nil, sp(req+"…"), sp("user: "+req+"…"))); v.Input.Hash != v.Transcript.Lines[0].Hash {
+		t.Error("a request equal to a last line that ends with the cut mark does not show it")
 	}
 	if v, _ := VoiceOf(key, wrap(nil, sp(two), sp(two))); v.Input.Hash != v.Transcript.Hash {
 		t.Error("a request equal to the transcript does not show it")
@@ -213,6 +225,17 @@ func TestRebuildKeepsTheSkeleton(t *testing.T) {
 		wrap(sp("made_up_source"), sp(""), sp("narrator: made up")),
 		wrap(nil, sp("user: a\nassistant: b"), sp("user: a\nassistant: b")),
 		wrap(nil, sp(req), nil),
+		// A line that ends with the cut mark in the middle of one
+		// transcript, drawn before it is seen as the last line of a cut
+		// one; a request that begins with the cut mark, equal to a line.
+		wrap(nil, sp("made up"), sp("user: then plums…\nassistant: made up")),
+		wrap(nil, sp("then plums…"), sp("…lo\nuser: then plums…")),
+		wrap(nil, sp("…mid part"), sp("user: …mid part\nassistant: a tail…")),
+		wrap(nil, sp("a"), sp("……")),
+		wrap(nil, sp("……"), sp("…")),
+		// A cut mark alone, which begins the request and ends the last
+		// line of a cut transcript: one text of three bytes.
+		wrap(nil, sp("…"), sp("user: a\nuser: …")),
 	}
 	var skels []*Voice
 	for _, s := range cases {
@@ -221,7 +244,33 @@ func TestRebuildKeepsTheSkeleton(t *testing.T) {
 	}
 	texts := map[string]string{}
 	n := 0
-	assignVoice(skels, texts, func(size int) string { n++; return madeVoice([]byte("a seed"), size, n) })
+	assignVoice(skels, knownCuts(skels), texts, func(size int) string { n++; return madeVoice([]byte("a seed"), size, n) })
+	// Equal parts across the hand-overs have equal made-up text, and only
+	// those.
+	recToFix, fixToRec := map[string]string{}, map[string]string{}
+	for i, v := range skels {
+		out := v.rebuild(texts, "")
+		got, ok := VoiceOf(key, out)
+		if !ok {
+			continue
+		}
+		pairs := [][2]string{{v.Input.Hash, got.Input.Hash}}
+		if v.Transcript != nil && got.Transcript != nil && len(got.Transcript.Lines) == len(v.Transcript.Lines) {
+			pairs = append(pairs, [2]string{v.Transcript.Hash, got.Transcript.Hash})
+			for j, l := range v.Transcript.Lines {
+				pairs = append(pairs, [2]string{l.Hash, got.Transcript.Lines[j].Hash})
+			}
+		}
+		for _, p := range pairs {
+			if f, ok := recToFix[p[0]]; ok && f != p[1] {
+				t.Errorf("case %d: equal parts have different made-up text", i)
+			}
+			if r, ok := fixToRec[p[1]]; ok && r != p[0] {
+				t.Errorf("case %d: different parts have equal made-up text", i)
+			}
+			recToFix[p[0]], fixToRec[p[1]] = p[1], p[0]
+		}
+	}
 	for i, v := range skels {
 		src := ""
 		if v.Source != nil && v.Source.Value != TailFlush {
@@ -320,13 +369,17 @@ func TestTheRepositoryCheckRebuildsHandOvers(t *testing.T) {
 		"\n" + wrap(sp(d), sp(two), sp(two)) + " ",
 		wrap(nil, sp(c+"…"), sp("…"+c+"\nuser: "+a)),
 		wrap(nil, sp(""), nil),
+		wrap(nil, sp(m(9, 0)+"…"), sp("…"+a+"\nuser: "+m(9, 0)+"…")),
 	}
 	if problems, err := CheckFixtureDir(writeVoiceFixture(t, seed, good...)); err != nil || len(problems) != 0 {
 		t.Fatalf("hand-overs the generator makes fail: %v %v", problems, err)
 	}
-	// A string with a part's text, standing alone, passes too.
-	if problems, err := CheckFixtureDir(writeVoiceFixture(t, seed, append(good, a)...)); err != nil || len(problems) != 0 {
-		t.Errorf("a part's text standing alone fails: %v %v", problems, err)
+	// A string with a part's text, standing alone, passes too, as do a
+	// cut request and a transcript that only a row held.
+	for _, alone := range []string{a, c + "…", "user: " + a + "\nassistant: " + m(12, 2) + "…", "…" + m(30, 1) + "\nuser: " + a} {
+		if problems, err := CheckFixtureDir(writeVoiceFixture(t, seed, append(good, alone)...)); err != nil || len(problems) != 0 {
+			t.Errorf("a part's text standing alone fails: %q %v %v", alone, problems, err)
+		}
 	}
 	for _, bad := range []struct{ name, prompt string }{
 		{"a wrapper out of form", strings.Replace(good[0], "  <input>", "   <input>", 1)},
@@ -337,6 +390,8 @@ func TestTheRepositoryCheckRebuildsHandOvers(t *testing.T) {
 		{"a cut request of recorded text", wrap(nil, sp("made up plum talk…"), nil)},
 		{"a source of recorded text", wrap(sp("made_up_source"), sp(a), nil)},
 		{"a request with a stray capital", wrap(nil, sp(strings.ToUpper(a[:1])+a[1:]), nil)},
+		{"a transcript standing alone with a line of recorded text", "user: " + a + "\nassistant: made up plum talk"},
+		{"a cut text standing alone of another seed", madeVoice([]byte("another seed"), 12, 0) + "…"},
 		{"another seed's line", wrap(nil, sp(a), sp("user: "+madeVoice([]byte("another seed"), 12, 0)))},
 	} {
 		problems, err := CheckFixtureDir(writeVoiceFixture(t, seed, append(good, bad.prompt)...))

@@ -151,10 +151,11 @@ func cutMarks(s string) (start, end bool, inner string) {
 	return start, end, inner
 }
 
-// voiceLines splits a transcript, its cut marks set aside, into its lines:
-// each line's head and the rest of it.
-func voiceLines(inner string) (heads, rests []string) {
-	for _, l := range strings.Split(inner, "\n") {
+// voiceLines splits a transcript into its lines, after a leading cut mark
+// is set aside: each line's head and the rest of it. A trailing cut mark
+// stays in the last line's rest.
+func voiceLines(delta string) (heads, rests []string) {
+	for _, l := range strings.Split(strings.TrimPrefix(delta, CutMark), "\n") {
 		head, rest := HeadOther, l
 		for _, h := range []string{HeadUser, HeadAssist} {
 			if r, ok := strings.CutPrefix(l, h); ok {
@@ -184,9 +185,9 @@ func VoiceOf(key []byte, s string) (*Voice, bool) {
 	start, end, _ := cutMarks(t.input)
 	v.Input = VoiceField{Len: len(t.input), Hash: Hash(key, t.input), CutStart: start, CutEnd: end}
 	if t.delta != nil {
-		start, end, inner := cutMarks(*t.delta)
+		start, end, _ := cutMarks(*t.delta)
 		tr := &VoiceTranscript{Len: len(*t.delta), Hash: Hash(key, *t.delta), CutStart: start, CutEnd: end, Lines: []TranscriptLine{}}
-		heads, rests := voiceLines(inner)
+		heads, rests := voiceLines(*t.delta)
 		for i := range heads {
 			tr.Lines = append(tr.Lines, TranscriptLine{Head: heads[i], Len: len(rests[i]), Hash: Hash(key, rests[i])})
 		}
@@ -197,7 +198,8 @@ func VoiceOf(key []byte, s string) (*Voice, bool) {
 
 // voiceParts gives the text of each part of a hand-over: an unlisted
 // source, the request as written and between its cut marks, the
-// transcript, and each line's rest; none for any other string.
+// transcript, and each line's rest as written and between its cut marks;
+// none for any other string.
 func voiceParts(s string) []string {
 	t, ok := parseVoice(s)
 	if !ok {
@@ -209,9 +211,12 @@ func voiceParts(s string) []string {
 		out = append(out, *t.source)
 	}
 	if t.delta != nil {
-		_, _, inner := cutMarks(*t.delta)
-		_, rests := voiceLines(inner)
-		out = append(append(out, *t.delta), rests...)
+		out = append(out, *t.delta)
+		_, rests := voiceLines(*t.delta)
+		for _, r := range rests {
+			_, _, body := cutMarks(r)
+			out = append(out, r, body)
+		}
 	}
 	return out
 }
@@ -255,18 +260,52 @@ func madeVoice(seed []byte, n, k int) string {
 	return string(b)
 }
 
+// cuts are the cut marks the text of each hash is known to carry: a
+// request's own, and the trailing one of a cut transcript's last line. A
+// hash has one text, so what one part shows of it holds wherever it stands.
+type cuts map[string][2]bool
+
+// knownCuts gathers the cut marks of every hash of the skeletons.
+func knownCuts(skels []*Voice) cuts {
+	c := cuts{}
+	mark := func(hash string, start, end bool) {
+		m := c[hash]
+		c[hash] = [2]bool{m[0] || start, m[1] || end}
+	}
+	for _, v := range skels {
+		mark(v.Input.Hash, v.Input.CutStart, v.Input.CutEnd)
+		if t := v.Transcript; t != nil && t.CutEnd && len(t.Lines) > 0 {
+			mark(t.Lines[len(t.Lines)-1].Hash, false, true)
+		}
+	}
+	return c
+}
+
+// text makes up the text of a part of n bytes with the hash given: a draw
+// between the cut marks its text is known to carry. A part too short for
+// both holds one, as "…" does.
+func (c cuts) text(hash string, n int, draw func(n int) string) string {
+	m := c[hash]
+	if m[0] && m[1] && n < 2*len(CutMark) {
+		m[1] = false
+	}
+	return marked(m[0], m[1], draw(max(n-markLen(m[0], m[1]), 0)))
+}
+
 // assignVoice gives every part of the skeletons, in order, its made-up
 // text in texts, by hash: first each line's rest, drawn for its byte
 // length; then each transcript, written from its lines; then each request,
 // which takes the text of a line or a transcript with its hash, and is
-// otherwise drawn between its cut marks. A hash that has a text keeps it,
-// so equal hashes get equal text across the recording.
-func assignVoice(skels []*Voice, texts map[string]string, draw func(n int) string) {
+// otherwise drawn. Each draw keeps the cut marks c knows its hash to carry,
+// which knownCuts gathers from every skeleton of the recording. A hash
+// that has a text keeps it, so equal hashes get equal text across the
+// recording.
+func assignVoice(skels []*Voice, c cuts, texts map[string]string, draw func(n int) string) {
 	for _, v := range skels {
 		if t := v.Transcript; t != nil {
 			for _, l := range t.Lines {
 				if _, ok := texts[l.Hash]; !ok {
-					texts[l.Hash] = draw(l.Len)
+					texts[l.Hash] = c.text(l.Hash, l.Len, draw)
 				}
 			}
 		}
@@ -279,9 +318,8 @@ func assignVoice(skels []*Voice, texts map[string]string, draw func(n int) strin
 		}
 	}
 	for _, v := range skels {
-		in := v.Input
-		if _, ok := texts[in.Hash]; !ok {
-			texts[in.Hash] = marked(in.CutStart, in.CutEnd, draw(max(in.Len-markLen(in.CutStart, in.CutEnd), 0)))
+		if _, ok := texts[v.Input.Hash]; !ok {
+			texts[v.Input.Hash] = c.text(v.Input.Hash, v.Input.Len, draw)
 		}
 	}
 }
@@ -307,7 +345,8 @@ func (v *Voice) rebuild(texts map[string]string, source string) string {
 	return b.String()
 }
 
-// text writes the transcript from its lines' texts.
+// text writes the transcript from its lines' texts, after its leading cut
+// mark; a trailing one is in its last line's text.
 func (t *VoiceTranscript) text(texts map[string]string) string {
 	lines := make([]string, len(t.Lines))
 	for i, l := range t.Lines {
@@ -317,7 +356,7 @@ func (t *VoiceTranscript) text(texts map[string]string) string {
 		}
 		lines[i] = head + texts[l.Hash]
 	}
-	return marked(t.CutStart, t.CutEnd, strings.Join(lines, "\n"))
+	return marked(t.CutStart, false, strings.Join(lines, "\n"))
 }
 
 func marked(start, end bool, s string) string {

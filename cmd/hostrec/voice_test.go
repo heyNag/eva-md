@@ -190,6 +190,53 @@ func TestTheHookKeepsAHandOversSkeletonAndNoWordOfIt(t *testing.T) {
 	}
 }
 
+// A line that ends with the cut mark keeps it in the fixture wherever it
+// stands, as the last line of a cut transcript or in the middle of one,
+// whichever of a payload and a row shows its end: here a payload's
+// hand-over has the line in the middle, a row no payload matches has it
+// last in a cut transcript, and another payload string is that row's
+// whole transcript.
+func TestACutLastLineKeepsItsMarkInTheFixture(t *testing.T) {
+	h := newHome(t)
+	h.setup(t)
+	h.must(t, "", "mark", "X-44")
+	const line = "then the plums…"
+	rollout := newTranscript(t, filepath.Join(h.home, ".codex", "sessions", "2026", "05", "01", "rollout-2026-05-01T10-00-00-"+sessionID+".jsonl"))
+	rollout.add(map[string]any{"type": "session_meta", "payload": map[string]any{"id": sessionID, "originator": "codex_vscode"}})
+	rollout.add(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "user_message", "message": handOver("", "made up request", "user: "+line)}})
+	prompt := handOver("", "made up", "user: "+line+"\nassistant: made up reply")
+	h.hook(t, "codex", "UserPromptSubmit", map[string]any{"session_id": sessionID, "turn_id": turnID, "transcript_path": rollout.path,
+		"hook_event_name": "UserPromptSubmit", "prompt": prompt, "note": "user: " + line})
+	fx := filepath.Join(filepath.Dir(h.home), "fixtures", "codex", "9.9.9")
+	h.must(t, "", "fixtures", "--rec", h.rec, "--out", fx)
+	if out := h.must(t, "", "check", "--rec", h.rec, "--fixtures", fx); !strings.Contains(out, "every value is one the generator makes") {
+		t.Errorf("check: %s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(fx, hostfacts.EventsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev map[string]any
+	if err := json.Unmarshal(data, &ev); err != nil {
+		t.Fatal(err)
+	}
+	var made map[string]any
+	for k, v := range ev["payload"].(map[string]any) {
+		if s, ok := v.(string); ok && strings.HasPrefix(s, "user: ") {
+			made = map[string]any{"note": s, "key": k}
+		}
+	}
+	got, _ := ev["payload"].(map[string]any)["prompt"].(string)
+	_, rest, _ := strings.Cut(got, "<transcript_delta>user: ")
+	first, _, _ := strings.Cut(rest, "\n")
+	if made == nil || made["note"] != "user: "+first || !strings.HasSuffix(first, hostfacts.CutMark) || len(first) != len(line) {
+		t.Errorf("the line is %q in the hand-over and %v beside it", first, made)
+	}
+	if problems, err := hostfacts.CheckFixtureDir(fx); err != nil || len(problems) != 0 {
+		t.Errorf("the repository's check: %v %v", problems, err)
+	}
+}
+
 func mapKeys[V any](m map[string]V) func(func(string) bool) {
 	return func(yield func(string) bool) {
 		for k := range m {

@@ -148,21 +148,21 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 			xform{str: str, path: path, num: num}.value(l, "", "")
 		}
 	}
-	// Each part of a hand-over is rebuilt from the seed: a line's rest, a
-	// request between its cut marks or an unlisted source is a draw for its
-	// byte length, a part equal to an earlier one is a repeat, a transcript
-	// is its lines, and a request may be a line or a transcript. A line off
-	// the two heads is all text, which no draw holds.
+	// Each part of a hand-over is rebuilt from the seed: a line's rest or a
+	// request, between its cut marks, or an unlisted source is a draw for
+	// its byte length, a part equal to an earlier one is a repeat, a
+	// transcript is its lines, and a request may be a line or a transcript.
+	// A line off the two heads is all text, which no draw holds.
 	parts := map[int]int{}
 	for _, w := range wrappers {
 		if s := w.t.source; s != nil && *s != TailFlush {
 			parts[len(*s)]++
 		}
 		if d := w.t.delta; d != nil {
-			_, _, inner := cutMarks(*d)
-			_, rests := voiceLines(inner)
+			_, rests := voiceLines(*d)
 			for _, r := range rests {
-				parts[len(r)]++
+				_, _, body := cutMarks(r)
+				parts[len(body)]++
 			}
 		}
 		_, _, body := cutMarks(w.t.input)
@@ -170,8 +170,9 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 	}
 	for _, vals := range byShape {
 		for _, v := range vals {
-			if voiceShaped.MatchString(v.value) {
-				parts[len(v.value)]++
+			bodies, _ := madeParts(v.value)
+			for _, b := range bodies {
+				parts[len(b)]++
 			}
 		}
 	}
@@ -185,10 +186,9 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 	accepted := map[string]bool{}
 	for _, w := range wrappers {
 		if d := w.t.delta; d != nil {
-			_, _, inner := cutMarks(*d)
-			_, rests := voiceLines(inner)
+			_, rests := voiceLines(*d)
 			for _, r := range rests {
-				if !accepted[r] && !isMade(r) {
+				if _, _, body := cutMarks(r); !accepted[r] && !isMade(body) {
 					problems = append(problems, Problem{w.file, w.line, fmt.Sprintf("a line of a voice hand-over, of %d bytes, is not one the generator makes", len(r))})
 				}
 				accepted[r] = true
@@ -207,14 +207,23 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 			accepted[in] = true
 		}
 	}
+	// A string with a part's hash was given that part's text: a part of a
+	// hand-over above, or of one only a row held, which reads as made
+	// parts.
+	madeText := func(s string) bool {
+		bodies, ok := madeParts(s)
+		for _, b := range bodies {
+			ok = ok && isMade(b)
+		}
+		return ok
+	}
 	for shape, vals := range byShape {
 		made := madeSet(len(vals), func(k int) string {
 			_, times := shapeOf(vals[0].value)
 			return maskTimes(draw(seed, shape, k, timesMask(times)))
 		})
 		for _, v := range vals {
-			// A string with a part's hash was given that part's text.
-			if !made[maskTimes(v.value)] && !accepted[v.value] && !(voiceShaped.MatchString(v.value) && isMade(v.value)) {
+			if !made[maskTimes(v.value)] && !accepted[v.value] && !madeText(v.value) {
 				problems = append(problems, Problem{v.file, v.line, fmt.Sprintf("a string of %d bytes is not one the generator makes", len(v.value))})
 			}
 		}
@@ -305,6 +314,22 @@ func relTo(dir, p string) string {
 
 // voiceShaped is the shape of a hand-over part's made-up text.
 var voiceShaped = regexp.MustCompile(`^[a-z]+(?: [a-z]+)*$`)
+
+// madeParts reads s as the writer makes up a hand-over's part: after a
+// leading cut mark, lines, each of an optional listed head and text of the
+// made-up shape between optional cut marks. It gives each line's text, and
+// false for any other string.
+func madeParts(s string) ([]string, bool) {
+	_, rests := voiceLines(s)
+	bodies := make([]string, len(rests))
+	for i, r := range rests {
+		_, _, bodies[i] = cutMarks(r)
+		if bodies[i] != "" && !voiceShaped.MatchString(bodies[i]) {
+			return nil, false
+		}
+	}
+	return bodies, true
+}
 
 // madeSet draws enough values of one shape to hold every one the writer
 // could have taken for n recorded values: it skips a draw that is used,
