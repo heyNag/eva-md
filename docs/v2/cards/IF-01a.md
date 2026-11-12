@@ -25,7 +25,7 @@ The six designs list 83 needs one area has of another. The delivery critique fou
      - ST-05, LG-22 and LG-23, which Stage 2's paragraph names: the fake that stands in for each, or `open`.
 2. **The check**, package `internal/cardcheck`: `Check(fsys fs.FS) []Problem` over the repository root. Each `Problem` names the file, the row or card, and the rule. Nothing imports the package. Its test runs `Check` on the repository.
    - **Plan ids** come from the first cell of each table row in section 8, from `### Stage 0` to `### What runs in parallel`. A cell may list several ids. An id's stage is the heading it sits under; the cut-over counts as Stage 2.
-   - **A card's packages** are its file name's id, less a trailing lowercase part, if the plan lists it, plus every plan id in brackets in its title line. So `DV-12a` is DV-12, and `CT-1` is LG-01 and DL-02. Every file in `docs/v2/cards/` except `README.md` is a card.
+   - **A card's packages** are its file name's id, less a trailing lowercase part, if the plan lists it, plus every plan id in brackets in its title line. So `DV-12a` is DV-12, and `CT-1` is LG-01 and DL-02. Every Markdown file in `docs/v2/cards/` except `README.md` is a card; a hidden file is skipped, and any other file fails rule d.
    - **Rules:**
      - a. every design need row is in the matrix exactly once, and every matrix row has its design row;
      - b. every Consumer and Provider id is a plan id, and a provider is ids or one of the four words;
@@ -33,7 +33,7 @@ The six designs list 83 needs one area has of another. The delivery critique fou
      - d. every card names at least one plan package;
      - e. every id in a card's `**Depends on:**` label is a plan id or a card;
      - f. a card fails when one of its packages is a consumer of a row whose provider is `open`, `later` or `dropped`, and the problem names the need;
-     - g. every fake is an existing folder, or reads `waits:` and a plan id or a card.
+     - g. every fake is an existing folder, or reads `waits:` and a plan id or a card; the fake of ST-05, LG-22 or LG-23 may be `open`, and every interface listed above has its row.
 
 ## Owns and may touch
 
@@ -51,3 +51,11 @@ Everything else. The plan, the designs, the cards and their README are the lead'
 - The matrix's size and line limits hold, by test.
 - A test fails if a non-test file outside `internal/cardcheck` imports it, and `go list -deps ./cmd/eva-md` does not list it.
 - The report lists every `open` row with its question.
+
+## As merged
+
+Merged from `pkg/if-01a-r1` on 2026-11-12, after one review, a fix round and a verification that accepted it. Beyond the list above, the check as merged reads no table, title or label that stands inside a code block or a quote; reads a design's contracts table only under the header Id, With, Direction, and the matrix's two tables only under their exact headers; reports a need a design lists twice; and takes a `Depends on` label to the next bold label or the end of its paragraph. Its rule tests no longer lean on the words of any merged card, design or matrix row, except the matrix's two headers and three rows they find by id, so the lead can write a ruling into an open row and need change nothing else.
+
+The matrix merged with eleven needs open, each with its question, and with LG-22's fake open. The lead's rulings on all twelve are written into the matrix and, where a row's scope changes, into the plan, in a commit of their own after this one.
+
+Three corner cases of Markdown are left as they are, since no card or design writes them today: a closing fence indented four spaces or more, an indented code block straight after a heading, and a code span of two backticks that holds one.

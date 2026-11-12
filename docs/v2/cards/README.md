@@ -68,13 +68,13 @@ Rules every card carries, so they are said once here:
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
 | [EV-11](EV-11.md) | Ownership and size checks | building since 2026-11-11 |
-| [IF-01a](IF-01a.md) | The contract matrix and its check | built on `pkg/if-01a`, in review |
+| [IF-01a](IF-01a.md) | The contract matrix and its check | merged; the lead's rulings on its eleven open needs follow in the matrix |
 | [IF-01b](IF-01b.md) | The reader's fake | building since 2026-11-11 |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | building since 2026-11-11 |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
 | [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | building since 2026-11-11 |
-| [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | building since 2026-11-11 |
+| [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | building since 2026-11-11 |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | building since 2026-11-11 |
