@@ -528,6 +528,11 @@ func recordedValues(rec string) (forbidden, error) {
 				switch t := x.(type) {
 				case string:
 					addStr(t)
+					// A hand-over's parts are recorded values of their
+					// own: a spoken line put back is found by itself.
+					for _, p := range voiceParts(t) {
+						addStr(p)
+					}
 				case json.Number:
 					if digits := strings.TrimLeft(string(t), "-"); len(strings.SplitN(digits, ".", 2)[0]) >= 4 {
 						fb.nums[strings.SplitN(digits, ".", 2)[0]] = true

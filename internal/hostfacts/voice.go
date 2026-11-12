@@ -195,6 +195,27 @@ func VoiceOf(key []byte, s string) (*Voice, bool) {
 	return v, true
 }
 
+// voiceParts gives the text of each part of a hand-over: an unlisted
+// source, the request as written and between its cut marks, the
+// transcript, and each line's rest; none for any other string.
+func voiceParts(s string) []string {
+	t, ok := parseVoice(s)
+	if !ok {
+		return nil
+	}
+	_, _, body := cutMarks(t.input)
+	out := []string{t.input, body}
+	if t.source != nil && *t.source != TailFlush {
+		out = append(out, *t.source)
+	}
+	if t.delta != nil {
+		_, _, inner := cutMarks(*t.delta)
+		_, rests := voiceLines(inner)
+		out = append(append(out, *t.delta), rests...)
+	}
+	return out
+}
+
 // PayloadVoices gives the skeleton of each string of a decoded payload that
 // is in the form of a hand-over, by its field path as PathString writes
 // it. An object key keeps no skeleton.
