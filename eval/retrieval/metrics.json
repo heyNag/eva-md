@@ -1,0 +1,511 @@
+{
+  "v": 1,
+  "metrics": [
+    {
+      "name": "retrieval.tuning.lexical.precision",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.lexical.recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.lexical.false_additions",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.lexical.silence_pos",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.lexical.silence_neg",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.paraphrase.precision",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.paraphrase.recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.paraphrase.false_additions",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.paraphrase.silence_pos",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.paraphrase.silence_neg",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.name.precision",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.name.recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.name.false_additions",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.name.silence_pos",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.name.silence_neg",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.all.precision",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.all.recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.all.false_additions",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.all.silence_pos",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.all.silence_neg",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.no_match.false_events",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.near_miss.false_events",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.tuning.sibling_only.false_events",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.lexical.precision",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.lexical.recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.lexical.false_additions",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.lexical.silence_pos",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.lexical.silence_neg",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.paraphrase.precision",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.paraphrase.recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.paraphrase.false_additions",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.paraphrase.silence_pos",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.paraphrase.silence_neg",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.name.precision",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.name.recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.name.false_additions",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.name.silence_pos",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.name.silence_neg",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.all.precision",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.all.recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.all.false_additions",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.all.silence_pos",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.all.silence_neg",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.no_match.false_events",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.near_miss.false_events",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.sibling_only.false_events",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    }
+  ]
+}
