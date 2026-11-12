@@ -193,6 +193,9 @@ password: '⟦silver¦-Window⟧'[x9]
 === secret oracle_near_name_index index.name.segment: a '$' inside a name of words
 password: '⟦pepper$¦Garden⟧'[x9]
 
+=== secret oracle_near_name_index index.name.segment: a '?' at the end of a name of words
+password: '⟦amberC¦ollins?⟧'[x9]
+
 === secret oracle_near_name_index index.name.words: a name before an index that is no member path or instance variable has two words or more
 password: '⟦Lant¦ern42⟧'[0]
 
@@ -259,11 +262,17 @@ password: '⟦$$$silv¦erWindow⟧'[i]
 === secret oracle_near_name_index index.ivar.prefix.chars: an instance variable's prefix is of '@' and '$' only
 password: '⟦*silve¦rWindow⟧'[i]
 
+=== secret oracle_near_name_index index.ivar.prefix.chars: a ':' after the '@'
+password: '⟦@:marble¦Meadow⟧'[i]
+
 === secret oracle_near_name_index index.ivar.segment: an instance variable's name is of letters, digits and '_'
 password: '⟦@silver¦-window⟧'[i]
 
 === secret oracle_near_name_index index.ivar.segment: a '$' inside an instance variable's name
 password: '⟦@walnut$¦canyon⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.segment: a '!' at the end of an instance variable's name
+password: '⟦@thunder¦Basket!⟧'[i]
 
 === secret oracle_near_name_index index.ivar.words: an instance variable's name is made of words
 auth_token: '⟦@Vc3Lp¦8Hy5Mt⟧'[i]

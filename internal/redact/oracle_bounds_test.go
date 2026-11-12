@@ -300,6 +300,20 @@ func separated(g *gen, n int, seps string) string {
 	return s
 }
 
+// placeMark puts mark c into name at its start, inside it or at its end,
+// by k in turn. A '@' or '$' goes inside rather than at the start, where it
+// would make an instance variable, and so does a '=', which would be read as
+// part of the separator.
+func placeMark(g *gen, name, c string, k int) string {
+	switch {
+	case k%3 == 0 || k%3 == 2 && strings.ContainsAny(c, "@$="):
+		return insertAt(g, name, c)
+	case k%3 == 1:
+		return name + c
+	}
+	return c + name
+}
+
 var indexTails = []string{"[x9]", "[0]", "[i]", "{a}"}
 
 // oracleBounds are the bounds, by shape, in the order of the code.
@@ -915,16 +929,16 @@ var oracleBounds = []oracleBound{
 			// A '$' in the name, as the value rules read one in code
 			// (codeName).
 			{{"!shell && memberSegment.MatchString(v) && wordLike(v, 2)", "!shell && memberSegment.MatchString(strings.ReplaceAll(v, \"$\", \"\")) && wordLike(strings.ReplaceAll(v, \"$\", \"\"), 2)"}},
+			// A '?' or '!' at the end of the name, as a member path may have.
+			{{"!shell && memberSegment.MatchString(v) && wordLike(v, 2)", "!shell && memberSegment.MatchString(strings.TrimRight(v, \"?!\")) && wordLike(strings.TrimRight(v, \"?!\"), 2)"}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
 				if n%2 == 0 {
 					return strings.ToLower(g.pick(gapWords)) + "-" + g.pick(gapWords)
 				}
-				// Any mark of farSegment but where it makes another shape: '?'
-				// and '!' end a member path, '@' and '$' start an instance
-				// variable.
-				return wordsOf(g) + nth(farSegment, n/2) + g.pick(gapWords)
+				// Any mark of farSegment, at the start, inside or at the end.
+				return placeMark(g, wordsOf(g), nth(farSegment, n/2), n/2/len(farSegment))
 			}
 		},
 	},
@@ -1203,11 +1217,18 @@ var oracleBounds = []oracleBound{
 		example: ex("password: *silver"+"Window[i]", "*silver"+"Window"),
 		// The value rules read a name after a '*' or '&' as code (codeHead).
 		widen: []edit{{`name := strings.TrimLeft(v, "@$")`, `name := strings.TrimLeft(v, "@$*")`}},
+		more: [][]edit{
+			// A ':' after the '@', which the value rules then read as code too.
+			{{`name := strings.TrimLeft(v, "@$")`, `name := strings.TrimLeft(v, "@$:")`}, {"(?:::|@@?)?` + codeName", "(?:::|@@?:?)?` + codeName"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
 				p := nthOf([]string{"*", "*@", "*$", "@*"}, n/2)
 				if n%2 == 0 {
-					p = nth(farPrefix, n/2)
+					// A mark of farPrefix alone, after '@', "@@" or '$', or
+					// before '@'.
+					c := nth(farPrefix, n/2)
+					p = nthOf([]string{c, "@" + c, "@@" + c, "$" + c, c + "@"}, n/2/len(farPrefix))
 				}
 				return p + wordsOf(g)
 			}
@@ -1225,6 +1246,8 @@ var oracleBounds = []oracleBound{
 			// A '$' in the name, as the value rules read one in code
 			// (codeName).
 			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(strings.ReplaceAll(name, \"$\", \"\")) && wordLike(strings.ReplaceAll(name, \"$\", \"\"), 1)"}},
+			// A '?' or '!' at the end of the name, as a member path may have.
+			{{`name := strings.TrimLeft(v, "@$")`, `name := strings.TrimRight(strings.TrimLeft(v, "@$"), "?!")`}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
@@ -1232,7 +1255,8 @@ var oracleBounds = []oracleBound{
 				if n%2 == 0 {
 					return p + strings.ToLower(g.pick(gapWords)) + "-" + strings.ToLower(g.pick(gapWords))
 				}
-				return p + strings.ToLower(g.pick(gapWords)) + nth(farSegment, n/2/3) + strings.ToLower(g.pick(gapWords))
+				name := strings.ToLower(g.pick(gapWords)) + strings.ToLower(g.pick(gapWords))
+				return p + placeMark(g, name, nth(farSegment, n/2/3), n/2/3/len(farSegment))
 			}
 		},
 	},
