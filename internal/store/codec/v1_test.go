@@ -127,13 +127,34 @@ func TestV1Differences(t *testing.T) {
 		{"tab-indent", `the list ["tide-tables"]`, refused(ErrNotWritten, Protection{})},
 		{"text-after-quote", `the title "\"Tide\" feed"`, refused(ErrNotWritten, Protection{})},
 		{"hash-in-source-key", `a source with the key "note #1"`, refused(ErrNotWritten, Protection{})},
-		// The one row where v1 protected and the codec does not: an empty
+		// YAML reads these keys otherwise; v1 cut the line at its first
+		// colon and trimmed quotes from the key, or dropped the pair.
+		{"key-with-colon", `the title "{a: b}"`, refused(ErrNotWritten, Protection{})},
+		{"key-with-quote", "no such key: the pair dropped", refused(ErrNotWritten, Protection{})},
+		{"anchor-before-key", `the key "&a title"`, refused(ErrNotWritten, Protection{})},
+		{"quote-in-source-key", "a source without the pair", refused(ErrNotWritten, Protection{})},
+		{"tight-pair", `a generated record by "codex/model-b"`, refused(ErrNotWritten, Protection{})},
+		// A comment line under a key is no item and no line of a value.
+		{"comment-line-under-key", `the kept lines ["- tide-tables", "# harbour later", "- harbour"] and ["# by hand"]`,
+			func(p V1Page, err error) bool {
+				return err == nil && reflect.DeepEqual(p.Extra["repos"], []any{"tide-tables", "harbour"}) && p.Extra["model"] == "model-b"
+			}},
+		{"nul-byte", "the title with the byte", refused(ErrUnreadable, Protection{Unreadable: true})},
+		{"invalid-utf8", "the title with the byte", refused(ErrUnreadable, Protection{Unreadable: true})},
+		{"conflict-marker", "the body with the markers", refused(ErrUnreadable, Protection{Unreadable: true})},
+		// The rows where v1 protected and the codec does not. An empty
 		// mapping is no verified mark (the format's section 6), though v1
 		// read it as a record with no one and no time.
 		{"empty-verified", "one verified record, empty, so verified",
 			func(p V1Page, err error) bool {
 				return err == nil && reflect.DeepEqual(p.Verified, []V1Stamp{{}}) && !p.Doc.Protection().Verified
 			}},
+		// A space before the colon and none after it, or a quote v1 trimmed
+		// from the key: YAML reads another key or none, and Protection
+		// does not read these as the key (ST-03a's to widen).
+		{"locked-space-before-colon", "locked: true", refused(ErrNotWritten, Protection{})},
+		{"verified-space-before-colon", `verified by "a"`, refused(ErrNotWritten, Protection{})},
+		{"verified-quote-in-key", `the key "verified", so verified`, refused(ErrNotWritten, Protection{})},
 	}
 	var named []string
 	for _, r := range rows {
@@ -192,6 +213,20 @@ func TestReadV1Refusals(t *testing.T) {
 		{"a flow mapping item that is no pair", page("verified: { secret_word_zq }\n"), ErrNotWritten},
 		{"a verified item that is no mapping", page("verified: [secret_word_zq]\n"), ErrNotWritten},
 		{"a source item's flow mapping item that is no pair", page("sources:\n  - { resource: x, secret_word_zq }\n"), ErrNotWritten},
+		{"a block scalar with nothing under it", page("description: |\n"), ErrNotWritten},
+		{"a key that holds a colon", page("secret_word_zq :{a: b}\n"), ErrNotWritten},
+		{"a key v1 wrote, then a colon", page("generated :{by: a, at: b}\n"), ErrNotWritten},
+		{"a key v1 wrote, then two colons", page("title:: x\n"), ErrNotWritten},
+		{"a key that holds a quote", page("secret\"word_zq: x\n"), ErrNotWritten},
+		{"a single-quoted key with an escape", page("'secret''word_zq': x\n"), ErrNotWritten},
+		{"a double-quoted key with an escape", page("\"secret\\x20word_zq\": x\n"), ErrNotWritten},
+		{"an anchor before the key", page("&a secret_word_zq: x\n"), ErrNotWritten},
+		{"a tag before the key", page("!!str secret_word_zq: x\n"), ErrNotWritten},
+		{"an explicit key after a tag", page("? !!str secret_word_zq\n: x\n"), ErrNotWritten},
+		{"a source key that holds a quote", page("sources:\n  - resource: x\n    secret'word_zq: y\n"), ErrNotWritten},
+		{"a source pair with no space after its colon", page("sources:\n  - resource: x\n    secret_word_zq:y\n"), ErrNotWritten},
+		{"a generated pair with two colons", page("generated:\n  by:: a\n"), ErrNotWritten},
+		{"a flow pair with no space after its colon", page("generated: {by:a, at: b}\n"), ErrNotWritten},
 	} {
 		p, err := ReadV1(c.in)
 		if !errors.Is(err, c.want) {

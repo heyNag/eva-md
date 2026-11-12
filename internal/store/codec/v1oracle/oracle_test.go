@@ -213,14 +213,22 @@ func TestFormsReadAsV1ReadThem(t *testing.T) {
 	}
 }
 
+// protectsLess are the differences v1 read as locked or verified and the
+// codec does not, each named in the codec's SPEC section 12. On every
+// other difference the codec protects at least as much as v1 did.
+var protectsLess = []string{"empty-verified", "locked-space-before-colon", "verified-space-before-colon", "verified-quote-in-key"}
+
 // Each input of the codec's table of differences is read otherwise by v1:
-// ReadV1 refuses it, reads other fields, or protects where v1 did not.
+// ReadV1 refuses it, reads other fields, or protects where v1 did not. The
+// codec protects it at least as much as v1 did, but for those in
+// protectsLess, which protect less indeed.
 func TestDifferencesAreDifferences(t *testing.T) {
 	w := wiki(t)
 	cases, err := filepath.Glob(filepath.Join(fixtures, "differences", "*.md"))
 	if err != nil || len(cases) < 6 {
 		t.Fatalf("%d differences: %v", len(cases), err)
 	}
+	var named []string
 	for _, path := range cases {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -235,6 +243,18 @@ func TestDifferencesAreDifferences(t *testing.T) {
 		case err == nil && (prot.Locked && !okfadapter.IsLocked(pg.Concept) || prot.Verified && !okfadapter.IsVerified(pg)):
 		default:
 			t.Errorf("%s: v1 and the codec read it alike", name)
+		}
+		// A document that cannot be read refuses as a locked one does (the
+		// format's section 6).
+		less := !prot.Unreadable && (okfadapter.IsLocked(pg.Concept) && !prot.Locked || okfadapter.IsVerified(pg) && !prot.Verified)
+		if want := slices.Contains(protectsLess, name); less != want {
+			t.Errorf("%s: the codec protects less than v1: %v, and protectsLess says %v", name, less, want)
+		}
+		named = append(named, name)
+	}
+	for _, name := range protectsLess {
+		if !slices.Contains(named, name) {
+			t.Errorf("%s is in protectsLess and is no difference", name)
 		}
 	}
 }

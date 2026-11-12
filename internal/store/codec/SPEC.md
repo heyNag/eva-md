@@ -46,12 +46,14 @@ func UnreadableText(b []byte) string                  // section 3's reasons but
 func (d *Doc) Entries() []Entry                       // every entry, in file order
 func (d *Doc) Opaque() []int                          // the frontmatter's lines that belong to no key
 func (d *Doc) Sections() []Section                    // every section, in order
+
+func ReadV1(b []byte) (V1Page, error)                 // a v1 wiki's page, section 12
 ```
 
 The last four are for a reader that checks a document rather than edits it, the profile checker (section 10). An `Entry` is a key as section 1 reads it (`*` and `<<` as section 4 names them); its `Line`, the opening `---` being line 1; whether it is `Written`, and then its `Value` as `Value` decodes it; its `Scalar`, the value on the key's line with spaces and tabs around it, its quotes and a comment after a plain value dropped; and its `Text`, what follows the colon, then each line under the key after an LF.
 `Opaque` counts lines alike. A `Section` is a heading and the text `Section` gives for it. A repeated key or heading is listed each time. An unreadable document has no entries, opaque lines or sections. Each call decodes afresh.
 
-Errors: `ErrProtected`, `ErrNoKey` (no such key or section), `ErrRepeated` (the key or section is there more than once), `ErrNotWritten` (a value in a form the codec does not decode, or an edit it cannot write in a form it reads back), `ErrTooLarge`. An edit that returns an error changes nothing. A refusal's text may add a reason after the sentinel; callers test with `errors.Is`.
+Errors: `ErrProtected`, `ErrNoKey` (no such key or section), `ErrRepeated` (the key or section is there more than once), `ErrNotWritten` (a value in a form the codec does not decode, or an edit it cannot write in a form it reads back), `ErrTooLarge`, and from `ReadV1` alone `ErrUnreadable`. An edit that returns an error changes nothing. A refusal's text may add a reason after the sentinel; callers test with `errors.Is`.
 
 The zero `Doc` reads as the empty document: unreadable, "no frontmatter on line 1".
 
@@ -169,7 +171,6 @@ The checker reads sections as the codec does: a `## ` line inside fenced code st
 
 - Files, locks, durability, compare-and-swap and the hand-edit record: the store core (ST-05).
 - What a verified mark forbids, and who may write `verified`: the store core.
-- v1's pages read through the codec, as v1 read them: ST-03b.
 - Escaping model text before it is set: the caller's, through the escaper the store core applies.
 - Merging two versions of a document: later, with sync.
 
@@ -177,9 +178,9 @@ The checker reads sections as the codec does: a `## ` line inside fenced code st
 
 `ReadV1(b) (V1Page, error)` reads a page of a v1 wiki through `Read`, as v1 read it, for the migration (ST-07) and frozen system pages (DV-35). `V1Page` names its fields as v1's page model did: `Type`, `Title`, `Description`, `Status`, `StaleAfter`, `Generated`, `Verified`, `Sources`, `Extra` (every other key but `resource`, `tags`, `governance` and `code_refs`, unused), `Body` (the bytes after the closing line), and `Doc`. Protection is `Doc.Protection()`; `Extra["locked"]` is never read as a lock.
 
-It reads what v1 wrote (flow mappings with plain values, block lists of mappings, flow lists, JSON, plain scalars) as v1 did, white space trimmed and numbers as `float64`. Where v1 misread a hand edit it reads as YAML: a comment after a value is dropped, a single-quoted value unquoted, a comment line is no key. It refuses what it would guess at, returning only the Doc: `ErrUnreadable` (section 3: a byte-order mark, a line over 64 KiB), `ErrRepeated`, and `ErrNotWritten` for a block scalar, a scalar on the lines below its key, a tag, anchor or alias, a value that runs on, text after a quoted value or a collection, a key read as `*` or `<<`, a flow-mapping block, a line that is no key (`title:x`, a tab, less indented than the block), and text in `generated`, `verified` or `sources` that is no pair (`note #1: x`). An error names only keys v1 wrote.
+It reads what v1 wrote (flow mappings with plain values, block lists of mappings, flow lists, JSON, plain scalars) as v1 did, white space trimmed and numbers as `float64`. Where v1 misread a hand edit it reads as YAML: a comment after a value is dropped, a single-quoted value unquoted, a comment line is neither a key nor an item or line of a value. It refuses what it would guess at, returning only the Doc: `ErrUnreadable` (any reason of section 3; v1 read a page with a byte-order mark, a NUL, invalid UTF-8, a conflict marker or a line over 64 KiB), `ErrRepeated`, and `ErrNotWritten` for a block scalar, a scalar on the lines below its key, a tag, anchor or alias, a value that runs on, text after a quoted value or a collection, a key read as `*` or `<<`, a flow-mapping block, a line that is no key (`title:x`, a tab, less indented than the block), a key v1 cut otherwise (a tag or anchor before it, a plain key holding a colon or a quote, `title:: x`, `title :{a: b}`, a quoted key with an escape), and text in `generated`, `verified` or `sources` that is no pair (`note #1: x`, `by:a`, `note's: y`). An error names only keys v1 wrote.
 
-One difference protects less: `verified: {}` was verified to v1 and is not here (the format's section 6).
+Four rows of the differences protect less: pages v1 read as verified or locked that the codec does not. `verified: {}` is no verified mark here (the format's section 6). ReadV1 refuses the other three: a key with a space or a tab before its colon and none after it (`locked :true`, `verified :{by: a}`), and a `verified` key with a quote v1 trimmed (`verified': x`, `'verified: x`). Those three are ST-03a's `Protection` to widen; the oracle's `protectsLess` lists all four.
 
 | Invariant | Test |
 | --- | --- |

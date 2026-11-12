@@ -93,6 +93,9 @@ func readV1(d *Doc) (V1Page, error) {
 		if e.key == unknownKey || e.key == mergeKey {
 			return p, fmt.Errorf("%w: a key that is an alias, a merge or a collection", ErrNotWritten)
 		}
+		if !keyAsV1(text(d.lines[e.lines[0]]), e) {
+			return p, fmt.Errorf("%w: a key v1 read otherwise", ErrNotWritten)
+		}
 		if seen[e.key] {
 			return p, fmt.Errorf("%w: %s", ErrRepeated, named(e.key))
 		}
@@ -103,6 +106,38 @@ func readV1(d *Doc) (V1Page, error) {
 	}
 	p.Body = strings.Join(d.lines[d.close+1:], "")
 	return p, nil
+}
+
+// keyAsV1 reports whether v1 read an entry's key, on the key's line l, as
+// YAML and the codec do. v1 cut a line at its first colon and trimmed the
+// quotes around the key, so it read otherwise a tag or an anchor before
+// the key ("&a title: x"), a plain key that holds a colon or a quote
+// ("title :{a: b}", "title:: x", "verified': x"), and a quoted key with an
+// escape in it ("\"a\x20b\": x").
+func keyAsV1(l string, e *entry) bool {
+	if e.canonical {
+		return true
+	}
+	s := unlead(l)
+	if e.explicit {
+		s = strings.TrimLeft(s[1:], " \t")
+	}
+	switch {
+	case s == "":
+		return true
+	case s[0] == '!' || s[0] == '&':
+		return false
+	case s[0] == '"' || s[0] == '\'':
+		end := quoteEnd(s, 0)
+		if end < 0 {
+			return false
+		}
+		if s[0] == '"' {
+			return !strings.Contains(s[1:end], `\`)
+		}
+		return !strings.Contains(s[1:end], "'")
+	}
+	return !strings.ContainsAny(e.key, `:"'`)
 }
 
 // named is a key for an error's text: the key when v1 wrote it, as a key a
@@ -346,6 +381,14 @@ func cutPair(s string) (key, value string, ok bool) {
 		case c == ':':
 			v := strings.TrimSpace(s[i+1:])
 			if closeOf(v) != len(v) {
+				return "", "", false
+			}
+			// A plain key that holds a quote, or a colon with no space
+			// after it, is a key YAML reads otherwise: "note's: y" was
+			// dropped by v1, "by:a" is one scalar and "by :x: y" the key
+			// "by :x".
+			if k := strings.TrimSpace(s[:i]); k != "" && k[0] != '"' && k[0] != '\'' &&
+				(strings.ContainsAny(k, `"'`) || i+1 < len(s) && s[i+1] != ' ' && s[i+1] != '\t') {
 				return "", "", false
 			}
 			return unquoteV1(s[:i]), unquoteV1(v), true
