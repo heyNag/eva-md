@@ -149,8 +149,8 @@ name in turn, which is in effect every rule (`exceptionSource` in
 new fingerprint there. It reads the files themselves, so a change made with
 `go test -overlay` does not reach it; `TestOracleTripwireSeesEveryWidening`
 applies each widening `oracleBounds` lists, named ones too, and checks that
-the fingerprint changes. Whoever
-does adds, for what the change lets through, a near case labelled here and
+the fingerprint changes. Whoever writes a new fingerprint first adds, for
+what the change lets through, a near case labelled here and
 near cases its bound's generator draws, and the change as a widening of its
 bound; a new condition is a new bound. The switch stays off until the
 oracle holds the new shape.
