@@ -116,6 +116,8 @@ func TestV1Differences(t *testing.T) {
 			func(p V1Page, err error) bool { return err == nil && p.Title == "it's the feed  " }},
 		{"yaml-escape", `"Tide\x20feed", the escape kept`,
 			func(p V1Page, err error) bool { return err == nil && p.Title == "Tide feed" }},
+		{"tab-in-quotes", `"Tide feed", the tab trimmed as JSON refused it`,
+			func(p V1Page, err error) bool { return err == nil && p.Title == "\tTide feed" }},
 		{"explicit-key", `no title, and "Tide feed" under the key ""`,
 			func(p V1Page, err error) bool { return err == nil && p.Title == "Tide feed" && len(p.Extra) == 0 }},
 		{"indented-block", "no key at all",
@@ -134,6 +136,14 @@ func TestV1Differences(t *testing.T) {
 		{"anchor-before-key", `the key "&a title"`, refused(ErrNotWritten, Protection{})},
 		{"quote-in-source-key", "a source without the pair", refused(ErrNotWritten, Protection{})},
 		{"tight-pair", `a generated record by "codex/model-b"`, refused(ErrNotWritten, Protection{})},
+		{"open-quote-in-source-key", "a source without the pair", refused(ErrNotWritten, Protection{})},
+		// v1 opened a string at a quote anywhere, YAML only where a node
+		// may start; v1 split a flow collection or told a pair otherwise.
+		{"quote-inside-flow-item", `the aliases ["tide", "harbour's feed, bay"]`, refused(ErrNotWritten, Protection{})},
+		{"quote-inside-list-item", `the repos ["tide-tables", "harbour's: feed"]`, refused(ErrNotWritten, Protection{})},
+		{"quote-inside-verified", `one verified record, by "human:river's, at: ..."`, refused(ErrNotWritten, Protection{Verified: true})},
+		{"text-after-quoted-item", `the aliases ["tide", "harbour\" \"feed"]`, refused(ErrNotWritten, Protection{})},
+		{"other-bracket", `a second verified record by "eva-md/2026.11.5 }"`, refused(ErrNotWritten, Protection{Verified: true})},
 		// A comment line under a key is no item and no line of a value.
 		{"comment-line-under-key", `the kept lines ["- tide-tables", "# harbour later", "- harbour"] and ["# by hand"]`,
 			func(p V1Page, err error) bool {
@@ -227,6 +237,18 @@ func TestReadV1Refusals(t *testing.T) {
 		{"a source pair with no space after its colon", page("sources:\n  - resource: x\n    secret_word_zq:y\n"), ErrNotWritten},
 		{"a generated pair with two colons", page("generated:\n  by:: a\n"), ErrNotWritten},
 		{"a flow pair with no space after its colon", page("generated: {by:a, at: b}\n"), ErrNotWritten},
+		{"a quote inside a plain item of a flow list", page("secret_word_zq: [secret'word_zq, b]\n"), ErrNotWritten},
+		{"a quote inside a nested flow list", page("secret_word_zq: [[secret'word_zq, b]]\n"), ErrNotWritten},
+		{"a quote inside a plain value of a flow mapping", page("generated: { by: secret\"word_zq, at: b }\n"), ErrNotWritten},
+		{"a quote inside a verified list", page("verified: [{ by: secret\"word_zq }, { by: c }]\n"), ErrNotWritten},
+		{"a quote inside a source's flow mapping", page("sources:\n  - { resource: secret'word_zq, title: x }\n"), ErrNotWritten},
+		{"a list item v1 read as a scalar", page("secret_word_zq:\n  - secret'word_zq: x\n"), ErrNotWritten},
+		{"a list item with a quote in its flow list", page("secret_word_zq:\n  - [secret'word_zq, x]\n"), ErrNotWritten},
+		{"a flow list closed by a brace", page("verified: [{ by: a }, { by: secret_word_zq }}\n"), ErrNotWritten},
+		{"a flow mapping closed by a bracket", page("generated: { by: secret_word_zq ]\n"), ErrNotWritten},
+		{"text after a quoted item of a flow list", page("secret_word_zq: [a, \"b,\"secret_word_zq\"]\n"), ErrNotWritten},
+		{"a source key whose quote does not close", page("sources:\n  - \"secret_word_zq: s:1\n"), ErrNotWritten},
+		{"a source key with text after its quote", page("sources:\n  - resource: s:1\n    \"a\"secret_word_zq\": x\n"), ErrNotWritten},
 	} {
 		p, err := ReadV1(c.in)
 		if !errors.Is(err, c.want) {

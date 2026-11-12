@@ -153,6 +153,11 @@ func named(key string) string {
 // pair of the mapping or list it is in.
 var errNoPair = errors.New("text that is no pair")
 
+// errQuoteInside is a quote inside a plain value, where v1 opened a
+// string and YAML does not: v1 read "[it's, b]" as one item and
+// "- it's: x" as a scalar.
+var errQuoteInside = errors.New("a quote inside a plain value")
+
 // set reads one entry into p.
 func (p *V1Page) set(e *entry) error {
 	s := uncomment(e.rest)
@@ -171,6 +176,9 @@ func (p *V1Page) set(e *entry) error {
 		return errors.New("a value that runs onto the next line")
 	case closeOf(s) != len(s):
 		return errors.New("a quoted value or a collection with text after it")
+	case strings.HasPrefix(s, "[") && !strings.HasSuffix(s, "]"), strings.HasPrefix(s, "{") && !strings.HasSuffix(s, "}"):
+		// v1 took "[a, b}" for no list, or kept the "}" in its last item.
+		return errors.New("a collection closed by the other bracket")
 	}
 	switch e.key {
 	case "type", "title", "description", "status", "stale_after":
@@ -191,12 +199,16 @@ func (p *V1Page) set(e *entry) error {
 		}
 	case "generated":
 		m, ok := blockMap(lines)
+		var err error
+		if !ok {
+			err = errNoPair
+		}
 		if strings.HasPrefix(s, "{") {
-			m, ok = flowMap(s)
+			m, err = flowMap(s)
 		}
 		switch {
-		case !ok:
-			return errNoPair
+		case err != nil:
+			return err
 		case len(m) == 0 && !strings.HasPrefix(s, "{"):
 			return nil
 		}
@@ -204,34 +216,38 @@ func (p *V1Page) set(e *entry) error {
 	case "verified":
 		switch {
 		case strings.HasPrefix(s, "{"):
-			m, ok := flowMap(s)
-			if !ok {
-				return errNoPair
+			m, err := flowMap(s)
+			if err != nil {
+				return err
 			}
 			p.Verified = append(p.Verified, V1Stamp{By: m["by"], At: m["at"]})
 		case strings.HasPrefix(s, "["):
-			for _, it := range flowItems(s[1 : len(s)-1]) {
-				m, ok := flowMap(strings.TrimSpace(it))
-				if !ok {
-					return errNoPair
+			items, err := flowItems(s[1 : len(s)-1])
+			if err != nil {
+				return err
+			}
+			for _, it := range items {
+				m, err := flowMap(strings.TrimSpace(it))
+				if err != nil {
+					return err
 				}
 				if m["by"] != "" || m["at"] != "" {
 					p.Verified = append(p.Verified, V1Stamp{By: m["by"], At: m["at"]})
 				}
 			}
 		default:
-			items, ok := listOfMaps(lines)
-			if !ok {
-				return errNoPair
+			items, err := listOfMaps(lines)
+			if err != nil {
+				return err
 			}
 			for _, m := range items {
 				p.Verified = append(p.Verified, V1Stamp{By: m["by"], At: m["at"]})
 			}
 		}
 	case "sources":
-		items, ok := listOfMaps(lines)
-		if !ok {
-			return errNoPair
+		items, err := listOfMaps(lines)
+		if err != nil {
+			return err
 		}
 		for _, m := range items {
 			src := V1Source{ID: m["id"], Resource: m["resource"], Title: m["title"], Author: m["author"], LastModified: m["last_modified"]}
@@ -252,13 +268,17 @@ func (p *V1Page) set(e *entry) error {
 		}
 	case "resource", "tags", "governance", "code_refs":
 	default:
+		var err error
 		if len(lines) == 0 {
-			p.Extra[e.key] = extraValue(s)
-		} else if items, ok := blockList(lines); ok {
+			p.Extra[e.key], err = extraValue(s)
+		} else if items, ok, lerr := blockList(lines); lerr != nil {
+			err = lerr
+		} else if ok {
 			p.Extra[e.key] = items
 		} else {
 			p.Extra[e.key] = outdent(lines)
 		}
+		return err
 	}
 	return nil
 }
@@ -322,29 +342,91 @@ func unquoteV1(s string) string {
 
 // extraValue reads a value on its key's line as v1 read one it did not
 // know: JSON, then a flow list of such values, then a scalar.
-func extraValue(s string) any {
+func extraValue(s string) (any, error) {
 	if s = strings.TrimSpace(s); s == "" {
-		return ""
+		return "", nil
 	}
 	var v any
 	if json.Unmarshal([]byte(s), &v) == nil {
-		return v
+		return v, nil
 	}
 	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		parts, err := flowItems(s[1 : len(s)-1])
+		if err != nil {
+			return nil, err
+		}
 		items := []any{}
-		for _, it := range flowItems(s[1 : len(s)-1]) {
+		for _, it := range parts {
 			if it = strings.TrimSpace(it); it != "" {
-				items = append(items, extraValue(it))
+				if closeOf(it) != len(it) {
+					// v1 unquoted "\"a,\"b\"" to "a,\"b"; YAML refuses it.
+					return nil, errors.New("an item with text after its quoted value or collection")
+				}
+				v, err := extraValue(it)
+				if err != nil {
+					return nil, err
+				}
+				items = append(items, v)
 			}
 		}
-		return items
+		return items, nil
 	}
-	return unquoteV1(s)
+	return unquoteV1(s), nil
 }
 
 // flowItems splits the inside of a flow collection at its commas, outside
-// quotes and nested collections.
-func flowItems(s string) []string {
+// quotes and nested collections. It refuses one v1 split otherwise.
+func flowItems(s string) ([]string, error) {
+	out := yamlItems(s)
+	if !slices.Equal(out, v1Items(s)) {
+		return nil, errQuoteInside
+	}
+	return out, nil
+}
+
+// v1Items splits the inside of a flow collection as v1 did: a quote
+// anywhere opens a string, not only where a node may start.
+func v1Items(s string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '"', '\'':
+			i = v1QuoteEnd(s, i)
+		case '[', '{':
+			depth++
+		case ']', '}':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				out = append(out, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, s[start:])
+}
+
+// v1QuoteEnd is the index of the quote that closes the one at i as v1
+// read it, a backslash escaping the next byte in a double-quoted string,
+// or len(s) when none does.
+func v1QuoteEnd(s string, i int) int {
+	for j := i + 1; j < len(s); j++ {
+		switch {
+		case s[i] == '"' && s[j] == '\\':
+			j++
+		case s[j] == s[i]:
+			return j
+		}
+	}
+	return len(s)
+}
+
+// yamlItems splits the inside of a flow collection as YAML does: a quote
+// opens a string only where a node may start.
+func yamlItems(s string) []string {
 	var out []string
 	depth, start := 0, 0
 	prev := byte(' ')
@@ -391,6 +473,11 @@ func cutPair(s string) (key, value string, ok bool) {
 				(strings.ContainsAny(k, `"'`) || i+1 < len(s) && s[i+1] != ' ' && s[i+1] != '\t') {
 				return "", "", false
 			}
+			// A quoted key that does not close, or has text after its
+			// quote, v1 dropped: "\"resource: x", "\"a\"b\": x".
+			if k := strings.TrimSpace(s[:i]); k != "" && (k[0] == '"' || k[0] == '\'') && closeOf(k) != len(k) {
+				return "", "", false
+			}
 			return unquoteV1(s[:i]), unquoteV1(v), true
 		}
 		prev = s[i]
@@ -398,23 +485,27 @@ func cutPair(s string) (key, value string, ok bool) {
 	return "", "", false
 }
 
-// flowMap reads a flow mapping, "{ by: x, at: y }", into its pairs. It is
-// false when an item holds text but no pair.
-func flowMap(s string) (map[string]string, bool) {
+// flowMap reads a flow mapping, "{ by: x, at: y }", into its pairs. It
+// refuses an item that holds text but no pair.
+func flowMap(s string) (map[string]string, error) {
 	out := map[string]string{}
 	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
 		s = s[1 : len(s)-1]
 	}
-	for _, it := range flowItems(s) {
+	items, err := flowItems(s)
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range items {
 		k, v, ok := cutPair(it)
 		if !ok && strings.Trim(it, " \t") != "" {
-			return nil, false
+			return nil, errNoPair
 		}
 		if ok && k != "" {
 			out[k] = v
 		}
 	}
-	return out, true
+	return out, nil
 }
 
 // blockMap reads the lines under a key as one mapping, a "- " before a
@@ -437,9 +528,9 @@ func blockMap(lines []string) (map[string]string, bool) {
 
 // listOfMaps reads the lines under a key as a block list of mappings, each
 // item a flow mapping on its "- " line or pairs on it and the lines under.
-// It is false when a line holds text but no pair of an item, words v1 kept
+// It refuses a line that holds text but no pair of an item, words v1 kept
 // or dropped and YAML reads otherwise.
-func listOfMaps(lines []string) ([]map[string]string, bool) {
+func listOfMaps(lines []string) ([]map[string]string, error) {
 	var out []map[string]string
 	var cur map[string]string
 	for _, l := range lines {
@@ -448,9 +539,9 @@ func listOfMaps(lines []string) ([]map[string]string, bool) {
 			cur = map[string]string{}
 			out = append(out, cur)
 			if t = strings.Trim(rest, " \t"); strings.HasPrefix(t, "{") {
-				m, ok := flowMap(t)
-				if !ok {
-					return nil, false
+				m, err := flowMap(t)
+				if err != nil {
+					return nil, err
 				}
 				for k, v := range m {
 					cur[k] = v
@@ -463,31 +554,55 @@ func listOfMaps(lines []string) ([]map[string]string, bool) {
 		case ok && cur != nil:
 			cur[k] = v
 		case t != "":
-			return nil, false
+			return nil, errNoPair
 		}
 	}
-	return out, true
+	return out, nil
 }
 
 // blockList reads the lines under a key as a block list of scalars, all at
-// one indentation. A list of mappings or of lists is not one.
-func blockList(lines []string) ([]any, bool) {
+// one indentation. A list of mappings or of lists is not one. It refuses
+// an item v1 told apart from a pair otherwise, as "- it's: x".
+func blockList(lines []string) ([]any, bool, error) {
 	items := []any{}
 	indent := -1
 	for _, l := range lines {
 		t := strings.TrimLeft(l, " \t")
 		rest, ok := strings.CutPrefix(t, "-")
 		if !ok || indent >= 0 && len(l)-len(t) != indent {
-			return nil, false
+			return nil, false, nil
 		}
 		indent = len(l) - len(t)
 		it := uncomment(rest)
-		if it == "" || it == "-" || strings.HasPrefix(it, "- ") || mapping(it) {
-			return nil, false
+		if it == "" || it == "-" || strings.HasPrefix(it, "- ") {
+			return nil, false, nil
 		}
-		items = append(items, extraValue(it))
+		if m := mapping(it); m != v1Mapping(it) {
+			return nil, false, errQuoteInside
+		} else if m {
+			return nil, false, nil
+		}
+		v, err := extraValue(it)
+		if err != nil {
+			return nil, false, err
+		}
+		items = append(items, v)
 	}
-	return items, len(items) > 0
+	return items, len(items) > 0, nil
+}
+
+// v1Mapping reports a "key: value" pair as v1 did: at the first colon
+// outside quotes, where a quote anywhere opens a string.
+func v1Mapping(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '"', '\'':
+			i = v1QuoteEnd(s, i)
+		case ':':
+			return i+1 == len(s) || s[i+1] == ' '
+		}
+	}
+	return false
 }
 
 // mapping reports a "key: value" pair, not a scalar such as a link.
