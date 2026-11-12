@@ -92,8 +92,14 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 		h.hook(t, "codex", "UserPromptSubmit", map[string]any{"session_id": sessionID, "turn_id": c.turn, "transcript_path": rollout.path,
 			"hook_event_name": "UserPromptSubmit", "prompt": w})
 	}
+	// Hand-overs with unlisted sources of one length, side by side in one
+	// payload, whose made-up sources are drawn in a fixed order.
+	sourced := map[string]any{}
+	for _, k := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+		sourced[k] = handOver("made_up_source_"+k, "made-up request "+k, "")
+	}
 	h.hook(t, "codex", "Stop", map[string]any{"session_id": sessionID, "turn_id": "turn-made-up-7", "transcript_path": rollout.path,
-		"hook_event_name": "Stop", "last_assistant_message": ack})
+		"hook_event_name": "Stop", "last_assistant_message": ack, "sourced": sourced})
 	tail := handOver(hostfacts.TailFlush, "The user just ended their realtime session. Here is the remaining handoff/transcript tail.", "user: "+s[11].Text)
 	empty := handOver("", "", "user: "+s[2].Text+"\nassistant: A ripe plum is a deep purple.")
 	rollout.add(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "user_message", "message": tail}})
@@ -216,6 +222,22 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 	}
 	if !slices.Equal(sources, []string{hostfacts.TailFlush}) {
 		t.Errorf("the rows' sources in the fixture: %v", sources)
+	}
+	// One recording and one seed give one set of fixtures, byte for byte.
+	var seeded []string
+	for range 2 {
+		out := t.TempDir()
+		if _, err := hostfacts.WriteFixtures(hostfacts.FixtureOptions{Rec: h.rec, Out: out, Seed: []byte("one made-up seed")}); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(filepath.Join(out, hostfacts.EventsFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		seeded = append(seeded, string(b))
+	}
+	if seeded[0] != seeded[1] {
+		t.Error("one seed gave two sets of fixtures")
 	}
 	// One line's recorded text put back.
 	made := textOf[s[3].Text]

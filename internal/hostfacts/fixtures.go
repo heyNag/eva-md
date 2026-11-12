@@ -646,15 +646,17 @@ func InsideCheckout(path string) (bool, error) {
 // wherever it stands. A payload's text is read only to know which value
 // stands where, never to make a value.
 func (f *faker) voices(events []any) {
-	// The payloads' skeletons go first, so the parts a fixture shows take
-	// the first draws for their lengths; then the rows', whose parts a
-	// fixture shows only where a payload string has their hash.
+	// The payloads' parts are drawn first, in the order of the events and
+	// their paths, so the parts a fixture shows take the first draws for
+	// their lengths; then the rows', which a fixture shows only where a
+	// payload string has their hash.
+	vms := make([]map[string]*Voice, len(events))
 	var skels, rows []*Voice
-	for _, l := range events {
+	for i, l := range events {
 		ev, _ := l.(map[string]any)
-		vm := voiceMap(ev)
-		for _, p := range slices.Sorted(maps.Keys(vm)) {
-			skels = append(skels, vm[p])
+		vms[i] = voiceMap(ev)
+		for _, p := range slices.Sorted(maps.Keys(vms[i])) {
+			skels = append(skels, vms[i][p])
 		}
 		walk(ev["record"], nil, func(path []string, x any) {
 			if n := len(path); n >= 3 && path[n-1] == "voice" && path[n-3] == "fields" {
@@ -664,15 +666,21 @@ func (f *faker) voices(events []any) {
 			}
 		})
 	}
-	skels = append(skels, rows...)
-	if len(skels) == 0 {
+	if len(skels)+len(rows) == 0 {
 		return
 	}
 	texts := map[string]string{}
 	assignVoice(skels, texts, f.voiceDraw)
-	for _, l := range events {
+	sources := map[*Voice]string{}
+	for _, v := range skels {
+		if v.Source != nil && v.Source.Value != TailFlush {
+			sources[v] = f.voiceDraw(v.Source.Len)
+		}
+	}
+	assignVoice(rows, texts, f.voiceDraw)
+	for i, l := range events {
 		ev, _ := l.(map[string]any)
-		vm := voiceMap(ev)
+		vm := vms[i]
 		hashes, _ := ev["payload_hashes"].(map[string]any)
 		values := map[string]string{}
 		walk(ev["payload"], nil, func(path []string, x any) {
@@ -681,15 +689,9 @@ func (f *faker) voices(events []any) {
 			}
 		})
 		for p, v := range vm {
-			s, ok := values[loosePath(p)]
-			if !ok {
-				continue
+			if s, ok := values[loosePath(p)]; ok {
+				f.memo[s] = v.rebuild(texts, sources[v])
 			}
-			source := ""
-			if v.Source != nil && v.Source.Value != TailFlush {
-				source = f.voiceDraw(v.Source.Len)
-			}
-			f.memo[s] = v.rebuild(texts, source)
 		}
 		for p, h := range hashes {
 			hash, _ := h.(string)
