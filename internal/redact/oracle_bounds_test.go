@@ -361,17 +361,33 @@ var oracleBounds = []oracleBound{
 		more: [][]edit{
 			// A name after a prefix that starts with a digit.
 			{{`(?:os\.environ|process\.env|self|config)\.[A-Za-z_][A-Za-z0-9_]*`, `(?:os\.environ|process\.env|self|config)\.[A-Za-z0-9_][A-Za-z0-9_]*`}},
+			// A '!' after a name after '$'.
+			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:\$[A-Za-z_][A-Za-z0-9_]*!?|`}},
+			// A '?' or '!' after a name after a prefix.
+			{{`(?:os\.environ|process\.env|self|config)\.[A-Za-z_][A-Za-z0-9_]*`, `(?:os\.environ|process\.env|self|config)\.[A-Za-z_][A-Za-z0-9_]*[?!]?`}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			// Names of fewer than 20 characters, which the entropy rule leaves
 			// to the floor.
 			prefixes := []string{"$", "self.", "config.", "os.environ.", "process.env."}
+			// A mark of farVariable at the start of the name, inside it or at
+			// its end, in turn.
+			place := func(name string) string {
+				c := nth(farVariable, n/3)
+				switch n / 3 / len(farVariable) % 3 {
+				case 0:
+					return insertAt(g, name, c)
+				case 1:
+					return name + c
+				}
+				return c + name
+			}
 			return keyLine(g, nearSeps, ""), func() string {
 				switch n % 3 {
 				case 0:
-					return "$" + insertAt(g, randomPart(g, 9+g.r.Intn(6)), nth(farVariable, n/3))
+					return "$" + place(randomPart(g, 9+g.r.Intn(6)))
 				case 1:
-					return nthOf(prefixes[1:], n/3) + insertAt(g, randomPart(g, 9+g.r.Intn(6)), nth(farVariable, n/3))
+					return nthOf(prefixes[1:], n/3) + place(randomPart(g, 9+g.r.Intn(6)))
 				}
 				// A name that starts with a digit.
 				return nthOf(prefixes, n/3) + g.chars(1, digits) + randomPart(g, 9+g.r.Intn(6))

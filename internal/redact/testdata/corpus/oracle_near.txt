@@ -99,6 +99,12 @@ password: '⟦$Xk9mP2¦+vLq7Rt⟧'
 === secret oracle_near_name_index floor.variable: a name after a variable's prefix that starts with a digit
 password: '⟦self.4Kd9¦Wm2Qx7Rt⟧'
 
+=== secret oracle_near_name_index floor.variable: a '!' after the name after '$'
+password: '⟦$Rk8Tw3¦Mz6Qp!⟧'
+
+=== secret oracle_near_name_index floor.variable: a '?' after the name after a prefix
+password: '⟦self.Hn5X¦v2Lc9Bq?⟧'
+
 === secret oracle_near_name_index floor.variable.prefix: a variable's prefix is $, self., config., os.environ. or process.env., or it is os.environ alone
 password: '⟦cfg.Xk9m¦P2vLq7Rt⟧'
 
