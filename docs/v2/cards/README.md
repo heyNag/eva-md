@@ -52,6 +52,7 @@ Rules every card carries, so they are said once here:
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | ready |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | building since 2026-11-11, on a branch; merges after the owner has cut the counters release, since it changes every hook |
+| [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | ready; merges after the owner has cut the counters release, since it changes one error's words in the binary |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | building since 2026-11-11, on a branch; merges after the owner has cut the counters release, since it changes the binary |
 | [HO-11](HO-11.md) | The install manifest | after HO-10a and HO-10b |
