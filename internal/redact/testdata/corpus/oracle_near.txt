@@ -8,7 +8,9 @@ redact.go that widen the exception past it alone, and a generator of near
 cases. Each case here is a labelled near case of one bound: its name starts
 with the bound's id and a colon, and one case of each bound has the text of
 the bound's example; a bound with more than one widening has a case each
-widening keeps. There the exception does not hold, and the current rules
+widening keeps, the named ones too: a widening to one more name, which no
+generated case need draw and the tripwire guards (see README.md), has a
+case that holds that name. There the exception does not hold, and the current rules
 alone remove the secret today as the baseline rules do. Where the value
 rules would take the secret before the floor is asked, the case would hold
 nothing, so each case stands where the value rules read code and only the

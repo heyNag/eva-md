@@ -326,13 +326,15 @@ var (
 )
 
 // spaced puts op between what comes before and after it, by k in turn with
-// a blank on both sides, before it only, after it only and on neither; a
+// a blank on both sides, before it only, after it only, on neither and on
+// both sides again, which the exceptions for types ask for most; a
 // side where op has a letter or a digit always has one, which would
 // otherwise join op to the name beside it, and so does the side before a
 // '(', which would otherwise make a call that the baseline rules leave
 // alone.
 func spaced(op string, k int) string {
-	before, after := k%4 < 2, k%4 == 0 || k%4 == 2
+	k %= 5
+	before, after := k < 2 || k == 4, k == 0 || k == 2 || k == 4
 	if isAlnum(op[0]) || op[0] == '(' {
 		before = true
 	}
@@ -642,7 +644,7 @@ var oracleBounds = []oracleBound{
 			// A reviewer's: Deno.env.
 			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|Deno\.env)\.`}},
 		},
-		weight: 16,
+		weight: 24,
 		near: func(g *gen, n int) (string, func() string) {
 			k := n / 4
 			bases := append(append([]string{}, codeWords...), dottedBases...)
@@ -792,7 +794,7 @@ var oracleBounds = []oracleBound{
 			// An arrow.
 			{{`(?:[ \t]+=[ \t]+|$)`, `(?:[ \t]+(?:=|=>|->)[ \t]+|$)`}},
 		},
-		weight: 3,
+		weight: 16,
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, spaced(nthOf(farAssignOps, n), n/len(farAssignOps))+g.pick([]string{"1", "None", "x"})), func() string { return nearToken(g) }
 		},
@@ -854,7 +856,7 @@ var oracleBounds = []oracleBound{
 			// A '&' with or without blanks.
 			{{"`((?:[ \\t]+\\|[ \\t]+` + typeName + `)*)", "`((?:(?:[ \\t]+\\|[ \\t]+|[ \\t]*&[ \\t]*)` + typeName + `)*)"}},
 		},
-		weight: 3,
+		weight: 12,
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, spaced(nthOf(farUnionOps, n), n/len(farUnionOps))+g.pick([]string{"None", "str", "int"})), func() string { return nearToken(g) }
 		},
@@ -963,6 +965,7 @@ var oracleBounds = []oracleBound{
 			// A '*', as a pointer.
 			{{">)?\\??`", ">)?[?*]?`"}},
 		},
+		weight: 3,
 		near: func(g *gen, n int) (string, func() string) {
 			tail := nthOf([]string{" = 1", " | None", " = x"}, n/len(farTypeSuffix))
 			suffix := nthOf(farTypeSuffix, n)
@@ -1466,6 +1469,7 @@ var oracleBounds = []oracleBound{
 			// (codeName).
 			{{"for _, p := range parts {\n\t\tif !memberSegment.MatchString(p)", "for _, p := range parts {\n\t\tp = strings.ReplaceAll(p, \"$\", \"\")\n\t\tif !memberSegment.MatchString(p)"}},
 		},
+		weight: 2,
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
 				if n%2 == 0 {
@@ -1590,6 +1594,7 @@ var oracleBounds = []oracleBound{
 			// A ':' after the '@', which the value rules then read as code too.
 			{{`name := strings.TrimLeft(v, "@$")`, `name := strings.TrimLeft(v, "@$:")`}, {"(?:::|@@?)?` + codeName", "(?:::|@@?:?)?` + codeName"}},
 		},
+		weight: 3,
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
 				p := nthOf([]string{"*", "*@", "*$", "@*"}, n/2)
@@ -1653,6 +1658,7 @@ var oracleBounds = []oracleBound{
 			// A long name, of 23 characters or more.
 			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || len(name) >= 23)"}},
 		},
+		weight: 2,
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
 				// Names of every length from what the floor takes, 8 characters
