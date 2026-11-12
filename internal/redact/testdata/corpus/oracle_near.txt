@@ -151,6 +151,9 @@ password: '⟦walnut¦Basket⟧'[š]
 === secret oracle_near_name_index index.expr.semicolon: the brackets hold no ';'
 password: '⟦lanter¦nMarble⟧'[a;b]
 
+=== secret oracle_near_name_index index.expr.semicolon: a ';' in a longer expression
+token: '⟦pillow¦Garden⟧'[user_id;name]
+
 === secret oracle_near_name_index index.expr.tilde: the brackets hold no '~'
 password: '⟦copper¦Basket⟧'[a~1]
 

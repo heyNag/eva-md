@@ -314,6 +314,26 @@ func placeMark(g *gen, name, c string, k int) string {
 	return c + name
 }
 
+// exprWith makes brackets around an expression of 1 to 30 characters that
+// holds mark at its start, inside it or at its end, as the n-th near case of
+// a bound that refuses the mark.
+func exprWith(g *gen, n int, mark string) string {
+	expr := nthOf([]string{"a", "x9", "i", "key", "len(s)-1", "user_id", "0:10", "a, b", "name.first", "i + 1", "get(k)", "k1 k2 k3"}, n/3)
+	for len(expr) < 30 && g.r.Intn(3) == 0 {
+		expr += nthOf([]string{" ", "_", "."}, g.r.Intn(3)) + strings.ToLower(g.pick(gapWords))
+	}
+	open, close := nthOf([]string{"[", "{"}, n/2), nthOf([]string{"]", "}"}, n/2)
+	switch n % 3 {
+	case 0:
+		expr = mark + expr
+	case 1:
+		expr += mark
+	default:
+		expr = expr[:len(expr)/2] + mark + expr[len(expr)/2:]
+	}
+	return open + expr + close
+}
+
 var indexTails = []string{"[x9]", "[0]", "[i]", "{a}"}
 
 // oracleBounds are the bounds, by shape, in the order of the code.
@@ -745,8 +765,11 @@ var oracleBounds = []oracleBound{
 		what:    "the brackets close on the value's line",
 		example: ex("password: velvet"+"Harbor[x9,\n]", "velvet"+"Harbor"),
 		widen:   []edit{{`if i := strings.IndexAny(text[s.start:lineEnd], "\r\n"); i >= 0 {`, `if i := strings.IndexAny(text[s.start:lineEnd], "\r"); i >= 0 {`}},
+		// A widening that ends a line at '\n' only keeps the generated near
+		// cases with a '\r'; a corpus file holds no lone '\r', so it has no
+		// labelled case and is not listed in more, which asks for one.
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[x9,\n]", "[i,\n  j]", "{a,\n}", "[0(\n)] # next", "{ab,\n}\nport: 1", "[x9\n]"}, n)), func() string { return wordsValue(g) }
+			return keyLine(g, nearSeps, nthOf([]string{"[x9,\n]", "[i,\n  j]", "{a,\n}", "[0(\n)] # next", "{ab,\n}\nport: 1", "[x9\n]", "[x9,\r]", "{a,\r\n}", "[i\r]"}, n)), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -795,8 +818,12 @@ var oracleBounds = []oracleBound{
 		what:    "the brackets hold no ';'",
 		example: ex("password: lantern"+"Marble[a;b]", "lantern"+"Marble"),
 		widen:   []edit{{"!strings.ContainsAny(s, \";~#`\")", "!strings.ContainsAny(s, \"~#`\")"}},
+		more: [][]edit{
+			// A ';' in a longer expression.
+			{{"!strings.ContainsAny(s, \";~#`\")", "(!strings.ContainsAny(s, \";~#`\") || strings.Count(s, \";\") == 1 && len(s) > 6)"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[a;b]", "[x9;]", "{i;j}"}, n)), func() string { return wordsValue(g) }
+			return keyLine(g, nearSeps, exprWith(g, n, ";")), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -805,7 +832,7 @@ var oracleBounds = []oracleBound{
 		example: ex("password: copper"+"Basket[a~1]", "copper"+"Basket"),
 		widen:   []edit{{"!strings.ContainsAny(s, \";~#`\")", "!strings.ContainsAny(s, \";#`\")"}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[~1]", "[a~b]", "{x~9}"}, n)), func() string { return wordsValue(g) }
+			return keyLine(g, nearSeps, exprWith(g, n, "~")), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -814,7 +841,7 @@ var oracleBounds = []oracleBound{
 		example: ex("password: walnut"+"Rocket[a#1]", "walnut"+"Rocket"),
 		widen:   []edit{{"!strings.ContainsAny(s, \";~#`\")", "!strings.ContainsAny(s, \";~`\")"}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[a#1]", "{x#2}", "[i#]"}, n)), func() string { return wordsValue(g) }
+			return keyLine(g, nearSeps, exprWith(g, n, "#")), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -823,7 +850,11 @@ var oracleBounds = []oracleBound{
 		example: ex("password: silver"+"Window[`a`]", "silver"+"Window"),
 		widen:   []edit{{"!strings.ContainsAny(s, \";~#`\")", "!strings.ContainsAny(s, \";~#\")"}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[`a`]", "[`x9`]", "{`i`}"}, n)), func() string { return wordsValue(g) }
+			if n%2 == 0 {
+				// A quoted string, closed.
+				return keyLine(g, nearSeps, nthOf([]string{"[`a`]", "[`x9`]", "{`i`}", "[`" + strings.ToLower(g.pick(gapWords)) + "`, 1]"}, n/2)), func() string { return wordsValue(g) }
+			}
+			return keyLine(g, nearSeps, exprWith(g, n/2, "`")), func() string { return wordsValue(g) }
 		},
 	},
 	{
