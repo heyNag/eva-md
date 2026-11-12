@@ -20,7 +20,16 @@
 // that fact's Must in any words; one that holds any value of a fact that
 // may be kept, only never under the user's tag or never as a rule, breaks
 // it when filed so; and an active item that holds a value of a fact that
-// ended, which no fact still in force holds, keeps it in force.
+// ended, which no fact still in force that its cited lines plant holds,
+// keeps it in force. Value matching cannot read a negation, so the last
+// two spare an item that holds in full a fact still in force it cites: a
+// value of a pasted fact is then that item's context, and a value of an
+// ended fact is its history when the fact it holds is the one that ended
+// it, by superseding it or being planted where it ends.
+//
+// Off the record is judged by citation, as every tie is: an item that
+// holds a value said off the record but cites only other lines is not
+// counted in otr_stored.
 package score
 
 import (
@@ -203,20 +212,31 @@ func evaluate(sc scenario.Scenario, ex Export) (*scorer, []read, Result) {
 type scorer struct {
 	sc    scenario.Scenario
 	ended []bool
-	index map[string]int
+	// enders are, for each fact, the facts that end it: those that
+	// supersede it and those planted at the line where it ends.
+	enders [][]int
+	index  map[string]int
 }
 
 func newScorer(sc scenario.Scenario) *scorer {
-	s := &scorer{sc: sc, ended: make([]bool, len(sc.Facts)), index: map[string]int{}}
+	s := &scorer{sc: sc, ended: make([]bool, len(sc.Facts)), enders: make([][]int, len(sc.Facts)), index: map[string]int{}}
 	for i, f := range sc.Facts {
 		s.index[f.ID] = i
 	}
 	for i, f := range sc.Facts {
 		if f.Until != nil {
 			s.ended[i] = true
+			if _, planted, err := sc.Locate(f.Until.Session, f.Until.Seq); err == nil {
+				for _, g := range planted {
+					if j := s.index[g.ID]; j != i {
+						s.enders[i] = append(s.enders[i], j)
+					}
+				}
+			}
 		}
 		if j, ok := s.index[f.Supersedes]; ok && f.Supersedes != "" {
 			s.ended[j] = true
+			s.enders[j] = append(s.enders[j], i)
 		}
 	}
 	return s
@@ -250,16 +270,28 @@ func (s *scorer) read(it Item) read {
 			}
 		}
 	}
-	best := 0
+	type part struct {
+		fact, held int
+		lack       Outcome
+	}
+	var full []int
+	var parts []part
 	for _, f := range r.cands {
 		held, lack := s.match(r.text, s.sc.Facts[f])
+		if lack == "" {
+			r.supports = append(r.supports, support{fact: f})
+			full = append(full, f)
+			continue
+		}
+		parts = append(parts, part{f, held, lack})
+	}
+	best := 0
+	for _, p := range parts {
 		switch {
-		case lack == "":
-			r.supports = append(r.supports, support{fact: f})
-		case s.tied(it, r.text, f, held):
-			r.supports = append(r.supports, support{fact: f})
-		case r.partial < 0 || held > best:
-			r.partial, r.lack, best = f, lack, held
+		case s.tied(it, &r, p.fact, p.held, full):
+			r.supports = append(r.supports, support{fact: p.fact})
+		case r.partial < 0 || p.held > best:
+			r.partial, r.lack, best = p.fact, p.lack, p.held
 		}
 	}
 	if len(r.supports) > 0 {
@@ -270,20 +302,29 @@ func (s *scorer) read(it Item) read {
 
 // tied reports whether an item that cites the line planting fact f, and
 // holds held of its values but not all, is still tied to it, so that it
-// says of the fact what an item holding all of them would: any item that
-// cites a fact said off the record; one that holds a value of a fact that
-// may be kept but only so; and an active item that holds a value of a fact
-// that ended which no fact still in force holds.
-func (s *scorer) tied(it Item, t text, f, held int) bool {
+// says of the fact what an item holding all of them would. full are the
+// facts its cited lines plant whose every value it holds. Tied are: any
+// item that cites a fact said off the record; one that holds a value of a
+// fact that may be kept but only so, unless it holds in full a fact still
+// in force, whose item it is, so that the other value is its context, as
+// in "keep SQLite, not Postgres"; and an active item that holds a value of
+// a fact that ended which no fact still in force that its cited lines
+// plant holds, unless it holds in full a fact still in force that ended f,
+// by superseding it or being planted where f ends, as in "use EVA_MD_TOKEN,
+// corrected from EVA_TOKEN".
+func (s *scorer) tied(it Item, r *read, f, held int, full []int) bool {
 	fact := s.sc.Facts[f]
 	switch fact.Must {
 	case scenario.MustNotStore:
 		return true
+	case scenario.MustNotWithAuthority:
+		return held > 0 && !slices.ContainsFunc(full, s.required)
 	case scenario.MustStore:
-		return s.ended[f] && it.State == StateActive && slices.ContainsFunc(fact.Slots, func(sl scenario.Slot) bool {
-			return t.holds(sl) && !slices.ContainsFunc(s.sc.Facts, func(g scenario.Fact) bool {
-				return s.required(s.index[g.ID]) && hasSlot(g, sl)
-			})
+		if !s.ended[f] || it.State != StateActive || slices.ContainsFunc(full, func(g int) bool { return s.required(g) && slices.Contains(s.enders[f], g) }) {
+			return false
+		}
+		return slices.ContainsFunc(fact.Slots, func(sl scenario.Slot) bool {
+			return r.text.holds(sl) && !slices.ContainsFunc(r.cands, func(g int) bool { return s.required(g) && hasSlot(s.sc.Facts[g], sl) })
 		})
 	}
 	return held > 0

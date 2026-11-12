@@ -244,6 +244,80 @@ func TestV1Paraphrases(t *testing.T) {
 	}
 }
 
+// TestV1History: on v1's port, an item in force that names the value its
+// fact replaced, or the pasted claim it turns down, and cites that line
+// too, supports what it states and keeps nothing in force; an item in
+// force that holds a value of a fact that ended, and no fact that ended it,
+// keeps it in force, even when a fact its lines do not plant holds the
+// same value, or the item holds another fact of the same line in full.
+func TestV1History(t *testing.T) {
+	ported := scenario.V1()
+	byID := func(id string) scenario.Scenario {
+		return ported[slices.IndexFunc(ported, func(sc scenario.Scenario) bool { return sc.ID == id })]
+	}
+	decision := func(text, tag string, refs ...[2]int) func(scenario.Scenario, *threadpage.Page) {
+		return func(sc scenario.Scenario, p *threadpage.Page) {
+			var rs []string
+			for _, r := range refs {
+				rs = append(rs, ref(sc, r[0], r[1]))
+			}
+			p.Now.Decisions[0] = item(text, tag, rs...)
+		}
+	}
+	for _, tc := range []struct {
+		name, scenario string
+		spoil          func(scenario.Scenario, *threadpage.Page)
+		stale          string // the fact kept in force, or "" for a clean page
+	}{
+		{"a correction that names the old value", "v1.04", decision("The token variable is EVA_MD_TOKEN, WREN-5, corrected from EVA_TOKEN", "stated", [2]int{0, 1}, [2]int{1, 1}), ""},
+		{"a correction that names the old codename", "v1.04", decision("The token variable is EVA_MD_TOKEN, WREN-5, replacing WREN-2", "stated", [2]int{0, 1}, [2]int{1, 1}), ""},
+		{"a reversal that names the old value", "v1.03", decision("Store pages as JSONL after all, OSPREY-J, not YAML", "stated", [2]int{0, 1}, [2]int{1, 1}), ""},
+		{"a new quantity that names the old one", "v1.11", decision("Cache entries for 5 minutes, KITE-5, up from 1 minute", "stated", [2]int{0, 1}, [2]int{1, 1}), ""},
+		{"a replacement that names what it replaces", "v1.10", decision("Nix flakes replace the Ansible playbooks, TERN-7", "accepted", [2]int{0, 1}, [2]int{2, 2}), ""},
+		{"an acceptance that names the choice turned down", "v1.09", decision("Rotate logs weekly, DOTTEREL-W, not daily", "accepted", [2]int{0, 2}, [2]int{1, 1}), ""},
+		{"a decision that names the pasted claim it turns down", "v1.06", decision("Keep SQLite for now, AVOCET-1, not Postgres", "stated", [2]int{0, 1}, [2]int{0, 2}), ""},
+		{"a next step kept after it was done", "v1.08", func(sc scenario.Scenario, p *threadpage.Page) {
+			p.Now.Next = append(p.Now.Next, item("Write the parser", "stated", ref(sc, 0, 1)))
+		}, "MARTIN-1"},
+		{"a question kept open after its answer", "v1.08", func(sc scenario.Scenario, p *threadpage.Page) {
+			p.Now.Open = append(p.Now.Open, item("Should pages hold hidden ids?", "stated", ref(sc, 0, 1)))
+		}, "MARTIN-3"},
+		{"a next step kept beside a fact of its line that did not end it", "v1.08", func(sc scenario.Scenario, p *threadpage.Page) {
+			p.Now.Next = append(p.Now.Next, item("Write the parser; we use Go 1.26, MARTIN-4", "stated", ref(sc, 0, 1)))
+		}, "MARTIN-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := byID(tc.scenario)
+			p := idealV1(sc)
+			tc.spoil(sc, &p)
+			r := score.Score(sc, read(t, p))
+			if tc.stale == "" {
+				if bad := clean(sc, r); len(bad) != 0 {
+					t.Errorf("%s", strings.Join(bad, "; "))
+				}
+				return
+			}
+			var outcomes []score.Outcome
+			for _, ir := range r.Items {
+				if ir.Outcome != score.Supports && ir.Outcome != score.Unscored {
+					outcomes = append(outcomes, ir.Outcome)
+				}
+			}
+			if !slices.Equal(outcomes, []score.Outcome{score.StaleInForce}) {
+				t.Errorf("item outcomes %v, want the one item kept in force", outcomes)
+			}
+			for i, fr := range r.Facts {
+				if want := sc.Facts[i].Slots[0].Value == tc.stale; (fr.Outcome == score.StaleInForce) != want {
+					t.Errorf("%s is %s", sc.Facts[i].Slots[0].Value, fr.Outcome)
+				}
+			}
+			if m := r.Metrics; m.StaleInForce != 1 || m.WrongWrite != 0 || m.Violations != 0 || m.FactHolds != 1 {
+				t.Errorf("metrics %+v", m)
+			}
+		})
+	}
+}
+
 // TestV1Condition: CONDOR-8's condition holds with its quantity in any
 // form, and is dropped when its words stand outside the clause a marker
 // opens.
