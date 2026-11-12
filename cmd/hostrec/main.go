@@ -38,8 +38,7 @@ func main() {
 		// Only the first answer is written.
 		once := &firstWrite{w: os.Stdout}
 		out = once
-		flags, _, _ := parseArgs(os.Args[2:], []string{"host", "event", "via"}, nil)
-		time.AfterFunc(deadlineFor(flags["host"], flags["event"], flags["via"]), func() {
+		time.AfterFunc(mainDeadline(os.Args[2:]), func() {
 			fmt.Fprintln(once, "{}")
 			os.Exit(0)
 		})
@@ -64,10 +63,12 @@ func (f *firstWrite) Write(p []byte) (int, error) {
 	return f.w.Write(p)
 }
 
-// cli is one run of a command: its streams.
+// cli is one run of a command: its streams, and the hook's wait for the
+// recording's lock when a test gives one.
 type cli struct {
 	in       io.Reader
 	out, err io.Writer
+	lockWait time.Duration
 }
 
 // A command of the run-book. needsSetup is false only for the commands

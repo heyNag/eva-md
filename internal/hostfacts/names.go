@@ -180,19 +180,79 @@ func wordEdge(s string, a, b int) bool {
 
 func wordRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
 
+// joinedEdge reports whether s[a:b] stands as a word of its own, or is
+// joined to another word only by an underscore or a digit, as a name is in
+// "<name>_backup" or "<name>2": no letter stands just before or just after
+// it. A name inside a run of hex digits, such as the recording's hashes, a
+// UUID or a commit's id, is inside another word all the same.
+func joinedEdge(s string, a, b int) bool {
+	if wordEdge(s, a, b) {
+		return true
+	}
+	if a > 0 {
+		if r, _ := utf8.DecodeLastRuneInString(s[:a]); unicode.IsLetter(r) {
+			return false
+		}
+	}
+	if b < len(s) {
+		if r, _ := utf8.DecodeRuneInString(s[b:]); unicode.IsLetter(r) {
+			return false
+		}
+	}
+	lo, hi := a, b
+	for lo > 0 && runByte(s[lo-1]) {
+		lo--
+	}
+	for hi < len(s) && runByte(s[hi]) {
+		hi++
+	}
+	// The run reads as a hash when the text beside the name holds a hex
+	// letter, or when it has the length of a hash or a commit's id or the
+	// form of a UUID: the name's own letters do not make it one, so
+	// "<name>1990" is shown.
+	hex, letterBeside := 0, false
+	for i := lo; i < hi; i++ {
+		switch c := s[i]; {
+		case c >= '0' && c <= '9':
+			hex++
+		case c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F':
+			hex++
+			letterBeside = letterBeside || i < a || i >= b
+		case c != '-':
+			return true
+		}
+	}
+	return hex < 8 || !letterBeside && !hashRun(s[lo:hi])
+}
+
+// hashRun reports a run of hex digits as long as the recorder's hashes, a
+// 128-bit hash, a commit's id or a SHA-256, or in the form of a UUID.
+var hashRunRe = regexp.MustCompile(`^(?:[0-9a-fA-F]{16}|[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
+
+func hashRun(s string) bool { return hashRunRe.MatchString(s) }
+
+func runByte(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == '-'
+}
+
 // eachName calls take for every place re's first group matches in s, with
 // whether it stands as a word of its own. When take takes the match, the
 // search goes on after it; when it does not, the search goes on one
 // character later, so a match inside a word hides no word that starts in
 // it, and two names side by side, as "jo jo", are both found.
 func eachName(re *regexp.Regexp, s string, take func(a, b int, word bool) bool) {
+	eachNameAt(re, s, wordEdge, take)
+}
+
+// eachNameAt is eachName with edge in place of wordEdge.
+func eachNameAt(re *regexp.Regexp, s string, edge func(s string, a, b int) bool, take func(a, b int, word bool) bool) {
 	for pos := 0; pos < len(s); {
 		m := re.FindStringSubmatchIndex(s[pos:])
 		if m == nil || m[2] < 0 {
 			return
 		}
 		a, b := pos+m[2], pos+m[3]
-		if take(a, b, wordEdge(s, a, b)) {
+		if take(a, b, edge(s, a, b)) {
 			pos += max(m[1], m[0]+1)
 			continue
 		}

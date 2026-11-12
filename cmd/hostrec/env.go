@@ -266,6 +266,12 @@ func (e *env) oops(where string, err error) {
 	_ = e.line(hostfacts.ErrorsFile, hostfacts.ErrorLine{V: 1, Wall: wallNow(), Where: where, Error: err.Error()})
 }
 
+// oopsHook keeps one line in errors.jsonl for a hook, naming its host, its
+// event and the hook declared beside the recorder's own; it fails quietly.
+func (e *env) oopsHook(host, event, via string, err error) {
+	_ = e.line(hostfacts.ErrorsFile, hostfacts.ErrorLine{V: 1, Wall: wallNow(), Where: "hook", Host: host, Event: event, Via: via, Error: err.Error()})
+}
+
 func wallNow() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // needEnv loads the evaluation home for a command that needs it.

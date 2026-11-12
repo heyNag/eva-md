@@ -13,7 +13,8 @@ var vocabularyJSON []byte
 // Vocabulary is the closed list of host words the fixtures keep: field
 // names, values, the tag names of host wrappers, the bracket forms of
 // interrupt notices, environment variables' names, the fields whose numbers
-// under 256 are exit codes, and the prefixes of the hosts' ids.
+// under 256 are exit codes, the prefixes of the hosts' ids, and the words a
+// voice hand-over's skeleton keeps.
 type Vocabulary struct {
 	FieldNames      []string `json:"field_names"`
 	Values          []string `json:"values"`
@@ -22,6 +23,10 @@ type Vocabulary struct {
 	EnvNames        []string `json:"env_names"`
 	ExitCodeFields  []string `json:"exit_code_fields"`
 	IDPrefixes      []string `json:"id_prefixes"`
+	// Voice are the words a voice hand-over's skeleton keeps beside its
+	// tags: the tail-flush source, the two heads of a transcript's lines
+	// and the cut mark, from Codex's source.
+	Voice []string `json:"voice"`
 
 	words map[string]bool
 	exit  map[string]bool
@@ -52,7 +57,7 @@ func ParseVocabulary(data []byte) (*Vocabulary, error) {
 		return nil, err
 	}
 	v.words = map[string]bool{}
-	for _, list := range [][]string{v.FieldNames, v.Values, v.Tags, v.BracketPrefixes, v.EnvNames} {
+	for _, list := range [][]string{v.FieldNames, v.Values, v.Tags, v.BracketPrefixes, v.EnvNames, v.Voice} {
 		for _, w := range list {
 			v.words[w] = true
 		}
@@ -73,7 +78,7 @@ func (v *Vocabulary) ExitField(name string) bool { return v.exit[name] }
 // Entries gives every word of the vocabulary, for the checks.
 func (v *Vocabulary) Entries() []string {
 	var out []string
-	for _, list := range [][]string{v.FieldNames, v.Values, v.Tags, v.BracketPrefixes, v.EnvNames, v.ExitCodeFields, v.IDPrefixes} {
+	for _, list := range [][]string{v.FieldNames, v.Values, v.Tags, v.BracketPrefixes, v.EnvNames, v.ExitCodeFields, v.IDPrefixes, v.Voice} {
 		out = append(out, list...)
 	}
 	return out

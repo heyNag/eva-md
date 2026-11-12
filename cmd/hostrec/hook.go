@@ -58,16 +58,27 @@ func budgetFor(host, event, via string) time.Duration {
 	return min(declaredLimit(host, event, via)/2, hookBudget)
 }
 
-// deadlineFor is when main ends a hook: its budget, and the start arm's
-// pause for the recorder's own SessionStart hook, the one that may answer
+// deadlineFor is when main ends a hook: its budget, and pause, the start
+// arm's, for the recorder's own SessionStart hook, the one that may answer
 // with the start word.
-func deadlineFor(host, event, via string) time.Duration {
+func deadlineFor(host, event, via string, pause time.Duration) time.Duration {
 	d := budgetFor(host, event, via)
 	if event == "SessionStart" && via == "" {
-		d += startPause
+		d += pause
 	}
 	return d
 }
+
+// hookDeadline is the deadline main sets for the hook its arguments name,
+// with pause as the start arm's.
+func hookDeadline(args []string, pause time.Duration) time.Duration {
+	flags, _, _ := parseArgs(args, []string{"host", "event", "via"}, nil)
+	return deadlineFor(flags["host"], flags["event"], flags["via"], pause)
+}
+
+// mainDeadline is the deadline main sets for the hook its arguments name,
+// with the start arm's pause as the run has it.
+func mainDeadline(args []string) time.Duration { return hookDeadline(args, startPause) }
 
 // hookLockWait is how long a hook waits for the recording's lock.
 func hookLockWait(budget time.Duration) time.Duration {
@@ -175,9 +186,15 @@ func hookRun(c *cli, args []string) (answer string, pause time.Duration) {
 		return "{}", 0
 	}
 	wall, mono := time.Now(), nanotime()
-	unlock, err := e.lockWithin(hookLockWait(budgetFor(host, event, via)))
+	wait := hookLockWait(budgetFor(host, event, via))
+	if c.lockWait > 0 {
+		wait = c.lockWait
+	}
+	unlock, err := e.lockWithin(wait)
 	if err != nil {
-		e.oops("hook", err)
+		// A sibling that lost the lock keeps no event: its line says
+		// which hook it was.
+		e.oopsHook(host, event, via, err)
 		return "{}", 0
 	}
 	defer unlock()
@@ -185,10 +202,14 @@ func hookRun(c *cli, args []string) (answer string, pause time.Duration) {
 	if err := e.get(hostfacts.ArmFile, &a); err != nil {
 		e.oops("hook", errors.New("the arm does not read"))
 	}
+	// A model's name, a plan or a tier is kept as its keyed hash, never
+	// as written; payload_hashes, from the payload as sent, still joins it.
+	kept := hostfacts.HideAccountValues(e.key, payload)
 	ev := hostfacts.Event{
 		V: 1, Mark: st.Mark, Wall: wall.UTC().Format(time.RFC3339Nano), MonoNS: mono,
-		Host: host, Event: event, Via: via, Payload: payload,
+		Host: host, Event: event, Via: via, Payload: kept,
 		PayloadHashes: hostfacts.PayloadHashes(e.key, payload),
+		Voice:         hostfacts.PayloadVoices(e.key, kept),
 	}
 	commit := e.describe(&ev, payload, st)
 	out, label, wait := armAnswer(a, event, via, payload)

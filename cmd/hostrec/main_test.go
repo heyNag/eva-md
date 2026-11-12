@@ -289,6 +289,20 @@ func fakeSSH(args []string) int {
 	if len(args) == 0 {
 		return 255
 	}
+	// A server's host key, when a test gives one, is accepted as ssh's
+	// accept-new does: into the known-hosts file named, when it holds none.
+	if pub := os.Getenv("HOSTREC_FAKE_HOSTKEY"); pub != "" {
+		for _, a := range args {
+			known, ok := strings.CutPrefix(a, "UserKnownHostsFile=")
+			if info, err := os.Stat(known); !ok || err == nil && info.Size() > 0 || !slices.Contains(args, "StrictHostKeyChecking=accept-new") {
+				continue
+			}
+			key, err := os.ReadFile(pub)
+			if err != nil || os.WriteFile(known, []byte("git.madeup-forge.test "+string(key)), 0o600) != nil {
+				return 255
+			}
+		}
+	}
 	// git's helpers by their dashed names need not be on PATH.
 	cmd := strings.NewReplacer("git-upload-pack", "git upload-pack", "git-receive-pack", "git receive-pack").Replace(args[len(args)-1])
 	sh := execCommand("sh", "-c", cmd)
