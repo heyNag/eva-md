@@ -32,14 +32,15 @@ import (
 //
 // A far side is sampled, not exhausted. Where it is a set of characters or
 // operators, the generator draws each in turn from the printable marks that
-// can stand there, and for the operators of a type from many operators of
-// more than one character too, but each with a few continuations and values
-// only; for some bounds it draws from a short list of the shapes code
-// takes, as for the brackets of an index; where it is a length or a count, it draws
-// the lengths and counts just past the bound and some beyond. A widening
-// that admits a member only in a context no near case stands in, as after a
-// continuation the generator does not write, keeps nothing the oracle
-// judges, and TestOracle takes it.
+// can stand there, at the start, inside or at the end of a name where that
+// matters, and for the operators of a type from many operators of more than
+// one character too, but each with a few continuations and values only; for
+// some bounds it draws from a short list of the shapes code takes, as for
+// the brackets of an index; where it is a length or a count, it draws the
+// lengths and counts just past the bound and some beyond, and random names
+// run to 40 characters. A widening that admits a member only in a context
+// no near case stands in, as after a continuation the generator does not
+// write, keeps nothing the oracle judges, and TestOracle takes it.
 //
 // TestOracleBoundsHaveNearCases fails when a bound has no near case, labelled
 // or generated, or a near case names no bound. Each bound also says how to
@@ -118,7 +119,7 @@ type oracleBound struct {
 	// widen widens the exception past this bound alone.
 	widen []edit
 	// more are other widenings past this bound alone, each a list of edits
-	// applied together, as reviewers of the near classes made them.
+	// applied together, as reviewers and fixers of the near classes made them.
 	more [][]edit
 	// near draws the n-th generated near case of the bound: its line, with
 	// %s where the value goes, and what makes the value.
