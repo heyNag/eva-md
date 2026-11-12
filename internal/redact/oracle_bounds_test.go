@@ -141,6 +141,16 @@ var (
 	farMeta = ".-_=~!@%:#"
 	// A character that is no part of a variable's name.
 	farVariable = "+-.~!%^*=:?/#|@"
+	// Prefixes of a name that make no variable.
+	farVariablePrefix = []string{"cfg.", "env.", "settings.", "conf.", "this.", "os.", "process.", "ENV.", "Config.", "SELF.", "os.environ", "process.env", "os_environ.", "self_"}
+	// What may stand before a member path but '@', '$' and "::". A '.' is
+	// left out, since the rules before the floor take such a value, and so
+	// is '=', which the rules read as part of a separator ":=".
+	farPathPrefix = "%!^~-+:?*|#"
+	// What may end a member path but '?' and '!'.
+	farPathSuffix = "#%^~*+-=:@$|"
+	// What may join two names but '.' and "::".
+	farPathSeparator = ":/|\\+~^%*!?=@$#"
 )
 
 // wordsOf makes a name of two words, as wordsValue does without digits:
@@ -188,7 +198,7 @@ var oracleBounds = []oracleBound{
 	},
 	{
 		id: "floor.comparison.eq", shape: "yaml_alias",
-		what:    "a comparison, after which the floor takes nothing, is a separator with "==", not '=', ':=' or '=>'",
+		what:    `a comparison, after which the floor takes nothing, is a separator with "==", not '=', ':=' or '=>'`,
 		example: ex("token = *Tq7Wn"+"3Ks9Bv", "*Tq7Wn"+"3Ks9Bv"),
 		widen:   []edit{{`strings.Contains(sep, "==") && strings.ContainsAny(sep, " \t")`, `strings.Contains(sep, "=") && strings.ContainsAny(sep, " \t")`}},
 		near: func(g *gen, n int) (string, func() string) {
@@ -197,7 +207,7 @@ var oracleBounds = []oracleBound{
 	},
 	{
 		id: "floor.comparison.blank", shape: "yaml_alias",
-		what:    "a comparison's "==" has a blank beside it: an unspaced "==" is no comparison",
+		what:    `a comparison's "==" has a blank beside it: an unspaced "==" is no comparison`,
 		example: ex("token==*Rv8Kd"+"2Wm5Qx", "*Rv8Kd"+"2Wm5Qx"),
 		widen:   []edit{{`strings.Contains(sep, "==") && strings.ContainsAny(sep, " \t")`, `strings.Contains(sep, "==")`}},
 		near: func(g *gen, n int) (string, func() string) {
@@ -231,6 +241,45 @@ var oracleBounds = []oracleBound{
 					return "$" + g.chars(1, digits) + nearToken(g)
 				}
 				return g.pick([]string{"$", "$", "self.", "config."}) + insertAt(g, nearToken(g), nth(farVariable, n))
+			}
+		},
+	},
+	{
+		id: "floor.variable.prefix", shape: "name_index",
+		what:    "a variable's prefix is $, self., config., os.environ. or process.env., or it is os.environ alone",
+		example: ex("password: cfg.Xk9m"+"P2vLq7Rt", "cfg.Xk9m"+"P2vLq7Rt"),
+		widen:   []edit{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|cfg)\.`}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, ""), func() string { return nthOf(farVariablePrefix, n) + nearToken(g) }
+		},
+	},
+	{
+		id: "floor.opref", shape: "yaml_alias",
+		what:    "a 1Password reference, which the floor leaves alone as the baseline rules do, starts with op:// exactly",
+		example: ex("password: op:Xk9m"+"P2vLq7Rt", "op:Xk9m"+"P2vLq7Rt"),
+		widen:   []edit{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op:") }`}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, ""), func() string { return nthOf([]string{"op:", "op:/", "op//", "OP://", "Op://", "op.//", "op_"}, n) + nearToken(g) }
+		},
+	},
+	{
+		id: "floor.undefined", shape: "yaml_alias",
+		what:    "the floor leaves alone the word undefined, in lower case and alone",
+		example: ex("password: undefined_"+"Xk9mP2", "undefined_"+"Xk9mP2"),
+		widen:   []edit{{`v == "undefined"`, `strings.HasPrefix(v, "undefined")`}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, ""), func() string {
+				switch n % 5 {
+				case 0:
+					return "undefined" + nearToken(g)
+				case 1:
+					return "undefined_" + nearToken(g)
+				case 2:
+					return nearToken(g) + "undefined"
+				case 3:
+					return "Undefined"
+				}
+				return "UNDEFINED"
 			}
 		},
 	},
@@ -268,7 +317,7 @@ var oracleBounds = []oracleBound{
 	},
 	{
 		id: "type.assign.single", shape: "type_annotation",
-		what:    "an assignment after a type is a single '=', not "=="",
+		what:    `an assignment after a type is a single '=', not "=="`,
 		example: ex("password: Hb4Zq8"+"Lm2Wx6 == 1", "Hb4Zq8"+"Lm2Wx6"),
 		widen:   []edit{{`(?:[ \t]+=[ \t]+|$)`, `(?:[ \t]+==?[ \t]+|$)`}},
 		near: func(g *gen, n int) (string, func() string) {
@@ -304,7 +353,7 @@ var oracleBounds = []oracleBound{
 	},
 	{
 		id: "type.union.single", shape: "type_annotation",
-		what:    "a union of types has a single '|', not "||"",
+		what:    `a union of types has a single '|', not "||"`,
 		example: ex("secret: Nc5Gt1"+"Vx8Kp3 || None", "Nc5Gt1"+"Vx8Kp3"),
 		widen:   []edit{{`((?:[ \t]+\|[ \t]+`, `((?:[ \t]+\|\|?[ \t]+`}},
 		near: func(g *gen, n int) (string, func() string) {
@@ -433,6 +482,17 @@ var oracleBounds = []oracleBound{
 		},
 	},
 	{
+		id: "index.quoted.bracket", shape: "name_index",
+		what:    "an index by a quoted name is in square brackets: a quoted name in braces is none",
+		example: ex(`password: Xk9mP2`+`vLq7Rt{"Token"}`, "Xk9mP2"+"vLq7Rt"),
+		widen:   []edit{{`if rest[0] == '[' && quotedName(rest[1:end-1]) {`, `if quotedName(rest[1:end-1]) {`}},
+		near: func(g *gen, n int) (string, func() string) {
+			q := nthOf([]string{`"`, `'`}, n)
+			name := nthOf([]string{"Token", strings.ToLower(g.pick(gapWords)) + "_key", "access_token", g.pick(gapWords) + g.pick(gapWords)}, n/2)
+			return keyLine(g, nearSeps, "{"+q+name+q+"}"), func() string { return nearToken(g) }
+		},
+	},
+	{
 		id: "index.name.shell", shape: "name_index",
 		what:    "a name of words before an index is no code in a shell assignment",
 		example: ex("DB_PASSWORD=candle"+"Basket[x9]", "candle"+"Basket"),
@@ -513,6 +573,43 @@ var oracleBounds = []oracleBound{
 		},
 	},
 	{
+		id: "index.path.prefix", shape: "name_index",
+		what:    "a member path has nothing before its first name but '@' and '$', or '::'",
+		example: ex("password: %Summer"+".Winter[i]", "%Summer"+".Winter"),
+		widen:   []edit{{`path := memberPath(strings.TrimLeft(v, "@$"))`, `path := memberPath(strings.TrimLeft(v, "@$%"))`}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf(indexTails, n/len(farPathPrefix))), func() string {
+				return nth(farPathPrefix, n) + g.pick(gapWords) + "." + g.pick(gapWords)
+			}
+		},
+	},
+	{
+		id: "index.path.suffix", shape: "name_index",
+		what:    "a member path ends in its last name, perhaps followed by '?' or '!'",
+		example: ex("password: Summer.Win"+"ter#[0]", "Summer.Win"+"ter#"),
+		widen:   []edit{{`v = strings.TrimRight(v, "?!")`, `v = strings.TrimRight(v, "?!#")`}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf(indexTails, n/len(farPathSuffix))), func() string {
+				return g.pick(gapWords) + "." + g.pick(gapWords) + nth(farPathSuffix, n)
+			}
+		},
+	},
+	{
+		id: "index.path.separator", shape: "name_index",
+		what:    "the names of a member path are joined by '.' or '::' only",
+		example: ex("password: Summer/"+"Winter[0]", "Summer/"+"Winter"),
+		widen:   []edit{{`func(r rune) bool { return r == '.' })`, `func(r rune) bool { return r == '.' || r == '/' })`}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf(indexTails, n/len(farPathSeparator))), func() string {
+				sep := nth(farPathSeparator, n)
+				if n%7 == 6 {
+					sep = ":::"
+				}
+				return g.pick(gapWords) + sep + g.pick(gapWords)
+			}
+		},
+	},
+	{
 		id: "index.path.parts", shape: "name_index",
 		what:    "a member path has two names or more",
 		example: ex("password: lantern"+"marble[0]", "lantern"+"marble"),
@@ -529,7 +626,7 @@ var oracleBounds = []oracleBound{
 	},
 	{
 		id: "index.path.dots", shape: "name_index",
-		what:    "a member path has no ".."",
+		what:    `a member path has no ".."`,
 		example: ex("password: Summer"+"..Winter[2]", "Summer"+"..Winter"),
 		widen:   []edit{{`strings.Contains(v, "..") || `, ``}},
 		near: func(g *gen, n int) (string, func() string) {
