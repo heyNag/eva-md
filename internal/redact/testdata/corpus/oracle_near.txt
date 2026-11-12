@@ -81,6 +81,9 @@ secret = '⟦*Garden¦7Pillow⟧'
 === secret oracle_near_yaml_alias alias.words: an alias's name has two words or more, or is one word of lower-case letters
 password: '⟦*Lant¦ernsx⟧'
 
+=== secret oracle_near_yaml_alias alias.words: a random name with a '_' inside
+password: '⟦*Xk9m_P¦2vLq7⟧'
+
 === secret oracle_near_yaml_alias alias.lower: an alias's name of one word is lower-case letters only
 password: '⟦*lant¦ern42⟧'
 
@@ -163,6 +166,9 @@ token: '⟦amber¦Falcon⟧'[0]!)
 === secret oracle_near_name_index index.quoted.words: an index by a quoted name, which any value may have before it, holds a name of words
 api_key: '⟦Jd4Hs8¦Wq2Nc6⟧'["Qw3zR8"]
 
+=== secret oracle_near_name_index index.quoted.words: a random quoted name with a '_' inside
+token: '⟦Vb6Lm3¦Xs8Fk1⟧'["Zp4_rT9"]
+
 === secret oracle_near_name_index index.quoted.bracket: an index by a quoted name is in square brackets: a quoted name in braces is none
 password: '⟦Xk9mP2¦vLq7Rt⟧'{"Token"}
 
@@ -183,6 +189,9 @@ password: '⟦pepper$¦Garden⟧'[x9]
 
 === secret oracle_near_name_index index.name.words: a name before an index that is no member path or instance variable has two words or more
 password: '⟦Lant¦ern42⟧'[0]
+
+=== secret oracle_near_name_index index.name.words: a random name with a '_' inside
+password = '⟦Jt5m_K¦w2Pv8Rz⟧'[x9]
 
 === secret oracle_near_name_index words.digits.count: a name of words has 4 digits at most after a word
 password: '⟦Summer12¦345Winter⟧'[0]
@@ -229,6 +238,9 @@ password: '⟦Copper.Gar¦$denRiver⟧'[i]
 === secret oracle_near_name_index index.path.part.words: each name of a member path is made of words, is one character, or is a short lower-case name
 secret: '⟦Bn7Kx2¦.qW4mZ9⟧'[2]
 
+=== secret oracle_near_name_index index.path.part.words: a random name with a '_' inside
+password: '⟦Summer.Q¦m7_Rt2x⟧'[2]
+
 === secret oracle_near_name_index index.path.part.one: a name of a member path that is not made of words is one character, not two
 password: '⟦Summ¦er.Wq⟧'[2]
 
@@ -252,6 +264,9 @@ auth_token: '⟦@Vc3Lp¦8Hy5Mt⟧'[i]
 
 === secret oracle_near_name_index index.ivar.words: a reviewer's probe, a short random name after "@@"
 password: '⟦@@Qm7¦Rt2⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.words: a random name with a '_' inside
+password: '⟦@Hd4_Wn¦8zKq⟧'[i]
 
 === secret oracle_near_name_index index.ivar.prefixed: an instance variable has a prefix: a name of one word alone is none
 password: '⟦copper¦falcon⟧'[i]

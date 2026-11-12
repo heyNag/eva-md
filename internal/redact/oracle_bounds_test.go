@@ -288,6 +288,18 @@ func insertAt(g *gen, s, c string) string {
 	return s[:i] + c + s[i:]
 }
 
+// separated makes a random name of n characters, as randomPart does, with
+// one to three separators of words of seps inside it, as in Qm7_Rt2xP: a
+// name that holds what wordLike splits words at and is still no name of
+// words.
+func separated(g *gen, n int, seps string) string {
+	s := randomPart(g, n)
+	for k := 1 + g.r.Intn(3); k > 0; k-- {
+		s = insertAt(g, s, nth(seps, g.r.Intn(len(seps))))
+	}
+	return s
+}
+
 var indexTails = []string{"[x9]", "[0]", "[i]", "{a}"}
 
 // oracleBounds are the bounds, by shape, in the order of the code.
@@ -806,9 +818,13 @@ var oracleBounds = []oracleBound{
 		what:    "an index by a quoted name, which any value may have before it, holds a name of words",
 		example: ex(`api_key: Jd4Hs8`+`Wq2Nc6["Qw3zR8"]`, "Jd4Hs8"+"Wq2Nc6"),
 		widen:   []edit{{`== "" && wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1)`, `== ""`}},
+		more: [][]edit{
+			// A name that holds a separator of words, as a name of words does.
+			{{`== "" && wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1)`, `== "" && (wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1) || strings.ContainsAny(name, "_-."))`}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			q := nthOf([]string{`"`, `'`}, n)
-			inside := nthOf([]string{randomPart(g, 6), "ab", "x9", randomPart(g, 4)}, n/2)
+			inside := nthOf([]string{randomPart(g, 6), "ab", "x9", randomPart(g, 4), separated(g, 6+g.r.Intn(8), "_-."), "a_b", "x-9"}, n/2)
 			return keyLine(g, nearSeps, "["+q+inside+q+"]"), func() string { return nearToken(g) }
 		},
 	},
@@ -901,8 +917,16 @@ var oracleBounds = []oracleBound{
 		what:    "a name before an index that is no member path or instance variable has two words or more",
 		example: ex("password: Lantern"+"42[0]", "Lantern"+"42"),
 		widen:   []edit{{"wordLike(v, 2), true", "wordLike(v, 1), true"}},
+		more: [][]edit{
+			// A name that holds a '_', as a name of words does.
+			{{"wordLike(v, 2), true", "(wordLike(v, 2) || strings.Contains(v, \"_\")), true"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				if n%2 == 1 {
+					// A random name with a '_' inside.
+					return separated(g, 9+g.r.Intn(12), "_")
+				}
 				w := g.pick(gapWords)
 				return w + g.chars(max(1, 8-len(w))+g.r.Intn(2), digits)
 			}
@@ -1101,12 +1125,20 @@ var oracleBounds = []oracleBound{
 		what:    "each name of a member path is made of words, is one character, or is a short lower-case name",
 		example: ex("secret: Bn7Kx2."+"qW4mZ9[2]", "Bn7Kx2."+"qW4mZ9"),
 		widen:   []edit{{`if !memberSegment.MatchString(p) || !(wordLike(p, 1) || len(p) == 1 || len(p) <= 4 && strings.Trim(p, "abcdefghijklmnopqrstuvwxyz") == "") {`, `if !memberSegment.MatchString(p) {`}},
+		more: [][]edit{
+			// A name that holds a '_', as a name of words does.
+			{{`if !memberSegment.MatchString(p) || !(wordLike(p, 1) ||`, `if !memberSegment.MatchString(p) || !(wordLike(p, 1) || strings.Contains(p, "_") ||`}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{"[2]", "[i]", "[x9]", " { x }"}, n)), func() string {
-				if n%2 == 0 {
+				switch n % 3 {
+				case 0:
 					return g.pick(gapWords) + "." + nearToken(g)
+				case 1:
+					return nearToken(g) + "." + nearToken(g)
 				}
-				return nearToken(g) + "." + nearToken(g)
+				// Random names with a '_' inside.
+				return g.pick(gapWords) + "." + separated(g, 6+g.r.Intn(10), "_")
 			}
 		},
 	},
@@ -1198,12 +1230,18 @@ var oracleBounds = []oracleBound{
 			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || len(name) <= 6)"}},
 			// A name that starts with a capital.
 			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || name[0] >= 'A' && name[0] <= 'Z')"}},
+			// A name that holds a '_', as a name of words does.
+			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || strings.Contains(name, \"_\"))"}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
 				// Names of every length from what the floor takes, 8 characters
 				// with the prefix, to 22.
 				p := nthOf([]string{"@", "@@"}, n)
+				if n%3 == 2 {
+					// A name with a '_' inside, which memberSegment takes.
+					return p + separated(g, 6+g.r.Intn(12), "_")
+				}
 				return p + randomPart(g, 8-len(p)+n/2%(15+len(p)))
 			}
 		},
@@ -1333,10 +1371,19 @@ var oracleBounds = []oracleBound{
 		what:    "an alias's name has two words or more, or is one word of lower-case letters",
 		example: ex("password: *Lantern"+"sx", "*Lantern"+"sx"),
 		widen:   []edit{{"return wordLike(name, 2) ||", "return wordLike(name, 1) ||"}},
+		more: [][]edit{
+			// A name that holds a '_', as a name of words does.
+			{{"return wordLike(name, 2) ||", "return wordLike(name, 2) || strings.Contains(name, \"_\") ||"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, []string{": ", ":", " := "}, ""), func() string {
-				if n%2 == 0 {
+				switch n % 4 {
+				case 0:
 					return "*" + nearToken(g)
+				case 2:
+					// A name with '_', '-' or '.' inside, which aliasName takes
+					// as separators of words.
+					return "*" + separated(g, 9+g.r.Intn(12), "_-.")
 				}
 				w := g.pick(gapWords)
 				return "*" + w + g.chars(max(2, 9-len(w)), "abcdefghijklmnopqrstuvwxyz")
