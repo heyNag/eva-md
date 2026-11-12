@@ -390,7 +390,7 @@ func checkChange(step Step, t *tree, c Change) error {
 	final := maps.Clone(inTree)
 	removed := map[string]bool{}
 	for _, p := range c.Remove {
-		if err := checkPath(p, false); err != nil {
+		if err := checkPath(p); err != nil {
 			return err
 		}
 		if !inTree[p] || removed[p] {
@@ -403,7 +403,7 @@ func checkChange(step Step, t *tree, c Change) error {
 		delete(final, p)
 	}
 	for p := range c.Write {
-		if err := checkPath(p, true); err != nil {
+		if err := checkPath(p); err != nil {
 			return err
 		}
 		final[p] = true
@@ -462,18 +462,15 @@ func checkChange(step Step, t *tree, c Change) error {
 }
 
 // checkPath refuses a path that is not plain and relative, names a folder
-// .git in any case, or is one of the runner's; and, for a path written, a
-// git settings file at any depth, in any case.
-func checkPath(p string, write bool) error {
+// .git in any case, or is one of the runner's. checkChange refuses a git
+// settings file at any other path of the result.
+func checkPath(p string) error {
 	if p == "" || !utf8.ValidString(p) || strings.HasPrefix(p, "/") || strings.ContainsFunc(p, func(r rune) bool { return r < 0x20 || r == 0x7f || r == '\\' }) {
 		return errors.New("migrate: the step names a path that is not plain")
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == "" || seg == "." || seg == ".." || strings.EqualFold(seg, ".git") {
 			return errors.New("migrate: the step names a path that is not plain")
-		}
-		if write && slices.ContainsFunc(gitFiles, func(g string) bool { return strings.EqualFold(seg, g) }) {
-			return errors.New("migrate: the step writes a git settings file")
 		}
 	}
 	for _, q := range owned {
