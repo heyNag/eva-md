@@ -53,6 +53,23 @@ import (
 //     more lower-case letters is a word for wordLike.
 //   - wordLike's characters: every caller also asks for memberSegment or the
 //     quoted name's characters.
+//   - memberSegment's first character, a letter or '_': wordLike, which
+//     every caller also asks for, refuses a digit before the first word.
+//   - keySeparator's test of a shell assignment, a key directly followed by
+//     a single '=': each exception it refuses (type.shell, index.name.shell,
+//     regex.shell) has near cases of KEY= and export KEY=, so a change that
+//     reads fewer keys as shell assignments keeps them.
+//   - closeBracket's nesting of brackets beyond the one that opens: a
+//     bracket inside that never closes leaves the first one open
+//     (index.closes), and one that closes on the wrong bracket fails as
+//     index.closes.match does.
+//   - The rest of the line plainCode looks at, rest: it ends at the line's
+//     end (index.closes.line) and maxCodeScan past the value
+//     (index.closes.scan, alias.whole).
+//
+// Some exceptions are read twice: lineValue, for the value rules, reads a
+// type annotation as plainCode does, so a widening of a type's bound widens
+// both, or the value rules take the secret before the floor is asked.
 
 // edit is a change of redact.go: old, which occurs there exactly once,
 // becomes new.
@@ -245,12 +262,18 @@ var oracleBounds = []oracleBound{
 			{{`(?:os\.environ|process\.env|self|config)\.[A-Za-z_][A-Za-z0-9_]*`, `(?:os\.environ|process\.env|self|config)\.[A-Za-z0-9_][A-Za-z0-9_]*`}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
+			// Names of fewer than 20 characters, which the entropy rule leaves
+			// to the floor.
+			prefixes := []string{"$", "self.", "config.", "os.environ.", "process.env."}
 			return keyLine(g, nearSeps, ""), func() string {
-				if n%4 == 3 {
-					// A name that starts with a digit.
-					return nthOf([]string{"$", "self.", "config.", "os.environ.", "process.env."}, n/4) + g.chars(1, digits) + nearToken(g)
+				switch n % 3 {
+				case 0:
+					return "$" + insertAt(g, randomPart(g, 9+g.r.Intn(6)), nth(farVariable, n/3))
+				case 1:
+					return nthOf(prefixes[1:], n/3) + insertAt(g, randomPart(g, 9+g.r.Intn(6)), nth(farVariable, n/3))
 				}
-				return g.pick([]string{"$", "$", "self.", "config."}) + insertAt(g, nearToken(g), nth(farVariable, n))
+				// A name that starts with a digit.
+				return nthOf(prefixes, n/3) + g.chars(1, digits) + randomPart(g, 9+g.r.Intn(6))
 			}
 		},
 	},
@@ -322,6 +345,8 @@ var oracleBounds = []oracleBound{
 		widen: []edit{
 			{`(?:[ \t]+=[ \t]+|$)`, `(?:[ \t]+=[ \t]*|$)`},
 			{`if line[t[1]-1] == ' ' || line[t[1]-1] == '\t' || t[3] > t[2] {`, `if line[t[1]-1] == ' ' || line[t[1]-1] == '=' || t[3] > t[2] {`},
+			// lineValue reads the annotation too, before the floor does.
+			{`case v[t[1]-1] == ' ' || v[t[1]-1] == '\t':`, `case v[t[1]-1] == ' ' || v[t[1]-1] == '=':`},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{" =1", " =None", " =x"}, n)), func() string { return nearToken(g) }
@@ -340,7 +365,11 @@ var oracleBounds = []oracleBound{
 		id: "type.bare", shape: "type_annotation",
 		what:    "a type with no union and no assignment after it is no annotation",
 		example: ex("password: Xk9mP2"+"vLq7Rt<ab>", "Xk9mP2"+"vLq7Rt"),
-		widen:   []edit{{`if line[t[1]-1] == ' ' || line[t[1]-1] == '\t' || t[3] > t[2] {`, `if true {`}},
+		widen: []edit{
+			{`if line[t[1]-1] == ' ' || line[t[1]-1] == '\t' || t[3] > t[2] {`, `if len(line) > 0 {`},
+			// lineValue reads the annotation too, before the floor does.
+			{"case t[3] > t[2]:\n\t\t\treturn span{}, false, false", "case t[3] >= t[2]:\n\t\t\treturn span{}, false, false"},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{"<ab>", "[ab]", "<T>", "[x9]"}, n)), func() string { return nearToken(g) }
 		},
@@ -412,20 +441,20 @@ var oracleBounds = []oracleBound{
 	},
 	{
 		id: "type.name.index", shape: "type_annotation",
-		what:    "an index on a type closes on its line",
-		example: ex("password: Gm5Tz1"+"Ry8Pv3[ab = 1", "Gm5Tz1"+"Ry8Pv3"),
-		widen:   []edit{{`(?:\[[^\]\r\n]*\]|`, `(?:\[[^\]\r\n]*\]?|`}},
+		what:    "an index on a type ends at its first ']', which closes it on its line",
+		example: ex("password: Gm5Tz1"+"Ry8Pv3[a]b] = 1", "Gm5Tz1"+"Ry8Pv3"),
+		widen:   []edit{{`(?:\[[^\]\r\n]*\]|`, `(?:\[[^\r\n]*\]|`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[ab = 1", "[x9 | None", "[i = x"}, n)), func() string { return nearToken(g) }
+			return keyLine(g, nearSeps, nthOf([]string{"[a]b] = 1", "[x]9] | None", "[i]]] = x", "[0]a]? = 1", "[ab = 1", "[x9 | None"}, n)), func() string { return nearToken(g) }
 		},
 	},
 	{
 		id: "type.name.generic", shape: "type_annotation",
-		what:    "a generic's '<' on a type closes on its line",
-		example: ex("password: Bn7Kx2"+"qW4mZ9<ab = 1", "Bn7Kx2"+"qW4mZ9"),
-		widen:   []edit{{`|<[^>\r\n]*>)?`, `|<[^>\r\n]*>?)?`}},
+		what:    "a generic on a type ends at its first '>', which closes it on its line",
+		example: ex("password: Bn7Kx2"+"qW4mZ9<a>b> = 1", "Bn7Kx2"+"qW4mZ9"),
+		widen:   []edit{{`|<[^>\r\n]*>)?`, `|<[^\r\n]*>)?`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"<ab = 1", "<T | None", "<x = 1"}, n)), func() string { return nearToken(g) }
+			return keyLine(g, nearSeps, nthOf([]string{"<a>b> = 1", "<T>U> | None", "<x>>> = 1", "<ab = 1", "<T | None"}, n)), func() string { return nearToken(g) }
 		},
 	},
 	{

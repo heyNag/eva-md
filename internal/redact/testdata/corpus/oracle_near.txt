@@ -246,11 +246,20 @@ password: '⟦Xk9mP2+¦vLq7/Rt⟧' = 1
 === secret oracle_near_type_annotation type.name.rest: a type's name holds no '/'
 secret: '⟦Hq4Wz7/¦Lp2Kv9⟧' | None
 
-=== secret oracle_near_type_annotation type.name.index: an index on a type closes on its line
-password: '⟦Gm5Tz1¦Ry8Pv3⟧'[ab = 1
+=== secret oracle_near_type_annotation type.name.rest: a type's name holds no '+'
+token: '⟦Pw8Dn3+¦Gz5Rk1⟧' = 1
 
-=== secret oracle_near_type_annotation type.name.generic: a generic's '<' on a type closes on its line
-password: '⟦Bn7Kx2¦qW4mZ9⟧'<ab = 1
+=== secret oracle_near_type_annotation type.name.index: an index on a type ends at its first ']', which closes it on its line
+password: '⟦Gm5Tz1¦Ry8Pv3⟧'[a]b] = 1
+
+=== secret oracle_near_type_annotation type.name.index: an index on a type that never closes
+password: '⟦Jc6Wr2¦Mt9Hs4⟧'[ab = 1
+
+=== secret oracle_near_type_annotation type.name.generic: a generic on a type ends at its first '>', which closes it on its line
+password: '⟦Bn7Kx2¦qW4mZ9⟧'<a>b> = 1
+
+=== secret oracle_near_type_annotation type.name.generic: a generic on a type that never closes
+password: '⟦Fd2Lx8¦Qp5Vn7⟧'<ab = 1
 
 === secret oracle_near_type_annotation type.name.optional: a type ends in one '?' at most
 password: '⟦Vc3Lp8H¦y5Mt2??⟧' = 1
