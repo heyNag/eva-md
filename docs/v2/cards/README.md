@@ -51,14 +51,14 @@ Rules every card carries, so they are said once here:
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | built, on a branch; in review since 2026-11-12 (redaction), and merges when its reviewers and a verifier pass it |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | ready |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
-| [SEAM-0b](SEAM-0b.md) | The hook's handler list | built, on a branch; in review since 2026-11-12 (it changes every hook), and merges when its reviewers and a verifier pass it |
+| [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | ready |
-| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
+| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | ready |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | ready |
 | [HO-12a](HO-12a.md) | Health's host names through the adapter | ready |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
-| [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b and SEAM-0b |
+| [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
 | [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | ready |
 | [DV-11b](DV-11b.md) | The runner's Codex backend | after DV-11a and HO-14; beside DV-11c |
