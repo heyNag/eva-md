@@ -33,7 +33,7 @@ Rules every card carries, so they are said once here:
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
 | [CT-3b](CT-3b.md) | Counters release: the capture audit pairs a session by its id too | merged |
 | [CT-4](CT-4.md) | Counters release: a content-free report | merged |
-| [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 merged: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; the lead still reads and approves its allowlist and vocabulary before the first sitting; Part 2 may come later |
+| [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 merged: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; its allowlist and vocabulary are approved; Part 2 may come later |
 | [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | ready; merges before the owner's first sitting; it also keeps a model's name out of the recording and carries the notes of HF-00's verifier |
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | built and fixed, on a branch; its closing verification runs since 2026-11-12, and it merges when that passes |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | ready |
