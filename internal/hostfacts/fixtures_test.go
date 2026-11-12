@@ -73,10 +73,11 @@ func madeUpRecording(t *testing.T) string {
 		if i == 1 {
 			in.Reply = Hash(key, recReply)
 		}
-		snap, _, _, err := TakeSnapshot(in)
+		res, err := TakeSnapshot(in)
 		if err != nil {
 			t.Fatal(err)
 		}
+		snap := res.Snapshot
 		cost := 12.5
 		login := false
 		write(EventsFile, Event{V: 1, Mark: "C-04", Wall: fmt.Sprintf("2026-05-01T10:00:0%d.%03dZ", i+1, 100*i+7), MonoNS: 7_000_000_000 + int64(i)*1_500_000_000,

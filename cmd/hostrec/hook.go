@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,17 +17,69 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/hostfacts"
+	"github.com/heyNag/eva-md/internal/paths"
 )
 
-// The hook's time: its own work is bounded by hookBudget, past which main
-// answers {} and exits; the start arm waits startPause before it answers,
-// as step C-01 expects; a hook waits lockWait at most for another's lock.
-// Tests set startPause to nothing.
+// The hook's time. Its own work is bounded by its budget, half the limit
+// its scratch plugin declares for it and never more than hookBudget, past
+// which main answers {} and exits; so even Codex's Interrupt, declared at
+// one second, ends well inside its limit. The start arm's SessionStart
+// waits startPause more before it answers, as step C-01 expects. A hook
+// waits a third of its budget at most for another's lock, and a command
+// commandLockWait; lockWait, when tests set it, stands for both. Tests set
+// startPause to nothing.
+const startWordPause = time.Second
+
 var (
-	hookBudget = 1500 * time.Millisecond
-	startPause = time.Second
-	lockWait   = time.Second
+	hookBudget      = 1500 * time.Millisecond
+	startPause      = startWordPause
+	commandLockWait = time.Second
+	lockWait        time.Duration
 )
+
+// declaredLimit is the limit the scratch plugin declares for a hook: the
+// values setup writes in plugins.go.
+func declaredLimit(host, event, via string) time.Duration {
+	if host == hostCodex {
+		if row, ok := codexTable[event]; ok {
+			return time.Duration(row.timeout) * time.Second
+		}
+		return time.Second
+	}
+	if via == viaTimeoutCheck {
+		return claudeTimeoutCheck * time.Second
+	}
+	return claudeTimeout * time.Second
+}
+
+// budgetFor is a hook's budget: half its declared limit, at most
+// hookBudget.
+func budgetFor(host, event, via string) time.Duration {
+	return min(declaredLimit(host, event, via)/2, hookBudget)
+}
+
+// deadlineFor is when main ends a hook: its budget, and the start arm's
+// pause for the recorder's own SessionStart hook, the one that may answer
+// with the start word.
+func deadlineFor(host, event, via string) time.Duration {
+	d := budgetFor(host, event, via)
+	if event == "SessionStart" && via == "" {
+		d += startPause
+	}
+	return d
+}
+
+// hookLockWait is how long a hook waits for the recording's lock.
+func hookLockWait(budget time.Duration) time.Duration {
+	if lockWait > 0 {
+		return lockWait
+	}
+	return lockShare(budget)
+}
+
+// lockShare is the part of a hook's budget it may spend waiting for the
+// lock: a third, leaving the rest for its own work.
+func lockShare(budget time.Duration) time.Duration { return budget / 3 }
 
 const (
 	maxPayload      = 16 << 20
@@ -122,7 +175,7 @@ func hookRun(c *cli, args []string) (answer string, pause time.Duration) {
 		return "{}", 0
 	}
 	wall, mono := time.Now(), nanotime()
-	unlock, err := e.lock()
+	unlock, err := e.lockWithin(hookLockWait(budgetFor(host, event, via)))
 	if err != nil {
 		e.oops("hook", err)
 		return "{}", 0
@@ -137,7 +190,7 @@ func hookRun(c *cli, args []string) (answer string, pause time.Duration) {
 		Host: host, Event: event, Via: via, Payload: payload,
 		PayloadHashes: hostfacts.PayloadHashes(e.key, payload),
 	}
-	e.describe(&ev, payload, st)
+	commit := e.describe(&ev, payload, st)
 	out, label, wait := armAnswer(a, event, via, payload)
 	ev.Arm, ev.Answer = a.Name, label
 	if p, err := parent(os.Getppid()); err == nil {
@@ -152,13 +205,18 @@ func hookRun(c *cli, args []string) (answer string, pause time.Duration) {
 		e.oops("hook", errors.New("the event could not be written"))
 		return "{}", 0
 	}
+	// The progress moves on only once the event that described the rows is
+	// written: a hook ended between the two leaves the rows for the next.
+	commit()
 	return out, wait
 }
 
 // describe fills in what the hook reads beside the payload: the working
 // folder's git shape, the environment's names, the files added under the
-// host's folder since the mark, and the record's snapshot.
-func (e *env) describe(ev *hostfacts.Event, payload any, st state) {
+// host's folder since the mark, and the record's snapshot. It gives the
+// step that moves the hooks' progress on, which runs once the event is
+// written.
+func (e *env) describe(ev *hostfacts.Event, payload any, st state) (commit func()) {
 	if cwd := str(payload, "cwd"); filepath.IsAbs(cwd) {
 		ev.Git = gitShape(cwd)
 	}
@@ -189,6 +247,7 @@ func (e *env) describe(ev *hostfacts.Event, payload any, st state) {
 		pr.Prompts[session] = hostfacts.Hash(e.key, p)
 	}
 	seen := e.payloadHashes(ev.PayloadHashes)
+	var rows func() error
 	if path := str(payload, "transcript_path"); filepath.IsAbs(path) {
 		in := hostfacts.SnapshotInput{
 			Host: ev.Host, Path: path, Key: e.key, PayloadHashes: seen,
@@ -202,17 +261,82 @@ func (e *env) describe(ev *hostfacts.Event, payload any, st state) {
 		}
 		fileKey := hostfacts.Hash(e.key, path)
 		in.From, in.Index = pr.Files[fileKey].From, pr.Files[fileKey].Index
-		snap, next, index, err := hostfacts.TakeSnapshot(in)
+		if in.From > 0 {
+			in.Seen, in.Starts = e.rowHashes(fileKey)
+		}
+		res, err := hostfacts.TakeSnapshot(in)
 		if err != nil {
 			e.oops("hook", errors.New("the record file could not be read"))
 		} else {
-			ev.Record = &snap
-			pr.Files[fileKey] = fileProgress{next, index}
+			ev.Record = &res.Snapshot
+			pr.Files[fileKey] = fileProgress{res.Next, res.Index}
+			rows = func() error { return e.addRowHashes(fileKey, res) }
 		}
 	}
-	if err := e.put(progressFile, pr); err != nil {
-		e.oops("hook", errors.New("the hooks' progress could not be written"))
+	return func() {
+		if rows != nil {
+			if err := rows(); err != nil {
+				e.oops("hook", errors.New("the record's row hashes could not be written"))
+				return
+			}
+		}
+		if err := e.put(progressFile, pr); err != nil {
+			e.oops("hook", errors.New("the hooks' progress could not be written"))
+		}
 	}
+}
+
+// rowHashesFile, in the recording folder, holds the hashes of a record
+// file's rows described so far: "s" and the hash of each string, "t" and
+// the hash of each string of a turn-start row, one a line.
+func rowHashesFile(fileKey string) string { return "rows-" + fileKey + ".txt" }
+
+// rowHashes reads a record file's row hashes.
+func (e *env) rowHashes(fileKey string) (seen, starts map[string]bool) {
+	seen, starts = map[string]bool{}, map[string]bool{}
+	data, err := os.ReadFile(filepath.Join(e.rec, rowHashesFile(fileKey)))
+	if err != nil {
+		return seen, starts
+	}
+	for _, l := range strings.Split(string(data), "\n") {
+		kind, h, ok := strings.Cut(l, " ")
+		switch {
+		case !ok:
+		case kind == "s":
+			seen[h] = true
+		case kind == "t":
+			starts[h] = true
+		}
+	}
+	return seen, starts
+}
+
+// addRowHashes keeps the hashes a snapshot's rows add; when the file was
+// replaced, they stand in place of the earlier ones.
+func (e *env) addRowHashes(fileKey string, res hostfacts.SnapshotResult) error {
+	var b strings.Builder
+	for _, h := range res.Seen {
+		b.WriteString("s " + h + "\n")
+	}
+	for _, h := range res.Starts {
+		b.WriteString("t " + h + "\n")
+	}
+	p := filepath.Join(e.rec, rowHashesFile(fileKey))
+	if res.Restart {
+		return paths.WriteFileAtomic(p, []byte(e.repl.String(b.String())), 0o600)
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(e.repl.String(b.String()))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // payloadHashes adds this payload's hashes to the recording's list, and
@@ -244,13 +368,19 @@ func (e *env) payloadHashes(these map[string]string) map[string]bool {
 	return seen
 }
 
-// lock takes the recording's lock, waiting lockWait at most.
+// lock takes the recording's lock for a command, waiting commandLockWait
+// at most, or lockWait when tests set it.
 func (e *env) lock() (func(), error) {
+	return e.lockWithin(cmp.Or(lockWait, commandLockWait))
+}
+
+// lockWithin takes the recording's lock, waiting wait at most.
+func (e *env) lockWithin(wait time.Duration) (func(), error) {
 	f, err := os.OpenFile(filepath.Join(e.rec, lockFile), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, errors.New("the recording's lock could not be opened")
 	}
-	deadline := time.Now().Add(lockWait)
+	deadline := time.Now().Add(wait)
 	for {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {

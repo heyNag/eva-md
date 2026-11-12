@@ -32,16 +32,17 @@ import (
 func main() {
 	var out io.Writer = os.Stdout
 	if len(os.Args) > 1 && os.Args[1] == "hook" {
-		// The hook's own work is bounded: past its budget it answers {} and
-		// exits, whatever it was doing, so it stays far under the hosts'
-		// limits. Only the first answer is written.
+		// The hook's own work is bounded: past its deadline, half the limit
+		// its plugin declares for it at most, it answers {} and exits,
+		// whatever it was doing, so it stays far under the hosts' limits.
+		// Only the first answer is written.
 		once := &firstWrite{w: os.Stdout}
 		out = once
-		go func() {
-			time.Sleep(hookBudget + startPause)
+		flags, _, _ := parseArgs(os.Args[2:], []string{"host", "event", "via"}, nil)
+		time.AfterFunc(deadlineFor(flags["host"], flags["event"], flags["via"]), func() {
 			fmt.Fprintln(once, "{}")
 			os.Exit(0)
-		}()
+		})
 	}
 	os.Exit(run(os.Args[1:], os.Stdin, out, os.Stderr))
 }

@@ -88,53 +88,69 @@ type SnapshotInput struct {
 	MaxBytes int64
 	// MaxFields bounds each row's fields.
 	MaxFields int
+	// Seen holds the hash of every string of the file's rows before From,
+	// and Starts the hash of every string of its turn-start rows before
+	// From, as earlier snapshots gave them: a snapshot reads only the rows
+	// added since the last, and still knows whether a turn's rows are in
+	// the file.
+	Seen, Starts map[string]bool
 }
 
-// TakeSnapshot describes the rows of in.Path from in.From, and gives the
-// offset and row number the next snapshot starts from. A last line without
-// its newline is left for the next snapshot.
-func TakeSnapshot(in SnapshotInput) (snap Snapshot, next int64, index int, err error) {
-	next, index = in.From, in.Index
+// SnapshotResult is a snapshot, where the next one starts, and the hashes
+// its rows add to the file's.
+type SnapshotResult struct {
+	Snapshot Snapshot
+	// Next is the offset of the first row not yet described, and Index its
+	// row number.
+	Next  int64
+	Index int
+	// Restart says the file was replaced by a shorter one and read from
+	// its start: the hashes of the earlier rows no longer hold.
+	Restart bool
+	// Seen and Starts are the hashes the new rows add to in.Seen and
+	// in.Starts.
+	Seen, Starts []string
+}
+
+// TakeSnapshot describes the rows of in.Path from in.From, at most
+// in.MaxBytes of them, and gives the offset and row number the next
+// snapshot starts from. A last line without its newline is left for the
+// next snapshot. Only the new rows are read: the file's earlier rows are
+// known by their hashes, in in.Seen and in.Starts.
+func TakeSnapshot(in SnapshotInput) (SnapshotResult, error) {
+	res := SnapshotResult{Next: in.From, Index: in.Index}
 	f, err := os.Open(in.Path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Snapshot{Missing: true}, next, index, nil
+		res.Snapshot.Missing = true
+		return res, nil
 	}
 	if err != nil {
-		return snap, next, index, err
+		return res, err
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		return snap, next, index, err
+		return res, err
 	}
+	snap := &res.Snapshot
 	snap.Size, snap.Mtime = info.Size(), info.ModTime().UTC().Format(time.RFC3339Nano)
 	if in.From > info.Size() {
 		// The file was replaced by a shorter one: start again.
-		in.From, in.Index = 0, 0
-		next, index = 0, 0
+		in.From, in.Index, in.Seen, in.Starts = 0, 0, nil, nil
+		res.Next, res.Index, res.Restart = 0, 0, true
 	}
-	whole := info.Size() <= in.MaxBytes
-	start := in.From
-	if whole {
-		start = 0
+	if _, err := f.Seek(in.From, io.SeekStart); err != nil {
+		return res, err
 	}
-	limit := in.MaxBytes
-	if _, err := f.Seek(start, io.SeekStart); err != nil {
-		return snap, next, index, err
-	}
-	data, err := io.ReadAll(io.LimitReader(f, limit))
+	data, err := io.ReadAll(io.LimitReader(f, in.MaxBytes))
 	if err != nil {
-		return snap, next, index, err
+		return res, err
 	}
-	if int64(len(data)) < info.Size()-start {
+	if int64(len(data)) < info.Size()-in.From {
 		snap.Cut = true
 	}
-	seen := map[string]bool{}
-	var turnStarts []map[string]bool
-	offset, row := start, 0
-	if !whole {
-		row = in.Index
-	}
+	seen, starts := map[string]bool{}, map[string]bool{}
+	offset, row := in.From, in.Index
 	for len(data) > 0 {
 		nl := bytes.IndexByte(data, '\n')
 		if nl < 0 {
@@ -143,42 +159,45 @@ func TakeSnapshot(in SnapshotInput) (snap Snapshot, next int64, index int, err e
 		}
 		line := data[:nl]
 		data = data[nl+1:]
-		r := describeRow(in, line, row)
+		v, derr := Decode(line)
+		r := describeRow(in, v, derr, row)
 		r.Offset, r.Size = offset, len(line)
-		hashes := rowHashes(in.Key, line)
+		snap.Rows = append(snap.Rows, r)
+		hashes := rowHashes(in.Key, v, derr)
+		start := derr == nil && turnStartRow(in.Host, v)
 		for h := range hashes {
-			seen[h] = true
-		}
-		if turnStartRow(in.Host, line) {
-			turnStarts = append(turnStarts, hashes)
-		}
-		if offset >= in.From {
-			snap.Rows = append(snap.Rows, r)
-			next, index = offset+int64(nl)+1, row+1
+			if !in.Seen[h] && !seen[h] {
+				seen[h] = true
+				res.Seen = append(res.Seen, h)
+			}
+			if start && !in.Starts[h] && !starts[h] {
+				starts[h] = true
+				res.Starts = append(res.Starts, h)
+			}
 		}
 		offset += int64(nl) + 1
 		row++
+		res.Next, res.Index = offset, row
 	}
-	if whole {
+	slices.Sort(res.Seen)
+	slices.Sort(res.Starts)
+	// Presence is known only when every row written so far was read.
+	if !snap.Cut {
 		p := &Presence{}
 		if in.Reply != "" {
-			p.Reply = ptr(seen[in.Reply])
+			p.Reply = ptr(in.Seen[in.Reply] || seen[in.Reply])
 		}
 		if in.Prompt != "" {
-			p.Prompt = ptr(seen[in.Prompt])
+			p.Prompt = ptr(in.Seen[in.Prompt] || seen[in.Prompt])
 		}
 		if in.Turn != "" && in.Host == string(adapter.Codex) {
-			found := false
-			for _, hs := range turnStarts {
-				found = found || hs[in.Turn]
-			}
-			p.TurnStart = ptr(found)
+			p.TurnStart = ptr(in.Starts[in.Turn] || starts[in.Turn])
 		}
 		if p.Reply != nil || p.Prompt != nil || p.TurnStart != nil {
 			snap.Presence = p
 		}
 	}
-	return snap, next, index, nil
+	return res, nil
 }
 
 func ptr(b bool) *bool { return &b }
@@ -195,10 +214,9 @@ func PayloadHashes(key []byte, v any) map[string]string {
 	return out
 }
 
-// rowHashes gives the hash of every string of a row.
-func rowHashes(key, line []byte) map[string]bool {
+// rowHashes gives the hash of every string of a decoded row.
+func rowHashes(key []byte, v any, err error) map[string]bool {
 	out := map[string]bool{}
-	v, err := Decode(line)
 	if err != nil {
 		return out
 	}
@@ -255,13 +273,9 @@ func has(v any, keys ...string) bool {
 	return v != nil
 }
 
-// turnStartRow reports a Codex row that starts a turn.
-func turnStartRow(host string, line []byte) bool {
+// turnStartRow reports a decoded Codex row that starts a turn.
+func turnStartRow(host string, v any) bool {
 	if host != string(adapter.Codex) {
-		return false
-	}
-	v, err := Decode(line)
-	if err != nil {
 		return false
 	}
 	pt := field(v, "payload", "type")
@@ -280,8 +294,28 @@ func IDShaped(s string) bool { return idShape.MatchString(s) }
 
 // hashedWords are the words that keep a field's string a hash even where
 // every enum-shaped string is kept: a model, an effort level, a plan or
-// tier, or a version.
-var hashedWords = []string{"model", "effort", "tier", "plan", "version"}
+// tier, a version, or a git branch, whose name is the account's.
+var hashedWords = []string{"model", "effort", "tier", "plan", "version", "branch"}
+
+// freeTextKeys are the keys under which a host writes text: what was said,
+// a tool's output or input, a command. On a row type whose every
+// enum-shaped string is kept, a string at or under one of these keys stays
+// a hash, so a tool's one-word output or a lowercase token is never kept.
+var freeTextKeys = map[string]bool{
+	"content": true, "text": true, "stdout": true, "stderr": true, "output": true, "message": true,
+	"prompt": true, "transcript": true, "tooluseresult": true, "result": true, "summary": true,
+	"input": true, "command": true, "arguments": true, "args": true, "instructions": true,
+}
+
+// freeTextPath reports a path at or under a free-text key.
+func freeTextPath(path []string) bool {
+	for _, seg := range path {
+		if freeTextKeys[strings.ToLower(seg)] {
+			return true
+		}
+	}
+	return false
+}
 
 // rowKind sorts a row by what the allowlist keeps of it.
 type rowKind struct {
@@ -316,7 +350,7 @@ func kindOf(host string, v any, index int) rowKind {
 func listed(k rowKind, path []string) bool {
 	p := strings.Join(path, ".")
 	last := path[len(path)-1]
-	if last == "reason" || last == "source" {
+	if (last == "reason" || last == "source") && !freeTextPath(path[:len(path)-1]) {
 		return true
 	}
 	if k.codex {
@@ -379,9 +413,8 @@ func isIndex(s string) bool {
 	return true
 }
 
-func describeRow(in SnapshotInput, line []byte, index int) Row {
+func describeRow(in SnapshotInput, v any, err error, index int) Row {
 	r := Row{Index: index}
-	v, err := Decode(line)
 	if err != nil {
 		r.Invalid = true
 		return r
@@ -432,7 +465,7 @@ func describe(in SnapshotInput, k rowKind, path []string, x any) Field {
 	case string:
 		f.Type = "string"
 		switch {
-		case enumShape.MatchString(t) && !hashedPath(path) && (listed(k, path) || k.core):
+		case enumShape.MatchString(t) && !hashedPath(path) && (listed(k, path) || k.core && !freeTextPath(path)):
 			f.Value = t
 		case IDShaped(t):
 			f.Value = t

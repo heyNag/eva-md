@@ -323,6 +323,92 @@ func TestTheHookKeepsTheValuesTheCoreFactsRead(t *testing.T) {
 	}
 }
 
+// Every scratch hook ends well inside the limit its plugin declares: its
+// budget is half that limit at most, its wait for the lock a third of its
+// budget, and only the recorder's own SessionStart hook, whose limit is
+// long, adds the start word's pause. Codex's Interrupt, declared at one
+// second, ends in half of one.
+func TestEveryHookEndsWellInsideItsLimit(t *testing.T) {
+	tools := "/made/up/hf-tools"
+	n := 0
+	for host, hooks := range map[string]map[string]any{hostClaude: claudeHooks(tools), hostCodex: codexHooks(tools)} {
+		for event, groups := range hooks["hooks"].(map[string]any) {
+			for _, g := range groups.([]hookGroup) {
+				for _, h := range g["hooks"].([]hookEntry) {
+					cmd := h["command"].(string)
+					via := ""
+					if strings.HasSuffix(cmd, "hf-exec-check") {
+						via = "exec-check"
+					} else {
+						flags, _, err := parseArgs(strings.Fields(strings.ReplaceAll(cmd[strings.Index(cmd, " hook ")+6:], "'", "")), []string{"host", "event", "via"}, nil)
+						if err != nil || flags["host"] != host || flags["event"] != event {
+							t.Fatalf("%s %s: %q does not read: %v", host, event, cmd, err)
+						}
+						via = flags["via"]
+					}
+					limit := time.Duration(h["timeout"].(int)) * time.Second
+					if got := declaredLimit(host, event, via); got != limit {
+						t.Errorf("%s %s %s: the hook takes its limit as %v, the plugin declares %v", host, event, via, got, limit)
+					}
+					budget := budgetFor(host, event, via)
+					end := budget
+					if event == "SessionStart" && via == "" {
+						end += startWordPause
+					}
+					if budget > limit/2 || end >= limit || lockShare(budget) >= budget {
+						t.Errorf("%s %s %s: budget %v, end %v, lock wait %v, for a limit of %v", host, event, via, budget, end, lockShare(budget), limit)
+					}
+					n++
+				}
+			}
+		}
+	}
+	if n < len(claudeEvents)+len(codexEvents) {
+		t.Errorf("only %d hooks read", n)
+	}
+	if b := budgetFor(hostCodex, "Interrupt", ""); b >= time.Second || b > 500*time.Millisecond {
+		t.Errorf("Codex's Interrupt has a budget of %v", b)
+	}
+}
+
+// The hooks' progress through a record file moves on only once the event
+// that describes its rows is written: a hook that could not write its event
+// leaves the rows for the next.
+func TestTheHookMovesOnOnlyOnceTheEventIsWritten(t *testing.T) {
+	h := newHome(t)
+	h.setup(t)
+	h.must(t, "", "mark", "C-02")
+	t.Setenv("HF_PROGRAM_MARK", "made-up")
+	tr := newTranscript(t, filepath.Join(h.home, ".claude", "projects", "-made-up", sessionID+".jsonl"))
+	tr.add(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": "made up"}})
+	payload := map[string]any{"session_id": sessionID, "transcript_path": tr.path, "hook_event_name": "PreToolUse"}
+	// An events file that cannot be written: a folder in its place, which
+	// stops root too.
+	events := filepath.Join(h.rec, hostfacts.EventsFile)
+	if err := os.Mkdir(events, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if answer := h.hook(t, "claude-code", "PreToolUse", payload); answer != "{}" {
+		t.Errorf("the hook answered %s", answer)
+	}
+	if err := os.Remove(events); err != nil {
+		t.Fatal(err)
+	}
+	h.hook(t, "claude-code", "PreToolUse", payload)
+	evs := h.events(t)
+	if len(evs) != 1 || len(snapshotRows(evs[0])) != 1 {
+		t.Fatalf("the row the first hook could not keep is not in the second's event: %d events", len(evs))
+	}
+	// The transcript, added under the host's folder after the mark, is
+	// counted by its name pattern, and the made-up mark is named.
+	if fa, _ := evs[0]["files_added"].(map[string]any); fa["projects/*/*.jsonl"] != float64(1) {
+		t.Errorf("files added: %v", evs[0]["files_added"])
+	}
+	if marks, _ := evs[0]["env_marks"].([]any); len(marks) != 1 || marks[0] != "HF_PROGRAM_MARK" {
+		t.Errorf("env marks: %v", evs[0]["env_marks"])
+	}
+}
+
 // The hook's answer is written once, whether its own or the budget's.
 func TestFirstWriteOnly(t *testing.T) {
 	var b strings.Builder

@@ -44,8 +44,12 @@ var codexTable = map[string]codexRow{
 }
 
 // claudeTimeout is each Claude Code scratch hook's limit in seconds, but
-// the one of F-092's timeout step.
-const claudeTimeout = 30
+// the one of F-092's timeout step, which declares claudeTimeoutCheck.
+const (
+	claudeTimeout      = 30
+	claudeTimeoutCheck = 2
+	viaTimeoutCheck    = "timeout-check"
+)
 
 // The plugins' names, and the marketplace both hosts know them by.
 const (
@@ -91,7 +95,7 @@ func claudeHooks(tools string) map[string]any {
 			groups = append(groups,
 				group("", hookEntry{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hf-exec-check", "args": []string{ev}, "timeout": claudeTimeout}),
 				group("", hookEntry{"type": "command", "command": hookCommand(filepath.Join(tools, "hf-missing-check"), hostClaude, ev, "missing-check"), "timeout": claudeTimeout}),
-				group("", hookEntry{"type": "command", "command": hookCommand(bin, hostClaude, ev, "timeout-check"), "timeout": 2}),
+				group("", hookEntry{"type": "command", "command": hookCommand(bin, hostClaude, ev, viaTimeoutCheck), "timeout": claudeTimeoutCheck}),
 			)
 		}
 		hooks[ev] = groups
