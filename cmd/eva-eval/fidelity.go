@@ -22,13 +22,17 @@ import (
 
 // eva-eval fidelity scores the pages v1's update wrote on its 12 accuracy
 // scripts, as the live accuracy run's --pages writes them: for each of
-// v1's ported scenarios it reads v1.NN.md, a missing page being an empty
-// store, scores it, and appends a row for each of the scorer's metrics, of
-// scenario v1.NN, then the suite's totals as scenario v1: the counts
-// summed, and each share of the facts that must be stored and are still
-// in force taken over all of the suite's. It prints one line for each
-// scenario, of numbers and outcome codes only, and the notes that say how
-// to read them.
+// v1's ported scenarios it reads v1.NN.md, scores it, and appends a row
+// for each of the scorer's metrics, of scenario v1.NN, then the suite's
+// totals as scenario v1: the counts summed, and each share of the facts
+// that must be stored and are still in force taken over all of the
+// suite's. It prints one line for each scenario, of numbers and outcome
+// codes only, and the notes that say how to read them. When any of the 12
+// pages is missing, as after a run that stopped part way, it still prints
+// each scenario's line, a missing page scored as an empty store and marked
+// no_page, but appends no row at all, says on stderr how many pages were
+// missing and exits 1: a suite's row from fewer pages would read like
+// v1's.
 func init() {
 	register(instrument{
 		name:     "fidelity",
@@ -93,6 +97,33 @@ func fidelityCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	if found == 0 {
 		return fail(errOut, errors.New("--pages holds none of v1's pages, v1.01.md to v1.12.md"))
 	}
+	pasted := pastedScenarios(scenarios)
+	lines := make([]string, len(scenarios))
+	for i, sc := range scenarios {
+		lines[i] = figures(sc.ID, all[i].res.Metrics) + "; " + outcomes(all[i].res)
+		if all[i].noPage {
+			lines[i] += "; no_page"
+		}
+		if slices.Contains(portBeyondV1, sc.ID) {
+			lines[i] += " [1]"
+		}
+		if slices.Contains(pasted, sc.ID) {
+			lines[i] += " [2]"
+		}
+	}
+	notes := func() {
+		fmt.Fprintf(out, "[1] v1's own correct outputs do not hold every fact of the port on %s, so fact_holds there is below 1 even when v1's run is right by its own measure.\n", strings.Join(portBeyondV1, ", "))
+		fmt.Fprintf(out, "[2] The scorer cannot read a negation, so violations on %s, whose chats hold pasted text, is a lower bound.\n", strings.Join(pasted, ", "))
+	}
+	if missing := len(scenarios) - found; missing > 0 {
+		for _, l := range lines {
+			fmt.Fprintln(out, l)
+		}
+		notes()
+		fmt.Fprintf(errOut, "eva-eval: %d of v1's %d pages are missing, so no row was written: the suite's rows come only from all %d pages, never from a run that stopped part way\n",
+			missing, len(scenarios), len(scenarios))
+		return 1
+	}
 	commit, dirty, err := results.Source(ctx, *repo)
 	if err != nil {
 		return fail(errOut, err)
@@ -132,30 +163,18 @@ func fidelityCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	if err := store.Append(rows...); err != nil {
 		return fail(errOut, err)
 	}
-	pasted := pastedScenarios(scenarios)
-	for i, sc := range scenarios {
-		line := figures(sc.ID, all[i].res.Metrics) + "; " + outcomes(all[i].res)
-		if all[i].noPage {
-			line += "; no_page"
-		}
-		if slices.Contains(portBeyondV1, sc.ID) {
-			line += " [1]"
-		}
-		if slices.Contains(pasted, sc.ID) {
-			line += " [2]"
-		}
-		fmt.Fprintln(out, line)
+	for _, l := range lines {
+		fmt.Fprintln(out, l)
 	}
 	fmt.Fprintf(out, "%s; facts that must hold: %d, holding: %d, found: %d\n", figures(suiteScenario, total.Metrics), required, held, recalled-held)
-	fmt.Fprintf(out, "[1] v1's own correct outputs do not hold every fact of the port on %s, so fact_holds there is below 1 even when v1's run is right by its own measure.\n", strings.Join(portBeyondV1, ", "))
-	fmt.Fprintf(out, "[2] The scorer cannot read a negation, so violations on %s, whose chats hold pasted text, is a lower bound.\n", strings.Join(pasted, ", "))
+	notes()
 	// The folder alone: the rows file's name holds a planted word.
 	fmt.Fprintf(out, "Wrote %d rows of commit %s to the results folder %s.\n", len(rows), commit[:12], *outDir)
 	return 0
 }
 
 // readV1Page reads a page v1 wrote, and whether there was one: a page
-// that is missing is an empty store.
+// that is missing reads as an empty store.
 func readV1Page(path string) (score.Export, bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
