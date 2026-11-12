@@ -141,7 +141,11 @@ func parseCase(file, head, body string) (corpusCase, error) {
 		return c, fmt.Errorf("class %q is not one word", c.class)
 	}
 	var b strings.Builder
-	in, start, parts := "", 0, 0
+	// splitAt is where, in the text, the open secret was first split with
+	// text of it before the split; -1 when it has not been. A secret counts
+	// as split only when it also goes on after that split: a split at either
+	// edge leaves the raw file holding it whole.
+	in, start, splitAt := "", 0, -1
 	for i := 0; i < len(body); {
 		rest := body[i:]
 		switch {
@@ -149,7 +153,7 @@ func parseCase(file, head, body string) (corpusCase, error) {
 			if in != "" {
 				return c, fmt.Errorf("a mark inside a mark")
 			}
-			in, start, parts = secretOpen, b.Len(), 1
+			in, start, splitAt = secretOpen, b.Len(), -1
 			i += len(secretOpen)
 			if strings.HasPrefix(rest, factOpen) {
 				in = factOpen
@@ -159,8 +163,8 @@ func parseCase(file, head, body string) (corpusCase, error) {
 			if in != secretOpen {
 				return c, fmt.Errorf("a secret closed that was not open")
 			}
-			if parts < 2 {
-				return c, fmt.Errorf("secret %q is not split", b.String()[start:])
+			if splitAt < 0 || splitAt == b.Len() {
+				return c, fmt.Errorf("secret %q is not split with text on both sides of a split", b.String()[start:])
 			}
 			c.secrets = append(c.secrets, textRange{start, b.Len()})
 			in = ""
@@ -173,7 +177,9 @@ func parseCase(file, head, body string) (corpusCase, error) {
 			in = ""
 			i += len(factClose)
 		case strings.HasPrefix(rest, split):
-			parts++
+			if in == secretOpen && splitAt < 0 && b.Len() > start {
+				splitAt = b.Len()
+			}
 			i += len(split)
 		case strings.HasPrefix(rest, "⟦"), strings.HasPrefix(rest, "⟧"):
 			return c, fmt.Errorf("a stray secret mark")
@@ -627,9 +633,14 @@ func TestCorpusReads(t *testing.T) {
 // The reader refuses a case that breaks the README's rules.
 func TestCorpusReaderRefusesBadCases(t *testing.T) {
 	isolate(t)
-	good := "comment\n=== secret provider a token\nuse '⟦abc¦defghi⟧' now\n"
-	if cases, err := parseCorpus("x.txt", good); err != nil || len(cases) != 1 || cases[0].value(cases[0].secrets[0]) != "abcdefghi" || cases[0].text != "use abcdefghi now" {
-		t.Fatalf("parseCorpus(good) = %+v, %v", cases, err)
+	for _, good := range []string{
+		"comment\n=== secret provider a token\nuse '⟦abc¦defghi⟧' now\n",
+		"=== secret provider a token\nuse '⟦¦abc¦defghi¦⟧' now\n",
+		"=== secret provider a token\nuse '⟦abc¦def¦ghi⟧' now\n",
+	} {
+		if cases, err := parseCorpus("x.txt", good); err != nil || len(cases) != 1 || cases[0].value(cases[0].secrets[0]) != "abcdefghi" || cases[0].text != "use abcdefghi now" {
+			t.Fatalf("parseCorpus(%q) = %+v, %v", good, cases, err)
+		}
 	}
 	for name, data := range map[string]string{
 		"no cases":                "just a comment\n",
@@ -637,6 +648,11 @@ func TestCorpusReaderRefusesBadCases(t *testing.T) {
 		"no name":                 "=== secret provider\nuse '⟦abc¦defghi⟧'\n",
 		"two-word class":          "=== secret Provider-X x\nuse '⟦abc¦defghi⟧'\n",
 		"secret not split":        "=== secret provider x\nuse '⟦abcdefghi⟧'\n",
+		"split only at the start": "=== secret provider x\nuse '⟦¦abcdefghi⟧'\n",
+		"split only at the end":   "=== secret provider x\nuse '⟦abcdefghi¦⟧'\n",
+		"split only at the edges": "=== secret provider x\nuse '⟦¦abcdefghi¦⟧'\n",
+		"split before the secret": "=== secret provider x\nuse ¦'⟦abcdefghi⟧'\n",
+		"split after the secret":  "=== secret provider x\nuse '⟦abcdefghi⟧'¦\n",
 		"secret too short":        "=== secret provider x\nuse '⟦ab¦cde⟧'\n",
 		"secret shares a piece":   "=== secret provider x\nabcdefghi '⟦abc¦defghi⟧'\n",
 		"secret shares a marker":  "=== secret provider x\nuse '⟦secret¦_value⟧'\n",

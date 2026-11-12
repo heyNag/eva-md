@@ -49,9 +49,11 @@ lines at its end are dropped.
   others none. A fact is lost when the redacted text no longer holds its value
   whole.
 - `¦` splits a text where it stands, anywhere in a case, and is removed when
-  the case is read. Every secret is split at least once, so no file holds a
-  whole secret: a test runs the current rules over each raw file and finds no
-  finding they are certain of. Split a private key's BEGIN line, a provider
+  the case is read. Every secret is split at least once inside it, with part
+  of the secret on each side of the split (a split at its first or last
+  character does not count), so no file holds a whole secret: the loader
+  refuses a secret that is not, and a test runs the current rules over each
+  raw file and finds no finding they are certain of. Split a private key's BEGIN line, a provider
   token's prefix, or anything else a rule would take whole from the raw file.
 
 No mark nests in another, and none may appear in a case but as a mark.

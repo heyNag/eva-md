@@ -107,7 +107,7 @@ curl -H "X-Api-Key: $API_KEY" https://api.acme.example/v1/items
 can you check why the token refresh fails on staging? it worked yesterday
 
 === negative chat model name
-switched the secret model to claude-opus-5-5-20261028 for the eval
+switched the secret model to model-x-20261028 for the eval
 
 === negative chat test command
 run go test ./internal/redact/... with the token flag and send me the output
