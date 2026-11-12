@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -182,7 +183,61 @@ var (
 	farPathSuffix = "#%^~*+-=:@$|"
 	// What may join two names but '.' and "::".
 	farPathSeparator = ":/|\\+~^%*!?=@$#"
+	// What may stand in a member path's name, at its start, inside it or at
+	// its end, but a letter, a digit and '_'. '&', at which the baseline
+	// rules end a value, is left out, and so is '.', which joins names.
+	farSegment = "$-@%+~^!*:#=|/\\?"
+	// What may stand between a type and the type after it but a single '|',
+	// as an operator of a union of types: every mark but '|' and '=', and
+	// operators of more than one character and of words. A '=' alone makes
+	// an assignment, and a '|' alone a union, which are the gap shape.
+	farUnionOps = append(strings.Split(without(alnum+"|="), ""),
+		"or", "and", "OR", "AND", "xor", "in", "is", "as", "&&", "||", "|>", "<|", "->", "=>", "::", "..", "|:", "+|", "|&", "&|", "|=", "or=", "<>", "!|", "|!")
+	// What may stand between a type and the value assigned to it but a single
+	// '=': every mark but '=' and '|' (a union, of the gap shape), the
+	// operators of a compound assignment, and others.
+	farAssignOps = append(strings.Split(without(alnum+"=|"), ""),
+		":=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "<=", ">=", "!=", "?=", "~=", ".=", "**=", "//=", "<<=", ">>=", "??=", "||=", "&&=", "@=", "#=", "$=", "::=",
+		"=>", "->", "<-", "=:", "===", "=~", "=!", "=?", "=*", "=&", "=|", "=+", "=-", "is", "to", "as")
+	// What may follow a type, its index or its generic, but one '?': every
+	// mark but '?' and those a name holds ('_' and '.'), and runs of marks.
+	// A '(' makes a call, which the baseline rules leave alone too.
+	farTypeSuffix = append(strings.Split(without(alnum+"?_.("), ""), "??", "???", "?!", "!?", "!!", "?*", "*?", "?:", "?+", "!!!", "?$", "?#")
+	// What may follow a regular expression literal but a blank, a quote, a
+	// backslash, ';' and ','. The value the floor looks at ends where the
+	// baseline rules end it, so what follows it is one of these or the end
+	// of the line: every other character is part of the value, and makes no
+	// whole literal (regex.whole, regex.flags.letters). A '(' makes a call,
+	// which the baseline rules leave alone too.
+	farRegexAfter = ")]}<>&[{\v\f"
+	// What may follow that, so that the value rules read what follows the
+	// literal as code (codeEnd) and leave the value to the floor: a URL's
+	// next pair, a member, an index, a name, a mark.
+	regexAfterTails = []string{"", "x", "a=1", "b=2&c=3", ".x", ".source", "[0]", "x=1", "x)", "1", ")", "]", "&d=4", "!", "?.x", "::y", "->z", "+1", "|x", "*", "/"}
+	// What may stand in brackets with no letter or digit: every mark but the
+	// brackets and quotes, which close or open what they hold.
+	farBracketInner = without(alnum + "[]{}()\"'`")
+	// The bases and joins of a variable's prefix: each base followed by each
+	// join is no variable's prefix but where the base is one and the join
+	// '.' (see variableRef), and the floor takes a value after it.
+	variableBases = []string{"self", "config", "os.environ", "process.env", "cfg", "this", "env", "ENV", "settings", "conf", "Self", "SELF", "Config", "os", "process", "opts", "ctx"}
+	variableJoins = []string{".", "?.", "!.", "::", "?", ":", "/", "_", "-", "..", ".$", "@", "|", "^", "~", "%", "+", "*", "=", "#"}
 )
+
+// farVariablePrefixes are the prefixes made of variableBases and
+// variableJoins that make no variable.
+var farVariablePrefixes = func() []string {
+	var ps []string
+	for _, b := range variableBases {
+		for _, j := range variableJoins {
+			if j == "." && slices.Contains([]string{"self", "config", "os.environ", "process.env"}, b) {
+				continue
+			}
+			ps = append(ps, b+j)
+		}
+	}
+	return append(ps, farVariablePrefix...)
+}()
 
 // wordsOf makes a name of two words, as wordsValue does without digits:
 // SummerWinter or silverWindow.
@@ -293,8 +348,14 @@ var oracleBounds = []oracleBound{
 		what:    "a variable's prefix is $, self., config., os.environ. or process.env., or it is os.environ alone",
 		example: ex("password: cfg.Xk9m"+"P2vLq7Rt", "cfg.Xk9m"+"P2vLq7Rt"),
 		widen:   []edit{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|cfg)\.`}},
+		more: [][]edit{
+			// A reviewer's: optional chaining after a prefix's name.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config)\??\.`}},
+			// A name joined by "::".
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config)(?:\.|::)`}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, ""), func() string { return nthOf(farVariablePrefix, n) + nearToken(g) }
+			return keyLine(g, nearSeps, ""), func() string { return nthOf(farVariablePrefixes, n) + nearToken(g) }
 		},
 	},
 	{
@@ -373,6 +434,21 @@ var oracleBounds = []oracleBound{
 		},
 	},
 	{
+		id: "type.assign.operator", shape: "type_annotation",
+		what:    "an assignment after a type is a '=' alone: no other operator, such as ':=', '+=' or '=>', stands for it",
+		example: ex("password: Wd3Hk8"+"Rn6Tc1 := 1", "Wd3Hk8"+"Rn6Tc1"),
+		widen:   []edit{{`(?:[ \t]+=[ \t]+|$)`, `(?:[ \t]+:?=[ \t]+|$)`}},
+		more: [][]edit{
+			// The operators of a compound assignment.
+			{{`(?:[ \t]+=[ \t]+|$)`, `(?:[ \t]+[-+*/%|&^]?=[ \t]+|$)`}},
+			// An arrow.
+			{{`(?:[ \t]+=[ \t]+|$)`, `(?:[ \t]+(?:=|=>|->)[ \t]+|$)`}},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, " "+nthOf(farAssignOps, n)+" "+g.pick([]string{"1", "None", "x"})), func() string { return nearToken(g) }
+		},
+	},
+	{
 		id: "type.bare", shape: "type_annotation",
 		what:    "a type with no union and no assignment after it is no annotation",
 		example: ex("password: Xk9mP2"+"vLq7Rt<ab>", "Xk9mP2"+"vLq7Rt"),
@@ -410,6 +486,23 @@ var oracleBounds = []oracleBound{
 		widen:   []edit{{`((?:[ \t]+\|[ \t]+`, `((?:[ \t]+\|\|?[ \t]+`}},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{" || None", " || str"}, n)), func() string { return nearToken(g) }
+		},
+	},
+	{
+		id: "type.union.operator", shape: "type_annotation",
+		what:    "a union of types is joined by a '|' alone: no other operator, such as '&', 'or' or '|>', stands for it",
+		example: ex("secret: Lt5Bq9"+"Zm3Wx7 & None", "Lt5Bq9"+"Zm3Wx7"),
+		widen:   []edit{{`((?:[ \t]+\|[ \t]+`, `((?:[ \t]+[|&][ \t]+`}},
+		more: [][]edit{
+			// A reviewer's: a union by a word.
+			{{`((?:[ \t]+\|[ \t]+`, `((?:[ \t]+(?:\||or)[ \t]+`}},
+			// A pipe.
+			{{`((?:[ \t]+\|[ \t]+`, `((?:[ \t]+\|>?[ \t]+`}},
+			// A '+'.
+			{{`((?:[ \t]+\|[ \t]+`, `((?:[ \t]+[|+][ \t]+`}},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, " "+nthOf(farUnionOps, n)+" "+g.pick([]string{"None", "str", "int"})), func() string { return nearToken(g) }
 		},
 	},
 	{
@@ -469,12 +562,42 @@ var oracleBounds = []oracleBound{
 		},
 	},
 	{
+		id: "type.name.brackets", shape: "type_annotation",
+		what:    "a type has one index or one generic at most",
+		example: ex("password: Qh6Vt2"+"Lw9Ks4[a][b] = 1", "Qh6Vt2"+"Lw9Ks4"),
+		widen:   []edit{{"(?:\\[[^\\]\\r\\n]*\\]|<[^>\\r\\n]*>)?\\??`", "(?:\\[[^\\]\\r\\n]*\\]|<[^>\\r\\n]*>)*\\??`"}},
+		more: [][]edit{
+			// Two at most.
+			{{"(?:\\[[^\\]\\r\\n]*\\]|<[^>\\r\\n]*>)?\\??`", "(?:\\[[^\\]\\r\\n]*\\]|<[^>\\r\\n]*>){0,2}\\??`"}},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			var b strings.Builder
+			for k := 2 + n%3; k > 0; k-- {
+				b.WriteString(nthOf([]string{"[a]", "<T>", "[x9]", "<K, V>", "[0]", "[]", "<>", "[i]"}, n/3+k))
+			}
+			b.WriteString(g.pick([]string{"", "?"}))
+			return keyLine(g, nearSeps, b.String()+g.pick([]string{" = 1", " | None", " = x"})), func() string { return nearToken(g) }
+		},
+	},
+	{
 		id: "type.name.optional", shape: "type_annotation",
-		what:    "a type ends in one '?' at most",
+		what:    "a type ends in its name, index or generic and one '?' at most: no second '?' and no other mark",
 		example: ex("password: Vc3Lp8"+"Hy5Mt2?? = 1", "Vc3Lp8"+"Hy5Mt2??"),
 		widen:   []edit{{">)?\\??`", ">)?\\?*`"}},
+		more: [][]edit{
+			// A reviewer's: a '!' in place of the '?'.
+			{{">)?\\??`", ">)?[?!]?`"}},
+			// A '*', as a pointer.
+			{{">)?\\??`", ">)?[?*]?`"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{" = 1", " | None"}, n)), func() string { return nearToken(g) + strings.Repeat("?", 2+n%2) }
+			tail := nthOf([]string{" = 1", " | None", " = x"}, n/len(farTypeSuffix))
+			suffix := nthOf(farTypeSuffix, n)
+			if strings.ContainsAny(suffix[:1], `"'`+"`,;&<>(){}[]") {
+				// The baseline rules end the value before it.
+				return keyLine(g, nearSeps, suffix+tail), func() string { return nearToken(g) }
+			}
+			return keyLine(g, nearSeps, tail), func() string { return nearToken(g) + suffix }
 		},
 	},
 
@@ -530,8 +653,20 @@ var oracleBounds = []oracleBound{
 		what:    "the brackets hold a letter or a digit",
 		example: ex("password: lantern"+"Pillow[--]", "lantern"+"Pillow"),
 		widen:   []edit{{"return strings.IndexFunc(s, func(r rune) bool { return r < 128 && isAlnum(byte(r)) }) >= 0 && ", "return "}},
+		more: [][]edit{
+			// A reviewer's: '_' counted as a letter.
+			{{"return r < 128 && isAlnum(byte(r))", "return r < 128 && (isAlnum(byte(r)) || r == '_')"}},
+			// '$' counted as a letter, as a name in code may hold it.
+			{{"return r < 128 && isAlnum(byte(r))", "return r < 128 && (isAlnum(byte(r)) || r == '$')"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[--]", "[+-]", "{..}", "[!]", `[""]`, "{+}"}, n)), func() string { return wordsValue(g) }
+			if n%4 == 3 {
+				return keyLine(g, nearSeps, nthOf([]string{"[--]", "[+-]", "{..}", "[!]", `[""]`, "{+}", "[__]", "[_.]", "{_}", "[$_]"}, n/4)), func() string { return wordsValue(g) }
+			}
+			// One to three marks of every mark but brackets and quotes.
+			open, close := nthOf([]string{"[", "{"}, n), nthOf([]string{"]", "}"}, n)
+			inner := nth(farBracketInner, n) + g.chars(n%3, farBracketInner)
+			return keyLine(g, nearSeps, open+inner+close), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -825,9 +960,32 @@ var oracleBounds = []oracleBound{
 			{"if !memberSegment.MatchString(p) || !(wordLike(p, 1)", "if !(wordLike(p, 1)"},
 			codeNameDash,
 		},
+		more: [][]edit{
+			// A reviewer's: a '$' at the start of each name.
+			{{"for _, p := range parts {\n\t\tif !memberSegment.MatchString(p)", "for _, p := range parts {\n\t\tp = strings.TrimLeft(p, \"$\")\n\t\tif !memberSegment.MatchString(p)"}},
+			// A '$' anywhere in a name, as the value rules read one in code
+			// (codeName).
+			{{"for _, p := range parts {\n\t\tif !memberSegment.MatchString(p)", "for _, p := range parts {\n\t\tp = strings.ReplaceAll(p, \"$\", \"\")\n\t\tif !memberSegment.MatchString(p)"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
-				return g.pick(gapWords) + "." + strings.ToLower(g.pick(gapWords)) + "-" + strings.ToLower(g.pick(gapWords))
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				if n%2 == 0 {
+					return g.pick(gapWords) + "." + strings.ToLower(g.pick(gapWords)) + "-" + strings.ToLower(g.pick(gapWords))
+				}
+				// A mark of farSegment at the start of the second name, inside a
+				// name, or at the end of the first: neither the prefix nor the
+				// suffix a whole path may have.
+				c := nth(farSegment, n/2)
+				a, b := wordsOf(g), wordsOf(g)
+				switch n / 2 / len(farSegment) % 3 {
+				case 0:
+					b = c + b
+				case 1:
+					a = insertAt(g, a, c)
+				default:
+					a += c
+				}
+				return a + "." + b
 			}
 		},
 	},
@@ -919,8 +1077,19 @@ var oracleBounds = []oracleBound{
 		what:    "an instance variable's name is made of words",
 		example: ex("auth_token: @Vc3Lp"+"8Hy5Mt[i]", "@Vc3Lp"+"8Hy5Mt"),
 		widen:   []edit{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name)"}},
+		more: [][]edit{
+			// A reviewer's: a short name, of 6 characters or fewer.
+			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || len(name) <= 6)"}},
+			// A name that starts with a capital.
+			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || name[0] >= 'A' && name[0] <= 'Z')"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string { return g.pick([]string{"@", "@@"}) + nearToken(g) }
+			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
+				// Names of every length from what the floor takes, 8 characters
+				// with the prefix, to 22.
+				p := nthOf([]string{"@", "@@"}, n)
+				return p + randomPart(g, 8-len(p)+n/2%(15+len(p)))
+			}
 		},
 	},
 	{
@@ -1021,7 +1190,15 @@ var oracleBounds = []oracleBound{
 		example: ex("password: *Summer2"+"Winter # x", "*Summer2"+"Winter"),
 		widen:   []edit{{`aliasName(v[1:]) && whole && strings.TrimSpace(rest) == ""`, `aliasName(v[1:]) && whole && (strings.TrimSpace(rest) == "" || strings.HasPrefix(strings.TrimSpace(rest), "#"))`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, []string{": ", ":", " := "}, nthOf([]string{" # rotated", " and more", ",", ";", " x", ")", "  #"}, n)), func() string { return "*" + wordsValue(g) }
+			// The value ends at a blank or at a mark the baseline rules end it
+			// at (a '(' makes a call, and a '[' or '{' an index); after it
+			// comes anything but blanks alone.
+			start := nthOf([]string{" ", "\t", "  ", ",", ";", ")", "]", "}", "&", "<", ">", "\v", "\f"}, n)
+			rest := nthOf([]string{"# rotated", "and more", "x", "1", "*", "|", "=", ":", "!", "#", "", ",", "- b"}, n/13)
+			if rest == "" && strings.TrimSpace(start) == "" {
+				rest = "#"
+			}
+			return keyLine(g, []string{": ", ":", " := "}, start+rest), func() string { return "*" + wordsValue(g) }
 		},
 	},
 
@@ -1115,8 +1292,17 @@ var oracleBounds = []oracleBound{
 		// api_key whatever the floor does.
 		example: ex("api_key = /Fz6Qe3"+"+Nb8/i)", "/Fz6Qe3"+"+Nb8/i"),
 		widen:   []edit{{"strings.IndexByte(\" \\t;,\\\"'`\\\\\", rest[0])", "strings.IndexByte(\" \\t;,\\\"'`\\\\)\", rest[0])"}},
+		more: [][]edit{
+			// A reviewer's: a '&', as before a URL's next pair.
+			{{"strings.IndexByte(\" \\t;,\\\"'`\\\\\", rest[0])", "strings.IndexByte(\" \\t;,\\\"'`\\\\&\", rest[0])"}},
+			// A ']'.
+			{{"strings.IndexByte(\" \\t;,\\\"'`\\\\\", rest[0])", "strings.IndexByte(\" \\t;,\\\"'`\\\\]\", rest[0])"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{")", "]", "}", "<", ">", "&", "[", "{", "\v", "\f"}, n)+g.pick([]string{"", "x"})), func() string { return nearRegex(g, true, g.pick(gapFlags)) }
+			// Every mark that is no blank, quote, backslash, ';' or ',', and
+			// after it each of what the value rules may read as code.
+			after := nth(farRegexAfter, n) + nthOf(regexAfterTails, n/len(farRegexAfter))
+			return keyLine(g, nearSeps, after), func() string { return nearRegex(g, true, g.pick(gapFlags)) }
 		},
 	},
 }
