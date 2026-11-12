@@ -38,7 +38,7 @@ func main() {
 		// Only the first answer is written.
 		once := &firstWrite{w: os.Stdout}
 		out = once
-		time.AfterFunc(hookDeadline(os.Args[2:], startPause), func() {
+		time.AfterFunc(mainDeadline(os.Args[2:]), func() {
 			fmt.Fprintln(once, "{}")
 			os.Exit(0)
 		})

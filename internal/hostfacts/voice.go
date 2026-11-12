@@ -1,6 +1,8 @@
 package hostfacts
 
 import (
+	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -194,6 +196,87 @@ func VoiceOf(key []byte, s string) (*Voice, bool) {
 		v.Transcript = tr
 	}
 	return v, true
+}
+
+// shape gives the skeleton with its hashes left out, as JSON: what a
+// hand-over shows of itself whatever key hashed its parts.
+func (v *Voice) shape() string {
+	c := *v
+	c.Input.Hash = ""
+	if v.Transcript != nil {
+		tr := *v.Transcript
+		tr.Hash = ""
+		tr.Lines = make([]TranscriptLine, len(v.Transcript.Lines))
+		for i, l := range v.Transcript.Lines {
+			l.Hash = ""
+			tr.Lines[i] = l
+		}
+		c.Transcript = &tr
+	}
+	data, _ := json.Marshal(c)
+	return string(data)
+}
+
+// flaw names what in a skeleton no hand-over could have, or gives "": white
+// space that is not, a source or a head off the list, a field shorter than
+// its cut marks, or a transcript not as long as its lines.
+func (v *Voice) flaw() string {
+	if strings.Trim(v.Lead+v.Trail, voiceSpace) != "" {
+		return "a voice skeleton's white space is not white space"
+	}
+	if s := v.Source; s != nil && !(s.Value == TailFlush && s.Len == 0 || s.Value == sourceOther && s.Len >= 0) {
+		return "a voice skeleton's source is off the list"
+	}
+	if v.Input.Len < markLen(v.Input.CutStart, v.Input.CutEnd) {
+		return "a voice skeleton's request is shorter than its cut marks"
+	}
+	t := v.Transcript
+	if t == nil {
+		return ""
+	}
+	if len(t.Lines) == 0 {
+		return "a voice skeleton's transcript has no line"
+	}
+	n := markLen(t.CutStart, false) + len(t.Lines) - 1
+	for _, l := range t.Lines {
+		switch l.Head {
+		case HeadUser, HeadAssist:
+			n += len(l.Head)
+		case HeadOther:
+		default:
+			return "a voice skeleton's head is off the list"
+		}
+		if l.Len < 0 {
+			return "a voice skeleton's line is shorter than nothing"
+		}
+		n += l.Len
+	}
+	if t.CutEnd && t.Lines[len(t.Lines)-1].Len < len(CutMark) {
+		return "a voice skeleton's last line is shorter than its cut mark"
+	}
+	if n != t.Len {
+		return "a voice skeleton's transcript is not as long as its lines"
+	}
+	return ""
+}
+
+// skeletonPart is a part of a skeleton: its hash and byte length.
+type skeletonPart struct {
+	hash string
+	len  int
+}
+
+// parts gives the request, the transcript and each line's rest, with
+// their hashes and byte lengths.
+func (v *Voice) parts() []skeletonPart {
+	out := []skeletonPart{{v.Input.Hash, v.Input.Len}}
+	if t := v.Transcript; t != nil {
+		out = append(out, skeletonPart{t.Hash, t.Len})
+		for _, l := range t.Lines {
+			out = append(out, skeletonPart{l.Hash, l.Len})
+		}
+	}
+	return slices.DeleteFunc(out, func(p skeletonPart) bool { return p.hash == "" })
 }
 
 // voiceParts gives the text of each part of a hand-over: an unlisted

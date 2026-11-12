@@ -206,17 +206,30 @@ func joinedEdge(s string, a, b int) bool {
 	for hi < len(s) && runByte(s[hi]) {
 		hi++
 	}
-	hex := 0
+	// The run reads as a hash when the text beside the name holds a hex
+	// letter, or when it has the length of a hash or a commit's id or the
+	// form of a UUID: the name's own letters do not make it one, so
+	// "<name>1990" is shown.
+	hex, letterBeside := 0, false
 	for i := lo; i < hi; i++ {
 		switch c := s[i]; {
-		case c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F':
+		case c >= '0' && c <= '9':
 			hex++
+		case c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F':
+			hex++
+			letterBeside = letterBeside || i < a || i >= b
 		case c != '-':
 			return true
 		}
 	}
-	return hex < 8
+	return hex < 8 || !letterBeside && !hashRun(s[lo:hi])
 }
+
+// hashRun reports a run of hex digits as long as the recorder's hashes, a
+// 128-bit hash, a commit's id or a SHA-256, or in the form of a UUID.
+var hashRunRe = regexp.MustCompile(`^(?:[0-9a-fA-F]{16}|[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
+
+func hashRun(s string) bool { return hashRunRe.MatchString(s) }
 
 func runByte(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == '-'

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -68,7 +69,7 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 		t    voiceText
 	}
 	var wrappers []wrapper
-	wrapperTag := strings.Trim(VoiceTag, "<>")
+	partLens := map[string]int{}
 	for _, name := range meta.Files {
 		if name != filepath.Base(name) {
 			return nil, fmt.Errorf("fixture.json names %q", name)
@@ -81,13 +82,10 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 			at := func(what string) { problems = append(problems, Problem{name, i + 1, what}) }
 			str := func(s string) string {
 				// A voice hand-over is rebuilt from its skeleton, and its
-				// parts are checked below; one out of form is a problem.
+				// parts are checked below. One out of form was made up by
+				// HF-00's rule, as any string, and is checked as one.
 				if t, ok := parseVoice(s); ok {
 					wrappers = append(wrappers, wrapper{name, i + 1, t})
-					return s
-				}
-				if tag, ok := Vocab().LeadingTag(s); ok && tag == wrapperTag {
-					at("a voice hand-over is out of form")
 					return s
 				}
 				// The writer makes up an id inside a longer string as it
@@ -146,6 +144,9 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 				return n
 			}
 			xform{str: str, path: path, num: num}.value(l, "", "")
+			for _, what := range checkSkeletons(l, partLens) {
+				at(what)
+			}
 		}
 	}
 	// Each part of a hand-over is rebuilt from the seed: a line's rest or a
@@ -312,6 +313,74 @@ func relTo(dir, p string) string {
 	return p
 }
 
+// checkSkeletons checks the skeletons of a line of fixtures, whose numbers
+// the writer keeps as recorded: each is one a hand-over could have; each
+// of the event's own is that of a hand-over its payload holds, but for its
+// hashes; and one hash has one byte length across the fixture, which lens
+// keeps.
+func checkSkeletons(l any, lens map[string]int) []string {
+	ev, ok := l.(map[string]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	held := map[string]int{}
+	walk(ev["payload"], nil, func(_ []string, x any) {
+		if s, ok := x.(string); ok {
+			if v, ok := VoiceOf(nil, s); ok {
+				held[v.shape()]++
+			}
+		}
+	})
+	var skels []*Voice
+	if m, ok := ev["voice"].(map[string]any); ok {
+		for _, p := range slices.Sorted(maps.Keys(m)) {
+			v, ok := decodeVoice(m[p])
+			if !ok {
+				out = append(out, "a voice skeleton does not read")
+				continue
+			}
+			skels = append(skels, v)
+			if held[v.shape()] == 0 {
+				out = append(out, "a voice skeleton of the payload is not that of a hand-over the payload holds")
+				continue
+			}
+			held[v.shape()]--
+		}
+	}
+	walk(ev["record"], nil, func(path []string, x any) {
+		if n := len(path); n >= 3 && path[n-1] == "voice" && path[n-3] == "fields" {
+			v, ok := decodeVoice(x)
+			if !ok {
+				out = append(out, "a voice skeleton does not read")
+				return
+			}
+			skels = append(skels, v)
+		}
+	})
+	for _, v := range skels {
+		if what := v.flaw(); what != "" {
+			out = append(out, what)
+		}
+		for _, p := range v.parts() {
+			if n, ok := lens[p.hash]; ok && n != p.len {
+				out = append(out, fmt.Sprintf("a voice skeleton gives a part of one hash %d bytes, and another %d", n, p.len))
+			}
+			lens[p.hash] = p.len
+		}
+	}
+	return out
+}
+
+// skeletonPath reports a path, from a line's top, inside a skeleton or an
+// event's map of them.
+func skeletonPath(path []string) bool {
+	if len(path) > 0 && path[0] == "voice" {
+		return true
+	}
+	return len(path) > 5 && path[0] == "record" && path[1] == "rows" && path[3] == "fields" && path[5] == "voice"
+}
+
 // voiceShaped is the shape of a hand-over part's made-up text.
 var voiceShaped = regexp.MustCompile(`^[a-z]+(?: [a-z]+)*$`)
 
@@ -412,8 +481,10 @@ func CheckSurvival(rec, fixtures string) ([]Problem, error) {
 				case string:
 					look(t)
 				case json.Number:
+					// A skeleton's byte lengths are kept as recorded, as
+					// the hand-over rebuilt beside it shows them.
 					whole, _, _ := strings.Cut(strings.TrimLeft(string(t), "-"), ".")
-					if fb.nums[whole] {
+					if fb.nums[whole] && !skeletonPath(path[1:]) {
 						at(fmt.Sprintf("holds a recorded number of %d digits", len(whole)))
 					}
 				}

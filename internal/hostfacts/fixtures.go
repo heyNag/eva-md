@@ -20,11 +20,27 @@ import (
 
 // xform walks one line of a recording and gives each key and value to the
 // callback its role names: a string, a field path, or a number. Words on the
-// vocabulary and the recorder's own words are passed through.
+// vocabulary and the recorder's own words are passed through, and so are
+// the numbers of a voice hand-over's skeleton: they are the byte lengths
+// of the parts of a hand-over, which the hand-over a fixture rebuilds
+// beside its skeleton shows all the same, and a reader of the fixture
+// reads them as they were recorded, a row's hand-over that no payload
+// holds too.
 type xform struct {
 	str  func(s string) string
 	path func(s string) string
 	num  func(n json.Number, key string) json.Number
+	// inner is set below a line's top, rec inside its record, and skel
+	// inside a skeleton or an event's map of them.
+	inner, rec, skel bool
+}
+
+// skeletonAt reports the value under k, in a map under key, which is under
+// parent, as a skeleton or an event's map of them: the event's own
+// "voice", at the line's top, or the "voice" of a field of a row of its
+// record, never a payload's.
+func (x xform) skeletonAt(k, key, parent string) bool {
+	return k == "voice" && (!x.inner || x.rec && key == "fields" && parent == "rows")
 }
 
 func (x xform) value(v any, key, parent string) any {
@@ -35,12 +51,16 @@ func (x xform) value(v any, key, parent string) any {
 			e := t[k]
 			nk := k
 			switch {
-			case key == "payload_hashes" || key == "voice" && parent == "":
+			case key == "payload_hashes" || x.skel && key == "voice" && parent == "":
 				nk = x.path(k)
 			case !kept(k):
 				nk = x.str(k)
 			}
-			out[nk] = x.value(e, k, key)
+			cx := x
+			cx.skel = x.skel || x.skeletonAt(k, key, parent)
+			cx.rec = x.rec || !x.inner && k == "record"
+			cx.inner = true
+			out[nk] = cx.value(e, k, key)
 		}
 		return out
 	case []any:
@@ -60,6 +80,9 @@ func (x xform) value(v any, key, parent string) any {
 		}
 		return x.str(t)
 	case json.Number:
+		if x.skel {
+			return t
+		}
 		return x.num(t, key)
 	}
 	return v
@@ -682,25 +705,53 @@ func (f *faker) voices(events []any) {
 		ev, _ := l.(map[string]any)
 		vm := vms[i]
 		hashes, _ := ev["payload_hashes"].(map[string]any)
-		values := map[string]string{}
+		// Keys that are not key-shaped are hashed in a recorded path, so
+		// several of one object share one loose path: each string under
+		// it is kept, in order, with its own skeleton's shape when it has
+		// one.
+		values := map[string][]string{}
+		shapes := map[string]string{}
 		walk(ev["payload"], nil, func(path []string, x any) {
 			if s, ok := x.(string); ok {
-				values[looseKeys(path)] = s
+				lk := looseKeys(path)
+				if !slices.Contains(values[lk], s) {
+					values[lk] = append(values[lk], s)
+				}
+				if v, ok := VoiceOf(nil, s); ok {
+					shapes[s] = v.shape()
+				}
 			}
 		})
-		for p, v := range vm {
-			if s, ok := values[loosePath(p)]; ok {
-				f.memo[s] = v.rebuild(texts, sources[v])
+		// A skeleton is paired with a string under its loose path whose
+		// own skeleton has its shape, in the order of the paths and of
+		// the strings, so one seed gives one set of fixtures; a string
+		// keeps the hand-over it was first given.
+		taken := map[string]bool{}
+		for _, p := range slices.Sorted(maps.Keys(vm)) {
+			v, lp := vm[p], loosePath(p)
+			for _, s := range slices.Sorted(slices.Values(values[lp])) {
+				if taken[lp+"\x00"+s] || shapes[s] != v.shape() {
+					continue
+				}
+				taken[lp+"\x00"+s] = true
+				if _, done := f.memo[s]; !done {
+					f.memo[s] = v.rebuild(texts, sources[v])
+				}
+				break
 			}
 		}
+		// A string whose hash is a part's takes the part's text, where its
+		// loose path names it alone.
 		for p, h := range hashes {
 			hash, _ := h.(string)
 			t, ok := texts[hash]
 			if _, voice := vm[p]; !ok || voice {
 				continue
 			}
-			if s, ok := values[loosePath(p)]; ok {
-				f.memo[s] = t
+			if vals := values[loosePath(p)]; len(vals) == 1 {
+				if _, voice := shapes[vals[0]]; !voice {
+					f.memo[vals[0]] = t
+				}
 			}
 		}
 	}

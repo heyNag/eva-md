@@ -93,10 +93,14 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 			"hook_event_name": "UserPromptSubmit", "prompt": w})
 	}
 	// Hand-overs with unlisted sources of one length, side by side in one
-	// payload, whose made-up sources are drawn in a fixed order.
+	// payload, whose made-up sources are drawn in a fixed order, and one
+	// hand-over standing at several paths, which keeps one made-up text.
 	sourced := map[string]any{}
 	for _, k := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
 		sourced[k] = handOver("made_up_source_"+k, "made-up request "+k, "")
+	}
+	for _, k := range []string{"p", "q", "r", "s"} {
+		sourced[k] = handOver("made_up_source_q", "made-up request q", "")
 	}
 	h.hook(t, "codex", "Stop", map[string]any{"session_id": sessionID, "turn_id": "turn-made-up-7", "transcript_path": rollout.path,
 		"hook_event_name": "Stop", "last_assistant_message": ack, "sourced": sourced})
@@ -119,8 +123,18 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 		t.Fatalf("the rows no payload matches keep no skeleton: %v", last)
 	}
 
+	// The command, with a seed of its own, writes fixtures that check
+	// passes; the rest reads fixtures of one fixed seed, so that no
+	// chance decides whether a recorded word turns up in made-up text.
+	fxRandom := filepath.Join(filepath.Dir(h.home), "fixtures", "codex", "9.9.8")
+	h.must(t, "", "fixtures", "--rec", h.rec, "--out", fxRandom)
+	if out := h.must(t, "", "check", "--rec", h.rec, "--fixtures", fxRandom); !strings.Contains(out, "every value is one the generator makes") {
+		t.Errorf("check: %s", out)
+	}
 	fx := filepath.Join(filepath.Dir(h.home), "fixtures", "codex", "9.9.9")
-	h.must(t, "", "fixtures", "--rec", h.rec, "--out", fx)
+	if _, err := hostfacts.WriteFixtures(hostfacts.FixtureOptions{Rec: h.rec, Out: fx, Seed: []byte("one made-up seed")}); err != nil {
+		t.Fatal(err)
+	}
 	if out := h.must(t, "", "check", "--rec", h.rec, "--fixtures", fx); !strings.Contains(out, "every value is one the generator makes") {
 		t.Errorf("check: %s", out)
 	}
@@ -216,8 +230,25 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 			t.Errorf("event %d: the fixture's hand-overs under its skeletons' paths are not the recorded ones:\n%v\n%v", i, want, got)
 		}
 	}
-	if n := len(eventVoices(t, fixtures[len(calls)])); n != 8 {
-		t.Errorf("the fixture keeps %d skeletons of the sourced hand-overs, want 8", n)
+	if n := len(eventVoices(t, fixtures[len(calls)])); n != 12 {
+		t.Errorf("the fixture keeps %d skeletons of the sourced hand-overs, want 12", n)
+	}
+	// The fixture's payload names its keys made up: its hand-overs are
+	// found by their form.
+	distinct := map[string]bool{}
+	for _, m := range fixtures[len(calls)]["payload"].(map[string]any) {
+		if inner, ok := m.(map[string]any); ok {
+			for _, x := range inner {
+				if s, ok := x.(string); ok {
+					if _, ok := hostfacts.VoiceOf(key, s); ok {
+						distinct[s] = true
+					}
+				}
+			}
+		}
+	}
+	if len(distinct) != 9 {
+		t.Errorf("the sourced hand-overs have %d made-up texts, want 9", len(distinct))
 	}
 	// Item 4's equalities, as text: a request equal to a line, a request
 	// equal to the transcript, a line repeated in another hand-over, and
@@ -255,6 +286,34 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 	}
 	if !slices.Equal(sources, []string{hostfacts.TailFlush}) {
 		t.Errorf("the rows' sources in the fixture: %v", sources)
+	}
+	// Every skeleton a fixture keeps, of a payload or of a row, is the
+	// recorded one but for its hashes: its byte lengths are the recorded
+	// ones, the empty request of the row no payload matches too.
+	for i, ev := range fixtures {
+		var want, got []string
+		for _, v := range eventVoices(t, events[i]) {
+			want = append(want, shapeOf(v))
+		}
+		for _, v := range rowVoices(t, events[i]) {
+			want = append(want, shapeOf(v))
+		}
+		for _, v := range eventVoices(t, ev) {
+			got = append(got, shapeOf(v))
+		}
+		for _, v := range rowVoices(t, ev) {
+			got = append(got, shapeOf(v))
+		}
+		slices.Sort(want)
+		slices.Sort(got)
+		if !slices.Equal(want, got) {
+			t.Errorf("event %d: the fixture's skeletons are not the recorded ones but for their hashes:\n%v\n%v", i, want, got)
+		}
+	}
+	for _, v := range rowVoices(t, fixtures[len(fixtures)-1]) {
+		if v.Source == nil && v.Input.Len != 0 {
+			t.Errorf("the empty request of a row no payload matches is %d bytes in the fixture", v.Input.Len)
+		}
 	}
 	// One recording and one seed give one set of fixtures, byte for byte,
 	// however often they are written: a draw in a map's order would give

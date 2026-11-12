@@ -334,6 +334,10 @@ func TestTheHookKeepsTheValuesTheCoreFactsRead(t *testing.T) {
 // Codex's Interrupt, declared at one second, ends in half of one.
 func TestEveryHookEndsWellInsideItsLimit(t *testing.T) {
 	tools := "/made/up/hf-tools"
+	// The start word's pause as a sitting has it, which TestMain sets to
+	// nothing; no test runs beside this one.
+	startPause = startWordPause
+	t.Cleanup(func() { startPause = 0 })
 	n := 0
 	for host, hooks := range map[string]map[string]any{hostClaude: claudeHooks(tools), hostCodex: codexHooks(tools)} {
 		for event, groups := range hooks["hooks"].(map[string]any) {
@@ -358,7 +362,7 @@ func TestEveryHookEndsWellInsideItsLimit(t *testing.T) {
 					// The deadline main sets, with the start word's pause
 					// as a sitting has it: only the recorder's own
 					// SessionStart hook waits it.
-					end := hookDeadline([]string{"--host", host, "--event", event, "--via", via}, startWordPause)
+					end := mainDeadline([]string{"--host", host, "--event", event, "--via", via})
 					want := budget
 					if event == "SessionStart" && via == "" {
 						want += startWordPause

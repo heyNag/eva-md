@@ -163,18 +163,20 @@ func TestScanJudgesWholeWordsAndLongHex(t *testing.T) {
 }
 
 // A name joined to another word by an underscore or a digit is shown with
-// its file and line, and scrub replaces it; a name inside a word of
-// letters, or inside a run of hex digits such as the recording's hashes
-// and a UUID, is counted and left.
+// its file and line, and scrub replaces it, a name of hex letters joined
+// to a year or a long number too; a name inside a word of letters, or
+// inside a run of hex digits such as the recording's hashes and a UUID, is
+// counted and left.
 func TestScanShowsANameJoinedByAnUnderscoreOrADigit(t *testing.T) {
 	dir := t.TempDir()
 	const uuid = "3fa85f64-5717-4562-b3fc-2c9abe66afa6"
 	text := `{"a":"quillowen_backup","b":"quillowen2","c":"2quillowen","d":"quillowens"}` + "\n" +
-		`{"h":"0123abe456789abc","u":"` + uuid + `","w":"abe","x":"abe_old"}` + "\n"
+		`{"h":"0123abe456789abc","u":"` + uuid + `","w":"abe","x":"abe_old","y":"abe20241112","z":"0123abe456789012"}` + "\n" +
+		`{"n":"dade1990","o":"ed12345678"}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Scan(dir, []ScanWord{{"quillowen", "account"}, {"abe", "account"}}, Known{})
+	res, err := Scan(dir, []ScanWord{{"quillowen", "account"}, {"abe", "account"}, {"dade", "account"}, {"ed", "account"}}, Known{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,29 +184,34 @@ func TestScanShowsANameJoinedByAnUnderscoreOrADigit(t *testing.T) {
 	for _, h := range res.Hits {
 		shown = append(shown, h.File+":"+strconv.Itoa(h.Line)+" "+h.Text)
 	}
-	want := []string{"events.jsonl:1 quillowen", "events.jsonl:1 quillowen", "events.jsonl:1 quillowen", "events.jsonl:2 abe", "events.jsonl:2 abe"}
+	want := []string{"events.jsonl:1 quillowen", "events.jsonl:1 quillowen", "events.jsonl:1 quillowen", "events.jsonl:2 abe", "events.jsonl:2 abe", "events.jsonl:2 abe", "events.jsonl:3 dade", "events.jsonl:3 ed"}
+	slices.Sort(shown)
 	if !slices.Equal(shown, want) {
 		t.Errorf("hits %v, want %v", shown, want)
 	}
-	if res.Counts["account, inside another word"] != 3 {
+	if res.Counts["account, inside another word"] != 4 {
 		t.Errorf("counts: %v", res.Counts)
 	}
 	if n, err := Scrub(dir, "quillowen"); err != nil || n != 3 {
 		t.Fatalf("scrub: %d %v", n, err)
 	}
-	if n, err := Scrub(dir, "abe"); err != nil || n != 2 {
+	if n, err := Scrub(dir, "abe"); err != nil || n != 3 {
+		t.Fatalf("scrub: %d %v", n, err)
+	}
+	if n, err := Scrub(dir, "dade"); err != nil || n != 1 {
 		t.Fatalf("scrub: %d %v", n, err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, keep := range []string{"quillowens", "0123abe456789abc", uuid, "_backup", "_old"} {
+	for _, keep := range []string{"quillowens", "0123abe456789abc", "0123abe456789012", uuid, "_backup", "_old", "20241112", "1990"} {
 		if !strings.Contains(string(data), keep) {
 			t.Errorf("scrub changed %q: %s", keep, data)
 		}
 	}
-	if strings.Contains(strings.ReplaceAll(string(data), "quillowens", ""), "quillowen") || strings.Contains(string(data), `"abe"`) || strings.Contains(string(data), "abe_old") {
+	if strings.Contains(strings.ReplaceAll(string(data), "quillowens", ""), "quillowen") || strings.Contains(string(data), `"abe"`) || strings.Contains(string(data), "abe_old") ||
+		strings.Contains(string(data), "abe2024") || strings.Contains(string(data), "dade") {
 		t.Errorf("scrub left a name: %s", data)
 	}
 }

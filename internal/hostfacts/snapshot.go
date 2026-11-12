@@ -205,16 +205,40 @@ func TakeSnapshot(in SnapshotInput) (SnapshotResult, error) {
 func ptr(b bool) *bool { return &b }
 
 // PayloadHashes gives the keyed hash of each string of a decoded payload,
-// by its field path as PathString writes it.
+// by its field path as PathString writes it, but for the keys inside a
+// value HideAccountValues hides, which it writes as HideAccountValues
+// does: the path names, in the payload the recording keeps, the value
+// whose hash it gives.
 func PayloadHashes(key []byte, v any) map[string]string {
 	out := map[string]string{}
 	walk(v, nil, func(path []string, x any) {
 		if s, ok := x.(string); ok {
-			out[PathString(key, path)] = Hash(key, s)
+			out[payloadPath(key, path)] = Hash(key, s)
 		}
 	})
 	return out
 }
+
+// payloadPath writes a payload's path as PathString does, but for each key
+// inside a value HideAccountValues hides, which it writes as that does. An
+// index stays.
+func payloadPath(key []byte, path []string) string {
+	out := make([]string, len(path))
+	hidden := false
+	for i, seg := range path {
+		if hidden && !isIndex(seg) {
+			out[i] = hiddenKey(key, seg)
+		} else {
+			out[i] = PathString(key, path[i:i+1])
+		}
+		hidden = hidden || accountKey(seg)
+	}
+	return strings.Join(out, ".")
+}
+
+// hiddenKey is how a key inside a hidden value is written: "#" and its
+// keyed hash, as PathString writes a key that is not key-shaped.
+func hiddenKey(key []byte, k string) string { return "#" + Hash(key, k) }
 
 // accountWords are the words of a key under which a payload's strings are
 // written as their keyed hash: a model's name, a plan or a tier, which no
@@ -225,9 +249,12 @@ var accountWords = []string{"model", "plan", "tier"}
 // HideAccountValues gives a copy of a decoded payload in which every string
 // under a key whose name holds a word of accountWords, in any letter case,
 // at any depth, the key's own value or one nested in it, is replaced by its
-// keyed hash. PayloadHashes, taken from the payload as the host sent it,
-// gives the same hash at the same path, so the payload still joins the
-// record's rows, where such a value is a hash too.
+// keyed hash, and every key nested in such a value, as a model's name a
+// map is keyed by, by "#" and its keyed hash, but for a key of digits
+// only, which a path reads as an index. PayloadHashes, taken from
+// the payload as the host sent it, gives the same hash at the same path,
+// so the payload still joins the record's rows, where such a value is a
+// hash too.
 func HideAccountValues(key []byte, v any) any {
 	return hideUnder(key, v, false)
 }
@@ -237,7 +264,11 @@ func hideUnder(key []byte, v any, hidden bool) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, x := range t {
-			out[k] = hideUnder(key, x, hidden || accountKey(k))
+			nk := k
+			if hidden && !isIndex(k) {
+				nk = hiddenKey(key, k)
+			}
+			out[nk] = hideUnder(key, x, hidden || accountKey(k))
 		}
 		return out
 	case []any:

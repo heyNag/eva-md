@@ -76,6 +76,10 @@ func hookDeadline(args []string, pause time.Duration) time.Duration {
 	return deadlineFor(flags["host"], flags["event"], flags["via"], pause)
 }
 
+// mainDeadline is the deadline main sets for the hook its arguments name,
+// with the start arm's pause as the run has it.
+func mainDeadline(args []string) time.Duration { return hookDeadline(args, startPause) }
+
 // hookLockWait is how long a hook waits for the recording's lock.
 func hookLockWait(budget time.Duration) time.Duration {
 	if lockWait > 0 {

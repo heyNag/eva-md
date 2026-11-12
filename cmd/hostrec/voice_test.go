@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -234,6 +235,101 @@ func TestACutLastLineKeepsItsMarkInTheFixture(t *testing.T) {
 	}
 	if problems, err := hostfacts.CheckFixtureDir(fx); err != nil || len(problems) != 0 {
 		t.Errorf("the repository's check: %v %v", problems, err)
+	}
+}
+
+// voiceFixture hooks a Codex prompt with the payload given, writes its
+// fixtures with a fixed seed, and gives the fixture's event line once
+// check and the repository's check pass them.
+func voiceFixture(t *testing.T, payload map[string]any) map[string]any {
+	t.Helper()
+	h := newHome(t)
+	h.setup(t)
+	h.must(t, "", "mark", "X-44")
+	rollout := newTranscript(t, filepath.Join(h.home, ".codex", "sessions", "2026", "05", "01", "rollout-2026-05-01T10-00-00-"+sessionID+".jsonl"))
+	rollout.add(map[string]any{"type": "session_meta", "payload": map[string]any{"id": sessionID, "originator": "codex_vscode"}})
+	full := map[string]any{"session_id": sessionID, "turn_id": turnID, "transcript_path": rollout.path, "hook_event_name": "UserPromptSubmit"}
+	maps.Copy(full, payload)
+	h.hook(t, "codex", "UserPromptSubmit", full)
+	fx := filepath.Join(filepath.Dir(h.home), "fixtures", "codex", "9.9.9")
+	if _, err := hostfacts.WriteFixtures(hostfacts.FixtureOptions{Rec: h.rec, Out: fx, Seed: []byte("a made-up seed")}); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := h.run(t, "", "check", "--rec", h.rec, "--fixtures", fx); code != 0 || !strings.Contains(out, "every value is one the generator makes") {
+		t.Errorf("check: %d %s", code, out)
+	}
+	if problems, err := hostfacts.CheckFixtureDir(fx); err != nil || len(problems) != 0 {
+		t.Errorf("the repository's check: %v %v", problems, err)
+	}
+	data, err := os.ReadFile(filepath.Join(fx, hostfacts.EventsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev map[string]any
+	if err := json.Unmarshal(data, &ev); err != nil {
+		t.Fatal(err)
+	}
+	return ev
+}
+
+// A hand-over out of form, as another indent, an extra tag or a later
+// form of Codex's would be, is made up by HF-00's rule, keeping its
+// leading tag, and its fixtures pass check and the repository's check: a
+// sitting that meets one can still give fixtures.
+func TestAHandOverOutOfFormGivesFixturesThatPass(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"another indent": "<realtime_delegation>\n   <input>made up request</input>\n</realtime_delegation>",
+		"an extra tag":   "<realtime_delegation>\n  <input>made up request</input>\n  <mood>made up</mood>\n</realtime_delegation>",
+		"text after it":  handOver("", "made up request", "") + " made up",
+	} {
+		t.Run(name, func(t *testing.T) {
+			ev := voiceFixture(t, map[string]any{"prompt": prompt})
+			got, _ := ev["payload"].(map[string]any)["prompt"].(string)
+			if !strings.HasPrefix(got, hostfacts.VoiceTag) || strings.Contains(got, "made up") || len(got) != len(prompt) {
+				t.Errorf("the fixture's prompt: %q", got)
+			}
+			if _, ok := hostfacts.VoiceOf(nil, got); ok || ev["voice"] != nil {
+				t.Errorf("an out-of-form hand-over was given a skeleton: %q", got)
+			}
+		})
+	}
+}
+
+// Keys that are not key-shaped are hashed in a recorded path, so several
+// of one object share a path once the hash is set aside: each skeleton
+// there is rebuilt into the string with its own shape, a plain string
+// beside them is made up as any string, and two hand-overs of one shape
+// each get a hand-over.
+func TestHandOversUnderOddKeysKeepTheirOwnSkeletons(t *testing.T) {
+	one := handOver("", "zzother request", "user: zzother line one")
+	two := handOver("", "zzsecond request of more bytes", "")
+	three := handOver("", "zzthird request of more bytes!", "")
+	ev := voiceFixture(t, map[string]any{"prompt": "made up", "odd": map[string]any{
+		"odd key one": one, "odd key two": "zzplain secret text", "odd key three": two, "odd key four": three,
+	}})
+	odd, _ := ev["payload"].(map[string]any)
+	var shapes, plain []string
+	for k, v := range odd {
+		if m, ok := v.(map[string]any); ok && k != "prompt" {
+			for _, x := range m {
+				s, _ := x.(string)
+				if v, ok := hostfacts.VoiceOf(nil, s); ok {
+					shapes = append(shapes, shapeOf(v))
+				} else {
+					plain = append(plain, s)
+				}
+			}
+		}
+	}
+	var want []string
+	for _, w := range []string{one, two, three} {
+		v, _ := hostfacts.VoiceOf(nil, w)
+		want = append(want, shapeOf(v))
+	}
+	slices.Sort(shapes)
+	slices.Sort(want)
+	if !slices.Equal(shapes, want) || len(plain) != 1 || len(plain[0]) != len("zzplain secret text") || strings.HasPrefix(plain[0], "<") {
+		t.Errorf("the fixture's hand-overs %v, want %v; plain strings %q", shapes, want, plain)
 	}
 }
 

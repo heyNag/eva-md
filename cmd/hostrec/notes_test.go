@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,8 +18,10 @@ import (
 
 // A payload's string under a model, plan or tier key, in any letter case,
 // at the top, inside an object or inside a list, is written as its keyed
-// hash: no marker is left in the recording, payload_hashes still joins the
-// value to the row that holds it, and a version is kept as written.
+// hash, and so is a key inside such a value, as a model's name a map is
+// keyed by: no marker is left in the recording, payload_hashes still joins
+// the value to the row that holds it and names a hidden key as the kept
+// payload writes it, and a version is kept as written.
 func TestAPayloadNamesNoModel(t *testing.T) {
 	h := newHome(t)
 	h.setup(t)
@@ -28,19 +31,22 @@ func TestAPayloadNamesNoModel(t *testing.T) {
 		"obj.model": "QM-OBJ-MODEL", "obj.Plan_type": "QM-OBJ-PLAN", "obj.deep.subscriptionTier": "QM-DEEP-TIER",
 		"list.0.model": "QM-LIST-MODEL", "models.0": "QM-LIST-ITEM", "modelInfo.id": "QM-NESTED-ID",
 	}
+	keyMarkers := []string{"QM-KEY-MODEL", "qm-key-model-2"}
 	tr := newTranscript(t, filepath.Join(h.home, ".claude", "projects", "-made-up", sessionID+".jsonl"))
 	tr.add(map[string]any{"type": "assistant", "message": map[string]any{"role": "assistant", "model": markers["model"], "content": "made up"}})
 	payload := map[string]any{
 		"session_id": sessionID, "transcript_path": tr.path, "hook_event_name": "Stop", "version": "9.9.9-made-up",
 		"model": markers["model"], "Model": markers["Model"], "model_id": markers["model_id"], "plan": markers["plan"], "tier": markers["tier"],
-		"obj":       map[string]any{"model": markers["obj.model"], "Plan_type": markers["obj.Plan_type"], "deep": map[string]any{"subscriptionTier": markers["obj.deep.subscriptionTier"]}, "kept": "made-up kept"},
-		"list":      []any{map[string]any{"model": markers["list.0.model"]}, "made-up kept"},
-		"models":    []any{markers["models.0"]},
-		"modelInfo": map[string]any{"id": markers["modelInfo.id"]},
+		"obj":             map[string]any{"model": markers["obj.model"], "Plan_type": markers["obj.Plan_type"], "deep": map[string]any{"subscriptionTier": markers["obj.deep.subscriptionTier"]}, "kept": "made-up kept"},
+		"list":            []any{map[string]any{"model": markers["list.0.model"]}, "made-up kept"},
+		"models":          []any{markers["models.0"]},
+		"modelInfo":       map[string]any{"id": markers["modelInfo.id"]},
+		"modelUsage":      map[string]any{keyMarkers[0]: map[string]any{"inputTokens": 5, "name": "made-up usage"}},
+		"availableModels": map[string]any{keyMarkers[1]: "made-up enabled"},
 	}
 	h.hook(t, "claude-code", "Stop", payload)
 	for name, text := range h.recFiles(t) {
-		for _, m := range markers {
+		for _, m := range append(slices.Collect(maps.Values(markers)), keyMarkers...) {
 			if strings.Contains(text, m) {
 				t.Errorf("%s holds %s", name, m)
 			}
@@ -57,11 +63,20 @@ func TestAPayloadNamesNoModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hidden := func(k string) string { return "#" + hostfacts.Hash(keyBytes, k) }
+	markers["modelInfo."+hidden("id")] = markers["modelInfo.id"]
+	delete(markers, "modelInfo.id")
+	markers["modelUsage."+hidden(keyMarkers[0])+"."+hidden("name")] = "made-up usage"
+	markers["availableModels."+hidden(keyMarkers[1])] = "made-up enabled"
 	for path, m := range markers {
 		want := hostfacts.Hash(keyBytes, m)
 		if hashes[path] != want {
 			t.Errorf("payload_hashes[%s] is %v, want the value's hash", path, hashes[path])
 		}
+	}
+	usage, _ := p["modelUsage"].(map[string]any)[hidden(keyMarkers[0])].(map[string]any)
+	if usage[hidden("inputTokens")] == nil || usage[hidden("name")] != hostfacts.Hash(keyBytes, "made-up usage") {
+		t.Errorf("the payload kept a hidden map as %v", p["modelUsage"])
 	}
 	if p["model"] != hashes["model"] || p["version"] != "9.9.9-made-up" || p["obj"].(map[string]any)["kept"] != "made-up kept" || p["list"].([]any)[1] != "made-up kept" {
 		t.Errorf("the payload kept: %v", p)
