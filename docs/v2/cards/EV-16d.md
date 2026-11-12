@@ -4,7 +4,7 @@
 
 ## Why
 
-The second round's rule cannot yet block a merge. In its simulation a mild load (1.1 to 1.3 times) on three of the new binary's four runs fails an unchanged binary 2 to 4 times in 100, and one hook alone 30% slower is caught 36 to 81 times in 100. The lead ruled what a gate that blocks must show, which is the aims under "Accepted when", and where to start: three rounds, a quick-run check against the median of a binary's other runs, and a figure judged on its median when its 95th percentile cannot be judged. No Go file changes, nor anything v1 does: no switch.
+The second round's rule cannot yet block a merge. In its simulation a mild load (1.1 to 1.3 times) on three of the new binary's four runs fails an unchanged binary 2 to 4 times in 100, and one hook alone 30% slower is caught 36 to 81 times in 100. The lead ruled what a gate that blocks must show, which is the aims under "Accepted when", and where to start: three rounds, a quick-run check against the median of a binary's other runs, and a figure judged on its median when its 95th percentile cannot be judged. No Go file changes, nor anything v1 does: no switch. One more thing CI's first run of the second rule showed (run 110): after the job's five minutes of waiting, the runner's load was still 8.9 on 3 CPUs, and every figure but one was too noisy to judge. How long the job waits is the lead's, in `.github/workflows/ci.yml`; the report says what the saved runs show a longer wait would have given.
 
 ## What to build
 

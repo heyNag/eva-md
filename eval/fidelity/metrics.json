@@ -1,0 +1,113 @@
+{
+  "v": 1,
+  "metrics": [
+    {
+      "name": "fidelity.fact_recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    },
+    {
+      "name": "fidelity.fact_holds",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    },
+    {
+      "name": "fidelity.wrong_write",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    },
+    {
+      "name": "fidelity.noise",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    },
+    {
+      "name": "fidelity.misattributed",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    },
+    {
+      "name": "fidelity.stale_in_force",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    },
+    {
+      "name": "fidelity.dupes",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    },
+    {
+      "name": "fidelity.otr_stored",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    },
+    {
+      "name": "fidelity.violations",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/scenario",
+        "internal/eval/score",
+        "internal/eval/v1page",
+        "internal/threadpage",
+        "internal/update"
+      ]
+    }
+  ]
+}

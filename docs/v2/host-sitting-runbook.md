@@ -134,7 +134,7 @@ hostrec setup --rec ~/hf-rec
 ```
 
 **Expect:** `git log` prints a 40-character id that begins with the 12 characters the lead gave. `hostrec setup` says it found no eva-md install and no earlier session in this account, and makes the recording folder `~/hf-rec`; a private folder `~/hf-private`, which is never handed over; the scratch repositories `~/scratch/alpha-orchard` and `~/scratch/beta-lantern`, a plain folder `~/scratch/outside`, and `~/scratch/long-notes` with a long made-up `AGENTS.md`; and the scratch marketplaces under `~/hf`. All their content is made up: fruit, lanterns and orchards.
-**If not:** if `git checkout` fails, or `git log` prints an id that begins otherwise, stop before `go build` and tell the lead. If `setup` refuses because it found an eva-md install or an earlier session, stop: this is not a fresh evaluation account. For any other error, copy it into `hostrec note` if that runs, or into a message to the lead, and stop.
+**If not:** if `git checkout` fails, or `git log` prints an id that begins otherwise, stop before `go build` and tell the lead. If `setup` refuses because it found an eva-md install or an earlier session, stop: this is not a fresh evaluation account. For any other error, copy it into `hostrec note` if that runs, or into a message to the lead, and stop. If `setup` prints a WARNING that words the recording must keep are also names on this machine, copy the words it lists into a message to the lead and stop: sitting 1 waits for the lead's answer.
 **Settles:** nothing on its own.
 
 That ends sitting 0. Log out of `hfeval` (Apple menu, Log Out); nothing in it runs while it is logged out.
@@ -179,7 +179,7 @@ Never copy a key, an SSH agent or a password manager from your own account into 
 Side: `hostrec mark G-03`, then `hostrec remote set`. It reads the address file, shows the repository's name, refuses any repository not named `hf-scratch-plum`, asks you to confirm with `y`, and stores the address in `~/hf-private`. It then deletes `/Users/Shared/hf-scratch-deploy-key.pub`, which this account wrote, and leaves the address file, which your own account saved and deletes in G-05.
 
 **Expect:** `remote set` shows `hf-scratch-plum`, stores its address and says it deleted the public key's file.
-**If not:** if it refuses the name, check that the file holds the scratch repository's address, never your real wiki's.
+**If not:** if it refuses the name, check that the file holds the scratch repository's address, never your real wiki's. If `remote set` prints a WARNING that words the recording must keep are also names on this machine, copy the words it lists into `hostrec note`, finish G-04 and G-05 as written, then stop before C-0a and tell the lead.
 **Settles:** nothing on its own.
 
 #### G-04. The pushes (4 min)
@@ -490,9 +490,9 @@ Side: `hostrec mark X-44`. Make sure the room is quiet, with no other voice, tel
 
 #### X-46. After the call (3 min)
 
-Side: `hostrec mark X-46`, `hostrec voice-check`. It counts the rows of the call's session file by type, beside the hand-overs the hooks saw, compares the hand-overs' requests with this run-book's script, and prints the names of any version fields the wrapper or the session file carries.
+Side: `hostrec mark X-46`, `hostrec voice-check`. It counts the rows of the call's session file by type, beside the hand-overs the hooks saw, compares the hand-overs' requests with this run-book's script, and prints the names of any version or model fields the wrapper or the session file carries, never a model field's value, and the value of a short field that names the voice feature's version.
 
-**Expect:** a short table of counts; no text from the files.
+**Expect:** a short table of counts and field names; no text from the files but a voice version's value.
 **If not:** note it.
 **Settles:** F-142 (core): the version fields, and whether each request kept the script's words or a model's. Also gives evidence for F-147 and F-149.
 
