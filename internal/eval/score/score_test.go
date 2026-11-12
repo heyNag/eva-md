@@ -194,6 +194,66 @@ func TestOutcomes(t *testing.T) {
 			item: score.Supports, metrics: func(m score.Metrics) bool { return m.Dupes == 1 }},
 		{name: "a dated line logged twice", spoil: func(e *score.Export) { e.Items = append(e.Items, e.Items[5]) },
 			item: score.Supports, metrics: func(m score.Metrics) bool { return m.Dupes == 0 }},
+		// Content said off the record, stored in other words, still cites
+		// the line that said it.
+		{name: "a fact said off the record, in other words", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindFact, score.TagStated, "The budget is ninety-nine thousand", src(4)))
+		}, item: score.Violation, facts: map[string]string{"b9": "violation []"}, metrics: func(m score.Metrics) bool {
+			return m.OTRStored == 1 && m.Violations == 1 && m.WrongWrite == 0
+		}},
+		{name: "a fact said off the record, beside a fact in force", spoil: func(e *score.Export) {
+			e.Items[0].Sources = append(e.Items[0].Sources, src(4))
+		}, item: "", facts: map[string]string{"b9": "violation []"}, metrics: func(m score.Metrics) bool {
+			return m.OTRStored == 1 && m.Violations == 1 && m.FactHolds == 1
+		}},
+		{name: "pasted text under the user's tag, without its codename", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "We will use Redis", src(6)))
+		}, item: score.Violation, facts: map[string]string{"x4": "violation []"}, metrics: func(m score.Metrics) bool {
+			return m.Violations == 1 && m.WrongWrite == 0
+		}},
+		{name: "pasted text under another's tag, without its codename", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindOpen, score.TagExternal, "Use Redis?", src(6)))
+		}, item: score.Supports, metrics: func(m score.Metrics) bool { return m.Violations == 0 && m.WrongWrite == 0 }},
+		{name: "an instruction for the moment as a rule, without its codename", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindRule, score.TagStated, "Skip the lint", src(7)))
+		}, item: score.Violation, facts: map[string]string{"l1": "violation []"}, metrics: func(m score.Metrics) bool { return m.Violations == 1 }},
+		{name: "an instruction for the moment as a constraint", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindConstraint, score.TagStated, "Skip the lint, LINT-1", src(7)))
+		}, item: score.Violation, facts: map[string]string{"l1": "violation []"}, metrics: func(m score.Metrics) bool { return m.Violations == 1 }},
+		{name: "a fact that ended kept in force, without its codename", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Use Go 1.26", src(9)))
+		}, item: score.StaleInForce, facts: map[string]string{"g1": "stale_in_force []"}, metrics: func(m score.Metrics) bool {
+			return m.StaleInForce == 1 && m.WrongWrite == 0
+		}},
+		{name: "a fact that ended, retired with a wrong value", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, score.Item{Kind: scenario.KindDecision, State: score.StateRetired, Authority: score.TagStated, Text: "Use Go 1.25, GOV-1", Sources: []score.Source{src(9)}})
+		}, item: score.ValueWrong, metrics: func(m score.Metrics) bool { return m.WrongWrite == 0 && m.StaleInForce == 0 }},
+		{name: "a fact said off the record kept in force after it ended", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Use Go 1.26, GOV-1", src(4), src(9)))
+		}, item: score.Violation, facts: map[string]string{"b9": "violation []", "g1": "stale_in_force []"}, metrics: func(m score.Metrics) bool {
+			return m.OTRStored == 1 && m.Violations == 1 && m.StaleInForce == 1
+		}},
+		{name: "an item that holds none of its line's values", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Something else entirely", src(1)))
+		}, item: score.ValueDropped, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 && m.FactHolds == 1 }},
+		{name: "a wrong value and a dropped date", spoil: func(e *score.Export) { e.Items[2].Text = "FREEZE-8; until the release" },
+			facts: map[string]string{"f7": "value_wrong []"}, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 }},
+		{name: "a dated line in force", spoil: func(e *score.Export) { e.Items[5].State = score.StateActive },
+			facts: map[string]string{"t1": "found [kind]"}},
+		{name: "the item with the fewest problems names them", spoil: func(e *score.Export) {
+			e.Items[0].Scope, e.Items[0].Authority = "everywhere", score.TagSuggested
+			second := k5("Cache entries for 5 minutes, KITE-5")
+			second.Scope = "everywhere"
+			e.Items = append(e.Items, second)
+		}, facts: map[string]string{"k5": "found [scope]"}},
+		{name: "a retired item in another kind, lacking a value, beside a dated line", spoil: func(e *score.Export) {
+			e.Items[0] = score.Item{Kind: scenario.KindLog, State: score.StateLog, Authority: score.TagStated, Date: "2026-03-02", Text: "Cache entries for 5 minutes, KITE-5", Sources: []score.Source{src(1)}}
+			e.Items = append(e.Items, score.Item{Kind: scenario.KindNext, State: score.StateRetired, Authority: score.TagStated, Text: "Cache entries, KITE-5", Sources: []score.Source{src(1)}})
+		}, item: score.ValueDropped, facts: map[string]string{"k5": "found [kind]"}, metrics: func(m score.Metrics) bool { return m.WrongWrite == 0 }},
+		{name: "a dated line lacking a value, beside a retired item in another kind", spoil: func(e *score.Export) {
+			e.Items[0] = score.Item{Kind: scenario.KindNext, State: score.StateRetired, Authority: score.TagStated, Text: "Cache entries for 5 minutes, KITE-5", Sources: []score.Source{src(1)}}
+			e.Items = append(e.Items, score.Item{Kind: scenario.KindLog, State: score.StateLog, Authority: score.TagStated, Date: "2026-03-02", Text: "Cache entries, KITE-5", Sources: []score.Source{src(1)}})
+		}, item: score.ValueDropped, facts: map[string]string{"k5": "found [kind]"}, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 }},
 		{name: "a summary", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, score.Item{Kind: score.KindSummary, State: score.StateActive, Text: "Caches for 9 minutes; BUDGET-9."})
 		}, item: score.Unscored},
@@ -223,6 +283,41 @@ func TestOutcomes(t *testing.T) {
 				t.Errorf("metrics %+v", r.Metrics)
 			}
 		})
+	}
+}
+
+// TestUserWords: an item under the user's tag that cites only a turn in
+// the user's own words, typed, chosen, spoken or v1's user line, is not
+// misattributed; one that cites only the agent's is.
+func TestUserWords(t *testing.T) {
+	for author, want := range map[event.Author]int{event.AuthorTyped: 0, event.AuthorChosen: 0, event.AuthorSpoken: 0, event.AuthorV1User: 0, event.AuthorAgent: 1} {
+		sc := cases()
+		sc.Sessions[0].Turns[13].Author = author
+		if err := sc.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		ex := base()
+		ex.Items = append(ex.Items, active(scenario.KindNext, score.TagStated, "Rewrite the cache", src(14)))
+		if m := score.Score(sc, ex).Metrics; m.Misattributed != want {
+			t.Errorf("a stated item citing only a turn by %s: misattributed %d, want %d", author, m.Misattributed, want)
+		}
+	}
+}
+
+// TestEndedBesideInForce: an active item that holds a fact that ended
+// and, from the same line, a fact still in force that does not carry it
+// on keeps the ended one in force.
+func TestEndedBesideInForce(t *testing.T) {
+	sc := scenario.V1()[7]
+	ex := score.Ideal(sc)
+	ex.Items = append(ex.Items, score.Item{Kind: scenario.KindNext, State: score.StateActive, Authority: score.TagStated,
+		Text: "Write the parser, MARTIN-1, then the renderer, MARTIN-2", Sources: []score.Source{{Session: sc.Sessions[0].ID, Seq: 1}}})
+	r := score.Score(sc, ex)
+	if got := r.Items[len(r.Items)-1].Outcome; got != score.StaleInForce {
+		t.Errorf("the item is %s", got)
+	}
+	if r.Facts[0].Outcome != score.StaleInForce || r.Metrics.StaleInForce != 1 {
+		t.Errorf("MARTIN-1 is %s, metrics %+v", r.Facts[0].Outcome, r.Metrics)
 	}
 }
 

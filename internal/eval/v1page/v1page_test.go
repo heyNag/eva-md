@@ -265,6 +265,7 @@ func TestUnreadableLines(t *testing.T) {
 		{"an item without a tag", now + "### Next\n- " + secret + "\n" + end, 4, false},
 		{"an item in another form", now + "### Next\n* " + secret + " [stated]\n" + end, 4, false},
 		{"a ref in another form", now + "### Decisions in force\n- x [stated] s:" + secret + "\n" + end, 4, false},
+		{"a ref of v2's form", now + "### Decisions in force\n- " + secret + " [stated] e:abcd1234#3\n" + end, 4, false},
 		{"a ref with no line", now + "### Decisions in force\n- x [stated] s:abcd1234#0 " + secret + "\n" + end, 4, false},
 		{"an unknown heading in the Now", now + "### " + secret + "\n" + end, 3, false},
 		{"text before the first section", secret + "\n" + now + end, 1, false},

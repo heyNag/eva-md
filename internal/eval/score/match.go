@@ -15,7 +15,8 @@ import (
 // The scorer's own small normalizers. A slot is held when the text holds
 // its value or one of its forms, compared by class: words as a run of
 // lower-case words, dates as days, quantities by number and unit, a
-// condition by its marker and its words. A slot is wrong, not dropped, when
+// condition by the words, dates and quantities that follow a marker within
+// the clause it opens. A slot is wrong, not dropped, when
 // the text holds another value of its class that no slot of the fact
 // holds: another date, another quantity of the same kind, another path,
 // version, number or name-like word.
@@ -55,6 +56,7 @@ func literals(s scenario.Slot) []string { return append([]string{s.Value}, s.For
 
 // text is an item's text, read once.
 type text struct {
+	lower string   // the whole text, in lower case
 	words []string // lower case
 	raw   []string // as written
 	dates []string
@@ -62,7 +64,7 @@ type text struct {
 }
 
 func readText(s string) text {
-	return text{words: words(s), raw: split(s), dates: dates(s), quant: quantities(s)}
+	return text{lower: strings.ToLower(s), words: words(s), raw: split(s), dates: dates(s), quant: quantities(s)}
 }
 
 // holds reports whether the text holds slot s.
@@ -100,25 +102,82 @@ func (t text) holds(s scenario.Slot) bool {
 var (
 	condMarkers = []string{"if", "when", "whenever", "unless", "once"}
 	stop        = []string{"a", "an", "the", "of", "in", "on", "at", "to", "for", "by", "with", "and", "or", "is", "are", "be"}
+	marker      = regexp.MustCompile(`\b(?:if|when|whenever|unless|once)\b`)
+	// clauseBreak ends a clause: a comma, a semicolon, or a full stop, a
+	// question or an exclamation mark before a space or the end.
+	clauseBreak = regexp.MustCompile(`[,;]|[.!?](?:\s|$)`)
 )
 
-// holdsCond reports whether the text states a condition and holds every
-// word of cond but its marker and its small words.
-func (t text) holdsCond(cond string) bool {
-	if !slices.ContainsFunc(t.words, func(w string) bool { return slices.Contains(condMarkers, w) }) {
+// cond is a condition as a slot gives it: its quantities and dates, the
+// rest of its words but its marker and its small words, and how many
+// clause breaks it holds past its marker.
+type cond struct {
+	quant  []quantity
+	dates  []string
+	words  []string
+	breaks int
+}
+
+func readCond(s string) cond {
+	lower := strings.ToLower(s)
+	masked := maskValues(lower)
+	c := cond{quant: quantities(lower), dates: dates(lower)}
+	for _, w := range words(masked) {
+		if !slices.Contains(condMarkers, w) && !slices.Contains(stop, w) {
+			c.words = append(c.words, w)
+		}
+	}
+	rest := masked
+	if m := marker.FindStringIndex(masked); m != nil {
+		rest = masked[m[1]:]
+	}
+	c.breaks = len(clauseBreak.FindAllStringIndex(strings.TrimRight(rest, " \t.,;!?"), -1))
+	return c
+}
+
+// heldBy reports whether span holds every quantity, date and word of c.
+func (c cond) heldBy(span string) bool {
+	qs, ds, ws := quantities(span), dates(span), words(span)
+	return !slices.ContainsFunc(c.quant, func(q quantity) bool { return !slices.ContainsFunc(qs, q.equal) }) &&
+		!slices.ContainsFunc(c.dates, func(d string) bool { return !slices.Contains(ds, d) }) &&
+		!slices.ContainsFunc(c.words, func(w string) bool { return !slices.Contains(ws, w) })
+}
+
+// holdsCond reports whether the text states condition s: whether, after a
+// marker and within the clause it opens, it holds each of the condition's
+// quantities and dates, compared as their classes are, and each of its
+// other words but its marker and its small words. A quantity or a date
+// never ends a clause, so the comma in "March 3, 2026" does not, and a
+// condition with clause breaks of its own spans as many more clauses.
+func (t text) holdsCond(s string) bool {
+	c := readCond(s)
+	if len(c.quant)+len(c.dates)+len(c.words) == 0 {
 		return false
 	}
-	need := 0
-	for _, w := range words(cond) {
-		if slices.Contains(condMarkers, w) || slices.Contains(stop, w) {
-			continue
+	masked := maskValues(t.lower)
+	for _, m := range marker.FindAllStringIndex(masked, -1) {
+		end := len(masked)
+		if bs := clauseBreak.FindAllStringIndex(masked[m[1]:], c.breaks+1); len(bs) > c.breaks {
+			end = m[1] + bs[c.breaks][0]
 		}
-		need++
-		if !slices.Contains(t.words, w) {
-			return false
+		if c.heldBy(t.lower[m[1]:end]) {
+			return true
 		}
 	}
-	return need > 0
+	return false
+}
+
+// maskValues blanks each date and quantity of s, which is in lower case,
+// with spaces, keeping its length.
+func maskValues(s string) string {
+	b := []byte(s)
+	for _, sp := range dateSpans(s) {
+		copy(b[sp.lo:sp.hi], strings.Repeat(" ", sp.hi-sp.lo))
+	}
+	for _, sp := range quantitySpans(s) {
+		copy(b[sp.lo:sp.hi], strings.Repeat(" ", sp.hi-sp.lo))
+	}
+	return string(b)
 }
 
 // wrong reports whether the text holds another value of s's class that
@@ -198,35 +257,53 @@ var (
 
 var months = map[string]time.Month{"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
 
+// span is a value found in a text, and where it stands: s[lo:hi].
+type span[T any] struct {
+	v      T
+	lo, hi int
+}
+
 // dates returns the days s names: YYYY-MM-DD for a day written in full,
 // in any of three forms, and yesterday, today or tomorrow as the word.
 func dates(s string) []string {
-	s = strings.ToLower(s)
 	var out []string
-	add := func(y, m, d string) {
-		year, _ := strconv.Atoi(y)
-		day, _ := strconv.Atoi(d)
-		mon, ok := months[m[:min(3, len(m))]]
+	for _, sp := range dateSpans(strings.ToLower(s)) {
+		out = append(out, sp.v)
+	}
+	return out
+}
+
+// dateSpans is dates, with where each stands in s, which is in lower case.
+func dateSpans(s string) []span[string] {
+	var out []span[string]
+	add := func(m []int, y, mo, d int) {
+		part := func(k int) string { return s[m[2*k]:m[2*k+1]] }
+		year, _ := strconv.Atoi(part(y))
+		day, _ := strconv.Atoi(part(d))
+		mt := part(mo)
+		mon, ok := months[mt[:min(3, len(mt))]]
 		if !ok {
-			n, _ := strconv.Atoi(m)
+			n, _ := strconv.Atoi(mt)
 			mon = time.Month(n)
 		}
 		t := time.Date(year, mon, day, 0, 0, 0, 0, time.UTC)
 		if mon < 1 || mon > 12 || t.Day() != day || t.Month() != mon {
 			return
 		}
-		out = append(out, t.Format(time.DateOnly))
+		out = append(out, span[string]{t.Format(time.DateOnly), m[0], m[1]})
 	}
-	for _, m := range isoDate.FindAllStringSubmatch(s, -1) {
-		add(m[1], m[2], m[3])
+	for _, m := range isoDate.FindAllStringSubmatchIndex(s, -1) {
+		add(m, 1, 2, 3)
 	}
-	for _, m := range dayMonth.FindAllStringSubmatch(s, -1) {
-		add(m[3], m[2], m[1])
+	for _, m := range dayMonth.FindAllStringSubmatchIndex(s, -1) {
+		add(m, 3, 2, 1)
 	}
-	for _, m := range monthDay.FindAllStringSubmatch(s, -1) {
-		add(m[3], m[1], m[2])
+	for _, m := range monthDay.FindAllStringSubmatchIndex(s, -1) {
+		add(m, 3, 1, 2)
 	}
-	out = append(out, relDay.FindAllString(s, -1)...)
+	for _, m := range relDay.FindAllStringIndex(s, -1) {
+		out = append(out, span[string]{s[m[0]:m[1]], m[0], m[1]})
+	}
 	return out
 }
 
@@ -259,8 +336,17 @@ var numberUnit = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s?([a-z%]+)`)
 // quantities returns the quantities s writes as a number and a unit. A
 // number that ends a word, as in KITE-5, is not one.
 func quantities(s string) []quantity {
-	s = strings.ToLower(s)
 	var out []quantity
+	for _, sp := range quantitySpans(strings.ToLower(s)) {
+		out = append(out, sp.v)
+	}
+	return out
+}
+
+// quantitySpans is quantities, with where each stands in s, which is in
+// lower case.
+func quantitySpans(s string) []span[quantity] {
+	var out []span[quantity]
 	for _, m := range numberUnit.FindAllStringSubmatchIndex(s, -1) {
 		if m[0] > 0 {
 			if c := s[m[0]-1]; c == '-' || c == '_' || c == '.' || c == '/' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
@@ -275,7 +361,7 @@ func quantities(s string) []quantity {
 		if err != nil {
 			continue
 		}
-		out = append(out, quantity{u.dim, n * u.v})
+		out = append(out, span[quantity]{quantity{u.dim, n * u.v}, m[0], m[1]})
 	}
 	return out
 }

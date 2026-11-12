@@ -60,7 +60,8 @@ func TestShapes(t *testing.T) {
 }
 
 // A slot is held by its value or a form, as a run of whole words in any
-// case; a condition by its marker and every word that matters in it.
+// case; a condition by every word that matters in it, and its quantities
+// and dates in any form, after a marker and within the clause it opens.
 func TestHolds(t *testing.T) {
 	cond := scenario.Slot{Class: scenario.SlotCond, Value: "If BenchmarkBrief in scripts/benchmark.py passes 300 ms"}
 	for _, tc := range []struct {
@@ -80,6 +81,16 @@ func TestHolds(t *testing.T) {
 		{"switch when BenchmarkBrief in scripts/benchmark.py passes 300 ms", cond, true},
 		{"switch: BenchmarkBrief in scripts/benchmark.py passes 300 ms", cond, false},
 		{"if scripts/benchmark.py passes 300 ms", cond, false},
+		{"If BenchmarkBrief in scripts/benchmark.py passes 300ms, switch", cond, true},
+		{"If BenchmarkBrief in scripts/benchmark.py passes 0.3 s, switch", cond, true},
+		{"If BenchmarkBrief in scripts/benchmark.py passes 400 ms, switch", cond, false},
+		{"If the build fails, switch to the streaming parser; BenchmarkBrief in scripts/benchmark.py passes 300 ms", cond, false},
+		{"Switch to the streaming parser (BenchmarkBrief in scripts/benchmark.py passes 300 ms if you ask me)", cond, false},
+		{"BenchmarkBrief in scripts/benchmark.py passes 300 ms. If so, switch", cond, false},
+		{"When the freeze ends on 2026-03-03, ship", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, true},
+		{"When the freeze ends on 2026-03-04, ship", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, false},
+		{"Ship when the tests pass, the docs build", scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass, the docs build"}, true},
+		{"Ship when the tests pass, then tag it. The docs build",scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass, the docs build"}, false},
 		{"Keep it for now", scenario.Slot{Class: scenario.SlotLimit, Value: "for now"}, true},
 		{"Keep it now", scenario.Slot{Class: scenario.SlotLimit, Value: "for now"}, false},
 	} {
