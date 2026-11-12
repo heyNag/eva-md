@@ -1,0 +1,16 @@
+{
+  "type": "knowledge",
+  "title": "Tide feed",
+  "description": "",
+  "status": "",
+  "stale_after": "",
+  "generated": null,
+  "verified": null,
+  "sources": null,
+  "extra": {
+    "locked": "yes",
+    "model": "Null",
+    "state": "été"
+  },
+  "body": "\n# Body\n\nSome text.\n"
+}

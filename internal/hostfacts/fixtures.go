@@ -769,6 +769,12 @@ func voiceMap(ev map[string]any) map[string]*Voice {
 	return out
 }
 
+// decodeVoice reads a skeleton strictly, only as the recorder writes one:
+// written back, it is the same JSON. So a skeleton with a field no
+// hand-over has, a key that differs in case from its field's, a value the
+// recorder leaves out written all the same, or a number written another
+// way does not read. Every number under a skeleton is kept as recorded, so
+// a field no check knows could carry a recorded number unseen.
 func decodeVoice(x any) (*Voice, bool) {
 	if _, ok := x.(map[string]any); !ok {
 		return nil, false
@@ -777,8 +783,21 @@ func decodeVoice(x any) (*Voice, bool) {
 	if err != nil {
 		return nil, false
 	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
 	var v Voice
-	if err := json.Unmarshal(data, &v); err != nil {
+	if err := dec.Decode(&v); err != nil {
+		return nil, false
+	}
+	back, err := json.Marshal(&v)
+	if err != nil {
+		return nil, false
+	}
+	again, err := Decode(back)
+	if err != nil {
+		return nil, false
+	}
+	if canon, err := json.Marshal(again); err != nil || !bytes.Equal(canon, data) {
 		return nil, false
 	}
 	return &v, true

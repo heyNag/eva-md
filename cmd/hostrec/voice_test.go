@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -333,6 +334,169 @@ func TestHandOversUnderOddKeysKeepTheirOwnSkeletons(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(shapes, want) || len(plain) != 1 || len(plain[0]) != len(plainText) || strings.HasPrefix(plain[0], "<") {
 		t.Errorf("the fixture's hand-overs %v, want %v; plain strings %q", shapes, want, plain)
+	}
+}
+
+// A skeleton is read strictly. Every number under one is kept as
+// recorded, so a field no hand-over has, which a hand edit or a writer's
+// fault could leave there with a recorded number in it, fails the
+// repository's check and check, here added to a fixture made from a
+// recording; and neither names the number.
+func TestASkeletonWithAFieldNoHandOverHasFailsTheChecks(t *testing.T) {
+	const recorded = 48213
+	h := newHome(t)
+	h.setup(t)
+	h.must(t, "", "mark", "X-44")
+	prompt := handOver("", "made up request", "user: made up request\nassistant: made up reply")
+	rollout := newTranscript(t, filepath.Join(h.home, ".codex", "sessions", "2026", "05", "01", "rollout-2026-05-01T10-00-00-"+sessionID+".jsonl"))
+	rollout.add(map[string]any{"type": "session_meta", "payload": map[string]any{"id": sessionID, "originator": "codex_vscode"}})
+	rollout.add(voiceRows(prompt)...)
+	h.hook(t, "codex", "UserPromptSubmit", map[string]any{"session_id": sessionID, "turn_id": turnID, "transcript_path": rollout.path,
+		"hook_event_name": "UserPromptSubmit", "prompt": prompt, "made_up_count": recorded})
+	fx := filepath.Join(filepath.Dir(h.home), "fixtures", "codex", "9.9.9")
+	if _, err := hostfacts.WriteFixtures(hostfacts.FixtureOptions{Rec: h.rec, Out: fx, Seed: []byte("a made-up seed")}); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := h.run(t, "", "check", "--rec", h.rec, "--fixtures", fx); code != 0 {
+		t.Fatalf("check of the fixture as written: %d %s", code, out)
+	}
+	if problems, err := hostfacts.CheckFixtureDir(fx); err != nil || len(problems) != 0 {
+		t.Fatalf("the repository's check of the fixture as written: %v %v", problems, err)
+	}
+	entries, err := os.ReadDir(fx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	num := json.Number(strconv.Itoa(recorded))
+	rowSkel := func(ev map[string]any) map[string]any {
+		for _, r := range snapshotRows(ev) {
+			for _, f := range r["fields"].([]any) {
+				if v, ok := f.(map[string]any)["voice"].(map[string]any); ok {
+					return v
+				}
+			}
+		}
+		t.Fatal("no row of the fixture has a skeleton")
+		return nil
+	}
+	promptSkel := func(ev map[string]any) map[string]any {
+		return ev["voice"].(map[string]any)["prompt"].(map[string]any)
+	}
+	// Each field's key is one of the recorder's own words, which a
+	// fixture keeps, so only the strict read can see it.
+	for _, c := range []struct {
+		name   string
+		change func(ev map[string]any)
+	}{
+		{"a payload's skeleton", func(ev map[string]any) { promptSkel(ev)["len"] = num }},
+		{"its request", func(ev map[string]any) { promptSkel(ev)["input"].(map[string]any)["size"] = num }},
+		{"a line of its transcript", func(ev map[string]any) {
+			promptSkel(ev)["transcript_delta"].(map[string]any)["lines"].([]any)[0].(map[string]any)["value"] = num
+		}},
+		{"a row's skeleton", func(ev map[string]any) { rowSkel(ev)["len"] = num }},
+		{"a key that differs in case from its field's", func(ev map[string]any) { promptSkel(ev)["input"].(map[string]any)["Len"] = num }},
+		{"the event's map of skeletons, as a number", func(ev map[string]any) { ev["voice"] = num }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			changed := false
+			for _, e := range entries {
+				data, err := os.ReadFile(filepath.Join(fx, e.Name()))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if e.Name() == hostfacts.EventsFile {
+					var lines []string
+					for _, l := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+						v, err := hostfacts.Decode([]byte(l))
+						if err != nil {
+							t.Fatal(err)
+						}
+						if ev := v.(map[string]any); ev["voice"] != nil && !changed {
+							c.change(ev)
+							changed = true
+							b, err := hostfacts.Marshal(ev)
+							if err != nil {
+								t.Fatal(err)
+							}
+							l = string(b)
+						}
+						lines = append(lines, l)
+					}
+					data = []byte(strings.Join(lines, "\n") + "\n")
+				}
+				if err := os.WriteFile(filepath.Join(dir, e.Name()), data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !changed {
+				t.Fatal("no event of the fixture has a skeleton")
+			}
+			problems, err := hostfacts.CheckFixtureDir(dir)
+			if err != nil || len(problems) == 0 {
+				t.Errorf("the repository's check passes it: %v", err)
+			}
+			survived, err := hostfacts.CheckSurvival(h.rec, dir)
+			if err != nil || len(survived) == 0 {
+				t.Errorf("the survival check does not see the recorded number: %v", err)
+			}
+			code, out, errOut := h.run(t, "", "check", "--rec", h.rec, "--fixtures", dir)
+			if code == 0 {
+				t.Errorf("check passes it: %s", out)
+			}
+			for _, p := range append(problems, survived...) {
+				out += p.String() + "\n"
+			}
+			if strings.Contains(out+errOut, string(num)) {
+				t.Errorf("a problem names the number:\n%s%s", out, errOut)
+			}
+		})
+	}
+}
+
+// A plain string equal to a part of a hand-over, beside another plain
+// string under keys that are not key-shaped at one level, shares its loose
+// path: the writer cannot tell which of the two has the part's hash, so
+// both are made up by HF-00's rule, keeping their lengths, and neither is
+// given the part's text. Both orders of the two strings are tried.
+func TestAPartsStringUnderOddKeysBesideAnotherIsMadeUpAlone(t *testing.T) {
+	const request = "zzsame request"
+	const other = "zzanother plain string of more bytes"
+	for name, odd := range map[string]map[string]any{
+		"the part's string first": {"odd key one": request, "odd key two": other},
+		"the part's string last":  {"odd key one": other, "odd key two": request},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ev := voiceFixture(t, map[string]any{"prompt": handOver("", request, "user: zzline of the talk"), "odd": odd})
+			payload := ev["payload"].(map[string]any)
+			prompt, _ := payload["prompt"].(string)
+			_, rest, _ := strings.Cut(prompt, "<input>")
+			part, _, _ := strings.Cut(rest, "</input>")
+			if len(part) != len(request) {
+				t.Fatalf("the fixture's request is %q", part)
+			}
+			var got map[string]any
+			for k, v := range payload {
+				if m, ok := v.(map[string]any); ok && k != "prompt" {
+					got = m
+				}
+			}
+			if len(got) != 2 {
+				t.Fatalf("the fixture's odd object: %v", got)
+			}
+			var lens []int
+			for _, v := range got {
+				s, _ := v.(string)
+				if s == part {
+					t.Errorf("a plain string under an odd key was given the request's text %q", s)
+				}
+				lens = append(lens, len(s))
+			}
+			slices.Sort(lens)
+			if !slices.Equal(lens, []int{len(request), len(other)}) {
+				t.Errorf("the plain strings' lengths are %v, want %d and %d", lens, len(request), len(other))
+			}
+		})
 	}
 }
 

@@ -333,6 +333,11 @@ func checkSkeletons(l any, lens map[string]int) []string {
 		}
 	})
 	var skels []*Voice
+	if x, ok := ev["voice"]; ok {
+		if _, ok := x.(map[string]any); !ok {
+			out = append(out, "an event's voice skeletons are not a map of them")
+		}
+	}
 	if m, ok := ev["voice"].(map[string]any); ok {
 		for _, p := range slices.Sorted(maps.Keys(m)) {
 			v, ok := decodeVoice(m[p])
@@ -372,13 +377,25 @@ func checkSkeletons(l any, lens map[string]int) []string {
 	return out
 }
 
-// skeletonPath reports a path, from a line's top, inside a skeleton or an
-// event's map of them.
-func skeletonPath(path []string) bool {
-	if len(path) > 0 && path[0] == "voice" {
-		return true
+// skeletonLen reports a path, from a line's top, to a byte length of a
+// skeleton, in an event's map of them or in a row's field: the "len" of
+// its source, its request, its transcript or a line of it, where a
+// skeleton holds its only numbers.
+func skeletonLen(path []string) bool {
+	var in []string
+	switch {
+	case len(path) > 2 && path[0] == "voice":
+		in = path[2:]
+	case len(path) > 6 && path[0] == "record" && path[1] == "rows" && path[3] == "fields" && path[5] == "voice":
+		in = path[6:]
 	}
-	return len(path) > 5 && path[0] == "record" && path[1] == "rows" && path[3] == "fields" && path[5] == "voice"
+	switch len(in) {
+	case 2:
+		return in[1] == "len" && (in[0] == sourceName || in[0] == inputName || in[0] == deltaName)
+	case 4:
+		return in[0] == deltaName && in[1] == "lines" && isIndex(in[2]) && in[3] == "len"
+	}
+	return false
 }
 
 // voiceShaped is the shape of a hand-over part's made-up text.
@@ -482,9 +499,10 @@ func CheckSurvival(rec, fixtures string) ([]Problem, error) {
 					look(t)
 				case json.Number:
 					// A skeleton's byte lengths are kept as recorded, as
-					// the hand-over rebuilt beside it shows them.
+					// the hand-over rebuilt beside it shows them; any other
+					// number under a skeleton is not one.
 					whole, _, _ := strings.Cut(strings.TrimLeft(string(t), "-"), ".")
-					if fb.nums[whole] && !skeletonPath(path[1:]) {
+					if fb.nums[whole] && !skeletonLen(path[1:]) {
 						at(fmt.Sprintf("holds a recorded number of %d digits", len(whole)))
 					}
 				}

@@ -508,6 +508,14 @@ func TestFixtureSkeletonsKeepTheirLengths(t *testing.T) {
 		{"a row's line", func(ev map[string]any) { lastLine(skel(ev, 1))["len"] = json.Number("8") }},
 		{"a row's request against the payload's", func(ev map[string]any) { skel(ev, 0)["input"].(map[string]any)["len"] = json.Number("16") }},
 		{"a head off the list", func(ev map[string]any) { lastLine(skel(ev, 1))["head"] = "narrator: " }},
+		// A payload's skeleton whose one part hash no other skeleton has,
+		// the hash of the whole hand-over, a string the generator made, in
+		// a shape the hand-over beside it does not have: only the check
+		// that it belongs to a hand-over its payload holds can see it.
+		{"a payload skeleton that shares no part hash", func(ev map[string]any) {
+			whole := ev["payload_hashes"].(map[string]any)["prompt"]
+			ev["voice"].(map[string]any)["prompt"] = map[string]any{"input": map[string]any{"len": json.Number("14"), "hash": whole}}
+		}},
 	} {
 		dir := t.TempDir()
 		for _, name := range []string{"fixture.json", EventsFile} {

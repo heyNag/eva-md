@@ -453,8 +453,13 @@ func TestACodexSubagentThreadCountsWithItsChat(t *testing.T) {
 // per session: the chat it was forked or spawned from stays in, with every
 // figure a home without it gives. A thread of that thread or fork goes out
 // with it, though it names the root thread too, and so does a fork of that
-// fork; they then make one chat off the record. That holds whichever of
-// the files is listed first.
+// fork, and a chain of three threads under a thread put out; they then
+// make one chat off the record. A file still in that names two chats, one
+// out from the start and one that goes out only through another file, a
+// thread of a third chat off the record, goes out with both and joins
+// them into one chat. That holds in every order the files are listed in
+// with the chat's own file first or last, which joins nothing wherever it
+// stands.
 func TestACodexForkOrThreadPutOutAloneLeavesItsChatIn(t *testing.T) {
 	// planted is a fork or thread, by the names of the chats its first
 	// record names: a fork names the chat it was forked from, and a thread
@@ -465,6 +470,8 @@ func TestACodexForkOrThreadPutOutAloneLeavesItsChatIn(t *testing.T) {
 		off                       bool
 	}
 	const root, put, child = "root", "put", "child"
+	// The facts of a home with the chat alone, by the chat's id.
+	bases := map[string]map[string]int{}
 	for _, tc := range []struct {
 		name     string
 		files    map[string]planted
@@ -478,15 +485,31 @@ func TestACodexForkOrThreadPutOutAloneLeavesItsChatIn(t *testing.T) {
 			put: {forkOf: root, off: true}, child: {threadOf: put, session: put}}, 2},
 		{"a fork with a fork of its own", map[string]planted{
 			put: {forkOf: root, off: true}, child: {forkOf: put}}, 2},
+		{"a thread with a chain of three threads under it", map[string]planted{
+			put:       {threadOf: root, session: root, off: true},
+			"thread1": {threadOf: put, session: root},
+			"thread2": {threadOf: "thread1", session: root},
+			"thread3": {threadOf: "thread2", session: root}}, 4},
+		// both names two chats: out, off the record from the start, and
+		// late, which goes out only once the thread it was spawned from
+		// has, a thread of other, a third chat off the record. Each of out
+		// and other is a chat of its own, so only both joins them.
+		{"a file still in that names a chat out from the start and one that goes out later", map[string]planted{
+			"out":   {off: true},
+			"other": {off: true},
+			"spawn": {threadOf: "other", session: "other"},
+			"late":  {threadOf: "spawn", session: "spawn"},
+			"both":  {forkOf: "out", threadOf: "late", session: "late"}}, 5},
 	} {
+		names := append([]string{root}, slices.Sorted(maps.Keys(tc.files))...)
 		for _, how := range []string{"its own rows", "eva-md's records"} {
-			for _, reversed := range []bool{false, true} {
+			for _, order := range listOrders(len(names)) {
 				// The ids decide the order the files are listed in.
-				ids := codexIDs(3)
-				if reversed {
-					slices.Reverse(ids)
+				ids := codexIDs(len(names))
+				id := map[string]string{}
+				for i, n := range names {
+					id[n] = ids[order[i]]
 				}
-				id := map[string]string{root: ids[0], put: ids[1], child: ids[2]}
 				home := func(with bool) Report {
 					f := newFixture(t, noLink)
 					chat := func(name string, p planted) {
@@ -516,8 +539,13 @@ func TestACodexForkOrThreadPutOutAloneLeavesItsChatIn(t *testing.T) {
 					r, _ := f.run()
 					return r
 				}
-				name := fmt.Sprintf("%s put out by %s, listed reversed %v", tc.name, how, reversed)
-				base, r := home(false), home(true)
+				name := fmt.Sprintf("%s put out by %s, listed in the order %v of %v", tc.name, how, order, names)
+				base, ok := bases[id[root]]
+				if !ok {
+					base = leaves(home(false).Facts)
+					bases[id[root]] = base
+				}
+				r := home(true)
 				for path, want := range map[string]int{
 					"codex/chats/read": 1, "codex/chats/files_per_chat/1": 1, "codex/files/read": 1,
 					"codex/chats/off_the_record": 1, "codex/files/off_the_record": tc.offFiles,
@@ -526,12 +554,36 @@ func TestACodexForkOrThreadPutOutAloneLeavesItsChatIn(t *testing.T) {
 						t.Errorf("%s: %s is %d, want %d", name, path, got, want)
 					}
 				}
-				if got, want := leaves(r.Facts), leaves(base.Facts); !maps.Equal(got, want) {
-					t.Errorf("%s: the facts are\n%v\nwant those of the chat alone\n%v", name, got, want)
+				if got := leaves(r.Facts); !maps.Equal(got, base) {
+					t.Errorf("%s: the facts are\n%v\nwant those of the chat alone\n%v", name, got, base)
 				}
 			}
 		}
 	}
+}
+
+// listOrders gives every order of n files in which the first is listed
+// first or last: for each file, the rank of its id among the n.
+func listOrders(n int) [][]int {
+	var out [][]int
+	var perm func(p, rest []int)
+	perm = func(p, rest []int) {
+		if len(rest) == 0 {
+			if p[0] == 0 || p[0] == n-1 {
+				out = append(out, slices.Clone(p))
+			}
+			return
+		}
+		for i, r := range rest {
+			perm(append(slices.Clone(p), r), slices.Concat(rest[:i], rest[i+1:]))
+		}
+	}
+	all := make([]int, n)
+	for i := range all {
+		all[i] = i
+	}
+	perm(nil, all)
+	return out
 }
 
 // Write refuses a report that would print a string no list holds, or a
