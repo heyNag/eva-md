@@ -2,11 +2,14 @@ package migrate
 
 import (
 	"errors"
+	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/heyNag/eva-md/internal/config"
@@ -265,6 +268,227 @@ func TestRefusalsChangeNothing(t *testing.T) {
 		gitT(t, dir, "commit", "-q", "--allow-empty", "-m", "another")
 		refused(t, dir, synthetic, o, ErrMoved)
 	})
+	for _, flag := range []string{"--skip-worktree", "--assume-unchanged"} {
+		t.Run("edit hidden by "+flag, func(t *testing.T) {
+			dir := v1Wiki(t, v1Files)
+			gitT(t, dir, "update-index", flag, "general/now.md")
+			const edit = "# Now\n\nA person's line.\n"
+			writeT(t, filepath.Join(dir, "general", "now.md"), edit)
+			if got := gitT(t, dir, "status", "--porcelain", "--untracked-files=all"); got != "" {
+				t.Fatalf("git status sees the edit, so the test does not hide it: %s", got)
+			}
+			refused(t, dir, synthetic, machine(t, writerA, "laptop", passA), ErrDirty)
+			if b, err := os.ReadFile(filepath.Join(dir, "general", "now.md")); err != nil || string(b) != edit {
+				t.Fatalf("the edit is gone: %q, %v", b, err)
+			}
+		})
+	}
+	t.Run("merge under way", func(t *testing.T) {
+		dir := v1Wiki(t, v1Files)
+		gitT(t, dir, "switch", "-q", "-c", "side")
+		gitT(t, dir, "commit", "-q", "--allow-empty", "-m", "side")
+		gitT(t, dir, "switch", "-q", "main")
+		gitT(t, dir, "merge", "-q", "-s", "ours", "--no-commit", "--no-ff", "side")
+		if got := gitT(t, dir, "status", "--porcelain", "--untracked-files=all"); got != "" {
+			t.Fatalf("status = %q; the merge should leave no change", got)
+		}
+		refused(t, dir, synthetic, machine(t, writerA, "laptop", passA), ErrUnderWay)
+	})
+	t.Run("needs a newer reader", func(t *testing.T) {
+		dir := v1Wiki(t, map[string]string{".eva-md/store.toml": "schema = 2\nmin_reader = 9\nstore_id = \"" + storeID + "\"\nepoch = 1\n", ".eva-md/schema.toml": "schema_version = 2\n", "index.md": "# Memory\n"})
+		step := Step{From: 2, To: 3, MinReader: 2, Plan: func(Tree) (Change, error) { return Change{}, nil }}
+		refused(t, dir, step, machine(t, writerA, "laptop", passA), ErrTooOld)
+		if _, err := DryRun(bg(), dir, step); !errors.Is(err, ErrTooOld) {
+			t.Fatalf("DryRun = %v; want ErrTooOld", err)
+		}
+	})
+	t.Run("before ref elsewhere", func(t *testing.T) {
+		dir := v1Wiki(t, v1Files)
+		old := gitT(t, dir, "rev-parse", "HEAD")
+		gitT(t, dir, "update-ref", "refs/eva-md/before-schema-2", old)
+		gitT(t, dir, "commit", "-q", "--allow-empty", "-m", "later")
+		o := machine(t, writerA, "laptop", passA)
+		store, state := hashDir(t, dir), hashDir(t, o.StateDir)
+		_, err := Run(bg(), dir, synthetic, o)
+		var refErr *BeforeRefError
+		if !errors.Is(err, ErrBeforeRef) || !errors.As(err, &refErr) || refErr.Ref != "refs/eva-md/before-schema-2" {
+			t.Fatalf("Run = %v; want ErrBeforeRef", err)
+		}
+		if msg := err.Error(); strings.Contains(msg, "\n") || !strings.Contains(msg, "refs/eva-md/before-schema-2") || !strings.Contains(msg, "git update-ref -d refs/eva-md/before-schema-2") {
+			t.Fatalf("the refusal is not one line that names the ref and how to remove it: %q", msg)
+		}
+		if hashDir(t, dir) != store || hashDir(t, o.StateDir) != state {
+			t.Fatal("a refused run changed the store or its state")
+		}
+		if got := gitT(t, dir, "rev-parse", "refs/eva-md/before-schema-2"); got != old {
+			t.Fatalf("the ref moved to %s", got)
+		}
+		// Once the person removes it, the run goes on.
+		gitT(t, dir, "update-ref", "-d", "refs/eva-md/before-schema-2")
+		head := gitT(t, dir, "rev-parse", "HEAD")
+		if r, err := Run(bg(), dir, synthetic, o); err != nil || !r.Committed {
+			t.Fatalf("Run = %+v, %v; want a commit", r, err)
+		}
+		if got := gitT(t, dir, "rev-parse", "refs/eva-md/before-schema-2"); got != head {
+			t.Fatalf("the ref is %s, want %s", got, head)
+		}
+	})
+}
+
+// TestBeforeRefAtTheCommitBefore lets a run go on when the before ref
+// already keeps the commit before, as a run cut short leaves it.
+func TestBeforeRefAtTheCommitBefore(t *testing.T) {
+	isolate(t)
+	dir := v1Wiki(t, v1Files)
+	before := gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "update-ref", "refs/eva-md/before-schema-2", before)
+	if r, err := Run(bg(), dir, synthetic, machine(t, writerA, "laptop", passA)); err != nil || !r.Committed {
+		t.Fatalf("Run = %+v, %v; want a commit", r, err)
+	}
+	if got := gitT(t, dir, "rev-parse", "refs/eva-md/before-schema-2"); got != before {
+		t.Fatalf("the ref is %s, want %s", got, before)
+	}
+}
+
+// TestAtToADirtyTreeIsNoMatter: a store already at the step's To makes no
+// commit and no refusal, though a person has changed it since.
+func TestAtToADirtyTreeIsNoMatter(t *testing.T) {
+	isolate(t)
+	dir := v1Wiki(t, v1Files)
+	if _, err := Run(bg(), dir, synthetic, machine(t, writerA, "laptop", passA)); err != nil {
+		t.Fatal(err)
+	}
+	head := gitT(t, dir, "rev-parse", "HEAD")
+	writeT(t, filepath.Join(dir, "note.md"), "a person's note\n")
+	writeT(t, filepath.Join(dir, "index.md"), "# Memory, edited\n")
+	r, err := Run(bg(), dir, synthetic, machine(t, writerB, "desk", passB))
+	if err != nil || r.Committed || r.Generation != 2 || r.Commit != "" {
+		t.Fatalf("Run = %+v, %v; want no commit at generation 2", r, err)
+	}
+	if gitT(t, dir, "rev-parse", "HEAD") != head {
+		t.Fatal("HEAD moved")
+	}
+}
+
+// TestFilesV1HidWouldShow: files v1's .gitignore hid that the store's
+// .gitignore would show are counted unaccounted, by Run and DryRun alike,
+// and no commit is made; what the person's own exclude files hide stays
+// hidden and is not counted. Once none would show, the run commits and
+// leaves a clean tree.
+func TestFilesV1HidWouldShow(t *testing.T) {
+	home := isolate(t)
+	dir := v1Wiki(t, v1Files)
+	for _, f := range []string{".DS_Store", "general/.DS_Store", "chat.jsonl", "inbox/a.jsonl", ".eva-md/tmp/x", "general/.tmp-keep"} {
+		writeT(t, filepath.Join(dir, filepath.FromSlash(f)), "made-up\n")
+	}
+	if got := gitT(t, dir, "status", "--porcelain", "--untracked-files=all"); got != "" {
+		t.Fatalf("v1's .gitignore does not hide the files: %s", got)
+	}
+	o := machine(t, writerA, "laptop", passA)
+	for i, tc := range []struct {
+		setup func()
+		want  int
+	}{
+		{func() {}, 5},
+		{func() { writeT(t, filepath.Join(home, ".config", "git", "ignore"), ".DS_Store\n") }, 3},
+		{func() { writeT(t, filepath.Join(dir, ".git", "info", "exclude"), "/.eva-md/tmp/\n") }, 2},
+	} {
+		tc.setup()
+		r := refused(t, dir, synthetic, o, ErrUnaccounted)
+		if r.Counts.Unaccounted != tc.want {
+			t.Fatalf("case %d: unaccounted %d, want %d", i, r.Counts.Unaccounted, tc.want)
+		}
+		if c, err := DryRun(bg(), dir, synthetic); err != nil || c.Unaccounted != tc.want {
+			t.Fatalf("case %d: DryRun = %v, %v; want %d unaccounted", i, c, err, tc.want)
+		}
+	}
+	// A core.excludesFile takes the default's place.
+	writeT(t, filepath.Join(home, "gitconfig"), "[core]\n\texcludesFile = "+filepath.Join(home, "excludes")+"\n")
+	writeT(t, filepath.Join(home, "excludes"), "*.jsonl\n")
+	if r := refused(t, dir, synthetic, o, ErrUnaccounted); r.Counts.Unaccounted != 2 {
+		t.Fatalf("with core.excludesFile: unaccounted %d, want 2", r.Counts.Unaccounted)
+	}
+	writeT(t, filepath.Join(home, "excludes"), "*.jsonl\n.DS_Store\n")
+	r, err := Run(bg(), dir, synthetic, o)
+	if err != nil || !r.Committed {
+		t.Fatalf("Run = %+v, %v; want a commit", r, err)
+	}
+	if got := gitT(t, dir, "status", "--porcelain", "--untracked-files=all"); got != "" {
+		t.Fatalf("the store is not clean after its commit:\n%s", got)
+	}
+	for _, f := range []string{".DS_Store", "general/.DS_Store", "chat.jsonl", "inbox/a.jsonl", ".eva-md/tmp/x", "general/.tmp-keep"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(f))); err != nil {
+			t.Errorf("%s is gone: %v", f, err)
+		}
+	}
+	if r, err := Run(bg(), dir, synthetic, machine(t, writerB, "desk", passB)); err != nil || r.Committed {
+		t.Fatalf("second Run = %+v, %v; want no commit", r, err)
+	}
+}
+
+// TestOldGitFilesAndLinks: a git settings file below the root that the
+// result would keep is refused, and a symlink is no file a step can read.
+func TestOldGitFilesAndLinks(t *testing.T) {
+	isolate(t)
+	files := maps.Clone(v1Files)
+	files["projects/.gitignore"] = "*.tmp\n"
+	dir := v1Wiki(t, files)
+	store := hashDir(t, dir)
+	if r, err := Run(bg(), dir, indexOnly, machine(t, writerA, "laptop", passA)); err == nil || r.Committed {
+		t.Fatalf("Run = %+v, %v; want a refusal", r, err)
+	}
+	if hashDir(t, dir) != store {
+		t.Fatal("a refused run changed the store")
+	}
+
+	dir = v1WithLink(t)
+	r := refused(t, dir, synthetic, machine(t, writerA, "laptop", passA), ErrUnaccounted)
+	if r.Counts.Unreadable != 1 || r.Counts.Unaccounted != 1 {
+		t.Fatalf("counts = %v; want the link unreadable", r.Counts)
+	}
+}
+
+// v1WithLink is v1Wiki with a symlink committed at general/link.md that
+// points out of the wiki.
+func v1WithLink(t *testing.T) string {
+	t.Helper()
+	dir := v1Wiki(t, v1Files)
+	if err := os.Symlink("../../outside/secret.txt", filepath.Join(dir, "general", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", "general/link.md")
+	gitT(t, dir, "commit", "-q", "-m", "a link")
+	if got := gitT(t, dir, "ls-tree", "HEAD", "general/link.md"); !strings.HasPrefix(got, "120000 ") {
+		t.Fatalf("the link is not committed as one: %s", got)
+	}
+	return dir
+}
+
+// TestFileErrorsNameNoPath: a write that fails names the operation and the
+// system's reason, never the store path, which can carry memory words.
+func TestFileErrorsNameNoPath(t *testing.T) {
+	isolate(t)
+	const marker = "zq7marker"
+	long := "general/" + marker + strings.Repeat("x", 300) + "/now.md"
+	step := Step{From: 1, To: 2, MinReader: 2, Classes: []string{"page"}, Plan: func(Tree) (Change, error) {
+		return Change{Write: map[string][]byte{long: []byte("x\n")}, Counts: Counts{Written: map[string]int{"page": 1}}}, nil
+	}}
+	_, err := Run(bg(), v1Wiki(t, v1Files), step, machine(t, writerA, "laptop", passA))
+	if err == nil || strings.Contains(err.Error(), marker) || strings.Contains(err.Error(), "general") {
+		t.Fatalf("Run = %v; want a failure that names no path", err)
+	}
+	for _, e := range []error{
+		&fs.PathError{Op: "open", Path: "projects/" + marker + "/now.md", Err: syscall.EACCES},
+		&os.LinkError{Op: "rename", Old: marker + "a", New: marker + "b", Err: syscall.EXDEV},
+		fmt.Errorf("paths: %s", marker),
+	} {
+		if got := fsErr("write", e).Error(); strings.Contains(got, marker) {
+			t.Errorf("fsErr = %q", got)
+		}
+	}
+	if !errors.Is(fsErr("write", &fs.PathError{Path: marker, Err: syscall.ENOENT}), fs.ErrNotExist) {
+		t.Error("fsErr lost the system's reason")
+	}
 }
 
 // TestStepContract refuses a change that breaks the step's contract, and
@@ -284,26 +508,30 @@ func TestStepContract(t *testing.T) {
 		return func(c *Change) { c.Write[p] = []byte("x\n"); c.Counts.Written["legacy"]++ }
 	}
 	for name, step := range map[string]Step{
-		"writes .gitattributes":   alter(write(".gitattributes")),
-		"writes the manifest":     alter(write(".eva-md/store.toml")),
-		"writes the marker":       alter(write(".eva-md/Schema.toml")),
-		"writes into .git":        alter(write(".git/config")),
-		"writes into .GIT":        alter(write("x/.GIT/config")),
-		"writes outside":          alter(write("../outside.md")),
-		"writes an absolute path": alter(write("/tmp/x.md")),
-		"writes a dot segment":    alter(write("a/./b.md")),
-		"writes a control byte":   alter(write("a\nb.md")),
-		"writes in case only":     alter(write("INDEX.md")),
-		"writes into a file":      alter(write("index.md/x.md")),
-		"removes an absent path":  alter(func(c *Change) { c.Remove = append(c.Remove, "nowhere.md"); c.Counts.Removed++ }),
-		"writes and removes":      alter(func(c *Change) { c.Remove = append(c.Remove, "index.md"); c.Counts.Removed++ }),
-		"removes .gitignore":      alter(func(c *Change) { c.Remove = append(c.Remove, ".gitignore"); c.Counts.Removed++ }),
-		"counts another class":    alter(func(c *Change) { c.Counts.Read["pages"] = 1 }),
-		"miscounts writes":        alter(func(c *Change) { c.Counts.Written["legacy"]-- }),
-		"miscounts removals":      alter(func(c *Change) { c.Counts.Removed++ }),
-		"counts held back":        alter(func(c *Change) { c.Counts.HeldBack = 1 }),
-		"counts below zero":       alter(func(c *Change) { c.Counts.Protected = -1 }),
-		"plan fails":              alter(func(*Change) {}),
+		"writes .gitattributes":          alter(write(".gitattributes")),
+		"writes the manifest":            alter(write(".eva-md/store.toml")),
+		"writes the marker":              alter(write(".eva-md/Schema.toml")),
+		"writes into .git":               alter(write(".git/config")),
+		"writes into .GIT":               alter(write("x/.GIT/config")),
+		"writes outside":                 alter(write("../outside.md")),
+		"writes an absolute path":        alter(write("/tmp/x.md")),
+		"writes a dot segment":           alter(write("a/./b.md")),
+		"writes a control byte":          alter(write("a\nb.md")),
+		"writes in case only":            alter(write("INDEX.md")),
+		"writes into a file":             alter(write("index.md/x.md")),
+		"removes an absent path":         alter(func(c *Change) { c.Remove = append(c.Remove, "nowhere.md"); c.Counts.Removed++ }),
+		"writes and removes":             alter(func(c *Change) { c.Remove = append(c.Remove, "index.md"); c.Counts.Removed++ }),
+		"removes .gitignore":             alter(func(c *Change) { c.Remove = append(c.Remove, ".gitignore"); c.Counts.Removed++ }),
+		"counts another class":           alter(func(c *Change) { c.Counts.Read["pages"] = 1 }),
+		"miscounts writes":               alter(func(c *Change) { c.Counts.Written["legacy"]-- }),
+		"miscounts removals":             alter(func(c *Change) { c.Counts.Removed++ }),
+		"counts held back":               alter(func(c *Change) { c.Counts.HeldBack = 1 }),
+		"counts below zero":              alter(func(c *Change) { c.Counts.Protected = -1 }),
+		"plan fails":                     alter(func(*Change) {}),
+		"writes a nested .gitattributes": alter(write("general/.gitattributes")),
+		"writes a nested .GitIgnore":     alter(write("legacy/.GitIgnore")),
+		"writes .gitmodules":             alter(write(".gitmodules")),
+		"writes a nested .gitmodules":    alter(write("a/b/.gitmodules")),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if name == "plan fails" {
