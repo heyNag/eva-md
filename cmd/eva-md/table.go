@@ -66,6 +66,7 @@ var supportFiles = []struct{ file, holds string }{
 	{"rosetta_darwin.go", "upgrade's Rosetta check"},
 	{"rosetta_other.go", "the Rosetta check's stand-in off macOS, so eva-md builds on Linux"},
 	{"setup_checks.go", `setup's "Checking this Mac" checklist`},
+	{"shapes.go", "eva-md audit shapes, which the audit command in audit.go dispatches to"},
 	{"setup_refusals.go", "how setup says why gh, glab or git refused, and the internal-repo question"},
 	{"setup_repo.go", "how setup creates the wiki's repo with gh or glab, checks that it is private and finds it to clone again"},
 	{"timelimits.go", "the time limits tests raise"},
