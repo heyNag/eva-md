@@ -88,6 +88,9 @@ func TestCheck(t *testing.T) {
 			if a != tc.want || !errors.Is(err, tc.err) || (tc.err == nil) != (err == nil) {
 				t.Fatalf("Check = %+v, %v; want %+v, %v", a, err, tc.want, tc.err)
 			}
+			if err != nil && strings.Contains(err.Error(), root) {
+				t.Fatalf("the error names the store's path: %v", err)
+			}
 			var tooOld *TooOldError
 			if errors.As(err, &tooOld) && (tooOld.StoreID != id || tooOld.Known != tc.known || tooOld.MinReader != tc.want.MinReader || tooOld.Schema != tc.want.Schema) {
 				t.Fatalf("TooOldError = %+v", tooOld)

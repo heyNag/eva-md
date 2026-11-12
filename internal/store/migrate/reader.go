@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,6 +61,11 @@ const maxManifest = 4 << 10
 func Check(root string, known int) (Access, error) {
 	b, err := readManifest(root)
 	if err != nil {
+		// The reason only: the file's path names where the memory is.
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			err = pe.Err
+		}
 		return Access{}, fmt.Errorf("%w: %v", ErrNoManifest, err)
 	}
 	m, err := readManifestKeys(b, false)
