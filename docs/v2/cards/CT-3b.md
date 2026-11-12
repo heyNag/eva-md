@@ -1,4 +1,4 @@
-# CT-3b: the capture audit pairs a session by its id too
+# CT-3b: the capture audit pairs a session by its id too (LG-02)
 
 **Plan:** section 8, Stage 0, the counters release row and "What the counters release counts"; section 13, the lines "Events held back; turn and tool coverage" and "No transcript in 545 of 580 recoveries". **Part of:** the counters release. **Follows:** [CT-3](CT-3.md), on whose fixed branch it is built. **Size:** S. **Reviewers:** two (it opens the hosts' own records): the contract, and privacy.
 

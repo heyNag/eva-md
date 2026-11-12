@@ -33,3 +33,18 @@ Everything else. `internal/eval/scenario` (EV-14a's), `internal/eval/results`, `
 - Every distortion of the seeded set is scored right on every port scenario it applies to, and `moved` on a test scenario with a fact of two kinds leaves `fact_holds` at 1. The test logs how many of the seven v1's `Measure` scores right (expected 3) and how many the scorer does (7).
 - `Rows` gives one row for each metric, accepted by `results.Store` with `Forbid` set to `scenario.Forbid`, and no row field holds a planted word, by test.
 - A property test builds pages of made-up items in every section, with every tag, refs and Timeline groups, renders them with `threadpage.Render` and `RenderRules`, and finds each item back from `v1page` with its kind, state, tag, sources and date. A page with an unreadable line returns an error without its text, by test.
+
+## As merged
+
+Merged from `pkg/ev-14b-r11b` on 2026-11-12, after a review, three fix rounds and four verifications, two of them by mutation of the scorer. The lead's rulings, which the code and its doc comments hold:
+
+- **Wrong writes count dated lines too**, since a wrong dated line is a stored statement. Retired items are left out.
+- **Summary items are `unscored`**, an outcome outside the closed list, since summaries are not scored here. The fact shares count only facts that must be stored and are still in force; scope is checked only as one of the store format's names.
+- **A partial tie gives the fact's own verdict in three cases:** an item that cites a line said off the record; one that holds any value of a fact that may be kept, only never under the user's tag or never as a rule, and is filed that way; and an active item that holds a value of a fact that ended, when no fact still in force that its own cited lines plant holds that value.
+- **Two exemptions, and no third.** An ended fact is not tied by part when the item holds in full a fact that ended it, by superseding it or by being planted where it ends, also when that fact has itself ended: a correction that names the value it replaced is not stale. A fact never to be kept under the user's tag is not tied by part when the item holds in full a fact that must be stored and is still in force. A fact never to be a rule is never spared.
+- **The cost of the second exemption** is said in the package's doc: the scorer cannot read a negation, so an item under the user's tag that does take the pasted value beside such a fact is not counted, and `fidelity.violations` on scenarios with pasted text is a lower bound.
+- **A condition's clause** ends at a semicolon or a sentence end, and at a comma unless the part the comma closes holds something of the condition and the part it opens holds nothing but the condition's own words, its markers and small words. `unless` is a sense of its own. A day written with slashes is not read, by choice.
+
+What it shows of v1, for [EV-14d](EV-14d.md): v1's own correct outputs do not hold every fact of the port on four scenarios (v1.02 drops "yesterday", v1.05 drops the benchmark's name from the condition, v1.08 keeps two dated lines only under the user's tag and one answer only on the Timeline, v1.11 loses one codename), so v1's row is below 1 there even when v1's run is right by its own measure. That is a reading of v1, not a fault of the scorer. Whether script 08's facts f5 and f6 stay must-store is the scenario's question, for a later card on `internal/eval/scenario`.
+
+Owed, as test files only: one `TestOutcomes` case that pins "still in force" in the second exemption (an item under the user's tag that takes a pasted value beside a fact that has ended is a violation), and the class check of `hasSlot`, which changes a score only when two facts share a value under different classes.

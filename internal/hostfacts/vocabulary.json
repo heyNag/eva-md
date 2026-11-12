@@ -1,0 +1,70 @@
+{
+  "about": "Host words the fixtures keep as they are. Every other key and value of a recording is replaced by a made-up one of the same shape. No model name or alias, effort level, plan or tier name, version, or usage, cost or rate-limit figure may be added; TestVocabularyHoldsNoAccountWord fails on one. Each entry is approved by the lead before the first fixture is committed.",
+  "field_names": [
+    "activeForm", "agentId", "agent_id", "agent_message", "agent_nickname", "agent_role", "agent_transcript_path", "agent_type",
+    "approval_policy", "arguments", "branch", "call_id", "cmd", "collaboration_mode", "command", "commit_hash",
+    "compactMetadata", "compact_summary", "content", "custom_instructions", "cwd", "data", "depth", "description",
+    "durationMs", "effort", "encrypted_content", "entrypoint", "error", "error_type", "exit_code", "explanation",
+    "file", "filePath", "file_path", "git", "gitBranch", "glob", "hasOutput", "hookCount", "hook_event_name",
+    "id", "images", "info", "input", "instructions", "interrupted", "isApiErrorMessage", "isCompactSummary",
+    "isImage", "isMeta", "isSidechain", "isVisibleInTranscriptOnly", "is_error", "is_interrupt", "item", "item_id",
+    "kind", "last_agent_message", "last_assistant_message", "leafUuid", "level", "limit", "local_images", "logicalParentUuid",
+    "message", "messageId", "mode", "model", "model_provider", "name", "newString", "new_model", "new_string",
+    "notification_type", "numLines", "offset", "oldString", "old_string", "operation", "origin", "originator",
+    "outcome", "output", "output_mode", "parentToolUseID", "parentUuid", "parent_thread_id", "parent_turn_id",
+    "path", "pattern", "payload", "permissionMode", "permission_mode", "phase", "presentation", "preTokens",
+    "previous_model", "prompt", "promptId", "prompt_id", "query", "reason", "reasoning", "replaceAll",
+    "replace_all", "repository_url", "requestId", "returnCodeInterpretation", "role", "root_turn_id", "sandbox_policy",
+    "sessionId", "session_id", "settings", "signature", "slug", "snapshot", "source", "sourceToolUseID", "startLine",
+    "status", "stderr", "stdout", "stopReason", "stop_hook_active", "stop_reason", "stop_sequence", "subagent",
+    "subagent_type", "subtype", "summary", "text", "thinking", "thread_id", "thread_spawn", "timeout", "timestamp",
+    "title", "todos", "toolUseID", "toolUseResult", "tool_calls", "tool_input", "tool_name", "tool_response",
+    "tool_use_id", "tools", "totalLines", "transcript_path", "trigger", "turn_attribution", "turn_id", "turn_trigger",
+    "type", "url", "user_message", "userType", "uuid", "workdir"
+  ],
+  "values": [
+    "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch",
+    "SubagentStart", "SubagentStop", "Stop", "StopFailure", "PreCompact", "PostCompact", "PostModelSwitch",
+    "SessionEnd", "Interrupt", "Notification", "PermissionRequest",
+    "user", "assistant", "system", "developer", "tool", "summary", "attachment", "progress",
+    "file-history-snapshot", "queue-operation", "session_meta", "response_item", "event_msg", "turn_context",
+    "compacted", "realtime_item", "message", "function_call", "function_call_output", "custom_tool_call",
+    "custom_tool_call_output", "reasoning", "local_shell_call", "web_search_call", "task_started", "task_complete",
+    "turn_started", "turn_complete", "turn_aborted", "user_message", "agent_message", "agent_reasoning",
+    "token_count", "exec_command_begin", "exec_command_end", "patch_apply_begin", "patch_apply_end",
+    "context_compacted", "text", "tool_use", "tool_result", "thinking", "redacted_thinking", "image",
+    "input_text", "output_text", "input_image",
+    "startup", "resume", "clear", "compact", "fork", "manual", "auto", "logout", "prompt_input_exit", "other",
+    "interrupted", "exit", "cli", "vscode", "exec", "mcp", "subagent", "sdk-cli", "sdk-ts", "sdk-py",
+    "claude-desktop", "claude-vscode", "external", "info", "warning", "error", "suggestion", "compact_boundary",
+    "local_command", "informational", "api_error", "stop_hook_summary", "turn_duration",
+    "Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS", "Task", "Agent", "TodoWrite", "TaskCreate",
+    "TaskUpdate", "WebFetch", "WebSearch", "NotebookEdit", "ExitPlanMode", "AskUserQuestion", "BashOutput",
+    "KillShell", "Skill", "SlashCommand", "shell", "apply_patch", "update_plan", "exec_command", "write_stdin",
+    "view_image", "local_shell", "request_user_input",
+    "default", "acceptEdits", "bypassPermissions", "dontAsk", "completed", "in_progress", "pending", "failed",
+    "success", "codex_cli_rs", "codex_exec", "codex_vscode"
+  ],
+  "tags": [
+    "command-name", "command-message", "command-args", "local-command-stdout", "local-command-stderr",
+    "local-command-caveat", "bash-input", "bash-stdout", "bash-stderr", "system-reminder", "task-notification",
+    "teammate-message", "user-prompt-submit-hook", "environment_context", "user_instructions", "user_shell_command",
+    "turn_aborted", "subagent_notification", "realtime_delegation", "input", "transcript_delta", "source",
+    "realtime_conversation", "pasted_content"
+  ],
+  "bracket_prefixes": [
+    "[Request interrupted by user for tool use]", "[Request interrupted by user]"
+  ],
+  "env_names": [
+    "HOME", "PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION",
+    "TERM_SESSION_ID", "LANG", "LC_ALL", "LC_CTYPE", "PWD", "OLDPWD", "SHLVL", "COLORTERM", "NO_COLOR", "PAGER",
+    "GIT_EDITOR", "EDITOR", "SSH_AUTH_SOCK", "COMMAND_MODE", "XPC_FLAGS", "XPC_SERVICE_NAME",
+    "__CF_USER_TEXT_ENCODING", "__CFBundleIdentifier", "MallocNanoZone", "_", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_PROJECT_DIR", "CLAUDE_PLUGIN_ROOT", "CLAUDE_CONFIG_DIR", "CLAUDE_ENV_FILE", "CODEX_HOME",
+    "CODEX_MANAGED_BY_NPM", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_THREAD_ID",
+    "DISABLE_AUTOUPDATER", "HF_PROGRAM_MARK", "HF_PLAIN_MARK", "HF_FAKE_API_TOKEN"
+  ],
+  "exit_code_fields": ["exit_code", "exitCode", "code"],
+  "id_prefixes": ["toolu_", "call_", "msg_", "resp_"],
+  "voice": ["transcript_tail_flush", "user: ", "assistant: ", "…"]
+}

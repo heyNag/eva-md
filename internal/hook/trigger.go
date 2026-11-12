@@ -23,15 +23,39 @@ const (
 	catchUpSessions = 5                // ...and holds a backlog, at most this many
 )
 
+// The update triggers' handlers. Once the event's line is stored: a prompt
+// after a gap with a backlog, a Stop with 60 KB or more to process, and a
+// chat's end or compaction, in a chat no program runs, each ask for an
+// update of the chat. In a chat start's brief: the catch-up of idle
+// sessions, with the day's sweep.
+func init() {
+	registerHandler(200, "prompt gap", atStored, func(t *turn) {
+		if t.event == "UserPromptSubmit" && gapBacklogged(inbox.Store{Root: t.env.Dirs.Inbox()}, t.file, t.before, t.now) {
+			queueUpdate(t, t.host+":"+t.session)
+		}
+	})
+	registerHandler(210, "stop backlog", atStored, func(t *turn) {
+		if t.event == "Stop" && !t.headless && updatesOn(t.env.Config) && stopBacklogged(inbox.Store{Root: t.env.Dirs.Inbox()}, t.file) {
+			queueUpdate(t, t.host+":"+t.session)
+		}
+	})
+	registerHandler(220, "session end and compaction", atStored, func(t *turn) {
+		if (t.event == "SessionEnd" || t.event == "PreCompact") && !t.headless {
+			queueUpdate(t, t.host+":"+t.session)
+		}
+	})
+	registerHandler(300, "chat-start catch-up", atBriefed, catchUp)
+}
+
 // updatesOn reports whether the hooks start updates: updates = true in the
 // config, and a wiki set up, without which a job could only fail.
 func updatesOn(c config.Config) bool { return c.Updates && c.WikiPath != "" }
 
 // queueUpdate asks for a detached eva-md update of sessions, each
-// "<host>:<id>", unless updates are off, naming the trigger that event
+// "<host>:<id>", unless updates are off, naming the trigger the run's event
 // fired (see eventTrigger).
-func queueUpdate(spawns *[][]string, env Env, event string, sessions ...string) {
-	queueJob(spawns, env, eventTrigger(event), false, sessions...)
+func queueUpdate(t *turn, sessions ...string) {
+	queueJob(t, eventTrigger(t.event), false, sessions...)
 }
 
 // eventTrigger names the trigger an event fires, for the run log: an event
@@ -60,16 +84,31 @@ const sweepFlag = "--sweep"
 // Asking costs the hook nothing here: launch drops the sweep once a job has
 // taken it today, and the job with it when it has no session to update
 // (see withSweep).
-func queueCatchUp(spawns *[][]string, env Env, sweep bool, sessions ...string) {
-	queueJob(spawns, env, update.TriggerStart, sweep, sessions...)
+func queueCatchUp(t *turn, sweep bool, sessions ...string) {
+	queueJob(t, update.TriggerStart, sweep, sessions...)
+}
+
+// catchUp asks, at a chat start's brief while updates are on, for the
+// catch-up update of this chat's own backlog and the project's idle
+// sessions, from what capture found before the hook appended anything and
+// the session files the brief read. A person's chat start asks for the
+// day's sweep too; a program's starts no model calls for other projects'
+// chats.
+func catchUp(t *turn) {
+	if t.event != "SessionStart" || !updatesOn(t.env.Config) {
+		return
+	}
+	store := inbox.Store{Root: t.env.Dirs.Inbox()}
+	own, recovered := startState{before: t.before, recovered: t.recovered}.files(store, t.project, t.host, t.session)
+	queueCatchUp(t, !t.headless, idleBacklogs(t.ctx, store, own, t.read, recovered, t.now)...)
 }
 
 // queueJob asks for an update of sessions, named for trigger with
-// update.TriggerFlag after them, and with sweep for the day's sweep. A job
-// for the sweep alone names no trigger: it records the sessions it picks as
-// the sweep's.
-func queueJob(spawns *[][]string, env Env, trigger string, sweep bool, sessions ...string) {
-	if !updatesOn(env.Config) {
+// update.TriggerFlag after them, and with sweep for the day's sweep, for
+// the reason trigger. A job for the sweep alone names no trigger: it
+// records the sessions it picks as the sweep's.
+func queueJob(t *turn, trigger string, sweep bool, sessions ...string) {
+	if !updatesOn(t.env.Config) {
 		return
 	}
 	args := []string{"update"}
@@ -83,7 +122,7 @@ func queueJob(spawns *[][]string, env Env, trigger string, sweep bool, sessions 
 		args = append(args, sweepFlag)
 	}
 	if len(args) > 1 {
-		*spawns = append(*spawns, args)
+		t.ask(job{args: args, reason: trigger})
 	}
 }
 

@@ -37,3 +37,16 @@ Every path outside `internal/hook`. `pointers.go` and `recall.go`. What a hook s
 - `jobEnv` gives the git variables to both maintain jobs and to no update job, by test.
 - Two handlers at one place panic with both names, by test.
 - EV-16's comparison (`scripts/benchmark.py --compare OLD NEW`), the old binary built from `main` before this change, shows no gated metric worse than EV-16's rule allows. Report the figures.
+
+## As merged
+
+Merged from `pkg/seam-0b-r1b` on 2026-11-12, after two reviews, a fix round and a verification that accepted it with nothing open, having broken the code five ways and seen a test fail each time. What the code holds beyond the list above:
+
+- **Reasons are the counters' words**, as CT-2 writes them: `stop_size` and `compact`, not `stop_backlog` and `pre_compact`.
+- **The turn carries the capture's context** as well as the facts of item 3, and its time is set only from `atStored` on, so the clock is read no earlier than in v1.
+- **`atLaunch` runs only in a run whose capture passed the guards and returned in time.** It runs even when no job is due. Before the capture fills it, a run's turn holds only the payload's host, event and session, so a test can see a run that a guard stopped; `launch` starts nothing for it.
+- **Left as they are**, since removing them changes tests this card may not touch: the unused trailing parameters of `capture` and `resumeContext`, the test-only `detach` wrapper, and the `[]string` arm of `jobEnv`. A later card may remove them.
+
+For [DV-12b](DV-12b.md): `launch` judges every job first, which takes the day's attempt file, then runs the `atLaunch` handlers, then starts the jobs, all under one recover. A panic in a later judgment, or in an `atLaunch` handler, so starts nothing while the day's maintain is already marked as attempted, and the day's commit and push wait until tomorrow. No `atLaunch` handler exists yet, so nothing changes today. DV-12b either recovers each `atLaunch` handler on its own and still starts the judged jobs, or takes the attempt file only once a job is started or handed to the worker.
+
+The latency gate could not judge this package on the build machine, which was busy. CI's macOS latency job on the merge is the run of record.

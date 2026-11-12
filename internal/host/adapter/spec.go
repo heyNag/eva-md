@@ -36,25 +36,25 @@ type Quirk struct {
 var (
 	codexFolderMissing = Quirk{
 		ID: "codex.marketplace-folder-missing", Host: Codex, Lowest: "0.166.0", Highest: "0.166.0",
-		What:    "While its eva-md marketplace's folder has no manifest, Codex fails its lists with a line naming that folder, symlinks resolved (folderMissing in internal/install/host.go).",
+		What:    "While its eva-md marketplace's folder has no manifest, Codex fails its lists with a line naming that folder, symlinks resolved (MarketplaceFolderMissing).",
 		Fixture: "codex-marketplace-folder-missing.txt",
 		Shows:   ": marketplace root does not contain a supported manifest",
 	}
 	claudeCodeMarketplaceRoot = Quirk{
 		ID: "claude-code.marketplace-root-keys", Host: ClaudeCode, Lowest: "2.1.311", Highest: "2.1.316",
-		What:    "A marketplace's folder is read from the first of root, path, installLocation, marketplaceSource.source, source.path and source.source its listing gives (inspect in internal/install/host.go).",
+		What:    "A marketplace's folder is read from the first of root, path, installLocation, marketplaceSource.source, source.path and source.source its listing gives (MarketplaceRoot).",
 		Fixture: "claude-code-marketplace-list.json",
 		Shows:   `"installLocation"`,
 	}
 	codexMarketplaceRoot = Quirk{
 		ID: "codex.marketplace-root-keys", Host: Codex, Lowest: "0.164.0", Highest: "0.166.0",
-		What:    "A marketplace's folder is read from the first of root, path, installLocation, marketplaceSource.source, source.path and source.source its listing gives (inspect in internal/install/host.go).",
+		What:    "A marketplace's folder is read from the first of root, path, installLocation, marketplaceSource.source, source.path and source.source its listing gives (MarketplaceRoot).",
 		Fixture: "codex-marketplace-list.json",
 		Shows:   `"installLocation"`,
 	}
 	codexHooksFeature = Quirk{
 		ID: "codex.features-list-hooks-row", Host: Codex, Lowest: "0.164.0", Highest: "0.166.0",
-		What:    "Whether hooks are on is the row of codex features list whose first column is hooks, read by its last column only, since its middle column changes by version: experimental here, stable from 0.167 (internal/health/hosts.go and internal/install/install.go).",
+		What:    "Whether hooks are on is the row of codex features list whose first column is hooks, read by its last column only, since its middle column changes by version: experimental here, stable from 0.167 (ReadHooksRows, and internal/health/hosts.go).",
 		Fixture: "codex-features-list.txt",
 		Shows:   "\nhooks experimental true\n",
 	}

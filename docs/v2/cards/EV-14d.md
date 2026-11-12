@@ -6,6 +6,8 @@
 
 v1's row on the fidelity scorer must come from what real models wrote, which the owner's live gates (DV-02) record. Two programs must agree on that recording: `cmd/live-accuracy`, which runs v1's update on the 12 scripts, and the scorer. This part fixes the format, lets the live run write it and replay it with no model call, and turns the pages it ends with into rows. Nothing in eva-md changes, so there is no switch; a run of `live-accuracy` without the new flags does exactly what it does today.
 
+Two things the scorer's own build showed, which this row's reader must know (EV-14b, "As merged"). v1's correct outputs do not hold every fact of the port on four scenarios, so v1's row is below 1 there even when v1's run is right by its own measure: the report this card writes says so beside the row, scenario by scenario. And the scorer cannot read a negation: an item under the user's tag that cites a pasted line and holds in full a fact that must be stored and is still in force is not counted a violation even when it adopts the pasted value, so `fidelity.violations` on scenarios with pasted text is a lower bound.
+
 ## What to build
 
 1. **The recording**, one JSON line for each pass, written as the run goes: `{"v":1,"host":…,"effort":…,"model":…,"script":<1 to 12, the order of accuracy.Scripts()>,"pass":<from 1>,"output":<the answer's JSON, or null>,"reason":<the runner's reason, or "">}`. Nothing else: no token count, no time, no path.

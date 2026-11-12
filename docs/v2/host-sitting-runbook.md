@@ -28,7 +28,7 @@ Every other fact the first version settled in a sitting is read by the second re
 - **A microphone and a quiet room** for the one voice call in Codex's desktop app: no one else speaking, and no television, radio or phone playing. A call transcribes every voice it hears.
 - **No days between the sittings.** They go in order, on any days; sittings 1 and 2 and the hand-over can be on the same day.
 
-**What is never touched.** Your real install and its home: your own account's eva-md, its wiki, its inbox, its hooks, `~/.claude` and `~/.codex` in your own account, and the host versions it runs. In your own account you only use System Settings (S0-01); your browser on the git server (G-02 and G-05), where you create the scratch repository, add its key, look at how it shows one commit and delete it; your browser on the private file share the lead names (E-03), where you upload the recording; TextEdit, to save one file in `/Users/Shared` and read another (G-02); and Finder, to delete the file you saved (G-05). Each account deletes only the files it made in `/Users/Shared`: macOS lets no other account delete them. Never use `sudo`, and never install, upgrade or sign in a host from your own account for these sittings. If a host's instructions need either, stop and tell the lead. eva-md itself is not installed in the evaluation home; only the scratch plugins are. Every prompt, name, word and value below is made up for this run-book and stands for nothing real.
+**What is never touched.** Your real install and its home: your own account's eva-md, its wiki, its inbox, its hooks, `~/.claude` and `~/.codex` in your own account, and the host versions it runs. In your own account you only use System Settings (S0-01); your browser on the git server (G-02 and G-05), where you create the scratch repository, add its key, look at how it shows one commit and delete it; your browser on the private file share the lead names (E-03), where you upload the recording; TextEdit, to save one file in `/Users/Shared` and read another (G-02); and Finder, to delete the file you saved (G-05). Each account deletes only the files it made in `/Users/Shared`: macOS lets no other account delete them. Never use `sudo`, and never install, upgrade or sign in a host from your own account for these sittings. If a host's instructions need either, stop and tell the lead. eva-md itself is not installed in the evaluation home during these sittings; only the scratch plugins are. [The live gates](live-gates-runbook.md) install it there once, between Part 1's hand-over and any Part 2 group, and remove it again. Every prompt, name, word and value below is made up for this run-book and stands for nothing real.
 
 **How long it takes.** Each step states its minutes. The sums below are the least each part takes, against the lead's target; plan for about a fifth more, for first-time screens and waits no step foresaw.
 
@@ -134,7 +134,7 @@ hostrec setup --rec ~/hf-rec
 ```
 
 **Expect:** `git log` prints a 40-character id that begins with the 12 characters the lead gave. `hostrec setup` says it found no eva-md install and no earlier session in this account, and makes the recording folder `~/hf-rec`; a private folder `~/hf-private`, which is never handed over; the scratch repositories `~/scratch/alpha-orchard` and `~/scratch/beta-lantern`, a plain folder `~/scratch/outside`, and `~/scratch/long-notes` with a long made-up `AGENTS.md`; and the scratch marketplaces under `~/hf`. All their content is made up: fruit, lanterns and orchards.
-**If not:** if `git checkout` fails, or `git log` prints an id that begins otherwise, stop before `go build` and tell the lead. If `setup` refuses because it found an eva-md install or an earlier session, stop: this is not a fresh evaluation account. For any other error, copy it into `hostrec note` if that runs, or into a message to the lead, and stop.
+**If not:** if `git checkout` fails, or `git log` prints an id that begins otherwise, stop before `go build` and tell the lead. If `setup` refuses because it found an eva-md install or an earlier session, stop: this is not a fresh evaluation account. For any other error, copy it into `hostrec note` if that runs, or into a message to the lead, and stop. If `setup` prints a WARNING that words the recording must keep are also names on this machine, copy the words it lists into a message to the lead and stop: sitting 1 waits for the lead's answer.
 **Settles:** nothing on its own.
 
 That ends sitting 0. Log out of `hfeval` (Apple menu, Log Out); nothing in it runs while it is logged out.
@@ -179,7 +179,7 @@ Never copy a key, an SSH agent or a password manager from your own account into 
 Side: `hostrec mark G-03`, then `hostrec remote set`. It reads the address file, shows the repository's name, refuses any repository not named `hf-scratch-plum`, asks you to confirm with `y`, and stores the address in `~/hf-private`. It then deletes `/Users/Shared/hf-scratch-deploy-key.pub`, which this account wrote, and leaves the address file, which your own account saved and deletes in G-05.
 
 **Expect:** `remote set` shows `hf-scratch-plum`, stores its address and says it deleted the public key's file.
-**If not:** if it refuses the name, check that the file holds the scratch repository's address, never your real wiki's.
+**If not:** if it refuses the name, check that the file holds the scratch repository's address, never your real wiki's. If `remote set` prints a WARNING that words the recording must keep are also names on this machine, copy the words it lists into `hostrec note`, finish G-04 and G-05 as written, then stop before C-0a and tell the lead.
 **Settles:** nothing on its own.
 
 #### G-04. The pushes (4 min)
@@ -490,9 +490,9 @@ Side: `hostrec mark X-44`. Make sure the room is quiet, with no other voice, tel
 
 #### X-46. After the call (3 min)
 
-Side: `hostrec mark X-46`, `hostrec voice-check`. It counts the rows of the call's session file by type, beside the hand-overs the hooks saw, compares the hand-overs' requests with this run-book's script, and prints the names of any version fields the wrapper or the session file carries.
+Side: `hostrec mark X-46`, `hostrec voice-check`. It counts the rows of the call's session file by type, beside the hand-overs the hooks saw, compares the hand-overs' requests with this run-book's script, and prints the names of any version or model fields the wrapper or the session file carries, never a model field's value, and the value of a short field that names the voice feature's version.
 
-**Expect:** a short table of counts; no text from the files.
+**Expect:** a short table of counts and field names; no text from the files but a voice version's value.
 **If not:** note it.
 **Settles:** F-142 (core): the version fields, and whether each request kept the script's words or a model's. Also gives evidence for F-147 and F-149.
 
@@ -1747,7 +1747,7 @@ Only after the lead has confirmed the last hand-over.
 
 1. In `hfeval`'s side window, type `hostrec agent remove` if group J installed the scheduled job and its X-49 did not remove it. Then type `hostrec teardown`. It removes `~/home-b`, `~/hf-alt-claude`, `~/hf-alt-codex`, `~/.local/share/hf-test`, the deploy key and its public half, `~/hf-private`, `~/hf-rec`, the files this account left in `/Users/Shared` (the public key's file and the archive with its checksum), the scratch folders and marketplaces, and the setup marker, whichever of them exist, and lists what it removed.
 2. Switch to your own account. In your browser, check that the git server holds no repository named `hf-scratch-plum` (delete one if it is there, which removes its deploy key) and that no key titled `hf-eval-made-up` is left in your settings. In Finder, delete `/Users/Shared/hf-scratch-address.txt` if it is still there; your own account saved it, so only your own account can delete it.
-3. Either delete the evaluation account (System Settings, Users & Groups, delete the user and its home folder), or keep it for DV-02's live gates, which use the same home: the recorder, its plugins and its recording are gone either way.
+3. Either delete the evaluation account (System Settings, Users & Groups, delete the user and its home folder), or keep it. [The live gates](live-gates-runbook.md) (DV-02) use the same home and its recorder's `scan` and `scrub`, so they are run before this step, after Part 1's hand-over; if they have not run yet, stop here and tell the lead. The recorder, its plugins and its recording are gone either way.
 
 **Expect:** `teardown` lists each folder it removed; nothing of the sittings is left on the server.
 **If not:** note what is left in a message to the lead, and remove it by hand.
