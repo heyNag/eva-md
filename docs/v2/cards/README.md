@@ -70,8 +70,8 @@ Rules every card carries, so they are said once here:
 | [EV-11](EV-11.md) | Ownership and size checks | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
 | [IF-01b](IF-01b.md) | The reader's fake | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
-| [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
-| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | built, on a branch; its review waits for room on the build machine |
+| [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | ready |
+| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | merged; owed: a property that a pass keeps what a session file holds |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
 | [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | built, on a branch; its review waits for room on the build machine |
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
