@@ -136,6 +136,12 @@ These 18 runs are the first rule's (EV-16), from before the gate's second round:
 
 The second round's rule (EV-16b) is the gate's from the commit that merged it, and the count starts again at 0 with it; its runs are listed here as they come. The first rule's later runs, 79 to 109, are not listed, since the rule they were judged by is replaced: their reports are kept as those runs' `latency` artifacts, and what the newer rule makes of them is read when the third round (EV-16d) takes its saved base from them.
 
+| Run | Commit | Verdict |
+| --- | --- | --- |
+| 110 | f62c9ce | not judged |
+
+Run 110 is the second rule's first: every figure but one was too noisy to judge. The job had waited its five minutes, and the load was still 8.9 on 3 CPUs, down from 40 when the machine started.
+
 ## What the counters cost
 
 The counters release adds work to every hook: a record of what the run held back and delivered, a week of counts in the heartbeat, and a larger binary. Its cost was measured once on a quiet Linux machine (4 CPUs, a load of 3 falling to 2), the commit before any counters part against `main` with all four, in alternating runs, 400 samples a side for the common hooks. Medians, in milliseconds:

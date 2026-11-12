@@ -1,6 +1,6 @@
 # SEAM-0e: a git child that a signal ended says which signal
 
-**Plan:** section 8, Stage 0, row SEAM-0 (guards); section 9 (CI's macOS job is the run of record, and a test fails only when behaviour is wrong). **Size:** S. **Reviewers:** one. **Depends on:** nothing. Merges after the owner has cut the counters release, since item 2 changes the words of one error in the binary.
+**Plan:** section 8, Stage 0, row SEAM-0 (guards); section 9 (CI's macOS job is the run of record, and a test fails only when behaviour is wrong). **Size:** S. **Reviewers:** one. **Depends on:** nothing. Item 2 changes the words of one error in the binary.
 
 ## Why
 
