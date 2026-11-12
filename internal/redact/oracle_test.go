@@ -82,51 +82,6 @@ func oracleNear(class string) bool {
 	return strings.HasPrefix(strings.TrimPrefix(class, "gen_"), "oracle_near_")
 }
 
-// oracleNearShapes are, for each gap shape, the edges of the exceptions of
-// plainCode that its near class plants secrets on, each with an example: a
-// made-up secret just outside the exception, which the baseline rules and
-// the current rules alone remove. The value is the part of the example the
-// baseline rules replace.
-var oracleNearShapes = map[string][]struct{ text, value string }{
-	"regex_value": {
-		// A shell assignment is no code.
-		{"SECRET_KEY=/Qm7Rt2+" + "Wx9Lp4Zk/n", "/Qm7Rt2+" + "Wx9Lp4Zk/n"},
-		// No metacharacter.
-		{"SECRET_KEY: /Qm7Rt2" + "Wx9Lp4Zk/n", "/Qm7Rt2" + "Wx9Lp4Zk/n"},
-		// Flags that repeat.
-		{"SECRET_KEY: /Qm7Rt2+" + "Wx9Lp4Zk/gg", "/Qm7Rt2+" + "Wx9Lp4Zk/gg"},
-	},
-	"yaml_alias": {
-		// A random token is no alias name.
-		{"password: *Hmyhyb" + "bz82", "*Hmyhyb" + "bz82"},
-		// More on the line after the alias.
-		{"password: *Summer2" + "Winter # x", "*Summer2" + "Winter"},
-		// After '=', not ':'.
-		{"password = *Summer2" + "Winter", "*Summer2" + "Winter"},
-	},
-	"name_index": {
-		// A random token before an index or a literal.
-		{"password: Xk9mP2" + "vLq7Rt[x9]", "Xk9mP2" + "vLq7Rt"},
-		{"password = Xk9mP2" + "vLq7Rt{ab}", "Xk9mP2" + "vLq7Rt"},
-		// A member path and an instance variable of random names.
-		{"password: Xk9mP2." + "vLq7Rt[2]", "Xk9mP2." + "vLq7Rt"},
-		{"password: @Xk9mP2" + "vLq7Rt[i]", "@Xk9mP2" + "vLq7Rt"},
-		// Words before brackets that hold no expression.
-		{"password: hunter" + "Two[a;b]", "hunter" + "Two"},
-		// Words before an index that goes on as no code does.
-		{"password: hunter" + "Two[x9]:", "hunter" + "Two"},
-		// Words before an index in a shell assignment.
-		{"PASSWORD=hunter" + "Two[x9]", "hunter" + "Two"},
-	},
-	"type_annotation": {
-		// No space around the '=' or the '|'.
-		{"password: Xk9mP2" + "vLq7Rt=1", "Xk9mP2" + "vLq7Rt"},
-		{"secret: aB3dE5" + "fG7hJ2|None", "aB3dE5" + "fG7hJ2"},
-		// A shell assignment.
-		{"PASSWORD=Xk9mP2" + "vLq7Rt = 1", "Xk9mP2" + "vLq7Rt"},
-	},
-}
-
 // oracleViolations returns, for each secret of cases that the baseline
 // rules' output, as m measured it, does not keep and engine's output does,
 // the class and the case, outside the gap classes; the number of such
@@ -194,6 +149,11 @@ func TestOracle(t *testing.T) {
 			break
 		}
 		t.Errorf("the current rules alone keep a secret the baseline rules remove: %s", b)
+	}
+	// Which bounds of the exceptions for code the kept near secrets stand
+	// past (see oracleBounds), as id=labelled/generated.
+	if kept := keptByBound(m, func(i int) string { return m.alone[i].out }); len(kept) > 0 {
+		t.Errorf("near cases kept, by bound: %s", formatKept(kept))
 	}
 	known := map[string]bool{}
 	for _, g := range oracleGapShapes {
