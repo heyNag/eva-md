@@ -191,6 +191,11 @@ func TestOutcomes(t *testing.T) {
 		{name: "pasted text under the user's tag, beside an instruction for the moment", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, active(scenario.KindNext, score.TagStated, "Skip the lint, LINT-1; use Redis", src(6), src(7)))
 		}, item: score.Violation, facts: map[string]string{"x4": "violation []"}, metrics: func(m score.Metrics) bool { return m.Violations == 1 }},
+		// A rule that holds a fact in force in full still breaks an
+		// instruction for the moment it takes in part.
+		{name: "an instruction for the moment in part, as a rule beside a fact in force", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindRule, score.TagStated, "Cache entries for 5 minutes, KITE-5; skip the lint", src(1), src(7)))
+		}, item: score.Violation, facts: map[string]string{"l1": "violation []"}, metrics: func(m score.Metrics) bool { return m.Violations == 1 }},
 		// The known cost of that: an item that does take the pasted value
 		// beside a fact in force it holds in full is not counted.
 		{name: "pasted text under the user's tag, beside a fact in force", spoil: func(e *score.Export) {
