@@ -75,6 +75,11 @@ import (
 // becomes new.
 type edit struct{ old, new string }
 
+// codeNameDash lets a name in code hold a '-', so that the value rules read
+// a name such as silver-Window before an index as code (codeHead), as the
+// floor's exceptions then must refuse it alone.
+var codeNameDash = edit{"const codeName = `(?:[A-Za-z_$][A-Za-z0-9_$]*|", "const codeName = `(?:[A-Za-z_$][A-Za-z0-9_$-]*|"}
+
 // oracleBound is one condition that bounds an exception for code.
 type oracleBound struct {
 	// id names the bound; a near case's name starts with it.
@@ -470,11 +475,11 @@ var oracleBounds = []oracleBound{
 	// plainCode: an index or a literal after the value.
 	{
 		id: "index.closes", shape: "name_index",
-		what:    "brackets after the value close on its line",
-		example: ex("password: hunter"+"Marble[x9", "hunter"+"Marble"),
+		what:    "brackets after the value close on its line, even where the line goes on to the next (the value rules read such a bracket as code)",
+		example: ex("password: hunter"+"Marble[x9,", "hunter"+"Marble"),
 		widen:   []edit{{"end, ok := closingBracket(rest)", "end, ok := closingBracket(rest)\n\t\tif !ok && len(rest) > 2 {\n\t\t\tend, ok = len(rest), true\n\t\t}"}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[x9", "{ab", "[i", "{a", "[0"}, n)), func() string { return wordsValue(g) }
+			return keyLine(g, nearSeps, nthOf([]string{"[x9,", "{ab,", "[i[", "{a(", "[0, ", "[x9, y", "{a, b", "[x9"}, n)), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -498,10 +503,10 @@ var oracleBounds = []oracleBound{
 	{
 		id: "index.closes.line", shape: "name_index",
 		what:    "the brackets close on the value's line",
-		example: ex("password: velvet"+"Harbor[x9\n]", "velvet"+"Harbor"),
+		example: ex("password: velvet"+"Harbor[x9,\n]", "velvet"+"Harbor"),
 		widen:   []edit{{`if i := strings.IndexAny(text[s.start:lineEnd], "\r\n"); i >= 0 {`, `if i := strings.IndexAny(text[s.start:lineEnd], "\r"); i >= 0 {`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"[x9\n]", "[i\n]", "{a\n}", "[0\n] # next", "{ab\n}\nport: 1"}, n)), func() string { return wordsValue(g) }
+			return keyLine(g, nearSeps, nthOf([]string{"[x9,\n]", "[i,\n  j]", "{a,\n}", "[0(\n)] # next", "{ab,\n}\nport: 1", "[x9\n]"}, n)), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -572,10 +577,18 @@ var oracleBounds = []oracleBound{
 	{
 		id: "index.after", shape: "name_index",
 		what:    "after the brackets comes nothing, a blank, a quote, a backslash or one of , ; ) ] } . [ (",
-		example: ex("password: harbor"+"Candle[x9]=", "harbor"+"Candle"),
-		widen:   []edit{{"strings.IndexByte(\" \\t,;)]}.[(\\\"'`\\\\\", s[0])", "strings.IndexByte(\" \\t,;)]}.[(\\\"'`\\\\=\", s[0])"}},
+		example: ex("password: harbor"+"Candle[x9]:", "harbor"+"Candle"),
+		widen:   []edit{{"strings.IndexByte(\" \\t,;)]}.[(\\\"'`\\\\\", s[0])", "strings.IndexByte(\" \\t,;)]}.[(\\\"'`\\\\:\", s[0])"}},
+		more: [][]edit{
+			{{"strings.IndexByte(\" \\t,;)]}.[(\\\"'`\\\\\", s[0])", "strings.IndexByte(\" \\t,;)]}.[(\\\"'`\\\\!&?\", s[0])"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n/len(farAfter))+nth(farAfter, n)), func() string { return wordsValue(g) }
+			if n%2 == 1 {
+				// What the value rules read as code after a bracket (codeEnd),
+				// so that the floor decides.
+				return keyLine(g, nearSeps, nthOf(indexTails, n/2)+nthOf([]string{":", "!", "!)", ":;", "&.size", "?.size", "&page=2", "!,"}, n/2)), func() string { return wordsValue(g) }
+			}
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2/len(farAfter))+nth(farAfter, n/2)), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -624,7 +637,11 @@ var oracleBounds = []oracleBound{
 		id: "index.name.segment", shape: "name_index",
 		what:    "a name of words before an index is one name of letters, digits and '_'",
 		example: ex("password: silver"+"-Window[x9]", "silver"+"-Window"),
-		widen:   []edit{{"!shell && memberSegment.MatchString(v) && wordLike(v, 2)", "!shell && wordLike(v, 2)"}},
+		widen: []edit{
+			{"!shell && memberSegment.MatchString(v) && wordLike(v, 2)", "!shell && wordLike(v, 2)"},
+			// The value rules read a name with a '-' as no code (codeHead).
+			codeNameDash,
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
 				return strings.ToLower(g.pick(gapWords)) + "-" + g.pick(gapWords)
@@ -705,35 +722,49 @@ var oracleBounds = []oracleBound{
 	{
 		id: "index.path.prefix", shape: "name_index",
 		what:    "a member path has nothing before its first name but '@' and '$', or '::'",
-		example: ex("password: %Summer"+".Winter[i]", "%Summer"+".Winter"),
-		widen:   []edit{{`path := memberPath(strings.TrimLeft(v, "@$"))`, `path := memberPath(strings.TrimLeft(v, "@$%"))`}},
+		example: ex("password: *Summer"+".Winter[i]", "*Summer"+".Winter"),
+		// The value rules read a path after a '*' or '&' as code (codeHead).
+		widen: []edit{{`path := memberPath(strings.TrimLeft(v, "@$"))`, `path := memberPath(strings.TrimLeft(v, "@$*"))`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n/len(farPathPrefix))), func() string {
-				return nth(farPathPrefix, n) + g.pick(gapWords) + "." + g.pick(gapWords)
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				p := nthOf([]string{"*", "**", "*@", "*$"}, n/2)
+				if n%2 == 0 {
+					p = nth(farPathPrefix, n/2)
+				}
+				return p + g.pick(gapWords) + "." + g.pick(gapWords)
 			}
 		},
 	},
 	{
 		id: "index.path.suffix", shape: "name_index",
 		what:    "a member path ends in its last name, perhaps followed by '?' or '!'",
-		example: ex("password: Summer.Win"+"ter#[0]", "Summer.Win"+"ter#"),
-		widen:   []edit{{`v = strings.TrimRight(v, "?!")`, `v = strings.TrimRight(v, "?!#")`}},
+		example: ex("password: Summer.Win"+"ter$[0]", "Summer.Win"+"ter$"),
+		// The value rules read a name that ends in '$' as code (codeName).
+		widen: []edit{{`v = strings.TrimRight(v, "?!")`, `v = strings.TrimRight(v, "?!$")`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n/len(farPathSuffix))), func() string {
-				return g.pick(gapWords) + "." + g.pick(gapWords) + nth(farPathSuffix, n)
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				s := nthOf([]string{"$", "$$", "$!", "$?"}, n/2)
+				if n%2 == 0 {
+					s = nth(farPathSuffix, n/2)
+				}
+				return g.pick(gapWords) + "." + g.pick(gapWords) + s
 			}
 		},
 	},
 	{
 		id: "index.path.separator", shape: "name_index",
 		what:    "the names of a member path are joined by '.' or '::' only",
-		example: ex("password: Summer/"+"Winter[0]", "Summer/"+"Winter"),
-		widen:   []edit{{`func(r rune) bool { return r == '.' })`, `func(r rune) bool { return r == '.' || r == '/' })`}},
+		example: ex("password: Summer?."+"Winter[0]", "Summer?."+"Winter"),
+		// The value rules read names joined by "?." as code (codeHead).
+		widen: []edit{{`strings.FieldsFunc(strings.ReplaceAll(v, "::", "."),`, `strings.FieldsFunc(strings.NewReplacer("::", ".", "?.", ".").Replace(v),`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n/len(farPathSeparator))), func() string {
-				sep := nth(farPathSeparator, n)
-				if n%7 == 6 {
-					sep = ":::"
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				sep := "?."
+				switch {
+				case n%4 == 2:
+					sep = nthOf([]string{":::", ".?.", "?.?."}, n/4)
+				case n%2 == 0:
+					sep = nth(farPathSeparator, n/4)
 				}
 				return g.pick(gapWords) + sep + g.pick(gapWords)
 			}
@@ -758,7 +789,11 @@ var oracleBounds = []oracleBound{
 		id: "index.path.dots", shape: "name_index",
 		what:    `a member path has no ".."`,
 		example: ex("password: Summer"+"..Winter[2]", "Summer"+"..Winter"),
-		widen:   []edit{{`strings.Contains(v, "..") || `, ``}},
+		widen: []edit{
+			{`strings.Contains(v, "..") || `, ``},
+			// The value rules read names joined by ".." as no code (codeHead).
+			{"`(?:(?:\\.|\\?\\.|::|->)`", "`(?:(?:\\.\\.?|\\?\\.|::|->)`"},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string { return g.pick(gapWords) + ".." + g.pick(gapWords) }
 		},
@@ -767,7 +802,11 @@ var oracleBounds = []oracleBound{
 		id: "index.path.trailing", shape: "name_index",
 		what:    "a member path does not end in '.'",
 		example: ex("password: Summer"+".Winter.[2]", "Summer"+".Winter."),
-		widen:   []edit{{` || strings.HasSuffix(v, ".")`, ``}},
+		widen: []edit{
+			{` || strings.HasSuffix(v, ".")`, ``},
+			// The value rules read a name that ends in '.' as no code (codeHead).
+			{"`)*[?!]?(?:[(\\[]|[ \\t]*\\{)`", "`)*\\.?[?!]?(?:[(\\[]|[ \\t]*\\{)`"},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string { return g.pick(gapWords) + "." + g.pick(gapWords) + "." }
 		},
@@ -776,7 +815,10 @@ var oracleBounds = []oracleBound{
 		id: "index.path.segment", shape: "name_index",
 		what:    "each name of a member path is of letters, digits and '_'",
 		example: ex("password: Summer"+".win-river[2]", "Summer"+".win-river"),
-		widen:   []edit{{"if !memberSegment.MatchString(p) || !(wordLike(p, 1)", "if !(wordLike(p, 1)"}},
+		widen: []edit{
+			{"if !memberSegment.MatchString(p) || !(wordLike(p, 1)", "if !(wordLike(p, 1)"},
+			codeNameDash,
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
 				return g.pick(gapWords) + "." + strings.ToLower(g.pick(gapWords)) + "-" + strings.ToLower(g.pick(gapWords))
@@ -839,17 +881,27 @@ var oracleBounds = []oracleBound{
 	{
 		id: "index.ivar.prefix.chars", shape: "name_index",
 		what:    "an instance variable's prefix is of '@' and '$' only",
-		example: ex("password: %silver"+"Window[i]", "%silver"+"Window"),
-		widen:   []edit{{`name := strings.TrimLeft(v, "@$")`, `name := strings.TrimLeft(v, "@$%")`}},
+		example: ex("password: *silver"+"Window[i]", "*silver"+"Window"),
+		// The value rules read a name after a '*' or '&' as code (codeHead).
+		widen: []edit{{`name := strings.TrimLeft(v, "@$")`, `name := strings.TrimLeft(v, "@$*")`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n/len(farPrefix))), func() string { return nth(farPrefix, n) + wordsOf(g) }
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				p := nthOf([]string{"*", "*@", "*$", "@*"}, n/2)
+				if n%2 == 0 {
+					p = nth(farPrefix, n/2)
+				}
+				return p + wordsOf(g)
+			}
 		},
 	},
 	{
 		id: "index.ivar.segment", shape: "name_index",
 		what:    "an instance variable's name is of letters, digits and '_'",
 		example: ex("password: @silver"+"-window[i]", "@silver"+"-window"),
-		widen:   []edit{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && wordLike(name, 1)"}},
+		widen: []edit{
+			{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && wordLike(name, 1)"},
+			codeNameDash,
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
 				return g.pick([]string{"@", "$", "@@"}) + strings.ToLower(g.pick(gapWords)) + "-" + strings.ToLower(g.pick(gapWords))
@@ -894,7 +946,11 @@ var oracleBounds = []oracleBound{
 		id: "index.block.blanks", shape: "name_index",
 		what:    "a block's '{' has nothing but blanks before it",
 		example: ex("password: Walnut"+".Cobalt x { y }", "Walnut"+".Cobalt"),
-		widen:   []edit{{`case path && strings.HasPrefix(strings.TrimLeft(rest, " \t"), "{"):`, `case path && strings.Contains(rest, "{"):`}},
+		widen: []edit{
+			{`case path && strings.HasPrefix(strings.TrimLeft(rest, " \t"), "{"):`, `case path && strings.Contains(rest, "{"):`},
+			// The value rules read a '{' after more than blanks as no code (codeHead).
+			{"[?!]?(?:[(\\[]|[ \\t]*\\{)`", "[?!]?(?:[(\\[]|[^{\\r\\n]*\\{)`"},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{" x { y }", " + { y }", " do { y }", " | { y }", " \v{ y }", "\f{ y }"}, n)), func() string {
 				return g.pick(gapWords) + "." + g.pick(gapWords)

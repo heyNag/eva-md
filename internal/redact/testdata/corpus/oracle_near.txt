@@ -83,8 +83,8 @@ password: '⟦self.4Kd9¦Wm2Qx7Rt⟧'
 === secret oracle_near_name_index floor.variable.prefix: a variable's prefix is $, self., config., os.environ. or process.env., or it is os.environ alone
 password: '⟦cfg.Xk9m¦P2vLq7Rt⟧'
 
-=== secret oracle_near_name_index index.closes: brackets after the value close on its line
-password: '⟦hunter¦Marble⟧'[x9
+=== secret oracle_near_name_index index.closes: brackets after the value close on its line, even where the line goes on to the next (the value rules read such a bracket as code)
+password: '⟦hunter¦Marble⟧'[x9,
 
 === secret oracle_near_name_index index.closes.match: a closing bracket after the value closes the bracket it matches
 password: '⟦copper¦Lantern⟧'[x9)
@@ -93,7 +93,7 @@ password: '⟦copper¦Lantern⟧'[x9)
 password: '⟦maple¦Rocket⟧'["x9]
 
 === secret oracle_near_name_index index.closes.line: the brackets close on the value's line
-password: '⟦velvet¦Harbor⟧'[x9
+password: '⟦velvet¦Harbor⟧'[x9,
 ]
 
 === secret oracle_near_name_index index.closes.scan: the brackets close within maxCodeScan bytes of the value
@@ -124,7 +124,10 @@ password: '⟦lantern¦Marble⟧'[`a`]
 token: '⟦silver¦Window⟧'[`x9`]
 
 === secret oracle_near_name_index index.after: after the brackets comes nothing, a blank, a quote, a backslash or one of , ; ) ] } . [ (
-password: '⟦harbor¦Candle⟧'[x9]=
+password: '⟦harbor¦Candle⟧'[x9]:
+
+=== secret oracle_near_name_index index.after: a '!' after the brackets, which the value rules read as code before a closing bracket
+token: '⟦amber¦Falcon⟧'[0]!)
 
 === secret oracle_near_name_index index.quoted.words: an index by a quoted name, which any value may have before it, holds a name of words
 api_key: '⟦Jd4Hs8¦Wq2Nc6⟧'["Qw3zR8"]
@@ -160,13 +163,13 @@ password: '⟦XMarbl¦eRiver⟧'[0]
 password: '⟦QZmarb¦leLantern⟧'[0]
 
 === secret oracle_near_name_index index.path.prefix: a member path has nothing before its first name but '@' and '$', or '::'
-password: '⟦%Summer¦.Winter⟧'[i]
+password: '⟦*Summer¦.Winter⟧'[i]
 
 === secret oracle_near_name_index index.path.suffix: a member path ends in its last name, perhaps followed by '?' or '!'
-password: '⟦Summer.¦Winter#⟧'[0]
+password: '⟦Summer.¦Winter$⟧'[0]
 
 === secret oracle_near_name_index index.path.separator: the names of a member path are joined by '.' or '::' only
-password: '⟦Summer¦/Winter⟧'[0]
+password: '⟦Summer¦?.Winter⟧'[0]
 
 === secret oracle_near_name_index index.path.parts: a member path has two names or more
 password: '⟦lanter¦nmarble⟧'[0]
@@ -193,7 +196,7 @@ password: '⟦Summe¦r.ab12⟧'[2]
 password: '⟦$$$silv¦erWindow⟧'[i]
 
 === secret oracle_near_name_index index.ivar.prefix.chars: an instance variable's prefix is of '@' and '$' only
-password: '⟦%silve¦rWindow⟧'[i]
+password: '⟦*silve¦rWindow⟧'[i]
 
 === secret oracle_near_name_index index.ivar.segment: an instance variable's name is of letters, digits and '_'
 password: '⟦@silver¦-window⟧'[i]

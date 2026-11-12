@@ -89,18 +89,33 @@ one (LG-26) moves its cases to the class of their shape.
 A gap class excuses its whole shape, so each has a near class, held to the
 baseline like any class that is no gap: `oracle_near_<shape>` in
 `oracle_near.txt` and `gen_oracle_near_<shape>` from a generator. Its
-secrets stand just outside the exceptions that make the shape, where the
-current rules remove them today: a random token where the gap class has a
-password of words, more on the line, another separator, a shell assignment,
-brackets that hold no expression, a slashed value with no metacharacter, an
-'=' or '|' with no space. So a rule change that widens an exception past its
-shape keeps one of them and fails the oracle. `TestOracle` fails when a gap
-shape has no near class or the baseline rules keep a near secret, which the
-oracle would then not judge; `oracleNearShapes` in `oracle_test.go` gives an
-example of each edge, and `TestOracleFailsAWidenedException` widens each
-exception and checks that the oracle sees it. A near class does not use the
-spaced `==` separator: after a comparison the floor takes nothing, so every
-value there is in the gap shape.
+secrets stand just past the bounds of the exceptions that make the shape,
+where the current rules remove them today. A bound is one condition of
+`floorValue` or `plainCode` in `redact.go`, or of a predicate they call,
+that limits an exception: a character class, a length, a count or a
+refusal. `oracleBounds` in `oracle_bounds_test.go` lists every one, one line
+each, with an example, a generator of near cases on its far side and a
+change of `redact.go` that widens the exception past it alone; its comment
+lists the conditions that are no bound a secret can cross, and why. Each
+case of `oracle_near.txt` is a labelled near case of one bound, named by the
+bound's id and a colon. `TestOracleBoundsHaveNearCases` fails when a bound
+has no near case, labelled or generated, or a near case names no bound;
+`TestOracleBoundsWidenRedactGo` fails when a widening no longer applies to
+`redact.go`; and `TestOracleHoldsEachBound`, run by hand with
+`go test ./internal/redact -run '^TestOracleHoldsEachBound$' -args -widen-bounds`,
+widens each bound in turn with `go test -overlay` and checks that
+`TestOracle` fails on that bound's own near cases, labelled and generated.
+Run it after any change to an exception for code. `TestOracle` fails when a
+gap shape has no near class or the baseline rules keep a near secret, which
+the oracle would then not judge. A near class does not use the spaced `==`
+separator: after a comparison the floor takes nothing, so every value there
+is in the gap shape.
+
+The oracle holds the bounds that `oracleBounds` lists, against the
+widenings it names and others like them, on the near cases it draws: a
+widening of an exception in a way no near case stands for, or a new
+condition in the code, is held only once it is listed there with near
+cases of its own.
 
 The switch `redaction_current_rules_only` keeps every secret in such a
 shape, which v1 removes. It stays off until a rule change has closed each of
