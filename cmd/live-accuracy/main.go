@@ -67,7 +67,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 	cli := f.String("cli", "", "the host CLI's absolute path; looked up on PATH when empty")
 	ignore := f.Bool("codex-ignore-user-config", false, "run codex without your Codex config, as codex_ignore_user_config = true runs the update")
 	record := f.String("record", "", "write each pass's answer to this file, which must not exist yet, as the run goes")
-	replay := f.String("replay", "", "answer each pass from this recording, made with the same --host and --model; calls nothing and needs no --spend-model-quota")
+	replay := f.String("replay", "", "answer each pass from this recording, made with the same --host and --model; calls nothing and needs no --spend-model-quota; without --effort, the report says the effort is as recorded")
 	pages := f.String("pages", "", "write each script's page after its last pass into this folder, new or empty, as v1.NN.md")
 	if err := f.Parse(args); err != nil {
 		return 2
@@ -164,21 +164,29 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 	if rec != nil {
 		ask = recorded(ask, rec, index)
 	}
+	// A page that cannot be written stops the run before its next pass, so
+	// a live run spends no call on pages it cannot keep.
+	var pageErr error
+	if *pages != "" {
+		ask = keepingPages(ask, &pageErr)
+	}
 	who := *model
 	if who == "" {
 		who = "the host's default model"
 	}
-	fmt.Fprintf(out, "The accuracy suite's %d fact scripts on %s, %s, effort %s:\n", len(scripts), *host, who, *effort)
-	var pageErr error
+	asked := *effort
+	if answers != nil && !flagGiven(f, "effort") {
+		asked = "as recorded"
+	}
+	fmt.Fprintf(out, "The accuracy suite's %d fact scripts on %s, %s, effort %s:\n", len(scripts), *host, who, asked)
 	res, err := live.Run(ctx, *host, scripts, ask, func(h live.History) {
 		history(out, h)
 		if *pages != "" && pageErr == nil {
-			pageErr = writePage(*pages, index[h.Script], threadpage.Render(h.Page))
+			if err := writePage(*pages, index[h.Script], threadpage.Render(h.Page)); err != nil {
+				pageErr = fmt.Errorf("could not write the page %s: %w", pageName(index[h.Script]), err)
+			}
 		}
 	})
-	if pageErr != nil {
-		fmt.Fprintf(errOut, "live-accuracy: could not write a page: %v\n", pageErr)
-	}
 	if err != nil {
 		var stopped *live.Stopped
 		if !errors.As(err, &stopped) {
@@ -188,9 +196,29 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 		return 1
 	}
 	if code = summary(out, *host, res, efforts); pageErr != nil {
+		// The last script's page, which no pass came after.
+		fmt.Fprintf(errOut, "live-accuracy: %v\n", pageErr)
 		code = 1
 	}
 	return code
+}
+
+// flagGiven says whether the command line gave the flag name.
+func flagGiven(f *flag.FlagSet, name string) bool {
+	given := false
+	f.Visit(func(fl *flag.Flag) { given = given || fl.Name == name })
+	return given
+}
+
+// keepingPages is ask, which is not asked once *pageErr holds a page that
+// could not be written: the run stops there with that error.
+func keepingPages(ask live.Ask, pageErr *error) live.Ask {
+	return func(ctx context.Context, s *accuracy.Script, n int, b update.Batch, page threadpage.Page) (update.Result, error) {
+		if *pageErr != nil {
+			return update.Result{}, *pageErr
+		}
+		return ask(ctx, s, n, b, page)
+	}
 }
 
 func usage(w io.Writer, msg string) int {

@@ -139,8 +139,31 @@ func TestRecordAndReplay(t *testing.T) {
 		}
 	}
 	pages := pagesIn(t, livePages)
-	if len(pages) != 12 || pages["v1.01.md"] == "" || pages["v1.12.md"] == "" || !strings.Contains(pages["v1.03.md"], "## Now\n") {
+	if len(pages) != 12 {
 		t.Fatalf("pages %v", pages)
+	}
+	// Each page is the one the run ended the script with, as the report
+	// prints it for each script that missed something.
+	printed := reportPages(t, report)
+	if len(printed) < 6 {
+		t.Fatalf("the report prints %d pages:\n%s", len(printed), report)
+	}
+	added := 0
+	for n, want := range printed {
+		got := pages[pageName(n)]
+		var lines []string
+		for _, l := range strings.Split(strings.TrimSpace(got), "\n") {
+			lines = append(lines, strings.TrimRight(l, " "))
+		}
+		if strings.Join(lines, "\n") != want {
+			t.Errorf("%s holds\n%s\nthe report's page is\n%s", pageName(n), got, want)
+		}
+		if strings.Contains(want, "- Check the first entry again [inferred]") {
+			added++
+		}
+	}
+	if added == 0 {
+		t.Errorf("no page the report prints holds the item the answers added:\n%s", report)
 	}
 
 	var again, againErr bytes.Buffer
@@ -151,12 +174,55 @@ func TestRecordAndReplay(t *testing.T) {
 	if replayed := pagesIn(t, replayPages); !mapsEqual(replayed, pages) {
 		t.Errorf("the replay's pages differ")
 	}
+	// Without the run's --effort, the replay's report says the effort is
+	// the recording's, and is otherwise the same.
+	again.Reset()
+	args = []string{"--host", "codex", "--model", "gpt-test", "--replay", recording}
+	header := "The accuracy suite's 12 fact scripts on codex, gpt-test, effort "
+	if code := run(context.Background(), args, &again, &againErr, noRunner(t)); code != 1 ||
+		again.String() != strings.Replace(report, header+"high:\n", header+"as recorded:\n", 1) || !strings.HasPrefix(report, header+"high:\n") {
+		t.Fatalf("replay with no --effort: exit %d\n%s", code, again.String())
+	}
 	if left := leftIn(t, tmp); len(left) != 0 {
 		t.Errorf("the runs left %q", left)
 	}
 	if left := leftIn(t, os.Getenv("HOME")); len(left) != 0 {
 		t.Errorf("the runs wrote %q in the home folder", left)
 	}
+}
+
+// reportPages gives the page the report prints after each script's last
+// pass, by the script's place in the suite, for the scripts that missed
+// something, with the report's indent taken off.
+func reportPages(t *testing.T, report string) map[int]string {
+	t.Helper()
+	pages := map[int]string{}
+	script, in := 0, false
+	var lines []string
+	end := func() {
+		if in {
+			pages[script] = strings.TrimRight(strings.Join(lines, "\n"), "\n")
+		}
+		in, lines = false, nil
+	}
+	for _, l := range strings.Split(report, "\n") {
+		switch {
+		case strings.HasPrefix(l, "- "):
+			end()
+			script++
+		case strings.HasPrefix(l, "On "):
+			end()
+		case l == "  The page after its last pass:":
+			in = true
+		case in:
+			if l != "" && !strings.HasPrefix(l, "    ") {
+				t.Fatalf("a page's line %q", l)
+			}
+			lines = append(lines, strings.TrimPrefix(l, "    "))
+		}
+	}
+	end()
+	return pages
 }
 
 func mapsEqual(a, b map[string]string) bool {
@@ -171,8 +237,8 @@ func mapsEqual(a, b map[string]string) bool {
 	return true
 }
 
-// A replay of answers that meet the target exits 0, as the run would, and
-// counts their efforts; the replay asks no runner, needs no
+// A replay counts the efforts of its answers, and without --effort says
+// the effort is the recording's; it asks no runner, needs no
 // --spend-model-quota, and writes nothing but its pages.
 func TestReplayMeetsTheTarget(t *testing.T) {
 	tmp := isolate(t)
@@ -183,7 +249,7 @@ func TestReplayMeetsTheTarget(t *testing.T) {
 	code := run(context.Background(), []string{"--host", "claude-code", "--replay", recording}, &out, &errOut, noRunner(t))
 	// Answers that change nothing miss every fact, so the run misses the
 	// target, as TestRun's does.
-	if code != 1 || !strings.HasPrefix(out.String(), "The accuracy suite's 12 fact scripts on claude-code, the host's default model, effort highest:\n") ||
+	if code != 1 || !strings.HasPrefix(out.String(), "The accuracy suite's 12 fact scripts on claude-code, the host's default model, effort as recorded:\n") ||
 		!strings.HasSuffix(out.String(), "  answers refused: 0 of 21\n  answers at effort max: 21 of 21\nThe run misses the target.\n") {
 		t.Fatalf("exit %d\n%s\n%s", code, out.String(), errOut.String())
 	}
@@ -523,5 +589,68 @@ func TestRecordLine(t *testing.T) {
 		if i == 0 && string(res.Output) != `{"a":[1,2]}` || i > 0 && res.Output != nil {
 			t.Errorf("line %d gives %q", i+1, res.Output)
 		}
+	}
+}
+
+// A page that cannot be written stops the run before its next pass, with
+// no call made and no line recorded after it, and exits 1; the last
+// script's page, which no pass comes after, still turns the exit to 1
+// after the report.
+func TestAPageThatCannotBeWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		at    int // the request in whose script the page is made unwritable
+		page  string
+		calls int
+		want  string
+	}{
+		{"in the middle", 2, "v1.02.md", 2, "live-accuracy: the run stopped: could not write the page v1.02.md: "},
+		{"the last", 21, "v1.12.md", 21, "live-accuracy: could not write the page v1.12.md: "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := isolate(t)
+			dir := t.TempDir()
+			recording, pages := filepath.Join(dir, "answers.jsonl"), filepath.Join(dir, "pages")
+			// A folder where the page goes stops its write, as root too.
+			runner := &fakeRunner{t: t, tmp: tmp, answer: func(n int) (update.Result, error) {
+				if n == tc.at {
+					if err := os.Mkdir(filepath.Join(pages, tc.page), 0o700); err != nil {
+						t.Error(err)
+					}
+				}
+				return update.Result{Output: []byte(empty), Effort: "max"}, nil
+			}}
+			var out, errOut bytes.Buffer
+			args := []string{"--host", "claude-code", "--spend-model-quota", "--record", recording, "--pages", pages}
+			code := run(context.Background(), args, &out, &errOut, func(string) update.Runner { return runner })
+			if code != 1 || len(runner.requests) != tc.calls || !strings.Contains(errOut.String(), tc.want) {
+				t.Fatalf("exit %d after %d calls\n%s\n%s", code, len(runner.requests), out.String(), errOut.String())
+			}
+			if lines := readLines(t, recording); len(lines) != tc.calls {
+				t.Errorf("%d lines recorded", len(lines))
+			}
+			if summed := strings.Contains(out.String(), "\nOn claude-code, against the target"); summed != (tc.calls == 21) {
+				t.Errorf("the report:\n%s", out.String())
+			}
+			if left := leftIn(t, tmp); len(left) != 0 {
+				t.Errorf("the run left %q", left)
+			}
+		})
+	}
+}
+
+// A replay whose context has ended answers nothing: it stops at the first
+// pass, as a live run does, and prints no history.
+func TestAReplayStopsWithItsContext(t *testing.T) {
+	isolate(t)
+	recording := filepath.Join(t.TempDir(), "answers.jsonl")
+	writeRecording(t, recording, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out, errOut bytes.Buffer
+	code := run(ctx, []string{"--host", "claude-code", "--replay", recording}, &out, &errOut, noRunner(t))
+	if code != 1 || out.String() != "The accuracy suite's 12 fact scripts on claude-code, the host's default model, effort as recorded:\n" ||
+		!strings.HasSuffix(errOut.String(), "live-accuracy: the run stopped: context canceled\n") {
+		t.Fatalf("exit %d\n%s\n%s", code, out.String(), errOut.String())
 	}
 }

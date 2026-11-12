@@ -25,8 +25,10 @@ import (
 // 1, and pass the pass's, from 1. output is the answer's JSON, or null
 // when the runner gave none; reason is the runner's reason, "" for an
 // answer; effort is the effort flag the answer came at, "" when it came
-// with none, so a replay counts the efforts as the run did. A recording
-// holds nothing else: no token count, no time and no path.
+// with none, so a replay counts the efforts as the run did; the effort the
+// run asked for is not kept. Each key is there once, v, script and pass
+// numbers, host, effort, model and reason strings, none of them null. A
+// recording holds nothing else: no token count, no time and no path.
 //
 // This file holds the format, its writer and its checks. It imports
 // neither the suite nor its live run, which only main.go may import.
