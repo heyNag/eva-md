@@ -128,6 +128,43 @@ func TestSectionsAsTheCodecReadsThem(t *testing.T) {
 	}
 }
 
+// A document at a path the layout rejects is not read: its path fault is
+// its report, and Protected does not list it, locked as it is. One at a
+// path of its class in the wrong month is read, and its lock reported.
+func TestRejectedPathsAreNotRead(t *testing.T) {
+	cases := []struct {
+		to, rule string
+		read     bool // the checker reads it
+	}{
+		{areaA + "/items/2026/11/orders-port.md", "item-file", false},
+		{areaA + "/notes-of-mine/orders-port.md", "path", false},
+		{areaA + "/items/2026/10/i01qa78gk3m9pa-orders-port.md", "month", true},
+	}
+	for _, c := range cases {
+		t.Run(c.to, func(t *testing.T) {
+			root := copyFixture(t)
+			edit(t, root, fact, "type: fact\n", "type: fact\nlocked: false\nlocked: false\n")
+			move(t, root, fact, c.to)
+			rep, err := Check(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := rep.Protected[c.to]; got.Locked != c.read {
+				t.Errorf("Protected: %+v", got)
+			}
+			var rules []string
+			for _, f := range rep.Faults {
+				if f.Path == c.to {
+					rules = append(rules, f.Rule)
+				}
+			}
+			if !slices.Contains(rules, c.rule) || !c.read && len(rules) != 1 {
+				t.Errorf("faults of rules %q, want %s", rules, c.rule)
+			}
+		})
+	}
+}
+
 // faultsOf checks a copy of the fixture after brk and returns its faults
 // as "path rule" strings, sorted.
 func faultsOf(t *testing.T, brk func(t *testing.T, root string)) []string {

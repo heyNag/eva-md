@@ -27,6 +27,12 @@ const (
 	Fixture = fixture
 	Fact    = fact
 	Hand    = hand
+	// A session, a project record and a disagreement of the fixture, none
+	// of which may carry protection, and the hand-edit record.
+	Session      = "projects/p_00gb3367a19r-acme-orders/sessions/2026/11/claude-code.5f0c9a1e-2b7d-4c1a-9e3f-0a1b2c3d4e5f.w-k3f9a2bq.md"
+	Project      = "projects/p_00gb3367a19r-acme-orders/project.md"
+	Disagreement = "projects/p_00gb3367a19r-acme-orders/disagreements/2026/11/d01qwjc0c5d6e7-keep-the-lock.md"
+	HandEdits    = ".eva-md/hand-edits/w-k3f9a2bq.tsv"
 )
 
 var (

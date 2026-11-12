@@ -147,6 +147,7 @@ So what the codec writes is in a written form by construction, and `Value` reads
 ## 10. One reader
 
 `internal/store/profile` checks a store against the format and reads every document through the codec: `Unreadable` and `UnreadableText` for what cannot be read, `Entries` and `Opaque` for each frontmatter line and each value's written form, `Protection` for its report's `Protected`, `Preamble` and `Sections` for the body. It has no reader of its own, and its test TestReadsThroughTheCodec fails on one. So the two cannot drift: what the codec reads, the checker reports.
+A file at a path the layout rejects (a fault of rule `path`, or of its class's rule such as `item-file`) is reported by that fault and not read, so `Report.Protected` does not list it, locked or not.
 
 The tests that run the checker are in `protection_test.go`, in package `codec_test`, as the checker imports the codec. They hold the checker's protection equal to the codec's: `TestProtectionAgreesWithProfile`, `TestProtectionProperty` and `TestProtectionBeyondProfile`. And what `Set` and `SetBlock` write passes its `written-form` and `frontmatter` checks (`TestSetEachItemKey`).
 

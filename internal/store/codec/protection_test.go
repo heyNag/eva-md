@@ -152,12 +152,49 @@ func checked(t *testing.T, root, rel string, b []byte) profile.Protection {
 	return rep.Protected[rel]
 }
 
+// place is a path a document is checked at, in a copy of the fixture.
+type place struct {
+	root, rel string
+	listed    bool // the hand-edit record lists it
+}
+
+// places are the paths a document is checked at: an item the hand-edit
+// record lists and one it does not, and a session, a project record and a
+// disagreement, which may carry no protection, each both listed and not.
+// The checker reports protection wherever it is, so it must equal the
+// codec's at each.
+func places(t *testing.T) []place {
+	t.Helper()
+	plain, listed := codec.CopyFixture(t), codec.CopyFixture(t)
+	others := []string{codec.Session, codec.Project, codec.Disagreement}
+	rec, err := os.ReadFile(filepath.Join(listed, codec.HandEdits))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range others {
+		rec = append(rec, rel+"\t2026-11-10T10:00:00+01:00\tacknowledged\n"...)
+	}
+	codec.Put(t, listed, codec.HandEdits, rec)
+	ps := []place{{plain, codec.Hand, true}, {plain, codec.Fact, false}}
+	for _, rel := range others {
+		ps = append(ps, place{plain, rel, false}, place{listed, rel, true})
+	}
+	return ps
+}
+
+func (p place) String() string {
+	if p.listed {
+		return p.rel + ", hand-edited"
+	}
+	return p.rel
+}
+
 // A property test over generated values and key forms finds no misread:
 // each document protects as the format says, and the profile checker
 // reports the same protection for it in a store.
 func TestProtectionProperty(t *testing.T) {
 	r := rand.New(rand.NewPCG(3, 11))
-	root := codec.CopyFixture(t)
+	ps := places(t)
 	counts := map[Protection]int{}
 	for n := range 4000 {
 		front, want := genFront(r)
@@ -172,7 +209,8 @@ func TestProtectionProperty(t *testing.T) {
 			t.Errorf("protection %+v, want %+v, for\n%s", got, want, front)
 		}
 		if n%8 == 0 {
-			agree(t, front, got, checked(t, root, codec.Hand, b))
+			p := ps[n/8%len(ps)]
+			agree(t, front+" at "+p.String(), got, checked(t, p.root, p.rel, b))
 		}
 	}
 	// Each verdict is reached often enough for the test to mean something.
@@ -275,10 +313,11 @@ var unprotected = []string{
 // Each case SPEC.md section 10 listed, where the checker's own reader saw
 // no protection, protects in the codec, and the profile checker reports
 // the same protection for it in a store, both in a file the hand-edit
-// record lists and in one it does not; so do the documents that protect
-// nothing.
+// record lists and in one it does not, and at a session, a project record
+// and a disagreement, listed and not, where none may be carried; so do the
+// documents that protect nothing.
 func TestProtectionBeyondProfile(t *testing.T) {
-	root := codec.CopyFixture(t)
+	ps := places(t)
 	seen := map[int]bool{}
 	for _, c := range beyond {
 		seen[c.n] = true
@@ -287,8 +326,8 @@ func TestProtectionBeyondProfile(t *testing.T) {
 		if got != c.want {
 			t.Errorf("case %d, %q: %+v, want %+v", c.n, c.front, got, c.want)
 		}
-		for _, rel := range []string{codec.Hand, codec.Fact} {
-			agree(t, c.front+" at "+rel, got, checked(t, root, rel, b))
+		for _, p := range ps {
+			agree(t, c.front+" at "+p.String(), got, checked(t, p.root, p.rel, b))
 		}
 	}
 	for n := 1; n <= 9; n++ {
@@ -302,7 +341,9 @@ func TestProtectionBeyondProfile(t *testing.T) {
 		if got != (Protection{}) {
 			t.Errorf("%q: %+v, want none", front, got)
 		}
-		agree(t, front, got, checked(t, root, codec.Hand, b))
+		for _, p := range ps {
+			agree(t, front+" at "+p.String(), got, checked(t, p.root, p.rel, b))
+		}
 	}
 }
 
