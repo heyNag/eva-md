@@ -29,6 +29,9 @@ db_password: '⟦/Lw5Gt9Bq3X¦e7.Jn2Dk6/g⟧'
 === secret oracle_near_regex_value regex.flags.letters: a regular expression's flags are of d g i m s u v y x o e n
 SECRET_KEY: '⟦/Qm7Rt2+W¦x9Lp4Zk/zq⟧'
 
+=== secret oracle_near_regex_value regex.flags.letters: a reviewer's probe, one flag that is no regular expression's
+api_key: '⟦/Qm7Rt2+W¦x9Lp4Zk/k⟧'
+
 === secret oracle_near_regex_value regex.flags.count: a regular expression has 6 flags at most
 SECRET_KEY: '⟦/Hb4Zq8+Lm2¦Wx6/dgimsuv⟧'
 
@@ -74,14 +77,33 @@ password: '⟦*Summer¦2Winter⟧' # x
 === secret oracle_near_name_index floor.variable: a variable, which the floor leaves alone as the baseline rules do, is $, self., config., os.environ. or process.env. and a name of letters, digits and '_' that starts with no digit
 password: '⟦$Xk9mP2¦+vLq7Rt⟧'
 
+=== secret oracle_near_name_index floor.variable: a name after a variable's prefix that starts with a digit
+password: '⟦self.4Kd9¦Wm2Qx7Rt⟧'
+
 === secret oracle_near_name_index floor.variable.prefix: a variable's prefix is $, self., config., os.environ. or process.env., or it is os.environ alone
 password: '⟦cfg.Xk9m¦P2vLq7Rt⟧'
 
 === secret oracle_near_name_index index.closes: brackets after the value close on its line
 password: '⟦hunter¦Marble⟧'[x9
 
+=== secret oracle_near_name_index index.closes.match: a closing bracket after the value closes the bracket it matches
+password: '⟦copper¦Lantern⟧'[x9)
+
+=== secret oracle_near_name_index index.closes.quote: a quote inside the brackets closes before the bracket does
+password: '⟦maple¦Rocket⟧'["x9]
+
+=== secret oracle_near_name_index index.closes.line: the brackets close on the value's line
+password: '⟦velvet¦Harbor⟧'[x9
+]
+
+=== secret oracle_near_name_index index.closes.scan: the brackets close within maxCodeScan bytes of the value
+password: '⟦candle¦Meadow⟧'[i                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ]
+
 === secret oracle_near_name_index index.expr.alnum: the brackets hold a letter or a digit
 password: '⟦lanter¦nPillow⟧'[--]
+
+=== secret oracle_near_name_index index.expr.ascii: the letter or digit in the brackets is ASCII
+password: '⟦walnut¦Basket⟧'[š]
 
 === secret oracle_near_name_index index.expr.semicolon: the brackets hold no ';'
 password: '⟦lanter¦nMarble⟧'[a;b]
@@ -95,6 +117,12 @@ password: '⟦walnut¦Rocket⟧'[a#1]
 === secret oracle_near_name_index index.expr.backtick: the brackets hold no backtick
 password: '⟦silver¦Window⟧'[`a`]
 
+=== secret oracle_near_name_index index.expr.backtick: a reviewer's probe, a backtick in an index
+password: '⟦lantern¦Marble⟧'[`a`]
+
+=== secret oracle_near_name_index index.expr.backtick: a reviewer's probe, a backtick around a name in an index
+token: '⟦silver¦Window⟧'[`x9`]
+
 === secret oracle_near_name_index index.after: after the brackets comes nothing, a blank, a quote, a backslash or one of , ; ) ] } . [ (
 password: '⟦harbor¦Candle⟧'[x9]=
 
@@ -103,6 +131,9 @@ api_key: '⟦Jd4Hs8¦Wq2Nc6⟧'["Qw3zR8"]
 
 === secret oracle_near_name_index index.quoted.bracket: an index by a quoted name is in square brackets: a quoted name in braces is none
 password: '⟦Xk9mP2¦vLq7Rt⟧'{"Token"}
+
+=== secret oracle_near_name_index index.quoted.quote: an index by a quoted name opens and closes with the same quote, '"' or '''
+password: '⟦Mv6Rk2¦Tz8Pq4⟧'[xTokenx]
 
 === secret oracle_near_name_index index.name.shell: a name of words before an index is no code in a shell assignment
 DB_PASSWORD='⟦candle¦Basket⟧'[x9]
@@ -124,6 +155,9 @@ password: '⟦huMarb¦leRiver⟧'[0]
 
 === secret oracle_near_name_index words.acronym: an acronym in a name of words has 2 capitals or more
 password: '⟦XMarbl¦eRiver⟧'[0]
+
+=== secret oracle_near_name_index words.acronym.split: the last capital of a run before a lower-case letter starts the next word, so two capitals before one are no acronym
+password: '⟦QZmarb¦leLantern⟧'[0]
 
 === secret oracle_near_name_index index.path.prefix: a member path has nothing before its first name but '@' and '$', or '::'
 password: '⟦%Summer¦.Winter⟧'[i]
@@ -200,11 +234,17 @@ secret: '⟦aB3dE5¦fG7hJ2⟧' |None
 === secret oracle_near_type_annotation type.union.single: a union of types has a single '|', not "||"
 secret: '⟦Nc5Gt1¦Vx8Kp3⟧' || None
 
+=== secret oracle_near_type_annotation type.blank: the blanks around a type's '|' and '=' are spaces and tabs, not other white space (here a vertical tab)
+secret: '⟦Kq3Vb9¦Wd5Hn1⟧'| None
+
 === secret oracle_near_type_annotation type.name.first: a type's name starts with a letter or '_'
 password: '⟦7Xk9mP¦2vLq7Rt⟧' = 1
 
 === secret oracle_near_type_annotation type.name.rest: a type's name goes on with letters, digits, '_' and '.' only
 password: '⟦Xk9mP2+¦vLq7/Rt⟧' = 1
+
+=== secret oracle_near_type_annotation type.name.rest: a type's name holds no '/'
+secret: '⟦Hq4Wz7/¦Lp2Kv9⟧' | None
 
 === secret oracle_near_type_annotation type.name.index: an index on a type closes on its line
 password: '⟦Gm5Tz1¦Ry8Pv3⟧'[ab = 1

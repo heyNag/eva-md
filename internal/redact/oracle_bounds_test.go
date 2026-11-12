@@ -73,6 +73,9 @@ type oracleBound struct {
 	example struct{ text, value string }
 	// widen widens the exception past this bound alone.
 	widen []edit
+	// more are other widenings past this bound alone, each a list of edits
+	// applied together, as reviewers of the near classes made them.
+	more [][]edit
 	// near draws the n-th generated near case of the bound: its line, with
 	// %s where the value goes, and what makes the value.
 	near func(g *gen, n int) (line string, value func() string)
@@ -131,7 +134,7 @@ var (
 	// flags and those that end the value.
 	farFlags = without(validFlags + "\"'`,;&<>(){}[]$")
 	// What may follow a closing bracket and goes on as no code does.
-	farAfter = without(" \t,;)]}.[(\"'`\\")
+	farAfter = without(" \t,;)]}.[(\"'`\\") + "\v\f"
 	// What a type name does not start with or hold.
 	farTypeFirst = "0123456789+-.!@*%^~?:|"
 	farTypeRest  = "+-!%^~*@:=?/#|$"
@@ -193,7 +196,9 @@ var oracleBounds = []oracleBound{
 		example: ex("password: *Hmyhy"+"bbz82)", "*Hmyhy"+"bbz82"),
 		widen:   []edit{{"text[s.end] == '('", `strings.IndexByte("()", text[s.end]) >= 0`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nth(")<>]}[{&,;", n)+g.pick([]string{"", "x"})), func() string { return "*" + nearToken(g) }
+			// A stop character that is no '(', or a '(' after a blank.
+			tail := nthOf([]string{")", "<", ">", "]", "}", "[", "{", "&", ",", ";", " (", "\t(", "  ("}, n)
+			return keyLine(g, nearSeps, tail+g.pick([]string{"", "x"})), func() string { return "*" + nearToken(g) }
 		},
 	},
 	{
@@ -235,10 +240,15 @@ var oracleBounds = []oracleBound{
 		what:    "a variable, which the floor leaves alone as the baseline rules do, is $, self., config., os.environ. or process.env. and a name of letters, digits and '_' that starts with no digit",
 		example: ex("password: $Xk9mP2"+"+vLq7Rt", "$Xk9mP2"+"+vLq7Rt"),
 		widen:   []edit{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:\$[A-Za-z_][A-Za-z0-9_+]*|`}},
+		more: [][]edit{
+			// A name after a prefix that starts with a digit.
+			{{`(?:os\.environ|process\.env|self|config)\.[A-Za-z_][A-Za-z0-9_]*`, `(?:os\.environ|process\.env|self|config)\.[A-Za-z0-9_][A-Za-z0-9_]*`}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, ""), func() string {
 				if n%4 == 3 {
-					return "$" + g.chars(1, digits) + nearToken(g)
+					// A name that starts with a digit.
+					return nthOf([]string{"$", "self.", "config.", "os.environ.", "process.env."}, n/4) + g.chars(1, digits) + nearToken(g)
 				}
 				return g.pick([]string{"$", "$", "self.", "config."}) + insertAt(g, nearToken(g), nth(farVariable, n))
 			}
@@ -363,10 +373,26 @@ var oracleBounds = []oracleBound{
 		},
 	},
 	{
+		id: "type.blank", shape: "type_annotation",
+		what:    "the blanks around a type's '|' and '=' are spaces and tabs, not other white space",
+		example: ex("secret: Kq3Vb9"+"Wd5Hn1\v| None", "Kq3Vb9"+"Wd5Hn1"),
+		widen: []edit{
+			{`((?:[ \t]+\|[ \t]+`, `((?:[ \t\v\f]+\|[ \t\v\f]+`},
+			{`(?:[ \t]+=[ \t]+|$)`, `(?:[ \t\v\f]+=[ \t\v\f]+|$)`},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf([]string{"\v| None", "\f| str", "\v= 1", "\f= None", " |\vNone", "\t\v| x", " =\f1"}, n)), func() string { return nearToken(g) }
+		},
+	},
+	{
 		id: "type.name.first", shape: "type_annotation",
 		what:    "a type's name starts with a letter or '_'",
 		example: ex("password: 7Xk9mP"+"2vLq7Rt = 1", "7Xk9mP"+"2vLq7Rt"),
 		widen:   []edit{{"const typeName = `[A-Za-z_][A-Za-z0-9_.]*", "const typeName = `[A-Za-z0-9_][A-Za-z0-9_.]*"}},
+		more: [][]edit{
+			// A reviewer's: a type that starts with a digit and holds '+' or '/'.
+			{{"const typeName = `[A-Za-z_][A-Za-z0-9_.]*", "const typeName = `[A-Za-z0-9_][A-Za-z0-9_.+/]*"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{" = 1", " | None", " = x"}, n/len(farTypeFirst))), func() string { return nth(farTypeFirst, n) + nearToken(g) }
 		},
@@ -376,6 +402,10 @@ var oracleBounds = []oracleBound{
 		what:    "a type's name goes on with letters, digits, '_' and '.' only",
 		example: ex("password: Xk9mP2"+"+vLq7/Rt = 1", "Xk9mP2"+"+vLq7/Rt"),
 		widen:   []edit{{"const typeName = `[A-Za-z_][A-Za-z0-9_.]*", "const typeName = `[A-Za-z_][A-Za-z0-9_.+]*"}},
+		more: [][]edit{
+			{{"const typeName = `[A-Za-z_][A-Za-z0-9_.]*", "const typeName = `[A-Za-z_][A-Za-z0-9_./]*"}},
+			{{"const typeName = `[A-Za-z_][A-Za-z0-9_.]*", "const typeName = `[A-Za-z_][A-Za-z0-9_.+/]*"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{" = 1", " | None", " = x"}, n/len(farTypeRest))), func() string { return insertAt(g, nearToken(g), nth(farTypeRest, n)) }
 		},
@@ -419,12 +449,59 @@ var oracleBounds = []oracleBound{
 		},
 	},
 	{
+		id: "index.closes.match", shape: "name_index",
+		what:    "a closing bracket after the value closes the bracket it matches",
+		example: ex("password: copper"+"Lantern[x9)", "copper"+"Lantern"),
+		widen:   []edit{{"if len(want) == 0 || want[len(want)-1] != c {", "if len(want) == 0 {"}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf([]string{"[x9)", "{ab]", "[i}", "{0)", "[ab}", "[a(b]"}, n)), func() string { return wordsValue(g) }
+		},
+	},
+	{
+		id: "index.closes.quote", shape: "name_index",
+		what:    "a quote inside the brackets closes before the bracket does",
+		example: ex(`password: maple`+`Rocket["x9]`, "maple"+"Rocket"),
+		widen:   []edit{{"j := strings.Index(v[i+len(q):], q)\n\t\t\tif j < 0 {", "j := strings.Index(v[i+len(q):], q)\n\t\t\tif j < 0 && len(v) < 0 {"}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf([]string{`["x9]`, `['i]`, `[a"]`, `{'ab}`, `[x9']`, `{"0}`}, n)), func() string { return wordsValue(g) }
+		},
+	},
+	{
+		id: "index.closes.line", shape: "name_index",
+		what:    "the brackets close on the value's line",
+		example: ex("password: velvet"+"Harbor[x9\n]", "velvet"+"Harbor"),
+		widen:   []edit{{`if i := strings.IndexAny(text[s.start:lineEnd], "\r\n"); i >= 0 {`, `if i := strings.IndexAny(text[s.start:lineEnd], "\r"); i >= 0 {`}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf([]string{"[x9\n]", "[i\n]", "{a\n}", "[0\n] # next", "{ab\n}\nport: 1"}, n)), func() string { return wordsValue(g) }
+		},
+	},
+	{
+		id: "index.closes.scan", shape: "name_index",
+		what:    "the brackets close within maxCodeScan bytes of the value",
+		example: ex("password: candle"+"Meadow[i"+strings.Repeat(" ", 520)+"]", "candle"+"Meadow"),
+		widen:   []edit{{"lineEnd, whole := min(len(text), s.end+maxCodeScan), false", "lineEnd, whole := min(len(text), s.end+4*maxCodeScan), false"}},
+		near: func(g *gen, n int) (string, func() string) {
+			open, close := nthOf([]string{"[", "{"}, n), nthOf([]string{"]", "}"}, n)
+			return keyLine(g, nearSeps, open+nth("ix0a", n/2)+strings.Repeat(" ", maxCodeScan+1+n%16)+close), func() string { return wordsValue(g) }
+		},
+	},
+	{
 		id: "index.expr.alnum", shape: "name_index",
 		what:    "the brackets hold a letter or a digit",
 		example: ex("password: lantern"+"Pillow[--]", "lantern"+"Pillow"),
 		widen:   []edit{{"return strings.IndexFunc(s, func(r rune) bool { return r < 128 && isAlnum(byte(r)) }) >= 0 && ", "return "}},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf([]string{"[--]", "[+-]", "{..}", "[!]", `[""]`, "{+}"}, n)), func() string { return wordsValue(g) }
+		},
+	},
+	{
+		id: "index.expr.ascii", shape: "name_index",
+		what:    "the letter or digit in the brackets is ASCII",
+		example: ex("password: walnut"+"Basket[š]", "walnut"+"Basket"),
+		widen:   []edit{{"r < 128 && isAlnum(byte(r))", "isAlnum(byte(r))"}},
+		near: func(g *gen, n int) (string, func() string) {
+			// Each of these runes has the low byte of an ASCII letter or digit.
+			return keyLine(g, nearSeps, nthOf([]string{"[š]", "[Ł]", "{ű}", "[İ]", "[šš]", "{Łű}"}, n)), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -492,6 +569,17 @@ var oracleBounds = []oracleBound{
 			q := nthOf([]string{`"`, `'`}, n)
 			name := nthOf([]string{"Token", strings.ToLower(g.pick(gapWords)) + "_key", "access_token", g.pick(gapWords) + g.pick(gapWords)}, n/2)
 			return keyLine(g, nearSeps, "{"+q+name+q+"}"), func() string { return nearToken(g) }
+		},
+	},
+	{
+		id: "index.quoted.quote", shape: "name_index",
+		what:    `an index by a quoted name opens and closes with the same quote, '"' or '''`,
+		example: ex("password: Mv6Rk2"+"Tz8Pq4[xTokenx]", "Mv6Rk2"+"Tz8Pq4"),
+		widen:   []edit{{`if len(s) < 3 || s[0] != s[len(s)-1] || s[0] != '"' && s[0] != '\'' {`, `if len(s) < 3 || s[0] != s[len(s)-1] {`}},
+		near: func(g *gen, n int) (string, func() string) {
+			q := nth("x_-0aQ.", n)
+			name := nthOf([]string{"Token", "access_token", "api-key", "Secret"}, n/7)
+			return keyLine(g, nearSeps, "["+q+name+q+"]"), func() string { return nearToken(g) }
 		},
 	},
 	{
@@ -571,6 +659,17 @@ var oracleBounds = []oracleBound{
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
 				return g.chars(1, alnum[26:52]) + g.pick(gapWords) + g.pick(gapWords)
+			}
+		},
+	},
+	{
+		id: "words.acronym.split", shape: "name_index",
+		what:    "the last capital of a run before a lower-case letter starts the next word, so two capitals before one are no acronym",
+		example: ex("password: QZmarb"+"leLantern[0]", "QZmarb"+"leLantern"),
+		widen:   []edit{{"k-- // the last capital starts the next word, as in AWSSecrets", "// the last capital starts the next word, as in AWSSecrets"}},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
+				return g.chars(2, alnum[26:52]) + strings.ToLower(g.pick(gapWords)) + g.pick(gapWords)
 			}
 		},
 	},
@@ -694,6 +793,10 @@ var oracleBounds = []oracleBound{
 		what:    "an instance variable has one or two of '@' or '$' before its name",
 		example: ex("password: $$$silver"+"Window[i]", "$$$silver"+"Window"),
 		widen:   []edit{{"return len(v)-len(name) <= 2 && name != v", "return len(v)-len(name) <= 3 && name != v"}},
+		more: [][]edit{
+			// A reviewer's: no count at all.
+			{{"return len(v)-len(name) <= 2 && name != v", "return name != v"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
 				var p strings.Builder
@@ -764,7 +867,7 @@ var oracleBounds = []oracleBound{
 		example: ex("password: Walnut"+".Cobalt x { y }", "Walnut"+".Cobalt"),
 		widen:   []edit{{`case path && strings.HasPrefix(strings.TrimLeft(rest, " \t"), "{"):`, `case path && strings.Contains(rest, "{"):`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{" x { y }", " + { y }", " do { y }", " | { y }"}, n)), func() string {
+			return keyLine(g, nearSeps, nthOf([]string{" x { y }", " + { y }", " do { y }", " | { y }", " \v{ y }", "\f{ y }"}, n)), func() string {
 				return g.pick(gapWords) + "." + g.pick(gapWords)
 			}
 		},
@@ -879,6 +982,10 @@ var oracleBounds = []oracleBound{
 		what:    "a regular expression has 6 flags at most",
 		example: ex("SECRET_KEY: /Hb4Zq8"+"+Lm2Wx6/dgimsuv", "/Hb4Zq8"+"+Lm2Wx6/dgimsuv"),
 		widen:   []edit{{"regexp.MustCompile(`^[dgimsuvyxoen]{0,6}$`)", "regexp.MustCompile(`^[dgimsuvyxoen]{0,7}$`)"}},
+		more: [][]edit{
+			// A reviewer's: up to 12 flags.
+			{{"regexp.MustCompile(`^[dgimsuvyxoen]{0,6}$`)", "regexp.MustCompile(`^[dgimsuvyxoen]{0,12}$`)"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, ""), func() string {
 				f := []byte(validFlags)
@@ -902,7 +1009,7 @@ var oracleBounds = []oracleBound{
 		example: ex("api_key = /Fz6Qe3"+"+Nb8Ls2Gx5Hj9/i)", "/Fz6Qe3"+"+Nb8Ls2Gx5Hj9/i"),
 		widen:   []edit{{"strings.IndexByte(\" \\t;,\\\"'`\\\\\", rest[0])", "strings.IndexByte(\" \\t;,\\\"'`\\\\)\", rest[0])"}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nth(")]}<>&[{", n)+g.pick([]string{"", "x"})), func() string { return nearRegex(g, true, g.pick(gapFlags)) }
+			return keyLine(g, nearSeps, nthOf([]string{")", "]", "}", "<", ">", "&", "[", "{", "\v", "\f"}, n)+g.pick([]string{"", "x"})), func() string { return nearRegex(g, true, g.pick(gapFlags)) }
 		},
 	},
 }
@@ -911,6 +1018,11 @@ var oracleBounds = []oracleBound{
 // replace.
 func ex(text, value string) struct{ text, value string } {
 	return struct{ text, value string }{text, value}
+}
+
+// widenings returns each widening of b: widen, then those of more.
+func (b oracleBound) widenings() [][]edit {
+	return append([][]edit{b.widen}, b.more...)
 }
 
 // boundsOf returns the bounds whose near cases are of shape.
@@ -1037,10 +1149,13 @@ func TestOracleBoundsHaveNearCases(t *testing.T) {
 	t.Logf("%d bounds; near cases by bound, labelled: %v; generated: %v", len(oracleBounds), labelled, generated)
 }
 
-// applyWidening applies a bound's edits to src, each of whose old text must
-// occur exactly once in what the edits before it left.
-func applyWidening(src string, b oracleBound) (string, error) {
-	for _, e := range b.widen {
+// applyWidening applies a widening's edits to src, each of whose old text
+// must occur exactly once in what the edits before it left.
+func applyWidening(src string, widen []edit) (string, error) {
+	if len(widen) == 0 {
+		return "", fmt.Errorf("a widening of no edit")
+	}
+	for _, e := range widen {
 		if e.old == e.new {
 			return "", fmt.Errorf("an edit that changes nothing: %q", e.old)
 		}
@@ -1062,8 +1177,10 @@ func TestOracleBoundsWidenRedactGo(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, b := range oracleBounds {
-		if _, err := applyWidening(string(src), b); err != nil {
-			t.Errorf("bound %s: %v", b.id, err)
+		for k, w := range b.widenings() {
+			if _, err := applyWidening(string(src), w); err != nil {
+				t.Errorf("bound %s, widening %d: %v", b.id, k+1, err)
+			}
 		}
 	}
 }
@@ -1124,44 +1241,50 @@ func TestOracleHoldsEachBound(t *testing.T) {
 		if !pick.MatchString(b.id) {
 			continue
 		}
-		t.Run(b.id, func(t *testing.T) {
-			widened, err := applyWidening(string(src), b)
-			if err != nil {
-				t.Fatal(err)
+		for k, w := range b.widenings() {
+			name := b.id
+			if k > 0 {
+				name = fmt.Sprintf("%s#%d", b.id, k+1)
 			}
-			tmp := t.TempDir()
-			file := filepath.Join(tmp, "redact.go")
-			overlay := filepath.Join(tmp, "overlay.json")
-			ov, _ := json.Marshal(map[string]map[string]string{"Replace": {filepath.Join(dir, "redact.go"): file}})
-			if err := os.WriteFile(file, []byte(widened), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(overlay, ov, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), boundHangGuard)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, goTool, "test", "-count=1", "-overlay", overlay, "-run", "^TestOracle$", ".")
-			cmd.Dir, cmd.Env = dir, env
-			out, err := cmd.CombinedOutput()
-			if err == nil {
-				t.Fatalf("TestOracle passed with %s widened:\n%s", b.id, out)
-			}
-			got := keptRe.FindSubmatch(out)
-			if got == nil {
-				t.Fatalf("TestOracle failed with %s widened, but not on a near case:\n%s", b.id, out)
-			}
-			counts := map[string]string{}
-			for _, f := range strings.Fields(string(got[1])) {
-				id, n, _ := strings.Cut(f, "=")
-				counts[id] = n
-			}
-			var l, g int
-			if _, err := fmt.Sscanf(counts[b.id], "%d/%d", &l, &g); err != nil || l == 0 || g == 0 {
-				t.Errorf("with %s widened, TestOracle kept near cases of %s only, none of its own both labelled and generated (%q)", b.id, got[1], counts[b.id])
-			}
-			t.Logf("%s widened: near cases kept: %s", b.id, got[1])
-		})
+			t.Run(name, func(t *testing.T) {
+				widened, err := applyWidening(string(src), w)
+				if err != nil {
+					t.Fatal(err)
+				}
+				tmp := t.TempDir()
+				file := filepath.Join(tmp, "redact.go")
+				overlay := filepath.Join(tmp, "overlay.json")
+				ov, _ := json.Marshal(map[string]map[string]string{"Replace": {filepath.Join(dir, "redact.go"): file}})
+				if err := os.WriteFile(file, []byte(widened), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(overlay, ov, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), boundHangGuard)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, goTool, "test", "-count=1", "-overlay", overlay, "-run", "^TestOracle$", ".")
+				cmd.Dir, cmd.Env = dir, env
+				out, err := cmd.CombinedOutput()
+				if err == nil {
+					t.Fatalf("TestOracle passed with %s widened:\n%s", name, out)
+				}
+				got := keptRe.FindSubmatch(out)
+				if got == nil {
+					t.Fatalf("TestOracle failed with %s widened, but not on a near case:\n%s", name, out)
+				}
+				counts := map[string]string{}
+				for _, f := range strings.Fields(string(got[1])) {
+					id, n, _ := strings.Cut(f, "=")
+					counts[id] = n
+				}
+				var l, g int
+				if _, err := fmt.Sscanf(counts[b.id], "%d/%d", &l, &g); err != nil || l == 0 || g == 0 {
+					t.Errorf("with %s widened, TestOracle kept near cases of %s only, none of its own both labelled and generated (%q)", name, got[1], counts[b.id])
+				}
+				t.Logf("%s widened: near cases kept: %s", name, got[1])
+			})
+		}
 	}
 }
 
