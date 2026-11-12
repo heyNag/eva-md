@@ -210,8 +210,11 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 	workCtx, cancel := env.withDeadline(ctx, deadline.Add(-10*time.Millisecond))
 	defer cancel()
 	// A capture that misses the deadline delivers nothing, its jobs
-	// included: Run reads its turn only once it has returned.
-	p.turn = new(turn)
+	// included: Run reads its turn only once it has returned. Until the
+	// capture passes the guards, the turn holds only what the payload
+	// names, so a run a guard stops is still its session's, and launch
+	// starts nothing for it.
+	p.turn = &turn{host: host, event: p.Event, session: p.Session}
 	done := make(chan string, 1)
 	go func() {
 		var output string

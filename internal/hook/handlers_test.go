@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/heyNag/eva-md/internal/catchup"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/session"
 	"github.com/heyNag/eva-md/internal/update"
 	"github.com/heyNag/eva-md/internal/wikigit"
 )
@@ -49,10 +51,12 @@ var probeCount atomic.Int64
 
 // probe records what the handlers at each point saw in one session's runs,
 // and with launch rewrites the jobs at atLaunch, once it has recorded them.
+// With act, it then does what act does at the point it is called with.
 type probe struct {
 	mu     sync.Mutex
 	seen   []seenTurn
 	launch func([]job) []job
+	act    func(point, *turn)
 }
 
 // seenTurn is a turn as a probe saw it.
@@ -86,6 +90,9 @@ func (p *probe) see(at point, t *turn) {
 	p.seen = append(p.seen, s)
 	if at == atLaunch && p.launch != nil {
 		t.jobs = p.launch(t.jobs)
+	}
+	if p.act != nil {
+		p.act(at, t)
 	}
 }
 
@@ -205,8 +212,33 @@ func TestHandlersRunOnceAtEachPoint(t *testing.T) {
 		t.Errorf("spawned %q, want %q", got, argsOf(launched.jobs))
 	}
 
-	// A prompt runs no brief's handlers when it has no brief to give, and a
-	// program's chat is seen as one.
+	// A prompt runs the brief's handlers when it gets a brief or refresh,
+	// as the first prompt after a chat start does, and none once the chat
+	// has used its refreshes up.
+	p.Event, p.Source = "UserPromptSubmit", ""
+	invoke(t, "claude-code", p, env)
+	seen = pr.turns()
+	if got := atOf(seen); !reflect.DeepEqual(got, points) {
+		t.Fatalf("the first prompt after a chat start ran the handlers at %v, want %v", got, points)
+	}
+	for _, s := range seen {
+		if s.event != "UserPromptSubmit" || s.session != p.Session || s.headless {
+			t.Errorf("at %d a prompt was seen as %+v", s.at, s)
+		}
+	}
+	used, err := json.Marshal(briefMarker{Variant: "resume", Refreshes: maxRefreshes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (session.Markers{Root: env.Dirs.Sessions()}).SetContext(context.Background(), "claude-code", p.Session, session.Briefed, string(used)); err != nil {
+		t.Fatal(err)
+	}
+	invoke(t, "claude-code", p, env)
+	if got, want := atOf(pr.turns()), []point{atGuarded, atStored, atLaunch}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("a prompt with its refreshes used up ran the handlers at %v, want %v", got, want)
+	}
+
+	// A Stop has no brief to give, and a program's chat is seen as one.
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
 	p.Event, p.Source = "Stop", ""
 	reply := "Done."
@@ -229,19 +261,75 @@ func TestHandlersRunOnceAtEachPoint(t *testing.T) {
 // whose capture misses its deadline starts nothing, and runs no handler at
 // atLaunch.
 func TestHandlersDoNotRunPastAGuard(t *testing.T) {
-	t.Run("excluded folder", func(t *testing.T) {
+	// Each guard that stops a run before atGuarded: the run is still its
+	// session's, so the probe would see a handler that ran in it, at
+	// atLaunch too.
+	for _, guard := range []struct {
+		name string
+		stop func(t *testing.T, env *Env, p *payload)
+	}{
+		{"excluded folder", func(t *testing.T, env *Env, p *payload) { env.Config.Exclude = []string{p.Cwd} }},
+		{"temporary folder", func(t *testing.T, env *Env, p *payload) {
+			p.Cwd = filepath.Join(os.Getenv("TMPDIR"), "work")
+			if err := os.MkdirAll(p.Cwd, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"the wiki", func(t *testing.T, env *Env, p *payload) {
+			p.Cwd = env.Config.WikiPath
+			if err := os.MkdirAll(p.Cwd, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"an eva-md job", func(t *testing.T, env *Env, p *payload) { t.Setenv("EVA_MD_INNER", "1") }},
+		{"a remote session", func(t *testing.T, env *Env, p *payload) { t.Setenv("CLAUDE_CODE_REMOTE", "true") }},
+	} {
+		t.Run(guard.name, func(t *testing.T) {
+			env, p, spawned := maintainSetup(t)
+			pr := newProbe(t, &p, nil)
+			guard.stop(t, &env, &p)
+			reply := "Done."
+			p.Reply = &reply
+			for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PreCompact", "PostToolUse"} {
+				p.Event = event
+				invoke(t, "codex", p, env)
+			}
+			if seen := pr.turns(); seen != nil {
+				t.Fatalf("the runs ran handlers at %v", atOf(seen))
+			}
+			if got := spawned(); got != nil {
+				t.Fatalf("the runs spawned %q", got)
+			}
+		})
+	}
+	// A chat start whose brief can't be built runs no brief's handler, so
+	// asks for no catch-up, though its own backlog would be one: the
+	// project's inbox folder becomes a link once the start is stored, which
+	// the brief refuses to read through.
+	t.Run("no brief", func(t *testing.T) {
 		env, p, spawned := maintainSetup(t)
 		pr := newProbe(t, &p, nil)
-		env.Config.Exclude = []string{p.Cwd}
-		for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"} {
-			p.Event = event
-			invoke(t, "codex", p, env)
+		sessionFile(t, env, "codex", p.Session, 3*promptBacklog, inbox.Mark{}, env.Now().Add(-time.Hour))
+		pr.act = func(at point, tn *turn) {
+			if at != atStored {
+				return
+			}
+			folder := filepath.Join(env.Dirs.Inbox(), tn.project)
+			if err := os.Rename(folder, folder+".moved"); err != nil {
+				t.Error(err)
+				return
+			}
+			if err := os.Symlink(folder+".moved", folder); err != nil {
+				t.Error(err)
+			}
 		}
-		if seen := pr.turns(); seen != nil {
-			t.Fatalf("an excluded folder's runs ran handlers at %v", atOf(seen))
+		p.Event, p.Source = "SessionStart", "resume"
+		invoke(t, "codex", p, env)
+		if got, want := atOf(pr.turns()), []point{atGuarded, atStored, atLaunch}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("a chat start with no brief ran the handlers at %v, want %v", got, want)
 		}
-		if got := spawned(); got != nil {
-			t.Fatalf("an excluded folder's runs spawned %q", got)
+		if got, want := spawned(), [][]string{{"maintain"}}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("a chat start with no brief spawned %q, want %q", got, want)
 		}
 	})
 	t.Run("off the record", func(t *testing.T) {
@@ -543,5 +631,36 @@ func TestHandlersAtOnePlacePanic(t *testing.T) {
 	want := []string{"0 maintain", "1 prompt gap", "1 stop backlog", "1 session end and compaction", "2 chat-start catch-up"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("the package's handlers are %q, want %q", names, want)
+	}
+}
+
+// Handlers registered out of the order of their places run in that order
+// all the same: the list is kept in the order of the places, whichever
+// file's init registers first.
+func TestHandlersRunInTheOrderOfTheirPlaces(t *testing.T) {
+	before := slices.Clone(handlers)
+	t.Cleanup(func() { handlers = before })
+	env, p, _ := maintainSetup(t)
+	newProbe(t, &p, nil)
+	var ran []string
+	step := func(name string) func(*turn) {
+		return func(tn *turn) {
+			if tn.session == p.Session {
+				ran = append(ran, name)
+			}
+		}
+	}
+	registerHandler(9500, "a later step", atStored, step("later"))
+	registerHandler(9400, "an earlier step", atStored, step("earlier"))
+	var places []int
+	for _, h := range handlers {
+		places = append(places, h.place)
+	}
+	if !slices.IsSorted(places) {
+		t.Fatalf("the list holds the places %v", places)
+	}
+	invoke(t, "codex", p, env)
+	if want := []string{"earlier", "later"}; !reflect.DeepEqual(ran, want) {
+		t.Fatalf("the steps ran as %q, want %q", ran, want)
 	}
 }
