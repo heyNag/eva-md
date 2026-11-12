@@ -25,7 +25,7 @@ const (
 )
 
 // crashSteps are the steps a child can be told to run, by name.
-var crashSteps = map[string]Step{"synthetic": synthetic, "index-only": indexOnly, "file-to-folder": fileToFolder}
+var crashSteps = map[string]Step{"synthetic": synthetic, "index-only": indexOnly, "file-to-folder": fileToFolder, "drop-link": dropLink}
 
 // crashChild runs the step it was given, under the first pass, and kills
 // itself with SIGKILL at the crash point it was given.
