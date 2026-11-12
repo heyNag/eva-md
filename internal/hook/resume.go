@@ -13,7 +13,6 @@ import (
 
 	"github.com/heyNag/eva-md/internal/health"
 	"github.com/heyNag/eva-md/internal/identity"
-	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/resume"
 	"github.com/heyNag/eva-md/internal/session"
@@ -50,11 +49,13 @@ func (m briefMarker) used() int {
 const markerReserve = 20 * time.Millisecond
 
 // resumeContext returns the brief or refresh for a SessionStart or prompt,
-// and with a prompt the lines that ride with it (see promptLines). At
-// SessionStart it also asks for the catch-up update, of this chat's own
-// backlog and the project's idle sessions, from what start found before the
-// hook appended anything and the session files the brief read.
-func resumeContext(ctx context.Context, host string, p payload, env Env, project identity.Project, now time.Time, start startState, spawns *[][]string) string {
+// and with a prompt the lines that ride with it (see promptLines). Its brief
+// runs the handlers at atBriefed on p's turn, which see what start found
+// before the hook appended anything and the session files the brief read.
+// The last parameter is the list of jobs' arguments it took before the
+// turn carried them, kept for the tests that call it alone, and is not
+// read.
+func resumeContext(ctx context.Context, host string, p payload, env Env, project identity.Project, now time.Time, start startState, _ *[][]string) string {
 	if p.Event != "SessionStart" && p.Event != "UserPromptSubmit" {
 		return ""
 	}
@@ -63,7 +64,7 @@ func resumeContext(ctx context.Context, host string, p payload, env Env, project
 	}
 	d := p.record.deliver(p)
 	markers := session.Markers{Root: env.Dirs.Sessions()}
-	b, ok := brief(ctx, host, p, env, project, now, start, spawns, markers)
+	b, ok := brief(ctx, host, p, env, project, now, start, markers)
 	if !ok {
 		return ""
 	}
@@ -151,7 +152,7 @@ func (b briefed) routes() []string {
 // brief builds the brief or refresh for a SessionStart or prompt, and the
 // briefed marker that records it. A prompt with nothing to brief gets none.
 // It reports false when the marker or the brief can't be read.
-func brief(ctx context.Context, host string, p payload, env Env, project identity.Project, now time.Time, start startState, spawns *[][]string, markers session.Markers) (briefed, bool) {
+func brief(ctx context.Context, host string, p payload, env Env, project identity.Project, now time.Time, start startState, markers session.Markers) (briefed, bool) {
 	variant := p.Source
 	previous, found, err := markers.GetContext(ctx, host, p.Session, session.Briefed)
 	if err != nil {
@@ -181,12 +182,9 @@ func brief(ctx context.Context, host string, p payload, env Env, project identit
 	if err != nil || ctx.Err() != nil {
 		return briefed{}, false
 	}
-	if p.Event == "SessionStart" && updatesOn(env.Config) {
-		store := inbox.Store{Root: env.Dirs.Inbox()}
-		own, recovered := start.files(store, project.Key, host, p.Session)
-		// A person's chat start asks for the day's sweep too; a program's
-		// starts no model calls for other projects' chats.
-		queueCatchUp(spawns, env, !p.headless, idleBacklogs(ctx, store, own, result.Files, recovered, now)...)
+	if t := p.turn; t != nil {
+		t.read, t.recovered = result.Files, start.recovered
+		t.run(atBriefed)
 	}
 	if variant == "refresh" {
 		// An unchanged Now injects nothing, uses no refresh and leaves the

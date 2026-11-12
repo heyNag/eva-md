@@ -354,10 +354,16 @@ func TestNoReleaseContainsIt(t *testing.T) {
 }
 
 // Only eva's name shows: the harness imports no library outside the
-// standard one, and so no library can name itself in what it prints.
+// standard one, and so no library can name itself in what it prints. A
+// package of eva-md itself that an instrument measures, such as v1's
+// recall, is held to eva-md's own rule on the two libraries it may use.
 func TestOnlyEvasNameShows(t *testing.T) {
 	root := moduleRoot(t)
+	product := deps(t, root, "cmd/eva-md")
 	for _, dir := range append([]string{"cmd/eva-eval"}, deps(t, root, "cmd/eva-eval")...) {
+		if slices.Contains(product, dir) {
+			continue
+		}
 		files, _ := filepath.Glob(filepath.Join(root, dir, "*.go"))
 		for _, f := range files {
 			parsed, err := parser.ParseFile(token.NewFileSet(), f, nil, parser.ImportsOnly)

@@ -6,6 +6,8 @@
 
 DV-12a builds the worker with no caller. This part puts v1's two background jobs under it, so a trigger that finds a job running is kept instead of dropped, and it makes `status` say why work waits. All of it sits behind the switch `worker` (`work.Switch`, default false). Off means v1 exactly: the hooks start `eva-md update` and `eva-md maintain` as today, and no row is added.
 
+One thing the handler list's review found, which this card settles (SEAM-0b, "As merged"): `launch` takes the day's attempt file while it judges the jobs, before the `atLaunch` handlers run, so a panic in one of them starts nothing and still marks the day's maintain as attempted. This card's handler is the first at `atLaunch`: recover each such handler on its own and still start the judged jobs, or take the attempt file only once a job is started or handed to the worker, and hold the choice with a test.
+
 ## What to build
 
 1. **The command** `eva-md work`, in `cmd/eva-md/work.go` (new), registered in the command table at place 145, with these forms in its synopsis and one line in README's Commands list:

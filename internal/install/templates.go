@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/heyNag/eva-md/internal/host/adapter"
 )
 
 // Plugin bytes intentionally contain no binary version or timestamp. Codex
@@ -31,14 +33,19 @@ const recallSkillPath = "plugins/eva-md/skills/eva-md-recall/SKILL.md"
 const managed = ".eva-md-managed"
 const managedContents = "eva-md marketplace v1\n"
 
+// render gives the files of the marketplace folder for host, an install
+// name. The manifests' paths, the skill's host and the hooks' --host are the
+// adapter's; the hook list is install's own.
 func render(host, binary string) (map[string][]byte, error) {
-	files := map[string][]byte{managed: []byte(managedContents)}
-	marketManifest, pluginManifest := ".claude-plugin/marketplace.json", ".claude-plugin/plugin.json"
-	if host == "codex" {
-		marketManifest, pluginManifest = ".agents/plugins/marketplace.json", ".codex-plugin/plugin.json"
+	h, ok := adapter.ByInstallName(host)
+	if !ok {
+		return nil, fmt.Errorf("install: no plugin for host %q", host)
 	}
+	files := map[string][]byte{managed: []byte(managedContents)}
+	plugin := h.Plugin()
+	marketManifest, pluginManifest := plugin.MarketplaceManifest, plugin.PluginManifest
 	for key, name := range map[string]string{marketManifest: "marketplace", "plugins/eva-md/" + pluginManifest: "plugin"} {
-		data, err := templates.ReadFile("templates/" + host + "-" + name + ".json")
+		data, err := templates.ReadFile("templates/" + h.Names.InstallName + "-" + name + ".json")
 		if err != nil {
 			return nil, err
 		}
@@ -51,11 +58,7 @@ func render(host, binary string) (map[string][]byte, error) {
 	files[iconPath] = icon
 	// The skills run the binary by the same path as the hooks, and the
 	// digest skill says which host writes the page.
-	author := "claude-code"
-	if host == "codex" {
-		author = "codex"
-	}
-	fill := strings.NewReplacer("{{bin}}", shellQuote(binary), "{{host}}", author)
+	fill := strings.NewReplacer("{{bin}}", shellQuote(binary), "{{host}}", string(h.ID))
 	for path, name := range map[string]string{skillPath: "digest-skill.md", recallSkillPath: "recall-skill.md"} {
 		skill, err := templates.ReadFile("templates/" + name)
 		if err != nil {
@@ -77,7 +80,7 @@ func render(host, binary string) (map[string][]byte, error) {
 		{"PreCompact", "manual|auto", 10, false}, {"PostCompact", "", 5, false},
 		{"PostModelSwitch", "", 3, false}, {"SessionEnd", "", 0, false},
 	}
-	if host == "codex" {
+	if h.ID == adapter.Codex {
 		events = []event{
 			{"SessionStart", "startup|resume|clear|compact|fork", 10, false},
 			{"UserPromptSubmit", "", 5, false},
@@ -88,9 +91,9 @@ func render(host, binary string) (map[string][]byte, error) {
 	}
 	hooks := map[string]any{}
 	for _, e := range events {
-		command := map[string]any{"type": "command", "command": binary, "args": []string{"hook", "--host", "claude-code"}}
-		if host == "codex" {
-			command = map[string]any{"type": "command", "command": shellQuote(binary) + " hook --host codex || echo '{}'"}
+		command := map[string]any{"type": "command", "command": binary, "args": []string{"hook", "--host", string(h.ID)}}
+		if h.ID == adapter.Codex {
+			command = map[string]any{"type": "command", "command": shellQuote(binary) + " hook --host " + string(h.ID) + " || echo '{}'"}
 			if e.name == "SessionStart" || e.name == "UserPromptSubmit" {
 				command["additionalContextLimit"] = 3000
 			}
