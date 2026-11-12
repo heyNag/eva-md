@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -297,5 +298,75 @@ func TestFidelityErrors(t *testing.T) {
 				t.Errorf("%q", stderr)
 			}
 		})
+	}
+}
+
+// A copy of the pages with faults of every kind the counts measure, on
+// several scenarios, and a fact found under another's tag: the suite's
+// row of each count is the sum of the scenarios' rows and is not 0, its
+// fact_recall counts the found fact and its fact_holds does not, and the
+// scenario's line names the fact's problem.
+func TestFidelityTotals(t *testing.T) {
+	repo, _ := fidelityRepo(t)
+	edits := map[string][2]string{
+		// A second item of the decision (dupes), the off-the-record budget
+		// (otr_stored and violations) and the assistant's suggestion under
+		// the user's tag (misattributed).
+		"v1.01.md": {"- Use flock for the per-session lock, KESTREL-41 [stated] s:00001b1f#1\n",
+			"- Use flock for the per-session lock, KESTREL-41 [stated] s:00001b1f#1\n- Use flock for the lock, KESTREL-41 [stated] s:00001b1f#1\n" +
+				"- The budget is SHRIKE-99 [stated] s:00001b1f#4\n- Switch the lock to a pid file, PIDGEON-7 [stated] s:00001b1f#2\n"},
+		// The reversed decision kept in force (stale_in_force).
+		"v1.03.md": {"- Store pages as JSONL, OSPREY-J [stated] s:0000051f#1\n",
+			"- Store pages as JSONL, OSPREY-J [stated] s:0000051f#1\n- Store pages as YAML, OSPREY-Y [stated] s:0000051e#1\n"},
+		// The correction found, under the assistant's tag.
+		"v1.04.md": {"EVA_MD_TOKEN, WREN-5 [stated] s:00000625#1", "EVA_MD_TOKEN, WREN-5 [inferred] s:00000625#1"},
+		// The pasted decision under the user's tag (violations).
+		"v1.06.md": {"- Keep SQLite for now, AVOCET-1 [stated] s:00001060#2\n",
+			"- Keep SQLite for now, AVOCET-1 [stated] s:00001060#2\n- We will use Postgres, PELICAN-6 [stated] s:00001060#1\n"},
+	}
+	pages := copyPages(t, func(name, text string) string {
+		e, ok := edits[name]
+		if !ok {
+			return text
+		}
+		if strings.Count(text, e[0]) != 1 {
+			t.Fatalf("%s lacks %q", name, e[0])
+		}
+		return strings.Replace(text, e[0], e[1], 1)
+	})
+	// A page of v1.07 with a request that plants nothing (noise) and an
+	// item citing a line its chat lacks (wrong_write).
+	write(t, filepath.Join(pages, "v1.07.md"), "\n## Now\n<!-- eva:now:start -->\n### Next\n"+
+		"- Keep an eye on the nightly jobs [stated] s:00001601#1\n- Rotate the signing keys [stated] s:00001601#9\n<!-- eva:now:end -->\n\n## Timeline\n")
+	rows, printed := fidelityRows(t, repo, pages)
+	for _, m := range []string{score.MetricWrongWrite, score.MetricNoise, score.MetricMisattributed, score.MetricStaleInForce,
+		score.MetricDupes, score.MetricOTRStored, score.MetricViolations} {
+		sum := 0.0
+		for _, sc := range scenario.V1() {
+			sum += value(t, rows, sc.ID, m)
+		}
+		if got := value(t, rows, "v1", m); got != sum || got == 0 {
+			t.Errorf("the suite's %s is %v, the scenarios' sum %v", m, got, sum)
+		}
+	}
+	if v := value(t, rows, "v1", score.MetricViolations); v < 2 {
+		t.Errorf("the suite's violations %v, from two scenarios", v)
+	}
+	all, held, recalled := 0, 0, 0
+	for _, sc := range scenario.V1() {
+		n := required(sc)
+		all += n
+		held += int(value(t, rows, sc.ID, score.MetricFactHolds)*float64(n) + 0.5)
+		recalled += int(value(t, rows, sc.ID, score.MetricFactRecall)*float64(n) + 0.5)
+	}
+	if got := value(t, rows, "v1", score.MetricFactHolds); got != float64(held)/float64(all) {
+		t.Errorf("the suite's fact_holds %v, want %d of %d", got, held, all)
+	}
+	if got := value(t, rows, "v1", score.MetricFactRecall); got != float64(recalled)/float64(all) || recalled != held+1 {
+		t.Errorf("the suite's fact_recall %v, want %d of %d, one more than hold", got, recalled, all)
+	}
+	if !strings.Contains(printed, "\nv1.04: fact_recall 1.00, fact_holds 0.00, ") || !strings.Contains(printed, " found/authority") ||
+		!strings.Contains(printed, fmt.Sprintf("; facts that must hold: %d, holding: %d, found: 1\n", all, held)) {
+		t.Errorf("output:\n%s", printed)
 	}
 }
