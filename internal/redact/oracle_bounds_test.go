@@ -55,17 +55,20 @@ import (
 //   - floorValue's cut of a value at '@' or '/' in a URL's authority: it
 //     narrows what the floor takes, and the url_credentials rule takes the
 //     password before the floor.
-//   - quotedName's quotes, its length of 3 and its characters: brackets that
-//     open a quote close only after the same quote (closeBracket), exprLike
-//     refuses brackets with no letter or digit, and wordLike, which the
-//     quoted name must also pass, takes exactly its characters.
-//   - aliasName's memberSegment and length of 3: wordLike or a name of
-//     lower-case letters implies both, and the floor takes 8 characters or
-//     more.
+//   - quotedName's length of 3: brackets that open a quote close only after
+//     the same quote (closeBracket), and exprLike refuses brackets with no
+//     letter or digit. Its characters are a bound (index.quoted.chars): a
+//     widening that reads a mark as a separator of words crosses both its
+//     test of characters and wordLike's.
+//   - aliasName's length of 3: a name of lower-case letters is a word, and
+//     the floor takes 8 characters or more. Its characters are a bound
+//     (alias.name.chars), as quotedName's are.
 //   - memberPath's length of 4 for a short lower-case part: a part of 3 or
 //     more lower-case letters is a word for wordLike.
 //   - wordLike's characters: every caller also asks for memberSegment or the
-//     quoted name's characters.
+//     quoted name's characters, which are bounds (index.name.segment,
+//     index.path.segment, index.ivar.segment, index.quoted.chars and
+//     alias.name.chars) whose near cases hold marks of every kind.
 //   - memberSegment's first character, a letter or '_': wordLike, which
 //     every caller also asks for, refuses a digit before the first word.
 //   - keySeparator's test of a shell assignment, a key directly followed by
@@ -821,6 +824,32 @@ var oracleBounds = []oracleBound{
 		},
 	},
 	{
+		id: "index.quoted.chars", shape: "name_index",
+		what:    "an index by a quoted name holds letters, digits, '_', '-' and '.' only",
+		example: ex(`password: Tw9Gk3`+`Pz6Mr1["access:token"]`, "Tw9Gk3"+"Pz6Mr1"),
+		widen:   []edit{{"name := s[1 : len(s)-1]\n", "name := s[1 : len(s)-1]\n\tname = strings.ReplaceAll(name, \":\", \"_\")\n"}},
+		more: [][]edit{
+			// Any mark read as a separator of words.
+			{{"name := s[1 : len(s)-1]\n", "name := s[1 : len(s)-1]\n\tname = strings.Map(func(r rune) rune {\n\t\tif r < 128 && !isAlnum(byte(r)) {\n\t\t\treturn '_'\n\t\t}\n\t\treturn r\n\t}, name)\n"}},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			// Every mark but the quotes, those exprLike refuses and brackets,
+			// between two words, at the start or at the end.
+			q := nthOf([]string{`"`, `'`}, n)
+			marks := without(alnum + "-._\"'`;~#[]{}()")
+			c := nth(marks, n/2)
+			a, b := strings.ToLower(g.pick(gapWords)), strings.ToLower(g.pick(gapWords))
+			name := a + c + b
+			switch n / 2 / len(marks) % 3 {
+			case 1:
+				name = c + a + "_" + b
+			case 2:
+				name = a + "_" + b + c
+			}
+			return keyLine(g, nearSeps, "["+q+name+q+"]"), func() string { return nearToken(g) }
+		},
+	},
+	{
 		id: "index.quoted.quote", shape: "name_index",
 		what:    `an index by a quoted name opens and closes with the same quote, '"' or '''`,
 		example: ex("password: Mv6Rk2"+"Tz8Pq4[xTokenx]", "Mv6Rk2"+"Tz8Pq4"),
@@ -850,9 +879,20 @@ var oracleBounds = []oracleBound{
 			// The value rules read a name with a '-' as no code (codeHead).
 			codeNameDash,
 		},
+		more: [][]edit{
+			// A '$' in the name, as the value rules read one in code
+			// (codeName).
+			{{"!shell && memberSegment.MatchString(v) && wordLike(v, 2)", "!shell && memberSegment.MatchString(strings.ReplaceAll(v, \"$\", \"\")) && wordLike(strings.ReplaceAll(v, \"$\", \"\"), 2)"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
-				return strings.ToLower(g.pick(gapWords)) + "-" + g.pick(gapWords)
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				if n%2 == 0 {
+					return strings.ToLower(g.pick(gapWords)) + "-" + g.pick(gapWords)
+				}
+				// Any mark of farSegment but where it makes another shape: '?'
+				// and '!' end a member path, '@' and '$' start an instance
+				// variable.
+				return wordsOf(g) + nth(farSegment, n/2) + g.pick(gapWords)
 			}
 		},
 	},
@@ -1133,9 +1173,18 @@ var oracleBounds = []oracleBound{
 			{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && wordLike(name, 1)"},
 			codeNameDash,
 		},
+		more: [][]edit{
+			// A '$' in the name, as the value rules read one in code
+			// (codeName).
+			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(strings.ReplaceAll(name, \"$\", \"\")) && wordLike(strings.ReplaceAll(name, \"$\", \"\"), 1)"}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
-				return g.pick([]string{"@", "$", "@@"}) + strings.ToLower(g.pick(gapWords)) + "-" + strings.ToLower(g.pick(gapWords))
+			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				p := nthOf([]string{"@", "$", "@@"}, n/2)
+				if n%2 == 0 {
+					return p + strings.ToLower(g.pick(gapWords)) + "-" + strings.ToLower(g.pick(gapWords))
+				}
+				return p + strings.ToLower(g.pick(gapWords)) + nth(farSegment, n/2/3) + strings.ToLower(g.pick(gapWords))
 			}
 		},
 	},
@@ -1175,12 +1224,27 @@ var oracleBounds = []oracleBound{
 		what:    "a block follows a member path or an instance variable only",
 		example: ex("password: Xk9mP2"+"vLq7Rt { x }", "Xk9mP2"+"vLq7Rt"),
 		widen:   []edit{{`case path && strings.HasPrefix(strings.TrimLeft(rest, " \t"), "{"):`, `case strings.HasPrefix(strings.TrimLeft(rest, " \t"), "{"):`}},
+		more: [][]edit{
+			// A block after a name of words too.
+			{{`case path && strings.HasPrefix(strings.TrimLeft(rest, " \t"), "{"):`, `case (path || wordLike(v, 2)) && strings.HasPrefix(strings.TrimLeft(rest, " \t"), "{"):`}},
+		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{" { x }", " {", "  { |t| t }"}, n)), func() string {
-				if n%2 == 0 {
+			// Every value that is no member path or instance variable: a
+			// random token, a path of random names, a name of words, a name of
+			// lower-case words and one of a word and digits.
+			return keyLine(g, nearSeps, nthOf([]string{" { x }", " {", "  { |t| t }", "\t{ x }"}, n/5)), func() string {
+				switch n % 5 {
+				case 0:
 					return nearToken(g)
+				case 1:
+					return nearToken(g) + "." + nearToken(g)
+				case 2:
+					return wordsValue(g)
+				case 3:
+					return strings.ToLower(g.pick(gapWords)) + strings.ToLower(g.pick(gapWords))
 				}
-				return nearToken(g) + "." + nearToken(g)
+				w := g.pick(gapWords)
+				return w + g.chars(max(1, 8-len(w))+g.r.Intn(2), digits)
 			}
 		},
 	},
@@ -1220,6 +1284,36 @@ var oracleBounds = []oracleBound{
 					return c + strings.ToLower(g.pick(gapWords)) + strings.ToLower(g.pick(gapWords))
 				}
 				return c + wordsValue(g)
+			}
+		},
+	},
+	{
+		id: "alias.name.chars", shape: "yaml_alias",
+		what:    "an alias's name holds letters, digits, '_', '-' and '.' only",
+		example: ex("password: *maple:"+"Thunder", "*maple:"+"Thunder"),
+		widen: []edit{
+			{"func aliasName(name string) bool {\n", "func aliasName(name string) bool {\n\tname = strings.ReplaceAll(name, \":\", \"_\")\n"},
+			// The value rules read a reference's name as letters, digits, '_'
+			// and '.' (refHead).
+			{"refHead = regexp.MustCompile(`^[&*][A-Za-z_][A-Za-z0-9_.]*`)", "refHead = regexp.MustCompile(`^[&*][A-Za-z_][A-Za-z0-9_.:]*`)"},
+		},
+		more: [][]edit{
+			// Any mark read as a separator of words.
+			{
+				{"func aliasName(name string) bool {\n", "func aliasName(name string) bool {\n\tname = strings.Map(func(r rune) rune {\n\t\tif r < 128 && !isAlnum(byte(r)) {\n\t\t\treturn '_'\n\t\t}\n\t\treturn r\n\t}, name)\n"},
+				{"refHead = regexp.MustCompile(`^[&*][A-Za-z_][A-Za-z0-9_.]*`)", "refHead = regexp.MustCompile(`^[&*][A-Za-z_][^ \\t;,)\\]}]*`)"},
+			},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			// Every mark the baseline rules take in a value but '-', '.' and
+			// '_', between two words or at the end.
+			c := nth(without(alnum+"-._\"'`,;&<>(){}[]"), n)
+			return keyLine(g, []string{": ", ":", " := "}, ""), func() string {
+				a, b := strings.ToLower(g.pick(gapWords)), g.pick(gapWords)
+				if n%3 == 2 {
+					return "*" + a + b + c
+				}
+				return "*" + a + c + b
 			}
 		},
 	},
