@@ -330,6 +330,8 @@ func TestV1Condition(t *testing.T) {
 		"If BenchmarkBrief, in scripts/benchmark.py, passes 300 ms, switch to the streaming parser, CONDOR-8":                score.Holds,
 		"If BenchmarkBrief in scripts/benchmark.py passes a 300-ms limit, switch to the streaming parser, CONDOR-8":          score.Holds,
 		"Unless BenchmarkBrief in scripts/benchmark.py passes 300 ms, switch to the streaming parser, CONDOR-8":              score.CondDropped,
+		"If BenchmarkBrief in scripts/benchmark.py passes, switch to the streaming parser within 300 ms, CONDOR-8":           score.CondDropped,
+		"If BenchmarkBrief passes 300 ms, switch to the streaming parser in scripts/benchmark.py, CONDOR-8":                  score.CondDropped,
 	} {
 		p := threadpage.Page{Now: threadpage.Now{Decisions: []threadpage.Item{item(text, "stated", ref(sc, 0, 1))}}}
 		r := score.Score(sc, read(t, p))

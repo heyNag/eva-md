@@ -91,6 +91,17 @@ func TestHolds(t *testing.T) {
 		{"If BenchmarkBrief, in scripts/benchmark.py, passes 300 ms, switch", cond, true},
 		{"If the tests pass, deploy, and BenchmarkBrief in scripts/benchmark.py passes 300 ms", cond, false},
 		{"If within 300 ms, BenchmarkBrief in scripts/benchmark.py passes, switch", cond, true},
+		// A comma is crossed only into a part that holds nothing but the
+		// condition's own words and small words: a value or a path that
+		// has moved into the main clause qualifies it, not the condition.
+		{"If BenchmarkBrief in scripts/benchmark.py passes, switch to the streaming parser within 300 ms", cond, false},
+		{"If BenchmarkBrief passes 300 ms, switch to the streaming parser in scripts/benchmark.py", cond, false},
+		{"If BenchmarkBrief passes, deploy, and scripts/benchmark.py 300 ms, switch", cond, false},
+		// A part that holds nothing of the condition ends it, though the
+		// part before it did not.
+		{"If BenchmarkBrief passes, on 3 March 2026, in scripts/benchmark.py 300 ms, switch", cond, false},
+		// A marker inside the condition is its own word.
+		{"Ship when the tests pass, once the docs build", scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass, once the docs build"}, true},
 		{"Ship when the freeze ends on Mar. 3, 2026", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, true},
 		{"Ship when the tests pass; the docs build", scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass; the docs build"}, true},
 		{"Ship when the tests pass; then the docs build", scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass, the docs build"}, false},

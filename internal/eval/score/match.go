@@ -109,8 +109,8 @@ var (
 	stop        = []string{"a", "an", "the", "of", "in", "on", "at", "to", "for", "by", "with", "and", "or", "is", "are", "be"}
 	marker      = regexp.MustCompile(`\b(?:if|when|whenever|unless|once)\b`)
 	// clauseBreak ends a clause: a semicolon, or a full stop, a question or
-	// an exclamation mark before a space or the end. A comma ends one only
-	// where the part it closes holds nothing of the condition.
+	// an exclamation mark before a space or the end. Whether a comma ends
+	// one is holdsCond's to say.
 	clauseBreak = regexp.MustCompile(`;|[.!?](?:\s|$)`)
 )
 
@@ -150,6 +150,15 @@ func (c cond) touches(span string) bool {
 		slices.ContainsFunc(c.words, func(w string) bool { return slices.Contains(ws, w) })
 }
 
+// only reports whether masked, a span with its dates and quantities
+// blanked, holds no word but the condition's own words, markers and small
+// words.
+func (c cond) only(masked string) bool {
+	return !slices.ContainsFunc(words(masked), func(w string) bool {
+		return !slices.Contains(c.words, w) && !slices.Contains(condMarkers, w) && !slices.Contains(stop, w)
+	})
+}
+
 // heldBy reports whether span holds every quantity, date and word of c.
 func (c cond) heldBy(span string) bool {
 	qs, ds, ws := quantities(span), dates(span), words(span)
@@ -164,10 +173,14 @@ func (c cond) heldBy(span string) bool {
 // as their classes are, and each of its other words but its marker and its
 // small words. A quantity or a date never ends a clause, so the comma in
 // "March 3, 2026" does not; a condition with clause breaks of its own
-// spans as many more clauses. A comma ends the clause only where the part
-// it closes holds nothing of the condition, so "if BenchmarkBrief, in
-// scripts/benchmark.py, passes" is one clause, and "if the tests pass,
-// deploy, and BenchmarkBrief passes" ends at its first comma.
+// spans as many more clauses. A comma ends the clause unless the part it
+// closes holds something of the condition and the part it opens holds no
+// word but the condition's own, its markers and small words, with any
+// quantity or date. So "if BenchmarkBrief, in scripts/benchmark.py, passes"
+// and "if within 300 ms, BenchmarkBrief passes" are one clause each; "if the
+// tests pass, deploy, and BenchmarkBrief passes" ends at its first comma;
+// and "if BenchmarkBrief passes, switch within 300 ms" ends at its comma
+// too, since its threshold now qualifies the switch, not the condition.
 func (t text) holdsCond(s string) bool {
 	c := readCond(s)
 	if len(c.quant)+len(c.dates)+len(c.words) == 0 {
@@ -194,6 +207,13 @@ func (t text) holdsCond(s string) bool {
 				break
 			}
 			lo = hi + 1
+			next := end
+			if k := strings.IndexByte(masked[lo:end], ','); k >= 0 {
+				next = lo + k
+			}
+			if !c.only(masked[lo:next]) {
+				break
+			}
 		}
 	}
 	return false
