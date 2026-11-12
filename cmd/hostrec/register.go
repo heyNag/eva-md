@@ -272,12 +272,15 @@ func cmdTrust(c *cli, args []string) int {
 		return code
 	}
 	cwd, _ := os.Getwd()
-	counts, err := hooksList(cwd)
+	counts, diag, err := hooksList(cwd)
 	if err != nil {
 		_ = e.command("trust", map[string]any{"answered": false})
 		return c.fail("Codex's read-only hooks/list did not answer: %v", err)
 	}
-	_ = e.command("trust", map[string]any{"answered": true, "hooks": counts})
+	// The diagnostics are counted, never their text, which may name a
+	// path: a hook Codex failed to load or rejected, for a field it does
+	// not take, is missing from the hooks below.
+	_ = e.command("trust", map[string]any{"answered": true, "hooks": counts, "errors": diag.errors, "warnings": diag.warnings})
 	total, trusted := 0, 0
 	for _, h := range counts {
 		total += h.N
@@ -289,11 +292,20 @@ func cmdTrust(c *cli, args []string) int {
 	for _, h := range counts {
 		c.say("  %s %s: %d, %s, enabled %v", h.Plugin, h.Event, h.N, h.Trust, h.Enabled)
 	}
+	if diag.errors+diag.warnings > 0 {
+		c.say("Codex reported %s and %s while loading hooks: a scratch hook it rejected is not among those above. Tell the lead.",
+			plural(diag.errors, "error", "errors"), plural(diag.warnings, "warning", "warnings"))
+		return 1
+	}
 	if total == 0 || trusted != total {
 		return 1
 	}
 	return 0
 }
+
+// hookDiagnostics counts the errors and warnings hooks/list reports, at
+// its top and in each group, as internal/health reads them.
+type hookDiagnostics struct{ errors, warnings int }
 
 // hookCount is how many scratch hooks hooks/list gives for one plugin,
 // event, trust state and enabled state.
@@ -307,7 +319,7 @@ type hookCount struct {
 
 // hooksList asks Codex's app server for hooks/list, the read-only method
 // internal/health asks, and counts the scratch plugins' hooks.
-func hooksList(cwd string) ([]hookCount, error) {
+func hooksList(cwd string) ([]hookCount, hookDiagnostics, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), trustTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cliCodex, "--no-daemon", "app-server", "--stdio")
@@ -316,14 +328,14 @@ func hooksList(cwd string) ([]hookCount, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	in, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return nil, hookDiagnostics{}, err
 	}
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, hookDiagnostics{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, errors.New("codex did not start")
+		return nil, hookDiagnostics{}, errors.New("codex did not start")
 	}
 	defer func() { in.Close(); cancel(); _ = cmd.Wait() }()
 	type reply struct {
@@ -367,24 +379,28 @@ func hooksList(cwd string) ([]hookCount, error) {
 		}
 	}
 	if err := enc.Encode(map[string]any{"id": 1, "method": "initialize", "params": map[string]any{"clientInfo": map[string]string{"name": "hf_recorder", "version": "1"}, "capabilities": map[string]bool{"experimentalApi": true}}}); err != nil {
-		return nil, err
+		return nil, hookDiagnostics{}, err
 	}
 	if _, err := recv(1); err != nil {
-		return nil, err
+		return nil, hookDiagnostics{}, err
 	}
 	if err := enc.Encode(map[string]any{"method": "initialized", "params": map[string]any{}}); err != nil {
-		return nil, err
+		return nil, hookDiagnostics{}, err
 	}
 	if err := enc.Encode(map[string]any{"id": 2, "method": "hooks/list", "params": map[string]any{"cwds": []string{cwd}}}); err != nil {
-		return nil, err
+		return nil, hookDiagnostics{}, err
 	}
 	raw, err := recv(2)
 	if err != nil {
-		return nil, err
+		return nil, hookDiagnostics{}, err
 	}
 	var result struct {
-		Data []struct {
-			Hooks []struct {
+		Errors   []json.RawMessage `json:"errors"`
+		Warnings []json.RawMessage `json:"warnings"`
+		Data     []struct {
+			Errors   []json.RawMessage `json:"errors"`
+			Warnings []json.RawMessage `json:"warnings"`
+			Hooks    []struct {
 				EventName string `json:"eventName"`
 				PluginID  string `json:"pluginId"`
 				Enabled   bool   `json:"enabled"`
@@ -393,10 +409,13 @@ func hooksList(cwd string) ([]hookCount, error) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, errors.New("hooks/list's answer does not read")
+		return nil, hookDiagnostics{}, errors.New("hooks/list's answer does not read")
 	}
 	var counts []hookCount
+	diag := hookDiagnostics{len(result.Errors), len(result.Warnings)}
 	for _, g := range result.Data {
+		diag.errors += len(g.Errors)
+		diag.warnings += len(g.Warnings)
 		for _, h := range g.Hooks {
 			plugin, market, _ := strings.Cut(h.PluginID, "@")
 			if market != marketplace {
@@ -411,5 +430,5 @@ func hooksList(cwd string) ([]hookCount, error) {
 			}
 		}
 	}
-	return counts, nil
+	return counts, diag, nil
 }

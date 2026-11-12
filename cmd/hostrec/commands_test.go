@@ -242,6 +242,18 @@ func TestTrust(t *testing.T) {
 	if !strings.Contains(h.recFiles(t)[hostfacts.OutputsFile], `"command":"trust"`) {
 		t.Error("trust's outcome is not recorded")
 	}
+	// Trusted hooks with a warning beside them: a hook Codex rejected is
+	// counted and fails trust, and the warning's text is kept nowhere.
+	t.Setenv("HOSTREC_FAKE_TRUST", "trusted")
+	t.Setenv("HOSTREC_FAKE_DIAG", "1")
+	code, out, _ := h.run(t, "", "trust")
+	if code == 0 || !strings.Contains(out, "0 errors and 1 warning") {
+		t.Errorf("a hooks/list warning: %d\n%s", code, out)
+	}
+	outputs := h.recFiles(t)[hostfacts.OutputsFile]
+	if !strings.Contains(outputs, `"warnings":1`) || strings.Contains(outputs+out, "made-up warning") {
+		t.Errorf("the warning's count, not its text: %s", outputs)
+	}
 }
 
 // pack writes the archive and its checksum without the private folder, and

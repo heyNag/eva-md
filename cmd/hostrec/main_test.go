@@ -77,7 +77,7 @@ func newHome(t *testing.T) *testHome {
 	t.Setenv("PATH", h.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOSTREC_FAKE_LOG", h.log)
 	t.Setenv("HOSTREC_FAKE_STATE", filepath.Join(root, "fake-state"))
-	for _, v := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "HOSTREC_FAKE_FAIL_JSON", "HOSTREC_FAKE_ASK", "HOSTREC_FAKE_TRUST"} {
+	for _, v := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "HOSTREC_FAKE_FAIL_JSON", "HOSTREC_FAKE_ASK", "HOSTREC_FAKE_TRUST", "HOSTREC_FAKE_DIAG"} {
 		t.Setenv(v, "")
 		os.Unsetenv(v)
 	}
@@ -267,7 +267,12 @@ func fakeAppServer() int {
 				hooks = append(hooks, map[string]any{"eventName": ev, "pluginId": "hf-hooks@hf-scratch", "enabled": true, "trustStatus": trust})
 			}
 			hooks = append(hooks, map[string]any{"eventName": "stop", "pluginId": "eva-md@eva-md", "enabled": true, "trustStatus": "untrusted"})
-			result = map[string]any{"data": []any{map[string]any{"hooks": hooks}}}
+			group := map[string]any{"hooks": hooks}
+			if os.Getenv("HOSTREC_FAKE_DIAG") != "" {
+				// A hook Codex rejected, with text that names a made-up path.
+				group["warnings"] = []any{map[string]any{"message": "made-up warning about /made/up/hooks.json"}}
+			}
+			result = map[string]any{"data": []any{group}}
 		}
 		out, _ := json.Marshal(map[string]any{"id": req.ID, "result": result})
 		fmt.Println(string(out))
