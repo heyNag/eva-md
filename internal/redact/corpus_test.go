@@ -273,12 +273,13 @@ var genCounts = map[string]int{
 	"gen_oracle_gap_name_index":      1000,
 	"gen_oracle_gap_type_annotation": 1000,
 	// Secrets just outside each of those shapes, held to the baseline (see
-	// oracleNearShapes), shared among the bounds of each shape in turn: the
-	// shapes of more bounds have more, so each bound has some 200 at least.
+	// oracleNearShapes), shared among the bounds of each shape in turn, each
+	// by its weight: the shapes of more bounds have more, so each bound has
+	// some 200 at least, and one whose far side is a vocabulary more still.
 	"gen_oracle_near_regex_value":     4000,
-	"gen_oracle_near_yaml_alias":      4000,
-	"gen_oracle_near_name_index":      10000,
-	"gen_oracle_near_type_annotation": 6000,
+	"gen_oracle_near_yaml_alias":      4500,
+	"gen_oracle_near_name_index":      13500,
+	"gen_oracle_near_type_annotation": 8000,
 }
 
 func genCount(class string) int {
@@ -599,21 +600,31 @@ func generatedCases() []corpusCase {
 	for k, shape := range []string{"regex_value", "yaml_alias", "name_index", "type_annotation"} {
 		g = newGen(int64(1209 + k))
 		class := "gen_oracle_near_" + shape
-		bounds := boundsOf(shape)
+		// Each bound takes its weight of turns in each round.
+		var turns []oracleBound
+		for _, b := range boundsOf(shape) {
+			for k := max(1, b.weight); k > 0; k-- {
+				turns = append(turns, b)
+			}
+		}
+		drawn := map[string]int{}
 		for i := 0; i < genCount(class); i++ {
-			b := bounds[i%len(bounds)]
-			line, value := b.near(g, i/len(bounds))
+			b := turns[i%len(turns)]
+			line, value := b.near(g, drawn[b.id])
+			drawn[b.id]++
 			add(class, b.id, line, value)
 		}
 	}
 	return all
 }
 
-// nearToken makes a random token of 10 to 40 letters and digits that starts
+// nearToken makes a random token of 10 to 39 letters and digits that starts
 // with a letter and reads as no name of words, as a generated password does.
+// It is shorter than 40, the length of an AWS secret access key, whose rule
+// takes 40 characters after its key alone and leaves the rest of a value.
 func nearToken(g *gen) string {
 	for {
-		s := g.chars(1, alnum[:52]) + g.mixed(9+g.r.Intn(31))
+		s := g.chars(1, alnum[:52]) + g.mixed(9+g.r.Intn(30))
 		if !wordLike(s, 1) {
 			return s
 		}

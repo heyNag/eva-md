@@ -34,13 +34,19 @@ import (
 // operators, the generator draws each in turn from the printable marks that
 // can stand there, at the start, inside or at the end of a name where that
 // matters, and for the operators of a type from many operators of more than
-// one character too, but each with a few continuations and values only; for
-// some bounds it draws from a short list of the shapes code takes, as for
-// the brackets of an index; where it is a length or a count, it draws the
-// lengths and counts just past the bound and some beyond, and random names
-// run to 40 characters. A widening that admits a member only in a context
-// no near case stands in, as after a continuation the generator does not
-// write, keeps nothing the oracle judges, and TestOracle takes it.
+// one character too, each with a blank on both sides, on one side and on
+// neither (spaced), but each with a few continuations and values only; where
+// it is a set of names, as a variable's prefix, a scope after '$' or a
+// reference's scheme, it draws each word of codeWords in turn and random
+// names besides; for some bounds it draws from a short list of the shapes
+// code takes, as for the brackets of an index; where it is a length or a
+// count, it draws the lengths and counts just past the bound and some
+// beyond, and random names run to 40 characters. A widening that admits a
+// member only in a context no near case stands in, as after a continuation
+// the generator does not write, or a name on no list and drawn by no random
+// name, keeps nothing the oracle judges, and TestOracle takes it. A name
+// that shares 6 characters with a key or a marker, as secrets does, stands
+// in no case (checkCase), so a widening to it is not seen.
 //
 // TestOracleBoundsHaveNearCases fails when a bound has no near case, labelled
 // or generated, or a near case names no bound. Each bound also says how to
@@ -70,8 +76,17 @@ import (
 //     quoted name's characters, which are bounds (index.name.segment,
 //     index.path.segment, index.ivar.segment, index.quoted.chars and
 //     alias.name.chars) whose near cases hold marks of every kind.
-//   - memberSegment's first character, a letter or '_': wordLike, which
-//     every caller also asks for, refuses a digit before the first word.
+//   - memberSegment's first character, a letter or '_', for a name of words
+//     before an index, an instance variable and an alias: wordLike, which
+//     each of them also asks for, refuses a digit before the first word, and
+//     the value rules read no name that starts with a digit as code
+//     (codeName, refHead). For a member path it is a bound
+//     (index.path.part.digits), since a widening may skip such a name
+//     before either test, and so is a quoted name's (index.quoted.words).
+//     For the three others, a widening that skips the digits before the
+//     first word, in the value rules too, is listed as a widening of the
+//     bound of their characters (index.name.segment, index.ivar.segment,
+//     alias.name.chars), whose near cases have such digits.
 //   - keySeparator's test of a shell assignment, a key directly followed by
 //     a single '=': each exception it refuses (type.shell, index.name.shell,
 //     regex.shell) has near cases of KEY= and export KEY=, so a change that
@@ -124,6 +139,10 @@ type oracleBound struct {
 	// near draws the n-th generated near case of the bound: its line, with
 	// %s where the value goes, and what makes the value.
 	near func(g *gen, n int) (line string, value func() string)
+	// weight is how many turns the bound takes in each round of its near
+	// class's generator, 1 if 0: a far side of names from a vocabulary takes
+	// more.
+	weight int
 }
 
 // The separators and line shapes of the near classes. After a spaced "==",
@@ -155,7 +174,7 @@ func nth(set string, n int) string {
 }
 
 // nthOf is the n-th of from, round and round.
-func nthOf(from []string, n int) string { return from[n%len(from)] }
+func nthOf[T any](from []T, n int) T { return from[n%len(from)] }
 
 // without returns the printable ASCII characters but a space that are not
 // in set.
@@ -240,7 +259,80 @@ var (
 	// value at its '>' or '['.
 	variableBases = []string{"self", "config", "os.environ", "process.env", "cfg", "this", "env", "ENV", "settings", "conf", "Self", "SELF", "Config", "os", "process", "opts", "ctx"}
 	variableJoins = []string{".", "?.", "!.", "::", "?", ":", "/", "_", "-", "..", ".$", "@", "|", "^", "~", "%", "+", "*", "=", "#"}
+	// codeWords are words that code and configuration name a scope, a store
+	// or a source of values with, as a variable's prefix (props., vars.), a
+	// reference's scheme (vault://) or a scope after '$' ($env:). Where a far
+	// side is a set of such names, the generator draws each of these in turn
+	// and random lower-case names besides: a widening to a name on neither
+	// is not seen. None is a variable's base of variableRef.
+	codeWords = []string{"env", "ENV", "Env", "environ", "environment", "vars", "var", "inputs", "input", "params", "param", "props", "vault", "Vault", "settings", "Settings", "conf", "opts", "options", "args", "argv", "arg", "context", "state", "store", "data", "app", "App", "Rails", "meta", "global", "globals", "local", "locals", "script", "sys", "system", "Self", "window", "document", "req", "request", "res", "response", "session", "user", "values", "Values", "Chart", "Release", "matrix", "steps", "needs", "job", "runner", "keys", "key", "creds", "auth", "pkg", "main", "ns", "module", "mod", "lib", "util", "utils", "provider", "aws", "gcp", "azure", "kube", "k8s", "db", "redis", "kv", "consul", "sops", "ssm", "file", "path", "url", "host", "site", "page", "form", "model", "item", "obj", "record", "row", "node", "server", "api", "web", "prod", "dev", "test", "stage", "tf", "terraform", "pillar", "helm", "import", "export", "use", "my", "our", "public", "static", "let", "def", "new", "get", "set", "fetch", "load", "lookup", "from", "to", "of", "in", "at", "as", "bw", "pass", "gpg", "age", "kms", "sm", "gsm", "akv", "keychain", "keyring", "doppler", "infisical", "chamber", "parameter", "dotenv", "ini", "yaml", "json", "toml", "OP", "Op"}
+	// dottedBases are prefixes of more than one name that code reads values
+	// from, none of them a variable's.
+	dottedBases = []string{"import.meta.env", "Rails.application.config", "process.argv", "os.getenv", "sys.argv", "this.props", "this.state", "self.config", "app.config", "ctx.vault", "gh.event", "context.vars"}
 )
+
+var (
+	// What may join a scope or a name to the name after it, after '$': each
+	// mark that is no part of a variable's name and runs of two. One at which
+	// the baseline rules end a value is left out.
+	variableScopeJoins = append(strings.Split(farVariable, ""), "::", ":::", "..", ":.", ".:", "-:", "::$", ":$", ".$", "/:", "\\\\", "//", "#:", "!:", "?:", "~:", "@:", "%:")
+	// The marks a name between two of them stands in: each mark that may
+	// start a value, around it, and pairs of them. A '=' is left out: at the
+	// start of a value it is read as part of the separator.
+	variableWraps = func() [][2]string {
+		var w [][2]string
+		for _, c := range "%$@!^~-+:?.*|#/\\" {
+			w = append(w, [2]string{string(c), string(c)})
+		}
+		return append(w, [][2]string{{"$", "%"}, {"%", "$"}, {"$%", "%"}, {"%%", "%%"}, {"$$", "$$"}, {"@@", "@@"}, {"$:", ":"}, {"$!", "!"}, {"$#", "#"}, {"!", "?"}}...)
+	}()
+)
+
+// spaced puts op between what comes before and after it, by k in turn with
+// a blank on both sides, before it only, after it only and on neither; a
+// side where op has a letter or a digit always has one, which would
+// otherwise join op to the name beside it, and so does the side before a
+// '(', which would otherwise make a call that the baseline rules leave
+// alone.
+func spaced(op string, k int) string {
+	before, after := k%4 < 2, k%4 == 0 || k%4 == 2
+	if isAlnum(op[0]) || op[0] == '(' {
+		before = true
+	}
+	if isAlnum(op[len(op)-1]) {
+		after = true
+	}
+	s := op
+	if before {
+		s = " " + s
+	}
+	if after {
+		s += " "
+	}
+	return s
+}
+
+// lowerName makes a random name of 2 to 10 lower-case letters.
+func lowerName(g *gen) string {
+	return g.chars(2+g.r.Intn(9), "abcdefghijklmnopqrstuvwxyz")
+}
+
+// codeWord draws the n-th name of a far side of names: each of codeWords in
+// turn, and every third time a random lower-case name.
+func codeWord(g *gen, n int) string {
+	if n%3 == 2 {
+		return lowerName(g)
+	}
+	return nthOf(codeWords, n-n/3)
+}
+
+// shortPart makes a random part, as randomPart does, that leaves a value
+// that starts with prefix shorter than 20 characters, which the entropy
+// rule leaves to the floor, and of 8 at least, which the floor takes; it is
+// 3 characters at least.
+func shortPart(g *gen, prefix string) string {
+	return randomPart(g, max(3, min(12, 19-len(prefix)-g.r.Intn(3))))
+}
 
 // farVariablePrefixOf draws the n-th prefix that makes no variable: by turns,
 // one of farVariablePrefix or a base of variableBases with '.' that is no
@@ -400,8 +492,43 @@ var oracleBounds = []oracleBound{
 			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:\$[A-Za-z_][A-Za-z0-9_]*!?|`}},
 			// A '?' or '!' after a name after a prefix.
 			{{`(?:os\.environ|process\.env|self|config)\.[A-Za-z_][A-Za-z0-9_]*`, `(?:os\.environ|process\.env|self|config)\.[A-Za-z_][A-Za-z0-9_]*[?!]?`}},
+			// A reviewer's: PowerShell's $env:NAME.
+			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|`}},
+			// A reviewer's: Windows' %NAME%.
+			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:%[A-Za-z_][A-Za-z0-9_]*%|\$[A-Za-z_][A-Za-z0-9_]*|`}},
+			// A reviewer's: Perl's $Pkg::name.
+			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:\$[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*|`}},
+			// Make's $(NAME) has a '(', at which the baseline rules end a
+			// value; a name between '@', as in a template's @NAME@.
+			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:@[A-Za-z_][A-Za-z0-9_]*@|\$[A-Za-z_][A-Za-z0-9_]*|`}},
 		},
+		weight: 8,
 		near: func(g *gen, n int) (string, func() string) {
+			k := n / 4
+			switch n % 4 {
+			case 1:
+				// A scope after '$', joined to the name by ':' or "::" as a
+				// language joins one ($env:X, $Pkg::x): each of codeWords with
+				// each join in turn.
+				return keyLine(g, nearSeps, ""), func() string {
+					p := "$" + nthOf(codeWords, k) + nthOf([]string{":", "::"}, k/len(codeWords))
+					return p + shortPart(g, p)
+				}
+			case 2:
+				// A random name after '$' joined to a name by each mark or run
+				// of marks in turn ($a::b, $a/b).
+				return keyLine(g, nearSeps, ""), func() string {
+					p := "$" + randomPart(g, 3+g.r.Intn(5)) + nthOf(variableScopeJoins, k)
+					return p + shortPart(g, p)
+				}
+			case 3:
+				// A name between two marks (%X%, @X@), each pair in turn.
+				return keyLine(g, nearSeps, ""), func() string {
+					w := nthOf(variableWraps, k)
+					return w[0] + shortPart(g, w[0]+w[1]) + w[1]
+				}
+			}
+			n = k
 			// Names of fewer than 20 characters, which the entropy rule leaves
 			// to the floor.
 			prefixes := []string{"$", "self.", "config.", "os.environ.", "process.env."}
@@ -439,9 +566,38 @@ var oracleBounds = []oracleBound{
 			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config)\??\.`}},
 			// A name joined by "::".
 			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config)(?:\.|::)`}},
+			// A reviewer's: React's props.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|props)\.`}},
+			// A reviewer's: a template's vars., inputs. and params.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|vars|inputs|params)\.`}},
+			// A reviewer's: vault.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|vault)\.`}},
+			// A prefix of more than one name, as Vite's import.meta.env.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|import\.meta\.env|self|config)\.`}},
+			// Any lower-case name, as a prefix.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|[a-z]+)\.`}},
 		},
+		weight: 6,
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, ""), func() string { return farVariablePrefixOf(n) + nearToken(g) }
+			k := n / 3
+			bases := append(append([]string{}, codeWords...), dottedBases...)
+			return keyLine(g, nearSeps, ""), func() string {
+				var p string
+				switch n % 3 {
+				case 0:
+					// A variable's base with a join that is no '.', or a base
+					// that is no variable's.
+					p = farVariablePrefixOf(k)
+				case 1:
+					// Each name of codeWords and dottedBases in turn, joined by
+					// '.' twice and then by each other join.
+					p = nthOf(bases, k) + nthOf(variableJoins, k/len(bases)/2)
+				default:
+					// A random lower-case name, with each join in turn.
+					p = lowerName(g) + nthOf(variableJoins, k)
+				}
+				return p + shortPart(g, p)
+			}
 		},
 	},
 	{
@@ -449,9 +605,31 @@ var oracleBounds = []oracleBound{
 		what:    "a 1Password reference, which the floor leaves alone as the baseline rules do, starts with op:// exactly",
 		example: ex("password: op:Xk9m"+"P2vLq7Rt", "op:Xk9m"+"P2vLq7Rt"),
 		widen:   []edit{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op:") }`}},
+		more: [][]edit{
+			// A reviewer's: another store's references, as vault://.
+			{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op://") || strings.HasPrefix(v, "vault://") }`}},
+			// Any scheme of lower-case letters.
+			{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op://") || regexp.MustCompile("^[a-z]+://").MatchString(v) }`}},
+		},
+		weight: 4,
 		near: func(g *gen, n int) (string, func() string) {
+			k := n / 3
 			return keyLine(g, nearSeps, ""), func() string {
-				return nthOf([]string{"op:", "op:/", "op//", "OP://", "Op://", "op.//", "op_"}, n) + nearToken(g)
+				switch n % 3 {
+				case 1:
+					// Each name of codeWords in turn as a scheme.
+					p := nthOf(codeWords, k) + "://"
+					return p + shortPart(g, p)
+				case 2:
+					// A random scheme.
+					name := lowerName(g)
+					for name == "op" {
+						name = lowerName(g)
+					}
+					p := name + nthOf([]string{"://", "://", ":/", ":"}, k)
+					return p + shortPart(g, p)
+				}
+				return nthOf([]string{"op:", "op:/", "op//", "OP://", "Op://", "op.//", "op_"}, k) + nearToken(g)
 			}
 		},
 	},
@@ -530,8 +708,9 @@ var oracleBounds = []oracleBound{
 			// An arrow.
 			{{`(?:[ \t]+=[ \t]+|$)`, `(?:[ \t]+(?:=|=>|->)[ \t]+|$)`}},
 		},
+		weight: 3,
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, " "+nthOf(farAssignOps, n)+" "+g.pick([]string{"1", "None", "x"})), func() string { return nearToken(g) }
+			return keyLine(g, nearSeps, spaced(nthOf(farAssignOps, n), n/len(farAssignOps))+g.pick([]string{"1", "None", "x"})), func() string { return nearToken(g) }
 		},
 	},
 	{
@@ -586,9 +765,14 @@ var oracleBounds = []oracleBound{
 			{{`((?:[ \t]+\|[ \t]+`, `((?:[ \t]+\|>?[ \t]+`}},
 			// A '+'.
 			{{`((?:[ \t]+\|[ \t]+`, `((?:[ \t]+[|+][ \t]+`}},
+			// A reviewer's: an unspaced ',' between members.
+			{{"`((?:[ \\t]+\\|[ \\t]+` + typeName + `)*)", "`((?:(?:[ \\t]+\\||,)[ \\t]+` + typeName + `)*)"}},
+			// A '&' with or without blanks.
+			{{"`((?:[ \\t]+\\|[ \\t]+` + typeName + `)*)", "`((?:(?:[ \\t]+\\|[ \\t]+|[ \\t]*&[ \\t]*)` + typeName + `)*)"}},
 		},
+		weight: 3,
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, " "+nthOf(farUnionOps, n)+" "+g.pick([]string{"None", "str", "int"})), func() string { return nearToken(g) }
+			return keyLine(g, nearSeps, spaced(nthOf(farUnionOps, n), n/len(farUnionOps))+g.pick([]string{"None", "str", "int"})), func() string { return nearToken(g) }
 		},
 	},
 	{
@@ -883,10 +1067,17 @@ var oracleBounds = []oracleBound{
 		more: [][]edit{
 			// A name that holds a separator of words, as a name of words does.
 			{{`== "" && wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1)`, `== "" && (wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1) || strings.ContainsAny(name, "_-."))`}},
+			// A reviewer's: a name of digits.
+			{{`&& wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1)`, `&& (allDigits(name) || wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1))`}},
+			// A name that starts with a digit.
+			{{`&& wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1)`, `&& (name[0] >= '0' && name[0] <= '9' || wordLike(strings.NewReplacer("-", "_", ".", "_").Replace(name), 1))`}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			q := nthOf([]string{`"`, `'`}, n)
-			inside := nthOf([]string{randomPart(g, 6), "ab", "x9", randomPart(g, 4), separated(g, 6+g.r.Intn(8), "_-."), "a_b", "x-9"}, n/2)
+			// Random names, short names, names with separators of words,
+			// names of digits and names that start with a digit.
+			inside := nthOf([]string{randomPart(g, 6), "ab", "x9", randomPart(g, 4), separated(g, 6+g.r.Intn(8), "_-."), "a_b", "x-9",
+				g.chars(1+g.r.Intn(8), digits), g.chars(1, digits) + randomPart(g, 3+g.r.Intn(6)), g.chars(1+g.r.Intn(3), digits) + strings.ToLower(g.pick(gapWords)), g.chars(1+g.r.Intn(4), digits) + "_" + strings.ToLower(g.pick(gapWords))}, n/2)
 			return keyLine(g, nearSeps, "["+q+inside+q+"]"), func() string { return nearToken(g) }
 		},
 	},
@@ -963,9 +1154,18 @@ var oracleBounds = []oracleBound{
 			{{"!shell && memberSegment.MatchString(v) && wordLike(v, 2)", "!shell && memberSegment.MatchString(strings.ReplaceAll(v, \"$\", \"\")) && wordLike(strings.ReplaceAll(v, \"$\", \"\"), 2)"}},
 			// A '?' or '!' at the end of the name, as a member path may have.
 			{{"!shell && memberSegment.MatchString(v) && wordLike(v, 2)", "!shell && memberSegment.MatchString(strings.TrimRight(v, \"?!\")) && wordLike(strings.TrimRight(v, \"?!\"), 2)"}},
+			// Digits before the first word, in the value rules too (codeName).
+			{
+				{"!shell && memberSegment.MatchString(v) && wordLike(v, 2)", "!shell && memberSegment.MatchString(strings.TrimLeft(v, \"0123456789\")) && wordLike(strings.TrimLeft(v, \"0123456789\"), 2)"},
+				{"const codeName = `(?:[A-Za-z_$][A-Za-z0-9_$]*|", "const codeName = `(?:[A-Za-z0-9_$][A-Za-z0-9_$]*|"},
+			},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
+				if n%4 == 2 {
+					// Digits before a name of words.
+					return g.chars(1+g.r.Intn(4), digits) + wordsOf(g)
+				}
 				if n%2 == 0 {
 					return strings.ToLower(g.pick(gapWords)) + "-" + g.pick(gapWords)
 				}
@@ -1225,6 +1425,37 @@ var oracleBounds = []oracleBound{
 		},
 	},
 	{
+		id: "index.path.part.digits", shape: "name_index",
+		what: "each name of a member path starts with a letter or '_' (memberSegment, and wordLike after it): a name of digits, or one that starts with a digit, makes no path",
+		// The value rules read no name that starts with a digit as code
+		// (codeName), so each widening changes them too.
+		example: ex("password: harbor.8473"+"1925[0]", "harbor.8473"+"1925"),
+		widen: []edit{
+			{"const codeName = `(?:[A-Za-z_$][A-Za-z0-9_$]*|", "const codeName = `(?:[A-Za-z_$][A-Za-z0-9_$]*|[0-9]+|"},
+			{"for _, p := range parts {\n\t\tif !memberSegment.MatchString(p)", "for _, p := range parts {\n\t\tif allDigits(p) {\n\t\t\tcontinue\n\t\t}\n\t\tif !memberSegment.MatchString(p)"},
+		},
+		more: [][]edit{
+			// A name that starts with a digit.
+			{
+				{"const codeName = `(?:[A-Za-z_$][A-Za-z0-9_$]*|", "const codeName = `(?:[A-Za-z0-9_$][A-Za-z0-9_$]*|"},
+				{"for _, p := range parts {\n\t\tif !memberSegment.MatchString(p)", "for _, p := range parts {\n\t\tif p[0] >= '0' && p[0] <= '9' {\n\t\t\tcontinue\n\t\t}\n\t\tif !memberSegment.MatchString(p)"},
+			},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			return keyLine(g, nearSeps, nthOf(indexTails, n/4)), func() string {
+				switch n % 4 {
+				case 0:
+					return g.pick(gapWords) + "." + g.chars(3+g.r.Intn(6), digits)
+				case 1:
+					return strings.ToLower(g.pick(gapWords)) + "." + g.chars(1+g.r.Intn(4), digits) + "." + g.pick(gapWords)
+				case 2:
+					return g.pick(gapWords) + "." + g.chars(1, digits) + randomPart(g, 3+g.r.Intn(6))
+				}
+				return g.chars(1+g.r.Intn(6), digits) + "." + wordsOf(g)
+			}
+		},
+	},
+	{
 		id: "index.ivar.prefix", shape: "name_index",
 		what:    "an instance variable has one or two of '@' or '$' before its name",
 		example: ex("password: $$$silver"+"Window[i]", "$$$silver"+"Window"),
@@ -1280,10 +1511,19 @@ var oracleBounds = []oracleBound{
 			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(strings.ReplaceAll(name, \"$\", \"\")) && wordLike(strings.ReplaceAll(name, \"$\", \"\"), 1)"}},
 			// A '?' or '!' at the end of the name, as a member path may have.
 			{{`name := strings.TrimLeft(v, "@$")`, `name := strings.TrimRight(strings.TrimLeft(v, "@$"), "?!")`}},
+			// Digits before the first word, in the value rules too (codeName).
+			{
+				{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(strings.TrimLeft(name, \"0123456789\")) && wordLike(strings.TrimLeft(name, \"0123456789\"), 1)"},
+				{"const codeName = `(?:[A-Za-z_$][A-Za-z0-9_$]*|", "const codeName = `(?:[A-Za-z0-9_$][A-Za-z0-9_$]*|"},
+			},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
 				p := nthOf([]string{"@", "$", "@@"}, n/2)
+				if n%4 == 2 {
+					// Digits before a name of words.
+					return p + g.chars(1+g.r.Intn(4), digits) + strings.ToLower(g.pick(gapWords)) + g.pick([]string{"", "_"}) + strings.ToLower(g.pick(gapWords))
+				}
 				if n%2 == 0 {
 					return p + strings.ToLower(g.pick(gapWords)) + "-" + strings.ToLower(g.pick(gapWords))
 				}
@@ -1415,8 +1655,20 @@ var oracleBounds = []oracleBound{
 				{"func aliasName(name string) bool {\n", "func aliasName(name string) bool {\n\tname = strings.Map(func(r rune) rune {\n\t\tif r < 128 && !isAlnum(byte(r)) {\n\t\t\treturn '_'\n\t\t}\n\t\treturn r\n\t}, name)\n"},
 				{"refHead = regexp.MustCompile(`^[&*][A-Za-z_][A-Za-z0-9_.]*`)", "refHead = regexp.MustCompile(`^[&*][A-Za-z_][^ \\t;,)\\]}]*`)"},
 			},
+			// Digits before the first word, in the value rules too (refHead).
+			{
+				{"func aliasName(name string) bool {\n", "func aliasName(name string) bool {\n\tname = strings.TrimLeft(name, \"0123456789\")\n"},
+				{"refHead = regexp.MustCompile(`^[&*][A-Za-z_][A-Za-z0-9_.]*`)", "refHead = regexp.MustCompile(`^[&*][A-Za-z0-9_][A-Za-z0-9_.]*`)"},
+			},
 		},
 		near: func(g *gen, n int) (string, func() string) {
+			if n%4 == 3 {
+				// Digits before a name of words.
+				return keyLine(g, []string{": ", ":", " := "}, ""), func() string {
+					return "*" + g.chars(1+g.r.Intn(4), digits) + strings.ToLower(g.pick(gapWords)) + g.pick(gapWords)
+				}
+			}
+			n = n/4*3 + n%4
 			// Every mark the baseline rules take in a value but '-', '.' and
 			// '_', between two words or at the end.
 			c := nth(without(alnum+"-._\"'`,;&<>(){}[]"), n)
@@ -1511,6 +1763,46 @@ var oracleBounds = []oracleBound{
 	},
 
 	// plainCode: a regular expression literal.
+	{
+		id: "regex.start", shape: "regex_value",
+		what: "a regular expression literal starts with '/': no letter or mark before it, as Perl's qr/ or m/ or Ruby's %r/, makes one",
+		// Shorter than 20 characters, which the entropy rule would take after
+		// api_key whatever the floor does.
+		example: ex("api_key = qr/Fz6Qe3"+"+Nb8vL/i", "qr/Fz6Qe3"+"+Nb8vL/i"),
+		// The value rules read only a '/' as the start of a literal
+		// (regexHead), so each widening changes them too.
+		widen: []edit{
+			{"regexHead = regexp.MustCompile(`^/(?:", "regexHead = regexp.MustCompile(`^(?:qr)?/(?:"},
+			{"case v[0] == '/':\n\t\treturn !shell && regexLiteral(v) &&", "case v[0] == '/' || strings.HasPrefix(v, \"qr/\"):\n\t\treturn !shell && regexLiteral(v) &&"},
+		},
+		more: [][]edit{
+			// Perl's m/ and Ruby's %r/.
+			{
+				{"regexHead = regexp.MustCompile(`^/(?:", "regexHead = regexp.MustCompile(`^(?:m|%r)?/(?:"},
+				{"case v[0] == '/':\n\t\treturn !shell && regexLiteral(v) &&", "case v[0] == '/' || strings.HasPrefix(v, \"m/\") || strings.HasPrefix(v, \"%r/\"):\n\t\treturn !shell && regexLiteral(v) &&"},
+			},
+			// Any one to three letters or one mark.
+			{
+				{"regexHead = regexp.MustCompile(`^/(?:", "regexHead = regexp.MustCompile(`^(?:[A-Za-z]{1,3}|[^A-Za-z0-9/\\s])?/(?:"},
+				{"case v[0] == '/':\n\t\treturn !shell && regexLiteral(v) &&", "case regexHead.MatchString(v):\n\t\treturn !shell && regexLiteral(v) &&"},
+			},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			// Letters of Perl's, Ruby's and other languages' literals, random
+			// letters, and each mark that may start a value but '/', '*' (an
+			// alias), '$' and '@' (a variable), '=' (read as part of the
+			// separator) and those the baseline rules end a value at.
+			k := n / 2
+			p := nthOf([]string{"qr", "m", "%r", "r", "s", "x", "re", "rx", "tr", "y", "qw", "q", "R", "#r", "RE", "Regex", "regex", "new", "pat"}, k)
+			if n%2 == 1 {
+				p = g.chars(1+g.r.Intn(3), alnum[:52])
+				if k%2 == 1 {
+					p = nth(without(alnum+"/*$@=\"'`,;&<>(){}[]"), k/2)
+				}
+			}
+			return keyLine(g, nearSeps, ""), func() string { return p + nearRegex(g, true, g.pick(gapFlags)) }
+		},
+	},
 	{
 		id: "regex.shell", shape: "regex_value",
 		what:    "a regular expression literal is never read in a shell assignment",

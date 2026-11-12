@@ -115,10 +115,18 @@ The oracle holds the bounds that `oracleBounds` lists, against the
 widenings it names and others like them, on the near cases it draws. A far
 side is sampled, not exhausted: where it is a set of characters or
 operators, the generator draws each mark that can stand there in turn, at
-the start, inside or at the end of a name where that matters, but with a
-few continuations and values only, and each bound has 200 generated near
-cases at least (`TestOracleBoundsHaveNearCases` checks the count, so a
-shape that gains bounds needs a larger count in `genCounts`). A widening of
+the start, inside or at the end of a name where that matters, and an
+operator of a type with a blank on both sides, on one side and on neither,
+but with a few continuations and values only. Where it is a set of names,
+as a variable's prefix, a scope after `$` or a reference's scheme, it draws
+each word of a vocabulary of the names code and configuration give scopes
+and stores (`codeWords`) in turn, and random names besides: a widening to a
+name on neither, or to a name that shares 6 characters with a key or a
+marker, such as `secrets`, which no case can hold (see "Marks in a case's
+text"), is not seen. Each bound has 200 generated near cases at least
+(`TestOracleBoundsHaveNearCases` checks the count, so a shape that gains
+bounds needs a larger count in `genCounts`), and a bound whose far side is
+a vocabulary takes more turns of its generator (its weight). A widening of
 an exception in a way no near case stands for, as in a context the
 generator does not write, or a new condition in the code, is held only once
 it is listed there with near cases of its own. Each review of the oracle
