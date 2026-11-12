@@ -1,0 +1,33 @@
+{
+  "projects": [
+    {
+      "id": "p_ckyje79775eb",
+      "key": "github.com__orchard-labs__tidewater",
+      "name": "tidewater"
+    },
+    {
+      "id": "p_0463e4gbf2rx",
+      "key": "github.com__orchard-labs__saltmarsh",
+      "name": "saltmarsh"
+    },
+    {
+      "id": "p_76y016w1vbzx",
+      "key": "gitlab.example.com__brookline__fernvale",
+      "name": "fernvale"
+    },
+    {
+      "id": "p_e3ngv8evk1ce",
+      "key": "local-brambleworks-3f9c2a",
+      "name": "brambleworks"
+    }
+  ],
+  "groups": [
+    {
+      "page": "freight-platform",
+      "projects": [
+        "p_ckyje79775eb",
+        "p_0463e4gbf2rx"
+      ]
+    }
+  ]
+}

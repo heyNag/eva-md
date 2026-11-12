@@ -15,7 +15,7 @@ v1's health asks whether a job recorded a failure, never whether the work happen
 | --- | --- | --- | --- |
 | `activity`, each host | none: the newest chat in the host's folder, by names, types and modification times as `watchdog.go` reads them, over 14 days | | |
 | `capture`, each host | now less the newest hook run, while host activity is newer than that run by more than the bar; else 0 | 5 min | 1 h |
-| `organizing`, each host | now less the `ts` of the oldest entry past its session's watermark, in every session file of every project folder, by CT-4's function | 5 min | 24 h |
+| `organizing`, each host | now less the `ts` of the oldest entry past its session's watermark, in every session file of every project folder, by CT-4's function, `health.Unorganized` (`internal/health/backlog.go`): its `Oldest` is the lag's start and its `Sessions` the count waiting, and what it counts apart (`Held`, `Untimed`, `Damaged`) is said in the row's detail, never dropped | 5 min | 24 h |
 | `commit` | now less the oldest run-log record with `pages` > 0 after the newest commit run that committed or found nothing, while `wikigit.Unsaved` counts files; else 0 | 24 h on v1, which commits once a day; 2 s once the v2 store commits each pass (ST-05) | 48 h |
 | `push` | now less the oldest commit run whose push has not succeeded since, while `Unsaved` counts commits; else 0 | 10 min | 72 h |
 
