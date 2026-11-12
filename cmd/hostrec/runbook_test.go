@@ -154,6 +154,7 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 	type step struct {
 		line   string
 		before func()
+		after  func()
 		stdin  string
 		code   int
 		want   []string
@@ -166,12 +167,23 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 		{line: "hostrec tail", want: []string{"0 events since the mark of C-00"}},
 		{line: `hostrec note "off-script at <step>"`, want: []string{"noted at C-00"}},
 		{line: `hostrec note "what you saw"`, want: []string{"noted at C-00"}},
-		{line: "hostrec disarm", want: []string{"hostrec: "}},
-		{line: "hostrec close", want: []string{"the recording is closed"}},
+		{line: "hostrec disarm", want: []string{"disarmed: the scratch hooks record only"}},
+		// While the recording is closed, the scratch hooks record nothing.
+		{line: "hostrec close", want: []string{"the recording is closed"}, after: func() {
+			p := map[string]any{"session_id": sessionID, "transcript_path": filepath.Join(h.home, "none.jsonl"), "cwd": cwd, "hook_event_name": "UserPromptSubmit", "prompt": "Made-up."}
+			h.hook(t, "claude-code", "UserPromptSubmit", p)
+			if strings.TrimSpace(h.recFiles(t)[hostfacts.EventsFile]) != "" {
+				t.Error("a hook recorded an event while the recording was closed")
+			}
+		}},
 		// Sitting 1.
 		{line: "hostrec mark C-00", want: []string{"the recording is open"}},
 		{line: "hostrec mark G-01"},
-		{line: "hostrec key", want: []string{"wrote its public half to " + filepath.Join(h.shared, publicKeyOut)}},
+		{line: "hostrec key", want: []string{"wrote its public half to " + filepath.Join(h.shared, publicKeyOut)}, after: func() {
+			if _, err := os.Stat(filepath.Join(h.home, ".ssh", "hf_scratch_deploy")); err != nil {
+				t.Errorf("key made no key in the account: %v", err)
+			}
+		}},
 		{line: `hostrec note "G-02: not beside the wiki"`, before: func() {
 			// The owner saves the address in G-02, from the owner's own
 			// account.
@@ -290,7 +302,14 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 		{line: "hostrec scan ~/hf-rec", stdin: "made.up.owner@madeup-mail.net\nQuinn Realname\n\ngit.madeup-forge.test\npears\norchardco\n", want: []string{"hits to judge: none"}},
 		{line: `hostrec scrub ~/hf-rec "<the text>"`, want: []string{"hostrec scrub: replaced 0 places"}},
 		{line: "hostrec scan ~/hf-rec", stdin: "made.up.owner@madeup-mail.net\nQuinn Realname\n\ngit.madeup-forge.test\npears\norchardco\n", want: []string{"hits to judge: none"}},
-		{line: "hostrec pack ~/hf-rec --to /Users/Shared", want: []string{"wrote " + filepath.Join(h.shared, "hf-rec.tar.gz") + " (", "bytes) and " + filepath.Join(h.shared, "hf-rec.tar.gz.sha256")}},
+		{line: "hostrec pack ~/hf-rec --to /Users/Shared", want: []string{"wrote " + filepath.Join(h.shared, "hf-rec.tar.gz") + " (", "bytes) and " + filepath.Join(h.shared, "hf-rec.tar.gz.sha256")}, after: func() {
+			// Both readable by the owner's own account.
+			for _, p := range []string{filepath.Join(h.shared, "hf-rec.tar.gz"), filepath.Join(h.shared, "hf-rec.tar.gz.sha256")} {
+				if info, err := os.Stat(p); err != nil || info.Mode().Perm()&0o004 == 0 {
+					t.Errorf("%s is not readable by another account: %v", p, err)
+				}
+			}
+		}},
 		{line: "hostrec pack --clean", want: []string{"deleted " + filepath.Join(h.shared, "hf-rec.tar.gz"), "2 files deleted"}},
 	}
 
@@ -321,6 +340,9 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 			s.before()
 		}
 		code, out, errOut := h.run(t, s.stdin, words(s.line, h)...)
+		if s.after != nil {
+			s.after()
+		}
 		if code != s.code {
 			t.Errorf("step %d, %s: exit %d, want %d\n%s%s", i, s.line, code, s.code, out, errOut)
 		}
