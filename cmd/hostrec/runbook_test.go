@@ -154,11 +154,12 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 	type step struct {
 		line   string
 		before func()
-		after  func()
+		after  func(out string)
 		stdin  string
 		code   int
 		want   []string
 	}
+	var fingerprint string
 	steps := []step{
 		// Sitting 0.
 		{line: "hostrec setup --rec ~/hf-rec", want: []string{"found no eva-md install and no earlier session in this account", "Made the recording folder " + h.rec}},
@@ -169,7 +170,7 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 		{line: `hostrec note "what you saw"`, want: []string{"noted at C-00"}},
 		{line: "hostrec disarm", want: []string{"disarmed: the scratch hooks record only"}},
 		// While the recording is closed, the scratch hooks record nothing.
-		{line: "hostrec close", want: []string{"the recording is closed"}, after: func() {
+		{line: "hostrec close", want: []string{"the recording is closed"}, after: func(string) {
 			p := map[string]any{"session_id": sessionID, "transcript_path": filepath.Join(h.home, "none.jsonl"), "cwd": cwd, "hook_event_name": "UserPromptSubmit", "prompt": "Made-up."}
 			h.hook(t, "claude-code", "UserPromptSubmit", p)
 			if strings.TrimSpace(h.recFiles(t)[hostfacts.EventsFile]) != "" {
@@ -179,7 +180,7 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 		// Sitting 1.
 		{line: "hostrec mark C-00", want: []string{"the recording is open"}},
 		{line: "hostrec mark G-01"},
-		{line: "hostrec key", want: []string{"wrote its public half to " + filepath.Join(h.shared, publicKeyOut)}, after: func() {
+		{line: "hostrec key", want: []string{"wrote its public half to " + filepath.Join(h.shared, publicKeyOut)}, after: func(string) {
 			if _, err := os.Stat(filepath.Join(h.home, ".ssh", "hf_scratch_deploy")); err != nil {
 				t.Errorf("key made no key in the account: %v", err)
 			}
@@ -247,8 +248,27 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 		// Sitting 2, with G-04's one more try and G-05 right after X-00.
 		{line: "hostrec mark X-00", want: []string{"the recording is open"}},
 		{line: "hostrec mark G-04"},
-		{line: "hostrec push", before: func() { writeExe(sshPath, fakeSSHScript) },
-			want: []string{"The unsigned commit, pushed by itself to hf-check-unsigned: accepted.", "The signed commit, pushed by itself to hf-check-signed: refused for the signature.", "Read back: hf-check-unsigned."}},
+		// The first time it reaches the server, it shows the server's host
+		// key, which it keeps in the recorder's own known-hosts file only.
+		{line: "hostrec push", before: func() {
+			writeExe(sshPath, fakeSSHScript)
+			hostKey := filepath.Join(t.TempDir(), "made-up-host-key")
+			if out, err := execCommand("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "", "-f", hostKey).CombinedOutput(); err != nil {
+				t.Fatalf("ssh-keygen: %v %s", err, out)
+			}
+			t.Setenv("HOSTREC_FAKE_HOSTKEY", hostKey+".pub")
+		}, after: func(out string) {
+			if _, rest, ok := strings.Cut(out, " SHA256:"); ok {
+				fingerprint, _, _ = strings.Cut(rest, " ")
+			}
+			if _, err := os.Stat(filepath.Join(h.home, ".ssh", "known_hosts")); !os.IsNotExist(err) {
+				t.Errorf("the server's host key went into the account's own known-hosts file: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(h.home, privateName, knownHosts)); err != nil {
+				t.Errorf("the recorder's own known-hosts file: %v", err)
+			}
+		}, want: []string{"The server's host key, now in the recorder's own known-hosts file only:\n256 SHA256:",
+			"The unsigned commit, pushed by itself to hf-check-unsigned: accepted.", "The signed commit, pushed by itself to hf-check-signed: refused for the signature.", "Read back: hf-check-unsigned."}},
 		{line: "hostrec mark G-05"},
 		{line: `hostrec note "G-05: signed commit shown as <verified, unverified or no label>"`, before: func() {
 			// The owner deletes the repository and the address file.
@@ -302,7 +322,7 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 		{line: "hostrec scan ~/hf-rec", stdin: "made.up.owner@madeup-mail.net\nQuinn Realname\n\ngit.madeup-forge.test\npears\norchardco\n", want: []string{"hits to judge: none"}},
 		{line: `hostrec scrub ~/hf-rec "<the text>"`, want: []string{"hostrec scrub: replaced 0 places"}},
 		{line: "hostrec scan ~/hf-rec", stdin: "made.up.owner@madeup-mail.net\nQuinn Realname\n\ngit.madeup-forge.test\npears\norchardco\n", want: []string{"hits to judge: none"}},
-		{line: "hostrec pack ~/hf-rec --to /Users/Shared", want: []string{"wrote " + filepath.Join(h.shared, "hf-rec.tar.gz") + " (", "bytes) and " + filepath.Join(h.shared, "hf-rec.tar.gz.sha256")}, after: func() {
+		{line: "hostrec pack ~/hf-rec --to /Users/Shared", want: []string{"wrote " + filepath.Join(h.shared, "hf-rec.tar.gz") + " (", "bytes) and " + filepath.Join(h.shared, "hf-rec.tar.gz.sha256")}, after: func(string) {
 			// Both readable by the owner's own account.
 			for _, p := range []string{filepath.Join(h.shared, "hf-rec.tar.gz"), filepath.Join(h.shared, "hf-rec.tar.gz.sha256")} {
 				if info, err := os.Stat(p); err != nil || info.Mode().Perm()&0o004 == 0 {
@@ -341,7 +361,7 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 		}
 		code, out, errOut := h.run(t, s.stdin, words(s.line, h)...)
 		if s.after != nil {
-			s.after()
+			s.after(out)
 		}
 		if code != s.code {
 			t.Errorf("step %d, %s: exit %d, want %d\n%s%s", i, s.line, code, s.code, out, errOut)
@@ -365,7 +385,11 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 		}
 	}
 	all := strings.ToLower(strings.Join(slices.Collect(mapValues(h.recFiles(t))), "\n"))
-	for _, bad := range []string{"hfeval", "hf eval home", strings.ToLower(h.home), "git.madeup-forge.test", fakeOther.Short} {
+	if fingerprint == "" {
+		t.Error("push showed no fingerprint")
+	}
+	// The fingerprint was shown on screen only.
+	for _, bad := range []string{"hfeval", "hf eval home", strings.ToLower(h.home), "git.madeup-forge.test", fakeOther.Short, strings.ToLower(fingerprint)} {
 		if strings.Contains(all, bad) {
 			t.Errorf("the recording holds %q", bad)
 		}
