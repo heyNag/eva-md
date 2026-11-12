@@ -259,7 +259,9 @@ var oracleBounds = []oracleBound{
 		example: ex("password: op:Xk9m"+"P2vLq7Rt", "op:Xk9m"+"P2vLq7Rt"),
 		widen:   []edit{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op:") }`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, ""), func() string { return nthOf([]string{"op:", "op:/", "op//", "OP://", "Op://", "op.//", "op_"}, n) + nearToken(g) }
+			return keyLine(g, nearSeps, ""), func() string {
+				return nthOf([]string{"op:", "op:/", "op//", "OP://", "Op://", "op.//", "op_"}, n) + nearToken(g)
+			}
 		},
 	},
 	{
