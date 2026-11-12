@@ -368,6 +368,22 @@ func str(raw json.RawMessage) string {
 	return s
 }
 
+// spawnedBy is the thread a Codex subagent's thread was spawned from, as
+// its first record's source names it, {"subagent": {"thread_spawn":
+// {"parent_thread_id": ...}}}, or "" when it names none. It reads that
+// one string, by exact keys, and no other name or value of the source.
+func spawnedBy(source json.RawMessage) string {
+	raw := source
+	for _, key := range []string{"subagent", "thread_spawn", "parent_thread_id"} {
+		var m map[string]json.RawMessage
+		if json.Unmarshal(raw, &m) != nil {
+			return ""
+		}
+		raw = m[key]
+	}
+	return str(raw)
+}
+
 // truth is whether raw is the JSON true.
 func truth(raw json.RawMessage) bool {
 	var b bool
@@ -613,11 +629,16 @@ func (h *reader) codex(row map[string]json.RawMessage, size int) {
 		h.cwd = cwd
 	}
 	if typ == "session_meta" {
-		// A session's first record names its own id, and a fork's names
-		// the session it was forked from too: a fork's file may hold none
-		// of that session's rows, so the fork joins its chat by that id.
+		// A session's first record names its own id, a fork's names the
+		// session it was forked from too, and a subagent's thread, a
+		// session of its own, names the thread that spawned it and the
+		// root thread: a fork's or a thread's file may hold none of that
+		// session's rows, so it joins its chat by those ids.
 		h.id(str(p["id"]))
 		h.id(str(p["forked_from_id"]))
+		h.id(str(p["parent_thread_id"]))
+		h.id(str(p["session_id"]))
+		h.id(spawnedBy(p["source"]))
 		if raw, ok := p["source"]; ok {
 			t.value(codexSources, raw, facts018, host, "source")
 		}

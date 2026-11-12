@@ -107,6 +107,39 @@ func specials() []special {
 			path := f.codexFile(3, id, insideRows(f, codex, id, inside)...)
 			f.session(codex, id, path, prompt(inside), control)
 		}, 1, 0},
+		{"the inbox says it, with subagents' threads", codex, statusOff, func(f *fixture, inside int) {
+			// Each thread is a session of its own, whose file is read,
+			// since only its first record names the thread it was spawned
+			// from: the chat's, or the other thread's. Inside them, rows of
+			// every kind with planted names, or a first record alone.
+			ids := codexIDs(20)
+			id := ids[15]
+			path := f.codexFile(3, id, insideRows(f, codex, id, inside)...)
+			f.session(codex, id, path, prompt(inside), control)
+			for i, tid := range ids[13:15] {
+				parent := id
+				if i == 1 {
+					parent = ids[13]
+				}
+				meta := map[string]any{"source": spawned(parent)}
+				if i == 0 {
+					meta["parent_thread_id"], meta["session_id"] = parent, id
+				}
+				if inside == 0 {
+					meta["cli_version"], meta[marker+"-pkey"] = "9.9.9", 1
+				}
+				rows := []any{xMeta(f, tid, meta)}
+				if inside == 0 {
+					rows = append(rows,
+						xRow(at(31, 0), marker+"-rowtype", map[string]any{"type": marker + "-ptype"}),
+						xRow(at(31, 1), "event_msg", map[string]any{"type": "task_started", "turn_id": "t1"}),
+						xRow(at(31, 2), "event_msg", map[string]any{"type": "user_message", "message": marker + " " + strings.Repeat("x", 300)}),
+						xRow(at(31, 3), "compacted", map[string]any{"message": strings.Repeat("y", 70000)}))
+				}
+				tpath := f.codexFile(3, tid, rows...)
+				f.session(codex, tid, tpath, prompt(inside))
+			}
+		}, 3, 0},
 		{"the host's record says it", codex, statusOff, func(f *fixture, inside int) {
 			id := codexIDs(20)[18]
 			rows := append(insideRows(f, codex, id, inside), xRow(at(33, 0), "event_msg", map[string]any{"type": "user_message", "message": "off the record"}))

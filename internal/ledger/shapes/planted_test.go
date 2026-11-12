@@ -358,6 +358,95 @@ func TestACodexForkCountsWithItsChat(t *testing.T) {
 	}
 }
 
+// spawned is a Codex subagent thread's source, as Codex's published source
+// writes a SessionSource::SubAgent(SubAgentSource::ThreadSpawn): the thread
+// it was spawned from, with names of its own beside it that are never read.
+func spawned(parent any) map[string]any {
+	return map[string]any{"subagent": map[string]any{"thread_spawn": map[string]any{
+		"parent_thread_id": parent, "depth": 1, "agent_nickname": marker + "-nick", "agent_role": marker + "-role", "agent_path": marker + "-path"}}}
+}
+
+// A Codex subagent's thread is a session of its own, whose first record
+// names the thread that spawned it in parent_thread_id and, in versions
+// that write only that, inside its source's thread_spawn, and names the
+// root thread in session_id: one chat with five threads, one of them a
+// thread of a thread, and each joined by one of those alone or by all,
+// counts once; a thread of a chat off the record adds to no figure; and a
+// marker planted in any of those places, as a string or an object,
+// reaches no output.
+func TestACodexSubagentThreadCountsWithItsChat(t *testing.T) {
+	ids := codexIDs(9)
+	home := func(off bool) (Report, string) {
+		f := newFixture(t, noLink)
+		chat := func(id string, extra map[string]any) {
+			meta := map[string]any{"source": "cli", "session_id": id}
+			for k, v := range extra {
+				meta[k] = v
+			}
+			path := f.codexFile(2, id, xMeta(f, id, meta),
+				xRow(at(0, 2), "event_msg", map[string]any{"type": "user_message", "message": marker + " prompt"}))
+			f.session(codex, id, path)
+		}
+		parent := ids[0]
+		chat(parent, nil)
+		// As Codex writes a thread it spawns: the parent in both places,
+		// and the root as the session.
+		chat(ids[1], map[string]any{"source": spawned(parent), "parent_thread_id": parent, "session_id": parent})
+		// Each by one place alone.
+		chat(ids[2], map[string]any{"source": "exec", "parent_thread_id": parent})
+		chat(ids[3], map[string]any{"source": spawned(parent)})
+		chat(ids[4], map[string]any{"source": map[string]any{"subagent": "review"}, "session_id": parent})
+		// A thread of a thread names the thread it was spawned from, not
+		// the chat.
+		chat(ids[5], map[string]any{"source": spawned(ids[3])})
+		if off {
+			f.mark(codex, parent, session.OffRecord)
+		} else {
+			chat(ids[6], map[string]any{"source": spawned(marker + "-parent"), "parent_thread_id": marker + "-parent", "session_id": marker + "-root"})
+			chat(ids[7], map[string]any{"source": spawned(map[string]any{marker + "-parentkey": marker + "-parent"}),
+				"parent_thread_id": map[string]any{marker + "-parentkey": marker + "-parent"}, "session_id": []any{marker + "-root"}})
+			chat(ids[8], map[string]any{"source": map[string]any{"subagent": map[string]any{"thread_spawn": marker + "-spawn", marker + "-sourcekey": parent}}})
+		}
+		return f.run()
+	}
+
+	r, out := home(false)
+	if found := leaked(out); len(found) > 0 {
+		t.Errorf("the report holds %q:\n%s", found, out)
+	}
+	for path, want := range map[string]int{
+		"codex/chats/read": 4, "codex/chats/files_per_chat/6 to 10": 1, "codex/chats/files_per_chat/1": 3,
+		"codex/files/read": 9,
+	} {
+		if got := get(r.Hosts, path); got != want {
+			t.Errorf("%s is %d, want %d", path, got, want)
+		}
+	}
+	for path, want := range map[string]int{
+		"F-134/codex/payload_fields/rows/parent_thread_id": 4, "F-134/codex/payload_fields/chats/parent_thread_id": 3,
+		"F-134/codex/payload_fields/rows/session_id": 9, "F-134/codex/payload_fields/chats/session_id": 4,
+		"F-134/codex/payload_fields/rows/other": 0,
+	} {
+		if got := get(r.Facts, path); got != want {
+			t.Errorf("%s is %d, want %d", path, got, want)
+		}
+	}
+
+	r, _ = home(true)
+	for path, want := range map[string]int{
+		"codex/chats/read": 0, "codex/chats/off_the_record": 1, "codex/files/off_the_record": 6, "codex/files/read": 0,
+	} {
+		if got := get(r.Hosts, path); got != want {
+			t.Errorf("a thread of a chat off the record: %s is %d, want %d", path, got, want)
+		}
+	}
+	for _, path := range []string{"F-018/codex/source/rows/exec", "F-018/codex/source/rows/other", "F-132/codex/row_types/rows/session_meta"} {
+		if got := get(r.Facts, path); got != 0 {
+			t.Errorf("a thread of a chat off the record adds %d to %s", got, path)
+		}
+	}
+}
+
 // Write refuses a report that would print a string no list holds, or a
 // byte that is not printable ASCII, and prints nothing then.
 func TestWriteRefusesWhatNoListHolds(t *testing.T) {

@@ -70,9 +70,11 @@ var (
 		from(auditHostGo, "turn_aborted", "function_call", "custom_tool_call", "local_shell_call"),
 		from(hf00Card, "turn_started"))
 	// Codex's payload fields. forked_from_id names, in a forked session's
-	// first record, the session it was forked from: a fork's file need not
-	// repeat that session's rows, so the report joins a fork to its chat by
-	// it.
+	// first record, the session it was forked from; parent_thread_id, in a
+	// subagent's thread's, the thread that spawned it, as its source's
+	// thread_spawn does too; and session_id the root thread. A fork's or a
+	// thread's file need not repeat that session's rows, so the report
+	// joins it to its chat by them.
 	codexPayloadFields = slices.Concat(
 		from(parserGo, "type", "id", "cwd", "turn_id", "message", "phase", "last_agent_message", "role", "content"),
 		from(auditHostGo, "name", "call_id"),
@@ -80,7 +82,7 @@ var (
 		from(auditTestGo, "arguments"),
 		from(hookGo, "output"), // Codex's tool response
 		from(fieldPrompt2, "cli_version"),
-		from(codexSessionMeta, "forked_from_id"))
+		from(codexSessionMeta, "forked_from_id", "parent_thread_id", "session_id"))
 	// Codex's sources: the paper's interactive sources, "not exec".
 	codexSources = from(codexPaper, "cli", "vscode", "atlas", "chatgpt", "exec")
 	// Codex's originators: none is given here.

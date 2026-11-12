@@ -22,7 +22,10 @@
 // when eva-md's records show it, and when only the host's record does it is
 // read and nothing of it is kept: its chat is counted, and nothing else;
 // its subagents' files are not listed, and no id its rows name joins it to
-// another chat.
+// another chat. On Codex a fork or a subagent's thread is a session of its
+// own, joined to its chat by the ids its first record names (see read.go),
+// so one of a chat put out is read before it is known to be one, and is
+// dropped with that chat.
 // It writes nothing, runs no command and makes no network or model call.
 package shapes
 
