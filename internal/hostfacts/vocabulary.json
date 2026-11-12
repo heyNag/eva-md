@@ -65,5 +65,6 @@
     "DISABLE_AUTOUPDATER", "HF_PROGRAM_MARK", "HF_PLAIN_MARK", "HF_FAKE_API_TOKEN"
   ],
   "exit_code_fields": ["exit_code", "exitCode", "code"],
-  "id_prefixes": ["toolu_", "call_", "msg_", "resp_"]
+  "id_prefixes": ["toolu_", "call_", "msg_", "resp_"],
+  "voice": ["transcript_tail_flush", "user: ", "assistant: ", "…"]
 }

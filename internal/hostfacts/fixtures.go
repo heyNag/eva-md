@@ -35,7 +35,7 @@ func (x xform) value(v any, key, parent string) any {
 			e := t[k]
 			nk := k
 			switch {
-			case key == "payload_hashes":
+			case key == "payload_hashes" || key == "voice" && parent == "":
 				nk = x.path(k)
 			case !kept(k):
 				nk = x.str(k)
@@ -196,6 +196,7 @@ func WriteFixtures(opt FixtureOptions) (FixtureMeta, error) {
 			f.scanTimes(l)
 		}
 	}
+	f.voices(lines[EventsFile])
 	if err := os.MkdirAll(opt.Out, 0o755); err != nil {
 		return meta, err
 	}
@@ -629,6 +630,141 @@ func InsideCheckout(path string) (bool, error) {
 		}
 		if filepath.Dir(dir) == dir {
 			return false, nil
+		}
+	}
+}
+
+// voices makes up, before any line is written, the text of every voice
+// hand-over of a recording's events, from the skeletons alone: a payload's
+// string with a skeleton becomes the hand-over rebuilt from it, and any
+// other payload string whose hash is a part's becomes that part's text,
+// wherever it stands. A payload's text is read only to know which value
+// stands where, never to make a value.
+func (f *faker) voices(events []any) {
+	// The payloads' skeletons go first, so the parts a fixture shows take
+	// the first draws for their lengths; then the rows', whose parts a
+	// fixture shows only where a payload string has their hash.
+	var skels, rows []*Voice
+	for _, l := range events {
+		ev, _ := l.(map[string]any)
+		vm := voiceMap(ev)
+		for _, p := range slices.Sorted(maps.Keys(vm)) {
+			skels = append(skels, vm[p])
+		}
+		walk(ev["record"], nil, func(path []string, x any) {
+			if n := len(path); n >= 3 && path[n-1] == "voice" && path[n-3] == "fields" {
+				if v, ok := decodeVoice(x); ok {
+					rows = append(rows, v)
+				}
+			}
+		})
+	}
+	skels = append(skels, rows...)
+	if len(skels) == 0 {
+		return
+	}
+	texts := map[string]string{}
+	assignVoice(skels, texts, f.voiceDraw)
+	for _, l := range events {
+		ev, _ := l.(map[string]any)
+		vm := voiceMap(ev)
+		hashes, _ := ev["payload_hashes"].(map[string]any)
+		values := map[string]string{}
+		walk(ev["payload"], nil, func(path []string, x any) {
+			if s, ok := x.(string); ok {
+				values[looseKeys(path)] = s
+			}
+		})
+		for p, v := range vm {
+			s, ok := values[loosePath(p)]
+			if !ok {
+				continue
+			}
+			source := ""
+			if v.Source != nil && v.Source.Value != TailFlush {
+				source = f.voiceDraw(v.Source.Len)
+			}
+			f.memo[s] = v.rebuild(texts, source)
+		}
+		for p, h := range hashes {
+			hash, _ := h.(string)
+			t, ok := texts[hash]
+			if _, voice := vm[p]; !ok || voice {
+				continue
+			}
+			if s, ok := values[loosePath(p)]; ok {
+				f.memo[s] = t
+			}
+		}
+	}
+}
+
+// voiceMap gives an event's skeletons by payload path.
+func voiceMap(ev map[string]any) map[string]*Voice {
+	m, _ := ev["voice"].(map[string]any)
+	out := map[string]*Voice{}
+	for p, x := range m {
+		if v, ok := decodeVoice(x); ok {
+			out[p] = v
+		}
+	}
+	return out
+}
+
+func decodeVoice(x any) (*Voice, bool) {
+	if _, ok := x.(map[string]any); !ok {
+		return nil, false
+	}
+	data, err := json.Marshal(x)
+	if err != nil {
+		return nil, false
+	}
+	var v Voice
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, false
+	}
+	return &v, true
+}
+
+// loosePath writes a recorded field path with each hashed key as "#", and
+// looseKeys a decoded path the same way, so a payload's value is found by
+// its path without the key the hashes were made with.
+func loosePath(p string) string {
+	segs := strings.Split(p, ".")
+	for i, s := range segs {
+		if strings.HasPrefix(s, "#") {
+			segs[i] = "#"
+		}
+	}
+	return strings.Join(segs, ".")
+}
+
+func looseKeys(path []string) string {
+	segs := make([]string, len(path))
+	for i, s := range path {
+		segs[i] = s
+		if !keyShape.MatchString(s) && !isIndex(s) {
+			segs[i] = "#"
+		}
+	}
+	return strings.Join(segs, ".")
+}
+
+// voiceDraw makes up the text of a hand-over's part of n bytes, as whole
+// makes up a string: the next draw for its length that holds no recorded
+// value and, while one is left, that no other value took.
+func (f *faker) voiceDraw(n int) string {
+	key := voiceDrawKey + strconv.Itoa(n)
+	for try := 0; ; try++ {
+		k := f.next[key]
+		f.next[key]++
+		cand := madeVoice(f.seed, n, k)
+		if try < 1<<16 && f.forbid.holds(cand) {
+			continue
+		}
+		if !f.used[cand] || try >= maxDraws {
+			f.used[cand] = true
+			return cand
 		}
 	}
 }

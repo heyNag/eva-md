@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -61,6 +62,13 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 	var problems []Problem
 	byShape := map[string][]seen{}
 	numbers := map[string][]seen{}
+	type wrapper struct {
+		file string
+		line int
+		t    voiceText
+	}
+	var wrappers []wrapper
+	wrapperTag := strings.Trim(VoiceTag, "<>")
 	for _, name := range meta.Files {
 		if name != filepath.Base(name) {
 			return nil, fmt.Errorf("fixture.json names %q", name)
@@ -72,6 +80,16 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 		for i, l := range lines {
 			at := func(what string) { problems = append(problems, Problem{name, i + 1, what}) }
 			str := func(s string) string {
+				// A voice hand-over is rebuilt from its skeleton, and its
+				// parts are checked below; one out of form is a problem.
+				if t, ok := parseVoice(s); ok {
+					wrappers = append(wrappers, wrapper{name, i + 1, t})
+					return s
+				}
+				if tag, ok := Vocab().LeadingTag(s); ok && tag == wrapperTag {
+					at("a voice hand-over is out of form")
+					return s
+				}
 				// The writer makes up an id inside a longer string as it
 				// makes up the id alone, and the text around it piece by
 				// piece: each piece is checked by itself.
@@ -130,13 +148,73 @@ func CheckFixtureDir(dir string) ([]Problem, error) {
 			xform{str: str, path: path, num: num}.value(l, "", "")
 		}
 	}
+	// Each part of a hand-over is rebuilt from the seed: a line's rest, a
+	// request between its cut marks or an unlisted source is a draw for its
+	// byte length, a part equal to an earlier one is a repeat, a transcript
+	// is its lines, and a request may be a line or a transcript. A line off
+	// the two heads is all text, which no draw holds.
+	parts := map[int]int{}
+	for _, w := range wrappers {
+		if s := w.t.source; s != nil && *s != TailFlush {
+			parts[len(*s)]++
+		}
+		if d := w.t.delta; d != nil {
+			_, _, inner := cutMarks(*d)
+			_, rests := voiceLines(inner)
+			for _, r := range rests {
+				parts[len(r)]++
+			}
+		}
+		_, _, body := cutMarks(w.t.input)
+		parts[len(body)]++
+	}
+	for _, vals := range byShape {
+		for _, v := range vals {
+			if voiceShaped.MatchString(v.value) {
+				parts[len(v.value)]++
+			}
+		}
+	}
+	madeVoices := map[int]map[string]bool{}
+	isMade := func(s string) bool {
+		if madeVoices[len(s)] == nil {
+			madeVoices[len(s)] = madeSet(parts[len(s)], func(k int) string { return madeVoice(seed, len(s), k) })
+		}
+		return madeVoices[len(s)][s]
+	}
+	accepted := map[string]bool{}
+	for _, w := range wrappers {
+		if d := w.t.delta; d != nil {
+			_, _, inner := cutMarks(*d)
+			_, rests := voiceLines(inner)
+			for _, r := range rests {
+				if !accepted[r] && !isMade(r) {
+					problems = append(problems, Problem{w.file, w.line, fmt.Sprintf("a line of a voice hand-over, of %d bytes, is not one the generator makes", len(r))})
+				}
+				accepted[r] = true
+			}
+			accepted[*d] = true
+		}
+	}
+	for _, w := range wrappers {
+		if s := w.t.source; s != nil && *s != TailFlush && !isMade(*s) {
+			problems = append(problems, Problem{w.file, w.line, fmt.Sprintf("the source of a voice hand-over, of %d bytes, is not one the generator makes", len(*s))})
+		}
+		if in := w.t.input; !accepted[in] {
+			if _, _, body := cutMarks(in); !isMade(body) {
+				problems = append(problems, Problem{w.file, w.line, fmt.Sprintf("the request of a voice hand-over, of %d bytes, is not one the generator makes", len(in))})
+			}
+			accepted[in] = true
+		}
+	}
 	for shape, vals := range byShape {
 		made := madeSet(len(vals), func(k int) string {
 			_, times := shapeOf(vals[0].value)
 			return maskTimes(draw(seed, shape, k, timesMask(times)))
 		})
 		for _, v := range vals {
-			if !made[maskTimes(v.value)] {
+			// A string with a part's hash was given that part's text.
+			if !made[maskTimes(v.value)] && !accepted[v.value] && !(voiceShaped.MatchString(v.value) && isMade(v.value)) {
 				problems = append(problems, Problem{v.file, v.line, fmt.Sprintf("a string of %d bytes is not one the generator makes", len(v.value))})
 			}
 		}
@@ -224,6 +302,9 @@ func relTo(dir, p string) string {
 	}
 	return p
 }
+
+// voiceShaped is the shape of a hand-over part's made-up text.
+var voiceShaped = regexp.MustCompile(`^[a-z]+(?: [a-z]+)*$`)
 
 // madeSet draws enough values of one shape to hold every one the writer
 // could have taken for n recorded values: it skips a draw that is used,

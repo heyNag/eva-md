@@ -35,6 +35,8 @@ type Field struct {
 	Digits int    `json:"digits,omitempty"`
 	Frac   bool   `json:"frac,omitempty"`
 	Items  *int   `json:"items,omitempty"`
+	// Voice is the skeleton of a string in the form of a voice hand-over.
+	Voice *Voice `json:"voice,omitempty"`
 }
 
 // Row is one row of a record file, described.
@@ -212,6 +214,54 @@ func PayloadHashes(key []byte, v any) map[string]string {
 		}
 	})
 	return out
+}
+
+// accountWords are the words of a key under which a payload's strings are
+// written as their keyed hash: a model's name, a plan or a tier, which no
+// recording handed over may name. A version stays, since fixtures are
+// filed by the CLI's version.
+var accountWords = []string{"model", "plan", "tier"}
+
+// HideAccountValues gives a copy of a decoded payload in which every string
+// under a key whose name holds a word of accountWords, in any letter case,
+// at any depth, the key's own value or one nested in it, is replaced by its
+// keyed hash. PayloadHashes, taken from the payload as the host sent it,
+// gives the same hash at the same path, so the payload still joins the
+// record's rows, where such a value is a hash too.
+func HideAccountValues(key []byte, v any) any {
+	return hideUnder(key, v, false)
+}
+
+func hideUnder(key []byte, v any, hidden bool) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, x := range t {
+			out[k] = hideUnder(key, x, hidden || accountKey(k))
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			out[i] = hideUnder(key, x, hidden)
+		}
+		return out
+	case string:
+		if hidden {
+			return Hash(key, t)
+		}
+	}
+	return v
+}
+
+func accountKey(k string) bool {
+	lower := strings.ToLower(k)
+	for _, w := range accountWords {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // rowHashes gives the hash of every string of a decoded row.
@@ -472,6 +522,7 @@ func describe(in SnapshotInput, k rowKind, path []string, x any) Field {
 		default:
 			f.Len = len(t)
 			f.Hash = Hash(in.Key, t)
+			f.Voice, _ = VoiceOf(in.Key, t)
 			if tag, ok := Vocab().LeadingTag(t); ok {
 				f.Tag = tag
 			} else if k.userRole && !in.PayloadHashes[f.Hash] {
