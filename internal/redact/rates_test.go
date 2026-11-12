@@ -302,5 +302,26 @@ func TestRatesCountTheSpansOfEveryCase(t *testing.T) {
 		if all.spans != want || all.onSecret != onSecret || all.spans <= corpus.spans || all.onSecret <= corpus.onSecret {
 			t.Errorf("%s: %d spans, %d on a secret, want %d and %d; the corpus files' cases alone have %d and %d", name, all.spans, all.onSecret, want, onSecret, corpus.spans, corpus.onSecret)
 		}
+		// The table gives the corpus files' precision beside it.
+		column := 2
+		if name == "current" {
+			column = 3
+		}
+		rows := map[string]string{}
+		for _, line := range strings.Split(ratesTable(m, m.cases), "\n") {
+			if f := strings.Fields(line); len(f) == 4 && !strings.HasPrefix(line, "#") {
+				rows[f[0]] = f[column]
+			}
+		}
+		for row, want := range map[string]string{
+			"spans_replaced.corpus":    fmt.Sprint(corpus.spans),
+			"spans_on_a_secret.corpus": fmt.Sprint(corpus.onSecret),
+			"precision.corpus":         fmt.Sprintf("%.4f", float64(corpus.onSecret)/float64(corpus.spans)),
+			"precision":                fmt.Sprintf("%.4f", float64(all.onSecret)/float64(all.spans)),
+		} {
+			if rows[row] != want {
+				t.Errorf("%s: row %s is %q, want %q", name, row, rows[row], want)
+			}
+		}
 	}
 }
