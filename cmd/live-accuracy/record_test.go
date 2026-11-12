@@ -264,6 +264,27 @@ func TestReplayRefusals(t *testing.T) {
 		{"a key added", line(0, func(m map[string]any) { m["tokens_in"] = 120 }), nil, "line 1 is not a pass of a recording"},
 		{"a key missing", line(0, func(m map[string]any) { delete(m, "reason") }), nil, "line 1 is not a pass of a recording"},
 		{"a key of another type", line(0, func(m map[string]any) { m["script"] = "1" }), nil, "line 1 is not a pass of a recording"},
+		{"a null reason", line(5, func(m map[string]any) { m["reason"] = nil }), nil, "line 6 is not a pass of a recording"},
+		{"a null effort", line(5, func(m map[string]any) { m["effort"] = nil }), nil, "line 6 is not a pass of a recording"},
+		{"a null model", line(0, func(m map[string]any) { m["model"] = nil }), nil, "line 1 is not a pass of a recording"},
+		{"a null host", line(0, func(m map[string]any) { m["host"] = nil }), nil, "line 1 is not a pass of a recording"},
+		{"a null version", line(0, func(m map[string]any) { m["v"] = nil }), nil, "line 1 is not a pass of a recording"},
+		{"a null script", line(0, func(m map[string]any) { m["script"] = nil }), nil, "line 1 is not a pass of a recording"},
+		{"a null pass", line(0, func(m map[string]any) { m["pass"] = nil }), nil, "line 1 is not a pass of a recording"},
+		{"a number for a string", line(0, func(m map[string]any) { m["effort"] = 3 }), nil, "line 1 is not a pass of a recording"},
+		{"a key given twice", func(l []string) []string {
+			l[3] = strings.Replace(l[3], `"reason":""`, `"reason":"auth","reason":""`, 1)
+			return l
+		}, nil, "line 4 is not a pass of a recording"},
+		{"a key given twice with one value", func(l []string) []string {
+			l[3] = strings.Replace(l[3], `"pass":2`, `"pass":2,"pass":2`, 1)
+			return l
+		}, nil, "line 4 is not a pass of a recording"},
+		{"a key in another case", func(l []string) []string {
+			l[3] = strings.Replace(l[3], `"reason":`, `"Reason":`, 1)
+			return l
+		}, nil, "line 4 is not a pass of a recording"},
+		{"two objects on a line", func(l []string) []string { l[3] += "{}"; return l }, nil, "line 4 is not a pass of a recording"},
 		{"a line that is not JSON", func(l []string) []string { l[6] = "not json"; return l }, nil, "line 7 is not a pass of a recording"},
 		{"a blank line", func(l []string) []string { return slices.Insert(l, 2, "") }, nil, "line 3 is not a pass of a recording"},
 		{"a cut last line", func(l []string) []string { l[20] = l[20][:30]; return l }, nil, "line 21 is not a pass of a recording"},

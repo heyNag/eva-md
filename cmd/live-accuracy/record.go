@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -169,16 +170,32 @@ func readRecording(path, host, model string, counts []int) (map[passKey]passReco
 	return answers, nil
 }
 
+// numberKeys are the keys whose value is a number; output's is any JSON,
+// and every other key's a string.
+var numberKeys = []string{"v", "script", "pass"}
+
 // decodeRecord decodes one line, which must hold every key of the format
-// and nothing else.
+// once and nothing else, each of its type: a number for v, script and
+// pass, a string for host, effort, model and reason, never null, and any
+// JSON for output.
 func decodeRecord(raw []byte) (passRecord, error) {
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &keys); err != nil {
+	keys, err := objectKeys(raw)
+	if err != nil {
 		return passRecord{}, err
 	}
 	for _, k := range recordKeys {
-		if _, ok := keys[k]; !ok {
+		v, ok := keys[k]
+		if !ok {
 			return passRecord{}, errors.New("a key is missing")
+		}
+		switch {
+		case k == "output":
+		case slices.Contains(numberKeys, k):
+			if v[0] != '-' && (v[0] < '0' || v[0] > '9') {
+				return passRecord{}, errors.New("a key's value is not a number")
+			}
+		case v[0] != '"':
+			return passRecord{}, errors.New("a key's value is not a string")
 		}
 	}
 	if len(keys) != len(recordKeys) {
@@ -191,6 +208,45 @@ func decodeRecord(raw []byte) (passRecord, error) {
 		return passRecord{}, err
 	}
 	return r, nil
+}
+
+// objectKeys reads raw as one JSON object and gives each of its keys'
+// values, refusing anything else and a key given twice, which a decode
+// into a map or a struct would let the last value win.
+func objectKeys(raw []byte) (map[string]json.RawMessage, error) {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := d.Token(); err != nil || t != json.Delim('{') {
+		return nil, errors.New("the line is not a JSON object")
+	}
+	keys := map[string]json.RawMessage{}
+	for d.More() {
+		t, err := d.Token()
+		if err != nil {
+			return nil, err
+		}
+		k, ok := t.(string)
+		if !ok {
+			return nil, errors.New("the line is not a JSON object")
+		}
+		if _, ok := keys[k]; ok {
+			return nil, errors.New("a key is given twice")
+		}
+		var v json.RawMessage
+		if err := d.Decode(&v); err != nil {
+			return nil, err
+		}
+		if v = bytes.TrimSpace(v); len(v) == 0 {
+			return nil, errors.New("a key has no value")
+		}
+		keys[k] = v
+	}
+	if t, err := d.Token(); err != nil || t != json.Delim('}') {
+		return nil, errors.New("the line is not a JSON object")
+	}
+	if _, err := d.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("the line holds more than one JSON object")
+	}
+	return keys, nil
 }
 
 // pageName is the file of script n's page, v1.NN.md, as the fidelity
