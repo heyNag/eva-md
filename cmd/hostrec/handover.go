@@ -18,15 +18,16 @@ import (
 	"github.com/heyNag/eva-md/internal/hostfacts"
 )
 
-// privateNames reads the names and the keys hostrec made from the private
-// folder, when this home has one: scan and scrub run without the setup
-// marker, as the lead may run them anywhere.
-func privateNames() (hostfacts.Names, []string) {
+// privateNames reads the names, the keys hostrec made and the recording's
+// hash key, in hex, from the private folder, when this home has one: scan
+// and scrub run without the setup marker, as the lead may run them
+// anywhere.
+func privateNames() (hostfacts.Names, []string, string) {
 	var n hostfacts.Names
 	var k madeKeys
 	home, err := homeDir()
 	if err != nil {
-		return n, nil
+		return n, nil, ""
 	}
 	if data, err := os.ReadFile(filepath.Join(home, privateName, namesFile)); err == nil {
 		_ = json.Unmarshal(data, &n)
@@ -34,7 +35,11 @@ func privateNames() (hostfacts.Names, []string) {
 	if data, err := os.ReadFile(filepath.Join(home, privateName, keysFile)); err == nil {
 		_ = json.Unmarshal(data, &k)
 	}
-	return n, k.Keys
+	hashKey := ""
+	if data, err := os.ReadFile(filepath.Join(home, privateName, keyFile)); err == nil {
+		hashKey = strings.TrimSpace(string(data))
+	}
+	return n, k.Keys, hashKey
 }
 
 func cmdScan(c *cli, args []string) int {
@@ -45,7 +50,7 @@ func cmdScan(c *cli, args []string) int {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return c.fail("%s is not a folder", dir)
 	}
-	names, keys := privateNames()
+	names, keys, hashKey := privateNames()
 	in := bufio.NewReader(c.in)
 	ask := func(q string) string {
 		fmt.Fprint(c.out, q)
@@ -99,6 +104,9 @@ func cmdScan(c *cli, args []string) int {
 		add(r.Host, "the scratch remote")
 		add(r.Namespace, "the scratch remote")
 	}
+	// The key the recording's hashes are made with never leaves the
+	// private folder: with it, a hash of a short value could be undone.
+	add(hashKey, "the recording's hash key")
 	res, err := hostfacts.Scan(dir, words, hostfacts.Known{Keys: keys})
 	if err != nil {
 		return c.fail("%v", err)
@@ -188,12 +196,18 @@ func cmdPack(c *cli, args []string) int {
 		c.say("hostrec pack --clean: %s.", plural(n, "file deleted", "files deleted"))
 		return 0
 	}
-	if len(words) != 1 {
-		return c.fail("usage: hostrec pack <dir> [--to <dir>]")
+	// pack packs the recording folder and nothing else. The run-book names
+	// the folder and the card does not, so the word is optional; when it is
+	// given it must be the recording folder.
+	if len(words) > 1 {
+		return c.fail("usage: hostrec pack [<recording folder>] [--to <dir>]")
 	}
-	dir, err := filepath.Abs(words[0])
-	if err != nil {
-		return c.fail("%v", err)
+	dir := e.rec
+	if len(words) == 1 {
+		same, err := sameFolder(words[0], e.rec)
+		if err != nil || !same {
+			return c.fail("hostrec packs only the recording folder, %s; nothing was packed", e.rec)
+		}
 	}
 	if within(dir, e.private) || within(e.private, dir) {
 		return c.fail("the folder to pack holds the private folder, or is in it; nothing was packed")
@@ -227,6 +241,31 @@ func cmdPack(c *cli, args []string) int {
 	_ = e.command("pack", map[string]any{"bytes": size})
 	c.say("hostrec pack: wrote %s (%d bytes) and %s, without the private folder.", archive, size, sum)
 	return 0
+}
+
+// sameFolder reports whether two paths name the same folder, links
+// resolved.
+func sameFolder(a, b string) (bool, error) {
+	ra, err := filepath.Abs(a)
+	if err != nil {
+		return false, err
+	}
+	if ra, err = filepath.EvalSymlinks(ra); err != nil {
+		return false, err
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		return false, err
+	}
+	ia, err := os.Stat(ra)
+	if err != nil {
+		return false, err
+	}
+	ib, err := os.Stat(rb)
+	if err != nil {
+		return false, err
+	}
+	return ia.IsDir() && os.SameFile(ia, ib), nil
 }
 
 // writeArchive writes the regular files under dir to a gzip-compressed tar

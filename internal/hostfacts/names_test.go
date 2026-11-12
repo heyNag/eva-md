@@ -44,6 +44,52 @@ func TestReplacerReplacesEveryNameItsWay(t *testing.T) {
 	}
 }
 
+// A name is replaced only where it stands as a word of its own, so a short
+// account name or a plain group name leaves the hosts' words and the
+// recorder's own keys whole; the longest name is taken first, and two
+// names side by side are both taken.
+func TestReplacerTakesWholeWordsOnly(t *testing.T) {
+	r := NewReplacer(Names{
+		Eval: Account{Short: "hfevalmadeup", Full: "HF Eval Madeup", Home: "/Users/hfevalmadeup"},
+		Others: []Account{
+			{Short: "tim", Full: "Tim Plumtree", Home: "/Users/tim"},
+			{Short: "art", Home: "/Users/art"},
+			{Short: "tom"}, {Short: "ken"}, {Short: "mark"}, {Short: "event"},
+			{Short: "jo", Full: "Jo Bloggs", Home: "/Users/jo"},
+		},
+		Remote: &Remote{Address: "git@forge.madeup.test:agent/hf-scratch-plum.git", Host: "forge.madeup.test", Namespace: "agent", Path: "agent/hf-scratch-plum"},
+	})
+	for in, want := range map[string]string{
+		"timestamp SessionStart custom_tool_call token_count": "timestamp SessionStart custom_tool_call token_count",
+		"SubagentStart agent_message":                         "SubagentStart agent_message",
+		"signed, Jo Bloggs":                                   "signed, OTHER-FULL-NAME",
+		"jo bloggs wrote":                                     "OTHER-FULL-NAME wrote",
+		"jo jo":                                               "OTHER-USER OTHER-USER",
+		"jo/jo":                                               "OTHER-USER/OTHER-USER",
+		"to tim, from art and Tom's":                          "to OTHER-USER, from OTHER-USER and OTHER-USER's",
+		"/Users/tim/scratch -Users-art-x":                     "/OTHER-HOME/scratch -OTHER-HOME-x",
+		"the agent group":                                     "the REMOTE-NAMESPACE group",
+	} {
+		if got := r.String(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+	line, err := r.Line(Event{V: 1, Mark: "C-01", Event: "SessionStart", Host: "claude-code",
+		Payload: map[string]any{"timestamp": "x", "hook_event_name": "SessionStart", "who": "tim", "/Users/tim/f": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"event":"SessionStart"`, `"mark":"C-01"`, `"timestamp":"x"`, `"hook_event_name":"SessionStart"`, `"who":"OTHER-USER"`, `"/OTHER-HOME/f":true`} {
+		if !strings.Contains(string(line), want) {
+			t.Errorf("Line lacks %s: %s", want, line)
+		}
+	}
+	// A recorder's key that is also a name is the recorder's word, kept.
+	if strings.Contains(string(line), `"OTHER-USER":"C-01"`) || strings.Contains(string(line), `"OTHER-USER":"SessionStart"`) {
+		t.Errorf("Line replaced the recorder's own keys: %s", line)
+	}
+}
+
 func TestHashIsKeyed(t *testing.T) {
 	a, b := Hash([]byte("key one"), "plum"), Hash([]byte("key two"), "plum")
 	if a == b || len(a) != 16 || a != Hash([]byte("key one"), "plum") {

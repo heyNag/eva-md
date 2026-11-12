@@ -28,10 +28,14 @@ var knownShapes = []struct {
 }{
 	{"uuid", regexp.MustCompile(`\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`)},
 	{"host id", regexp.MustCompile(`\b(?:toolu|call|msg|resp)_[A-Za-z0-9]{8,}\b`)},
-	{"hash of 64 hex digits", regexp.MustCompile(`\b[0-9a-f]{64}\b`)},
 	{"commit hash", regexp.MustCompile(`\b[0-9a-f]{40}\b`)},
 	{"lookup token", regexp.MustCompile(`\br:[0-9a-f]{8}\b`)},
 }
+
+// longHex is a run of 32 hex digits or more that no known shape explains,
+// such as a key, a token or a digest: shown for the owner to judge. The
+// recorder's own hashes are 16 digits, and a commit's 40 are counted above.
+var longHex = regexp.MustCompile(`\b[0-9a-fA-F]{32,}\b`)
 
 // madeUpEmail is an address no one has: on a domain kept for examples or
 // one that cannot exist.
@@ -75,8 +79,8 @@ func Scan(dir string, words []ScanWord, known Known) (ScanResult, error) {
 	}
 	var finders []finder
 	for _, w := range words {
-		if p := namePattern(w.Text); p != "" {
-			finders = append(finders, finder{regexp.MustCompile("(?i)" + p), w.Kind})
+		if p := namePatternOf(w.Text); p != "" {
+			finders = append(finders, finder{regexp.MustCompile("(?i)(" + p + ")"), w.Kind})
 		}
 	}
 	scrubbed := scrubbedValues(dir)
@@ -97,9 +101,17 @@ func Scan(dir string, words []ScanWord, known Known) (ScanResult, error) {
 			text := s.Text()
 			hit := func(kind, t string) { res.Hits = append(res.Hits, Hit{rel, line, kind, t}) }
 			for _, f := range finders {
-				for _, m := range f.re.FindAllString(text, -1) {
-					hit(f.kind, m)
-				}
+				// A word inside another word, as "tim" in "timestamp", is
+				// counted and not shown: the recorder replaced it nowhere,
+				// and scrub leaves it.
+				eachName(f.re, text, func(a, b int, word bool) bool {
+					if word {
+						hit(f.kind, text[a:b])
+					} else {
+						res.Counts[f.kind+", inside another word"]++
+					}
+					return word
+				})
 			}
 			rest := text
 			for _, v := range scrubbed {
@@ -139,6 +151,9 @@ func Scan(dir string, words []ScanWord, known Known) (ScanResult, error) {
 					hit("key or token", m)
 				}
 			}
+			for _, m := range longHex.FindAllString(rest, -1) {
+				hit("long hex run", m)
+			}
 		}
 		return s.Err()
 	})
@@ -175,29 +190,17 @@ func tokenShaped(s string) bool {
 	return false
 }
 
-// namePattern is the pattern a name is matched by: its words, in any case,
-// with any separators between them.
-func namePattern(name string) string {
-	words := splitName(name)
-	if len(words) == 0 {
-		return ""
-	}
-	quoted := make([]string, len(words))
-	for i, w := range words {
-		quoted[i] = regexp.QuoteMeta(w)
-	}
-	return strings.Join(quoted, separators)
-}
-
 // Scrub replaces every occurrence of text, in any case, in every file under
 // dir with one made-up value of the same shape, and gives how many it
-// replaced.
+// replaced. As the recorder's names are, text is matched only where it
+// stands as a word of its own, so scrubbing a short word leaves the words
+// that hold it whole.
 func Scrub(dir, text string) (int, error) {
-	p := namePattern(text)
+	p := namePatternOf(text)
 	if p == "" {
 		return 0, nil
 	}
-	re := regexp.MustCompile("(?i)" + p)
+	re := regexp.MustCompile("(?i)(" + p + ")")
 	shape, _ := shapeOf(text)
 	made := draw(randomBytes(32), shape, 0, nil)
 	if strings.EqualFold(made, text) {
@@ -213,16 +216,27 @@ func Scrub(dir, text string) (int, error) {
 		if err != nil {
 			return err
 		}
-		n := len(re.FindAllIndex(data, -1))
+		text := string(data)
+		var out strings.Builder
+		last, n := 0, 0
+		eachName(re, text, func(a, b int, word bool) bool {
+			if word {
+				out.WriteString(text[last:a])
+				out.WriteString(made)
+				last, n = b, n+1
+			}
+			return word
+		})
 		if n == 0 {
 			return nil
 		}
+		out.WriteString(text[last:])
 		total += n
 		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(path, re.ReplaceAllLiteral(data, []byte(made)), info.Mode().Perm())
+		return os.WriteFile(path, []byte(out.String()), info.Mode().Perm())
 	})
 	if err == nil && total > 0 {
 		// scan counts what scrub wrote, so a value of an address's or a

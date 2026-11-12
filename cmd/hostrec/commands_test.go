@@ -292,6 +292,33 @@ func TestTheHandOver(t *testing.T) {
 	if code, _, _ := h.run(t, "", "pack", h.home); code == 0 {
 		t.Error("pack took a folder holding the private folder")
 	}
+	// pack packs the recording folder and nothing else: never a key, a
+	// host's sign-in or any other folder a wrong word names.
+	for _, d := range []string{".ssh", ".codex", ".claude", "scratch"} {
+		p := filepath.Join(h.home, d)
+		if err := os.MkdirAll(p, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "made-up-secret"), []byte("made up\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if code, _, _ := h.run(t, "", "pack", p, "--to", h.shared); code == 0 {
+			t.Errorf("pack took %s", d)
+		}
+		if _, err := os.Stat(filepath.Join(h.shared, d+".tar.gz")); !os.IsNotExist(err) {
+			t.Errorf("a refused pack of %s wrote an archive: %v", d, err)
+		}
+	}
+	link := filepath.Join(filepath.Dir(h.home), "rec-link")
+	if err := os.Symlink(h.rec, link); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.must(t, "", "pack", link, "--to", h.shared); !strings.Contains(out, "hf-rec.tar.gz") {
+		t.Errorf("pack of a link to the recording: %s", out)
+	}
+	if out := h.must(t, "", "pack", "--to", h.shared); !strings.Contains(out, "hf-rec.tar.gz") {
+		t.Errorf("pack with no folder word: %s", out)
+	}
 	if code, _, _ := h.run(t, "", "pack", h.rec, "--to", h.rec); code == 0 {
 		t.Error("pack wrote the archive inside the folder it packs")
 	}
@@ -319,6 +346,21 @@ func TestTheHandOver(t *testing.T) {
 	h.must(t, "", "scrub", h.rec, "quinnreal")
 	if code, out, _ := h.run(t, answers, "scan", h.rec); code != 0 || !strings.Contains(out, "hits to judge: none") {
 		t.Errorf("scan after scrub: %d\n%s", code, out)
+	}
+	// The recording's hash key, found in a recording, is always a hit.
+	hashKey, err := os.ReadFile(filepath.Join(h.home, privateName, keyFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	leak := filepath.Join(h.rec, "leak.txt")
+	if err := os.WriteFile(leak, []byte("key "+strings.TrimSpace(string(hashKey))+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := h.run(t, answers, "scan", h.rec); code == 0 || !strings.Contains(out, "leak.txt:1  the recording's hash key: ") {
+		t.Errorf("scan does not show the hash key:\n%s", out)
+	}
+	if err := os.Remove(leak); err != nil {
+		t.Fatal(err)
 	}
 	// fixtures and check, from the recording.
 	fx := filepath.Join(filepath.Dir(h.home), "fixtures", "claude-code", "9.9.9")

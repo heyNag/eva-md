@@ -121,6 +121,46 @@ func TestScrubRemovesEachHitEverywhere(t *testing.T) {
 	}
 }
 
+// A word inside another word is counted, not shown, and scrub leaves the
+// word that holds it; a long hex run, such as a key of 64 hex digits, is
+// shown, and so is the recording's own key.
+func TestScanJudgesWholeWordsAndLongHex(t *testing.T) {
+	dir := t.TempDir()
+	const hex64 = "9f2c4a7e1b3d5f60a8c2e4b6d8f01a3c9f2c4a7e1b3d5f60a8c2e4b6d8f01a3c"
+	const hex32 = "0123456789abcdef0123456789abcdef"
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	text := `{"event":"SessionStart","timestamp":"x","who":"tim","k":"` + hex64 + `","s":"` + hex32 + `","c":"` + commit + `"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Scan(dir, []ScanWord{{"tim", "account"}, {"art", "account"}, {hex64, "the recording's key"}}, Known{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shown []string
+	for _, h := range res.Hits {
+		shown = append(shown, h.Kind+"="+h.Text)
+	}
+	slices.Sort(shown)
+	want := []string{"account=tim", "long hex run=" + hex32, "long hex run=" + hex64, "the recording's key=" + hex64}
+	if !slices.Equal(shown, want) {
+		t.Errorf("hits %v, want %v", shown, want)
+	}
+	if res.Counts["account, inside another word"] != 2 || res.Counts["commit hash"] != 1 {
+		t.Errorf("counts: %v", res.Counts)
+	}
+	if n, err := Scrub(dir, "tim"); err != nil || n != 1 {
+		t.Fatalf("scrub: %d %v", n, err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"event":"SessionStart","timestamp":"x"`) || strings.Contains(string(data), `"tim"`) {
+		t.Errorf("scrub: %s", data)
+	}
+}
+
 // The repository's fixtures hold no email address, home path or token,
 // and every value of each is one the generator makes: the check needs no
 // recording.
