@@ -118,6 +118,24 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 		if err := checkPages(*pages); err != nil {
 			return usage(errOut, err.Error())
 		}
+	}
+	// The recording first, so a folder it cannot be made in leaves nothing
+	// made and nothing called.
+	var rec *recorder
+	if *record != "" {
+		var err error
+		if rec, err = createRecording(*record, *host, *model); err != nil {
+			fmt.Fprintf(errOut, "live-accuracy: could not make the recording: %v\n", err)
+			return 1
+		}
+		defer func() {
+			if err := rec.close(); err != nil {
+				fmt.Fprintf(errOut, "live-accuracy: could not close the recording: %v\n", err)
+				code = 1
+			}
+		}()
+	}
+	if *pages != "" {
 		if err := os.MkdirAll(*pages, 0o755); err != nil {
 			fmt.Fprintf(errOut, "live-accuracy: could not make the pages folder: %v\n", err)
 			return 1
@@ -143,18 +161,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 		c := caller{host: *host, effort: *effort, model: *model, cli: *cli, ignore: *ignore, home: home, runner: newRunner(*host), log: errOut, efforts: efforts}
 		ask = c.ask
 	}
-	if *record != "" {
-		rec, err := createRecording(*record, *host, *model)
-		if err != nil {
-			fmt.Fprintf(errOut, "live-accuracy: could not make the recording: %v\n", err)
-			return 1
-		}
-		defer func() {
-			if err := rec.close(); err != nil {
-				fmt.Fprintf(errOut, "live-accuracy: could not close the recording: %v\n", err)
-				code = 1
-			}
-		}()
+	if rec != nil {
 		ask = recorded(ask, rec, index)
 	}
 	who := *model

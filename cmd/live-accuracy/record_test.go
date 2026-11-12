@@ -444,6 +444,25 @@ func TestRecordAndPagesRefusals(t *testing.T) {
 	}
 }
 
+// A recording that cannot be made, in a folder that does not exist, stops
+// the run before any runner is made, any home or pages folder is made or
+// anything is called.
+func TestARecordingThatCannotBeMade(t *testing.T) {
+	tmp := isolate(t)
+	dir := t.TempDir()
+	var out, errOut bytes.Buffer
+	args := []string{"--host", "claude-code", "--spend-model-quota", "--record", filepath.Join(dir, "none", "answers.jsonl"), "--pages", filepath.Join(dir, "pages")}
+	if code := run(context.Background(), args, &out, &errOut, noRunner(t)); code != 1 || out.Len() != 0 || !strings.HasPrefix(errOut.String(), "live-accuracy: could not make the recording: ") {
+		t.Fatalf("exit %d, out %q, err %q", code, out.String(), errOut.String())
+	}
+	if left := leftIn(t, dir); len(left) != 0 {
+		t.Errorf("the run left %q", left)
+	}
+	if left := leftIn(t, tmp); len(left) != 0 {
+		t.Errorf("the run left %q", left)
+	}
+}
+
 // A recording's line holds the format's keys in its order, and nothing
 // else: an answer of another form than an object is kept as given, an
 // answer that is not JSON as null.
