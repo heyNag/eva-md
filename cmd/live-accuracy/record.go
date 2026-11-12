@@ -121,10 +121,11 @@ func readRecording(path, host, model string, counts []int) (map[passKey]passReco
 		return nil, errors.New("the recording does not end with a whole line")
 	}
 	answers := map[passKey]passRecord{}
-	for i, raw := range bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")) {
-		if len(data) == 0 {
-			break
-		}
+	var lines [][]byte
+	if len(data) > 0 {
+		lines = bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n"))
+	}
+	for i, raw := range lines {
 		n := i + 1
 		r, err := decodeRecord(raw)
 		if err != nil {
