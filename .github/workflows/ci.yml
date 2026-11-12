@@ -33,10 +33,10 @@ jobs:
   # which the gate can only call "not judged". It builds the binary of the
   # commit before the change (the pull request's base, or the push's
   # parent) and the change's own, and runs each twice a round, alternating,
-  # so that two other splits of the same runs serve as controls
-  # (scripts/benchmark.py --compare). Advisory: it reports and never fails
-  # the job, until an unchanged binary has passed it twenty times in twenty
-  # (docs/v2/baselines/README.md).
+  # so that other splits of the same runs into two like halves serve as
+  # controls (scripts/benchmark.py --compare). Advisory: it reports and
+  # never fails the job, until an unchanged binary has passed it twenty
+  # times with no fail between them, as docs/v2/baselines/README.md counts.
   latency:
     runs-on: macos-latest
     timeout-minutes: 40
