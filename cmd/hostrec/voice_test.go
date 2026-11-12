@@ -304,8 +304,11 @@ func TestHandOversUnderOddKeysKeepTheirOwnSkeletons(t *testing.T) {
 	one := handOver("", "zzother request", "user: zzother line one")
 	two := handOver("", "zzsecond request of more bytes", "")
 	three := handOver("", "zzthird request of more bytes!", "")
+	// The plain string sorts before the hand-overs, so a pairing that did
+	// not compare shapes would rebuild it.
+	const plainText = "0zz plain secret text"
 	ev := voiceFixture(t, map[string]any{"prompt": "made up", "odd": map[string]any{
-		"odd key one": one, "odd key two": "zzplain secret text", "odd key three": two, "odd key four": three,
+		"odd key one": one, "odd key two": plainText, "odd key three": two, "odd key four": three,
 	}})
 	odd, _ := ev["payload"].(map[string]any)
 	var shapes, plain []string
@@ -328,7 +331,7 @@ func TestHandOversUnderOddKeysKeepTheirOwnSkeletons(t *testing.T) {
 	}
 	slices.Sort(shapes)
 	slices.Sort(want)
-	if !slices.Equal(shapes, want) || len(plain) != 1 || len(plain[0]) != len("zzplain secret text") || strings.HasPrefix(plain[0], "<") {
+	if !slices.Equal(shapes, want) || len(plain) != 1 || len(plain[0]) != len(plainText) || strings.HasPrefix(plain[0], "<") {
 		t.Errorf("the fixture's hand-overs %v, want %v; plain strings %q", shapes, want, plain)
 	}
 }
