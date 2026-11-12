@@ -223,9 +223,11 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 	if !slices.Equal(sources, []string{hostfacts.TailFlush}) {
 		t.Errorf("the rows' sources in the fixture: %v", sources)
 	}
-	// One recording and one seed give one set of fixtures, byte for byte.
-	var seeded []string
-	for range 2 {
+	// One recording and one seed give one set of fixtures, byte for byte,
+	// however often they are written: a draw in a map's order would give
+	// several.
+	seeded := map[string]bool{}
+	for range 8 {
 		out := t.TempDir()
 		if _, err := hostfacts.WriteFixtures(hostfacts.FixtureOptions{Rec: h.rec, Out: out, Seed: []byte("one made-up seed")}); err != nil {
 			t.Fatal(err)
@@ -234,10 +236,10 @@ func TestFixturesOfAVoiceCall(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		seeded = append(seeded, string(b))
+		seeded[string(b)] = true
 	}
-	if seeded[0] != seeded[1] {
-		t.Error("one seed gave two sets of fixtures")
+	if len(seeded) != 1 {
+		t.Error("one seed gave more than one set of fixtures")
 	}
 	// One line's recorded text put back.
 	made := textOf[s[3].Text]
