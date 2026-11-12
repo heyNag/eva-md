@@ -388,8 +388,10 @@ func TestTheRunBooksCommandsRun(t *testing.T) {
 	if fingerprint == "" {
 		t.Error("push showed no fingerprint")
 	}
-	// The fingerprint was shown on screen only.
-	for _, bad := range []string{"hfeval", "hf eval home", strings.ToLower(h.home), "git.madeup-forge.test", fakeOther.Short, strings.ToLower(fingerprint)} {
+	// The fingerprint was shown on screen only, and scan's answers are
+	// kept nowhere.
+	for _, bad := range []string{"hfeval", "hf eval home", strings.ToLower(h.home), "git.madeup-forge.test", fakeOther.Short, strings.ToLower(fingerprint),
+		"made.up.owner@madeup-mail.net", "quinn realname", "orchardco"} {
 		if strings.Contains(all, bad) {
 			t.Errorf("the recording holds %q", bad)
 		}
