@@ -48,6 +48,11 @@ type Event struct {
 	Answer        string            `json:"answer,omitempty"`
 	RootExpanded  *bool             `json:"root_expanded,omitempty"`
 	Cut           []string          `json:"cut,omitempty"`
+
+	// Voice is the skeleton of each of the payload's strings that is in
+	// the form of a voice hand-over, by field path: fixtures, which run
+	// without the key, rebuild the string from it alone.
+	Voice map[string]*Voice `json:"voice,omitempty"`
 }
 
 // Proc is the hook's process: its parent's name, whether that is a login
@@ -97,11 +102,16 @@ type OutputLine struct {
 	Result  map[string]any `json:"result"`
 }
 
-// ErrorLine is a line of errors.jsonl.
+// ErrorLine is a line of errors.jsonl. A hook's line names its host, its
+// event and the hook declared beside the recorder's own, when those were
+// read, so a hook that kept no event can be told from its siblings.
 type ErrorLine struct {
 	V     int    `json:"v"`
 	Wall  string `json:"wall"`
 	Where string `json:"where"`
+	Host  string `json:"host,omitempty"`
+	Event string `json:"event,omitempty"`
+	Via   string `json:"via,omitempty"`
 	Error string `json:"error"`
 }
 
@@ -158,7 +168,7 @@ func Clashes(r *Replacer) []string {
 func FormatWord(s string) bool {
 	formatOnce.Do(func() {
 		formatWords = map[string]bool{}
-		for _, v := range []any{Event{}, Proc{}, GitShape{}, MarkLine{}, NoteLine{}, OutputLine{}, ErrorLine{}, FixtureMeta{}, Snapshot{}, Row{}, Field{}, Presence{}} {
+		for _, v := range []any{Event{}, Proc{}, GitShape{}, MarkLine{}, NoteLine{}, OutputLine{}, ErrorLine{}, FixtureMeta{}, Snapshot{}, Row{}, Field{}, Presence{}, Voice{}, VoiceSource{}, VoiceField{}, VoiceTranscript{}, TranscriptLine{}} {
 			t := reflect.TypeOf(v)
 			for i := 0; i < t.NumField(); i++ {
 				if name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ","); name != "" && name != "-" {

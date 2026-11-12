@@ -188,7 +188,7 @@ func warnClashes(c *cli, r *hostfacts.Replacer) int {
 	c.say("WARNING: %s that the recording must keep %s also a name on this machine, and would be replaced wherever it stands alone:",
 		plural(len(clashes), "word", "words"), map[bool]string{true: "is", false: "are"}[len(clashes) == 1])
 	c.say("  %s", strings.Join(clashes, ", "))
-	c.say("The facts that read these words would be lost. Tell the lead before sitting 0.")
+	c.say("The facts that read these words would be lost. Tell the lead before the next step.")
 	return len(clashes)
 }
 

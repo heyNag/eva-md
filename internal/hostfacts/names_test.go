@@ -109,6 +109,30 @@ func TestClashes(t *testing.T) {
 	}
 }
 
+// The longest name is taken first whatever order the names are added in:
+// here an account's short name is added before the computer's name that
+// holds it, and the evaluation account's before the scratch remote's path
+// that holds it, so a replacer that took names in the order given would
+// leave part of each longer name in place.
+func TestReplacerTakesTheLongestNameFirst(t *testing.T) {
+	n := Names{
+		Eval:     Account{Short: "plumtest"},
+		Others:   []Account{{Short: "orchard"}},
+		Computer: []string{"orchard-mac"},
+		Remote:   &Remote{Address: "git@git.madeup-forge.test:pears/plumtest-tools.git", Host: "git.madeup-forge.test", Namespace: "pears", Path: "pears/plumtest-tools"},
+	}
+	r := NewReplacer(n)
+	for in, want := range map[string]string{
+		"on orchard-mac.":             "on COMPUTER-NAME.",
+		"at pears/plumtest-tools now": "at REMOTE-PATH now",
+		"orchard and plumtest":        "OTHER-USER and EVAL-USER",
+	} {
+		if got := r.String(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestHashIsKeyed(t *testing.T) {
 	a, b := Hash([]byte("key one"), "plum"), Hash([]byte("key two"), "plum")
 	if a == b || len(a) != 16 || a != Hash([]byte("key one"), "plum") {

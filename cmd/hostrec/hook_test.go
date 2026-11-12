@@ -142,8 +142,12 @@ func TestTheHookKeepsASessionAndNothingOfItsText(t *testing.T) {
 	if g, _ := events[1]["git"].(map[string]any); g == nil || g["repo"] != true || g["common"] != "own" || g["detached"] != nil {
 		t.Errorf("the git shape: %v", events[1]["git"])
 	}
-	// The planted sentence and the model's name are nowhere but inside the
-	// payloads that carried them.
+	// The planted sentence is nowhere but inside the payloads that carried
+	// it, and the model's name is nowhere at all: a payload keeps it as its
+	// keyed hash.
+	if strings.Contains(h.recFiles(t)[hostfacts.EventsFile], madeUpModelID) {
+		t.Error("a payload holds the model's name")
+	}
 	for name, text := range h.recFiles(t) {
 		if name == hostfacts.EventsFile {
 			continue
@@ -326,10 +330,14 @@ func TestTheHookKeepsTheValuesTheCoreFactsRead(t *testing.T) {
 // Every scratch hook ends well inside the limit its plugin declares: its
 // budget is half that limit at most, its wait for the lock a third of its
 // budget, and only the recorder's own SessionStart hook, whose limit is
-// long, adds the start word's pause. Codex's Interrupt, declared at one
-// second, ends in half of one.
+// long, adds the start word's pause, in the deadline main sets for it.
+// Codex's Interrupt, declared at one second, ends in half of one.
 func TestEveryHookEndsWellInsideItsLimit(t *testing.T) {
 	tools := "/made/up/hf-tools"
+	// The start word's pause as a sitting has it, which TestMain sets to
+	// nothing; no test runs beside this one.
+	startPause = startWordPause
+	t.Cleanup(func() { startPause = 0 })
 	n := 0
 	for host, hooks := range map[string]map[string]any{hostClaude: claudeHooks(tools), hostCodex: codexHooks(tools)} {
 		for event, groups := range hooks["hooks"].(map[string]any) {
@@ -351,9 +359,16 @@ func TestEveryHookEndsWellInsideItsLimit(t *testing.T) {
 						t.Errorf("%s %s %s: the hook takes its limit as %v, the plugin declares %v", host, event, via, got, limit)
 					}
 					budget := budgetFor(host, event, via)
-					end := budget
+					// The deadline main sets, with the start word's pause
+					// as a sitting has it: only the recorder's own
+					// SessionStart hook waits it.
+					end := mainDeadline([]string{"--host", host, "--event", event, "--via", via})
+					want := budget
 					if event == "SessionStart" && via == "" {
-						end += startWordPause
+						want += startWordPause
+					}
+					if end != want {
+						t.Errorf("%s %s %s: main ends the hook at %v, want %v", host, event, via, end, want)
 					}
 					if budget > limit/2 || end >= limit || lockShare(budget) >= budget {
 						t.Errorf("%s %s %s: budget %v, end %v, lock wait %v, for a limit of %v", host, event, via, budget, end, lockShare(budget), limit)

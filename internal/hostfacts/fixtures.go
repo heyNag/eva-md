@@ -20,11 +20,27 @@ import (
 
 // xform walks one line of a recording and gives each key and value to the
 // callback its role names: a string, a field path, or a number. Words on the
-// vocabulary and the recorder's own words are passed through.
+// vocabulary and the recorder's own words are passed through, and so are
+// the numbers of a voice hand-over's skeleton: they are the byte lengths
+// of the parts of a hand-over, which the hand-over a fixture rebuilds
+// beside its skeleton shows all the same, and a reader of the fixture
+// reads them as they were recorded, a row's hand-over that no payload
+// holds too.
 type xform struct {
 	str  func(s string) string
 	path func(s string) string
 	num  func(n json.Number, key string) json.Number
+	// inner is set below a line's top, rec inside its record, and skel
+	// inside a skeleton or an event's map of them.
+	inner, rec, skel bool
+}
+
+// skeletonAt reports the value under k, in a map under key, which is under
+// parent, as a skeleton or an event's map of them: the event's own
+// "voice", at the line's top, or the "voice" of a field of a row of its
+// record, never a payload's.
+func (x xform) skeletonAt(k, key, parent string) bool {
+	return k == "voice" && (!x.inner || x.rec && key == "fields" && parent == "rows")
 }
 
 func (x xform) value(v any, key, parent string) any {
@@ -35,12 +51,16 @@ func (x xform) value(v any, key, parent string) any {
 			e := t[k]
 			nk := k
 			switch {
-			case key == "payload_hashes":
+			case key == "payload_hashes" || x.skel && key == "voice" && parent == "":
 				nk = x.path(k)
 			case !kept(k):
 				nk = x.str(k)
 			}
-			out[nk] = x.value(e, k, key)
+			cx := x
+			cx.skel = x.skel || x.skeletonAt(k, key, parent)
+			cx.rec = x.rec || !x.inner && k == "record"
+			cx.inner = true
+			out[nk] = cx.value(e, k, key)
 		}
 		return out
 	case []any:
@@ -60,6 +80,9 @@ func (x xform) value(v any, key, parent string) any {
 		}
 		return x.str(t)
 	case json.Number:
+		if x.skel {
+			return t
+		}
 		return x.num(t, key)
 	}
 	return v
@@ -196,6 +219,7 @@ func WriteFixtures(opt FixtureOptions) (FixtureMeta, error) {
 			f.scanTimes(l)
 		}
 	}
+	f.voices(lines[EventsFile])
 	if err := os.MkdirAll(opt.Out, 0o755); err != nil {
 		return meta, err
 	}
@@ -527,6 +551,11 @@ func recordedValues(rec string) (forbidden, error) {
 				switch t := x.(type) {
 				case string:
 					addStr(t)
+					// A hand-over's parts are recorded values of their
+					// own: a spoken line put back is found by itself.
+					for _, p := range voiceParts(t) {
+						addStr(p)
+					}
 				case json.Number:
 					if digits := strings.TrimLeft(string(t), "-"); len(strings.SplitN(digits, ".", 2)[0]) >= 4 {
 						fb.nums[strings.SplitN(digits, ".", 2)[0]] = true
@@ -629,6 +658,171 @@ func InsideCheckout(path string) (bool, error) {
 		}
 		if filepath.Dir(dir) == dir {
 			return false, nil
+		}
+	}
+}
+
+// voices makes up, before any line is written, the text of every voice
+// hand-over of a recording's events, from the skeletons alone: a payload's
+// string with a skeleton becomes the hand-over rebuilt from it, and any
+// other payload string whose hash is a part's becomes that part's text,
+// wherever it stands. A payload's text is read only to know which value
+// stands where, never to make a value.
+func (f *faker) voices(events []any) {
+	// The payloads' parts are drawn first, in the order of the events and
+	// their paths, so the parts a fixture shows take the first draws for
+	// their lengths; then the rows', which a fixture shows only where a
+	// payload string has their hash.
+	vms := make([]map[string]*Voice, len(events))
+	var skels, rows []*Voice
+	for i, l := range events {
+		ev, _ := l.(map[string]any)
+		vms[i] = voiceMap(ev)
+		for _, p := range slices.Sorted(maps.Keys(vms[i])) {
+			skels = append(skels, vms[i][p])
+		}
+		walk(ev["record"], nil, func(path []string, x any) {
+			if n := len(path); n >= 3 && path[n-1] == "voice" && path[n-3] == "fields" {
+				if v, ok := decodeVoice(x); ok {
+					rows = append(rows, v)
+				}
+			}
+		})
+	}
+	if len(skels)+len(rows) == 0 {
+		return
+	}
+	texts, cuts := map[string]string{}, knownCuts(slices.Concat(skels, rows))
+	assignVoice(skels, cuts, texts, f.voiceDraw)
+	sources := map[*Voice]string{}
+	for _, v := range skels {
+		if v.Source != nil && v.Source.Value != TailFlush {
+			sources[v] = f.voiceDraw(v.Source.Len)
+		}
+	}
+	assignVoice(rows, cuts, texts, f.voiceDraw)
+	for i, l := range events {
+		ev, _ := l.(map[string]any)
+		vm := vms[i]
+		hashes, _ := ev["payload_hashes"].(map[string]any)
+		// Keys that are not key-shaped are hashed in a recorded path, so
+		// several of one object share one loose path: each string under
+		// it is kept, in order, with its own skeleton's shape when it has
+		// one.
+		values := map[string][]string{}
+		shapes := map[string]string{}
+		walk(ev["payload"], nil, func(path []string, x any) {
+			if s, ok := x.(string); ok {
+				lk := looseKeys(path)
+				if !slices.Contains(values[lk], s) {
+					values[lk] = append(values[lk], s)
+				}
+				if v, ok := VoiceOf(nil, s); ok {
+					shapes[s] = v.shape()
+				}
+			}
+		})
+		// A skeleton is paired with a string under its loose path whose
+		// own skeleton has its shape, in the order of the paths and of
+		// the strings, so one seed gives one set of fixtures; a string
+		// keeps the hand-over it was first given.
+		taken := map[string]bool{}
+		for _, p := range slices.Sorted(maps.Keys(vm)) {
+			v, lp := vm[p], loosePath(p)
+			for _, s := range slices.Sorted(slices.Values(values[lp])) {
+				if taken[lp+"\x00"+s] || shapes[s] != v.shape() {
+					continue
+				}
+				taken[lp+"\x00"+s] = true
+				if _, done := f.memo[s]; !done {
+					f.memo[s] = v.rebuild(texts, sources[v])
+				}
+				break
+			}
+		}
+		// A string whose hash is a part's takes the part's text, where its
+		// loose path names it alone.
+		for p, h := range hashes {
+			hash, _ := h.(string)
+			t, ok := texts[hash]
+			if _, voice := vm[p]; !ok || voice {
+				continue
+			}
+			if vals := values[loosePath(p)]; len(vals) == 1 {
+				if _, voice := shapes[vals[0]]; !voice {
+					f.memo[vals[0]] = t
+				}
+			}
+		}
+	}
+}
+
+// voiceMap gives an event's skeletons by payload path.
+func voiceMap(ev map[string]any) map[string]*Voice {
+	m, _ := ev["voice"].(map[string]any)
+	out := map[string]*Voice{}
+	for p, x := range m {
+		if v, ok := decodeVoice(x); ok {
+			out[p] = v
+		}
+	}
+	return out
+}
+
+func decodeVoice(x any) (*Voice, bool) {
+	if _, ok := x.(map[string]any); !ok {
+		return nil, false
+	}
+	data, err := json.Marshal(x)
+	if err != nil {
+		return nil, false
+	}
+	var v Voice
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, false
+	}
+	return &v, true
+}
+
+// loosePath writes a recorded field path with each hashed key as "#", and
+// looseKeys a decoded path the same way, so a payload's value is found by
+// its path without the key the hashes were made with.
+func loosePath(p string) string {
+	segs := strings.Split(p, ".")
+	for i, s := range segs {
+		if strings.HasPrefix(s, "#") {
+			segs[i] = "#"
+		}
+	}
+	return strings.Join(segs, ".")
+}
+
+func looseKeys(path []string) string {
+	segs := make([]string, len(path))
+	for i, s := range path {
+		segs[i] = s
+		if !keyShape.MatchString(s) && !isIndex(s) {
+			segs[i] = "#"
+		}
+	}
+	return strings.Join(segs, ".")
+}
+
+// voiceDraw makes up the text of a hand-over's part of n bytes, as whole
+// makes up a string: the next draw for its length that holds no recorded
+// value and, while one is left, that no other value took.
+func (f *faker) voiceDraw(n int) string {
+	key := voiceDrawKey + strconv.Itoa(n)
+	for try := 0; ; try++ {
+		k := f.next[key]
+		f.next[key]++
+		cand := madeVoice(f.seed, n, k)
+		if try < 1<<16 && f.forbid.holds(cand) {
+			continue
+		}
+		if !f.used[cand] || try >= maxDraws {
+			f.used[cand] = true
+			return cand
 		}
 	}
 }

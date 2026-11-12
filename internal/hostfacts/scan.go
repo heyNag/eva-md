@@ -103,8 +103,10 @@ func Scan(dir string, words []ScanWord, known Known) (ScanResult, error) {
 			for _, f := range finders {
 				// A word inside another word, as "tim" in "timestamp", is
 				// counted and not shown: the recorder replaced it nowhere,
-				// and scrub leaves it.
-				eachName(f.re, text, func(a, b int, word bool) bool {
+				// and scrub leaves it. A name joined to another word by an
+				// underscore or a digit, as in "tim_backup" or "tim2",
+				// which the recorder did not replace either, is shown.
+				eachNameAt(f.re, text, joinedEdge, func(a, b int, word bool) bool {
 					if word {
 						hit(f.kind, text[a:b])
 					} else {
@@ -192,9 +194,10 @@ func tokenShaped(s string) bool {
 
 // Scrub replaces every occurrence of text, in any case, in every file under
 // dir with one made-up value of the same shape, and gives how many it
-// replaced. As the recorder's names are, text is matched only where it
-// stands as a word of its own, so scrubbing a short word leaves the words
-// that hold it whole.
+// replaced. Text is matched where scan shows it: as a word of its own, or
+// joined to another word by an underscore or a digit, so scrubbing a short
+// word replaces it in "<word>_backup" and leaves the words that hold it,
+// as "timestamp" holds "tim", whole.
 func Scrub(dir, text string) (int, error) {
 	p := namePatternOf(text)
 	if p == "" {
@@ -219,7 +222,7 @@ func Scrub(dir, text string) (int, error) {
 		text := string(data)
 		var out strings.Builder
 		last, n := 0, 0
-		eachName(re, text, func(a, b int, word bool) bool {
+		eachNameAt(re, text, joinedEdge, func(a, b int, word bool) bool {
 			if word {
 				out.WriteString(text[last:a])
 				out.WriteString(made)

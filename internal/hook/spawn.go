@@ -13,26 +13,37 @@ import (
 	"github.com/heyNag/eva-md/internal/update"
 )
 
-// launch starts each eva-md command the hook asked for that is due (see
-// due), a catch-up's sweep only while it is due (see withSweep), once its
-// output is written, and never waits for one. A spawn that fails or panics
-// is ignored: the next trigger tries again.
-func launch(env Env, spawns [][]string) {
+// launch starts the jobs t's run asked for, once its output is written,
+// and never waits for one. It judges each, in the order asked, as due or
+// not (see due), a catch-up's sweep only while it is due (see withSweep),
+// runs the handlers at atLaunch on the jobs left, and starts each job they
+// leave. A run whose capture did not pass the guards, or did not return in
+// time, t nil, starts nothing. A spawn that fails or panics is ignored: the
+// next trigger tries again.
+func launch(env Env, t *turn) {
 	defer func() { _ = recover() }()
+	if t == nil || !t.guarded {
+		return
+	}
 	now := time.Now
 	if env.Now != nil {
 		now = env.Now
 	}
 	started := false
-	for _, args := range spawns {
-		if args = withSweep(env, args, now()); args == nil || !due(env, args, now(), &started) {
-			continue
+	var jobs []job
+	for _, j := range t.jobs {
+		if j.args = withSweep(env, j.args, now()); j.args != nil && due(env, j, now(), &started) {
+			jobs = append(jobs, j)
 		}
+	}
+	t.jobs = jobs
+	t.run(atLaunch)
+	for _, j := range t.jobs {
 		if env.spawn != nil {
-			env.spawn(args...)
+			env.spawn(j.args...)
 			continue
 		}
-		_ = detach(env.Dirs, now(), args...)
+		_ = j.detach(env.Dirs, now())
 	}
 }
 
@@ -42,12 +53,14 @@ func launch(env Env, spawns [][]string) {
 // and stderr appended to the day's update log, so it holds none of the
 // hook's pipes and the host sees the hook's output end when the hook exits;
 // and with the update package's allowlisted environment and EVA_MD_INNER=1,
-// which a maintain job extends with gitEnv. It starts the child and
-// releases it, never waiting. A share folder that is not an absolute path
-// starts nothing, so the binary is never looked up from the hook's folder.
-// An update's trigger goes only to the build this hook runs (see
-// sameBuild); any other gets the job without it, as every release takes it.
-func detach(dirs paths.Dirs, now time.Time, args ...string) error {
+// which a job that runs git extends with gitEnv (see jobEnv). It starts
+// the child and releases it, never waiting. A share folder that is not an
+// absolute path starts nothing, so the binary is never looked up from the
+// hook's folder. An update's trigger goes only to the build this hook runs
+// (see sameBuild); any other gets the job without it, as every release
+// takes it.
+func (j job) detach(dirs paths.Dirs, now time.Time) error {
+	args := j.args
 	if !filepath.IsAbs(dirs.Share) {
 		return errors.New("hook: eva-md is not installed")
 	}
@@ -66,13 +79,18 @@ func detach(dirs paths.Dirs, now time.Time, args ...string) error {
 	defer log.Close()
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = string(filepath.Separator)
-	cmd.Env = jobEnv(args)
+	cmd.Env = jobEnv(j)
 	cmd.Stdout, cmd.Stderr = log, log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// detach starts args as a job that runs no git (see job.detach).
+func detach(dirs paths.Dirs, now time.Time, args ...string) error {
+	return job{args: args}.detach(dirs, now)
 }
 
 // processStart is about when this process started: when the package was
@@ -126,17 +144,19 @@ func withoutTrigger(args []string) []string {
 	return slices.Delete(slices.Clone(args), i, i+2)
 }
 
-// gitEnv lists the variables a maintain job keeps beyond the update's
-// allowlist, so its git commit and push find the SSH agent, the user's git
-// config and GnuPG home, and an SSH command set for git: the user's own
-// signing and authentication, untouched. None holds a secret.
+// gitEnv lists the variables a job that runs git, as maintain's do, keeps
+// beyond the update's allowlist, so its git commit and push find the SSH
+// agent, the user's git config and GnuPG home, and an SSH command set for
+// git: the user's own signing and authentication, untouched. None holds a
+// secret.
 var gitEnv = []string{"SSH_AUTH_SOCK", "GNUPGHOME", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "XDG_CONFIG_HOME"}
 
 // jobEnv is the environment of a detached job: the update's allowlist, and
-// for maintain the variables of gitEnv this process has.
-func jobEnv(args []string) []string {
+// for a job whose git is set the variables of gitEnv this process has. An
+// argument list alone is a job that runs no git, whatever its first word.
+func jobEnv[J job | []string](j J) []string {
 	env := update.Environ(os.Environ())
-	if len(args) == 0 || args[0] != "maintain" {
+	if j, ok := any(j).(job); !ok || !j.git {
 		return env
 	}
 	for _, key := range gitEnv {

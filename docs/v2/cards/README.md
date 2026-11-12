@@ -34,7 +34,7 @@ Rules every card carries, so they are said once here:
 | [CT-3b](CT-3b.md) | Counters release: the capture audit pairs a session by its id too | merged |
 | [CT-4](CT-4.md) | Counters release: a content-free report | merged |
 | [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 merged: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; its allowlist and vocabulary are approved; Part 2 may come later |
-| [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | ready; merges before the owner's first sitting; it also keeps a model's name out of the recording and carries the notes of HF-00's verifier |
+| [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | merged; owed before the first fixture is committed: a strict read of a fixture's skeleton and two test cases |
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged; owed as a small follow-up of test files only: two more cases for the rule on a fork or thread put out alone |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | ready |
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | after DV-03a |
@@ -43,7 +43,7 @@ Rules every card carries, so they are said once here:
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | ready |
 | [EV-03b](EV-03b.md) | The pilot's driver | after EV-03a; the live run waits for the owner's leave, a ceiling and decision 28's keys |
 | [EV-03c](EV-03c.md) | The pilot's report and its README | after EV-03a; beside EV-03b |
-| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | ready after EV-14d; merges before DV-13 |
+| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | ready; merges before DV-13 |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
@@ -51,14 +51,14 @@ Rules every card carries, so they are said once here:
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | built, on a branch; in review since 2026-11-12 (redaction), and merges when its reviewers and a verifier pass it |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | ready |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
-| [SEAM-0b](SEAM-0b.md) | The hook's handler list | built, on a branch; in review since 2026-11-12 (it changes every hook), and merges when its reviewers and a verifier pass it |
+| [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | ready |
-| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | after DV-12a, SEAM-0b and CT-1 to CT-3 |
+| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | ready |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | ready |
 | [HO-12a](HO-12a.md) | Health's host names through the adapter | ready |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
-| [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b and SEAM-0b |
+| [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
 | [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | ready |
 | [DV-11b](DV-11b.md) | The runner's Codex backend | after DV-11a and HO-14; beside DV-11c |
@@ -79,7 +79,7 @@ Rules every card carries, so they are said once here:
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged; owed as test files only: one case for the second exemption's "still in force" |
 | [EV-14c](EV-14c.md) | Six new families, half held out | ready |
-| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | ready; before EV-10a |
+| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged; owed: no suite row from fewer than twelve pages |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | ready |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | after EV-17a |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
