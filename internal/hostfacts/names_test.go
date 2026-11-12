@@ -90,6 +90,25 @@ func TestReplacerTakesWholeWordsOnly(t *testing.T) {
 	}
 }
 
+// A name that is also a word the recording keeps is found before sitting
+// 0; a name inside such a word is not a clash.
+func TestClashes(t *testing.T) {
+	got := Clashes(NewReplacer(Names{Others: []Account{{Short: "user"}, {Short: "art"}}, Remote: &Remote{Namespace: "agent", Host: "forge.madeup.test", Path: "agent/hf-scratch-plum"}}))
+	for _, w := range []string{"user", "Agent"} {
+		if !slices.Contains(got, w) {
+			t.Errorf("Clashes lacks %q: %v", w, got)
+		}
+	}
+	for _, w := range got {
+		if strings.Contains(w, "Start") || w == "SessionStart" {
+			t.Errorf("Clashes holds %q, which a whole-word name does not change", w)
+		}
+	}
+	if got := Clashes(NewReplacer(Names{Eval: Account{Short: "hfevalmadeup", Full: "HF Eval Madeup", Home: "/Users/hfevalmadeup"}})); len(got) != 0 {
+		t.Errorf("Clashes of plain names: %v", got)
+	}
+}
+
 func TestHashIsKeyed(t *testing.T) {
 	a, b := Hash([]byte("key one"), "plum"), Hash([]byte("key two"), "plum")
 	if a == b || len(a) != 16 || a != Hash([]byte("key one"), "plum") {

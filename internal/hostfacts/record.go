@@ -2,6 +2,7 @@ package hostfacts
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 
@@ -126,6 +127,30 @@ var (
 	formatOnce  sync.Once
 	formatWords map[string]bool
 )
+
+// Clashes gives the words the recording must keep, a host's or its own,
+// that the replacer would change: a name of the machine's that is also
+// such a word, as an account named "user" or a group named "agent". Each
+// is replaced wherever it stands as a word of its own, so the facts that
+// read it are lost; setup and remote set warn of them before sitting 0.
+func Clashes(r *Replacer) []string {
+	FormatWord("")
+	words := map[string]bool{}
+	for _, w := range Vocab().Entries() {
+		words[w] = true
+	}
+	for w := range formatWords {
+		words[w] = true
+	}
+	var out []string
+	for w := range words {
+		if r.String(w) != w {
+			out = append(out, w)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
 
 // FormatWord reports a key or value of the recording's own format: a
 // field of its lines, a value it writes itself, a host's id, or a step of

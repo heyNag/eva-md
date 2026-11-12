@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -469,7 +470,7 @@ func TestTheRecorderRunsOnlyInAnEvaluationHome(t *testing.T) {
 			}
 			old := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
 			return os.Chtimes(p, old, old)
-		}, "session from before"},
+		}, "host's session already"},
 		{"an older Codex session", func(h *testHome) error {
 			p := filepath.Join(h.home, ".codex", "sessions", "2001", "02", "03", "rollout-made-up.jsonl")
 			if err := writeFile(h.home, ".codex/sessions/2001/02/03/rollout-made-up.jsonl", "{}\n"); err != nil {
@@ -477,7 +478,22 @@ func TestTheRecorderRunsOnlyInAnEvaluationHome(t *testing.T) {
 			}
 			old := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
 			return os.Chtimes(p, old, old)
-		}, "session from before"},
+		}, "host's session already"},
+		// A real home's sessions are all newer than the home: one written
+		// just now is refused as well.
+		{"a Claude Code session of today", func(h *testHome) error {
+			return writeFile(h.home, ".claude/projects/-made-up/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.jsonl", "{}\n")
+		}, "host's session already"},
+		{"an archived Codex session of today", func(h *testHome) error {
+			return writeFile(h.home, ".codex/archived_sessions/rollout-made-up.jsonl", "{}\n")
+		}, "host's session already"},
+		{"a recording folder inside a checkout", func(h *testHome) error {
+			if out, err := gitIn(h.home, "init", "-q", filepath.Join(h.home, "hf-src")); err != nil {
+				return fmt.Errorf("%v %s", err, out)
+			}
+			h.rec = filepath.Join(h.home, "hf-src", "hf-rec")
+			return nil
+		}, "inside a git checkout"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHome(t)
@@ -515,6 +531,25 @@ func TestTheRecorderRunsOnlyInAnEvaluationHome(t *testing.T) {
 	}
 	if code, _, errOut := h.run(t, "", "mark", "C-00"); code == 0 || !strings.Contains(errOut, "eva-md install or config") {
 		t.Errorf("mark with eva-md installed: %d %q", code, errOut)
+	}
+	// A home set up, in which a session from before setup turns up, is
+	// refused; a session made after setup is the sittings' own.
+	h = newHome(t)
+	h.setup(t)
+	if err := writeFile(h.home, ".claude/projects/-made-up/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.jsonl", "{}\n"); err != nil {
+		t.Fatal(err)
+	}
+	h.must(t, "", "mark", "C-00")
+	p := filepath.Join(h.home, ".codex", "sessions", "2001", "rollout-made-up.jsonl")
+	if err := writeFile(h.home, ".codex/sessions/2001/rollout-made-up.jsonl", "{}\n"); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := h.run(t, "", "mark", "C-01"); code == 0 || !strings.Contains(errOut, "from before hostrec setup") {
+		t.Errorf("mark with a session from before setup: %d %q", code, errOut)
 	}
 }
 

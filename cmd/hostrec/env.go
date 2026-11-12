@@ -46,8 +46,8 @@ var sharedDir = "/Users/Shared"
 type marker struct {
 	V   int    `json:"v"`
 	Rec string `json:"rec"`
-	// Made is when the evaluation account was made, as setup found it: a
-	// host's session from before it means a home that is not one.
+	// Made is when setup ran, in a home with no host's session: a session
+	// from before it means a home that is not an evaluation home.
 	Made string `json:"made"`
 }
 
@@ -109,8 +109,23 @@ func loadEnv() (*env, error) {
 }
 
 // homeChecks refuses a home that holds an eva-md install record or config,
-// or a host's session made before the account was.
+// or a host's session made before setup ran in it.
 func homeChecks(home string, made time.Time) error {
+	if err := evaCheck(home); err != nil {
+		return err
+	}
+	old, err := earlierSession(home, made)
+	if err != nil {
+		return err
+	}
+	if old {
+		return errors.New("this home holds a host's session from before hostrec setup ran in it, so it is not an evaluation home; nothing was done")
+	}
+	return nil
+}
+
+// evaCheck refuses a home that holds an eva-md install record or config.
+func evaCheck(home string) error {
 	dirs := paths.Dirs{
 		Config: filepath.Join(home, ".config", "eva-md"),
 		Share:  filepath.Join(home, ".local", "share", "eva-md"),
@@ -120,12 +135,23 @@ func homeChecks(home string, made time.Time) error {
 			return errors.New("this home holds an eva-md install or config, so it is not an evaluation home; nothing was done")
 		}
 	}
-	old, err := earlierSession(home, made)
+	return nil
+}
+
+// setupChecks are setup's checks: a new evaluation home holds no eva-md
+// install or config, and no host's session at all, since setup runs before
+// either host is signed in (step S0-05). A real home, whose sessions are
+// all newer than the home itself, is refused by its first session.
+func setupChecks(home string) error {
+	if err := evaCheck(home); err != nil {
+		return err
+	}
+	found, err := earlierSession(home, time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		return err
 	}
-	if old {
-		return errors.New("this home holds a host's session from before the account was made, so it is not an evaluation home; nothing was done")
+	if found {
+		return errors.New("this home holds a host's session already, so it is not a new evaluation home: setup runs before either host is signed in; nothing was done")
 	}
 	return nil
 }

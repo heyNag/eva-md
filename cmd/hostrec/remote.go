@@ -180,7 +180,8 @@ func cmdRemote(c *cli, args []string) int {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		c.say("could not delete %s: %v", pub, err)
 	}
-	_ = e.command("remote set", map[string]any{"stored": true, "deleted_public_half": deleted})
+	clashes := warnClashes(c, e.repl)
+	_ = e.command("remote set", map[string]any{"stored": true, "deleted_public_half": deleted, "clashes": clashes})
 	c.say("hostrec: stored the address in the private folder.")
 	if deleted {
 		c.say("Deleted %s. The address file stays; your own account deletes it in G-05.", pub)

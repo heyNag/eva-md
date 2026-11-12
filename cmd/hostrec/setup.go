@@ -87,13 +87,12 @@ func cmdSetup(c *cli, args []string) int {
 	if _, err := os.Lstat(filepath.Join(home, markerName)); err == nil {
 		return c.fail("this home is set up already; setup runs once")
 	}
-	info, err := os.Stat(home)
-	if err != nil {
+	made := time.Now()
+	if err := setupChecks(home); err != nil {
 		return c.fail("%v", err)
 	}
-	made := born(info)
-	if err := homeChecks(home, made); err != nil {
-		return c.fail("%v", err)
+	if inside, err := hostfacts.InsideCheckout(rec); err != nil || inside {
+		return c.fail("the recording folder %s is inside a git checkout; keep it outside any checkout, such as ~/hf-rec", rec)
 	}
 	if entries, err := os.ReadDir(rec); err == nil && len(entries) > 0 {
 		return c.fail("the recording folder %s is not empty", rec)
@@ -168,6 +167,7 @@ func cmdSetup(c *cli, args []string) int {
 	c.say("Made the recording folder %s, the private folder %s (never handed over),", rec, private)
 	c.say("the scratch folders under %s, and the scratch marketplaces under %s.", filepath.Join(home, scratchName), market)
 	c.say("Kept %s to replace in everything written to the recording.", plural(1+len(others)+len(names.Computer), "name of this machine", "names of this machine's accounts and computer"))
+	warnClashes(c, hostfacts.NewReplacer(names))
 	c.say("The hosts' commands that add the scratch plugins, which hostrec register runs:")
 	for _, host := range []string{hostClaude, hostCodex} {
 		for _, argv := range registerCommands(host, market) {
@@ -175,6 +175,21 @@ func cmdSetup(c *cli, args []string) int {
 		}
 	}
 	return 0
+}
+
+// warnClashes warns when a name the recording replaces is also a word it
+// must keep, a host's or its own, and gives how many there are. The words
+// are host words, never names, so they are shown.
+func warnClashes(c *cli, r *hostfacts.Replacer) int {
+	clashes := hostfacts.Clashes(r)
+	if len(clashes) == 0 {
+		return 0
+	}
+	c.say("WARNING: %s that the recording must keep %s also a name on this machine, and would be replaced wherever it stands alone:",
+		plural(len(clashes), "word", "words"), map[bool]string{true: "is", false: "are"}[len(clashes) == 1])
+	c.say("  %s", strings.Join(clashes, ", "))
+	c.say("The facts that read these words would be lost. Tell the lead before sitting 0.")
+	return len(clashes)
 }
 
 // writeScratch writes the scratch folders, and gives each repository its
