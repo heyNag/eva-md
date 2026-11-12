@@ -34,8 +34,8 @@ Rules every card carries, so they are said once here:
 | [CT-3b](CT-3b.md) | Counters release: the capture audit pairs a session by its id too | merged |
 | [CT-4](CT-4.md) | Counters release: a content-free report | merged |
 | [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 merged: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; its allowlist and vocabulary are approved; Part 2 may come later |
-| [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | merged; owed before the first fixture is committed: a strict read of a fixture's skeleton and two test cases |
-| [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged; owed as a small follow-up of test files only: two more cases for the rule on a fork or thread put out alone |
+| [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | merged |
+| [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | ready |
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | after DV-03a |
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b |
@@ -73,13 +73,13 @@ Rules every card carries, so they are said once here:
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | ready |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | merged; owed: a property that a pass keeps what a session file holds |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
-| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | built, on a branch; its review waits for room on the build machine |
+| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | merged; a card is owed for ST-03a's reading of a lock or a verified mark behind Unicode white space |
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
-| [ST-04](ST-04.md) | The migrator and the minimum reader version | built, on a branch; in review since 2026-11-12 |
+| [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
-| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged; owed as test files only: one case for the second exemption's "still in force" |
+| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
 | [EV-14c](EV-14c.md) | Six new families, half held out | ready |
-| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged; owed: no suite row from fewer than twelve pages |
+| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | ready |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | after EV-17a |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
