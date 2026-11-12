@@ -201,6 +201,13 @@ func TestOutcomes(t *testing.T) {
 		{name: "pasted text under the user's tag, beside a fact in force", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Cache entries for 5 minutes in Redis, KITE-5", src(1), src(6)))
 		}, item: score.Supports, metrics: func(m score.Metrics) bool { return m.Violations == 0 }},
+		// That context is a fact still in force: a fact that has ended,
+		// held in full beside the pasted value, spares nothing.
+		{name: "pasted text under the user's tag, beside a fact that has ended", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Use Go 1.26, GOV-1; use Redis", src(6), src(9)))
+		}, item: score.Violation, facts: map[string]string{"x4": "violation []", "g1": "stale_in_force []"}, metrics: func(m score.Metrics) bool {
+			return m.Violations == 1 && m.StaleInForce == 1
+		}},
 		{name: "a fact that ended on a dated line", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, score.Item{Kind: scenario.KindLog, State: score.StateLog, Authority: score.TagStated, Date: "2026-03-02", Text: "Used Go 1.26, GOV-1", Sources: []score.Source{src(9)}})
 		}, item: score.Supports, metrics: func(m score.Metrics) bool { return m.StaleInForce == 0 }},
@@ -463,6 +470,56 @@ func TestChain(t *testing.T) {
 		}
 		if got := r.Items[len(r.Items)-1].Outcome; got != want {
 			t.Errorf("%q is %s, want %s", tc.text, got, want)
+		}
+	}
+}
+
+// TestSharedValueOfAnotherClass: a value of a fact that ended is spared as
+// an item's context only when a fact still in force that its cited lines
+// plant has that value under the same class. "nightly" as how often the
+// tests ran, a schedule since corrected, is not "nightly" as a branch's
+// name: an item that holds the schedule beside the branch keeps the
+// schedule in force. Given as a phrase on both, the value is spared.
+func TestSharedValueOfAnotherClass(t *testing.T) {
+	for _, tc := range []struct {
+		class scenario.SlotClass // of the branch's name
+		item  score.Outcome
+		stale []string
+	}{
+		{scenario.SlotIdent, score.StaleInForce, []string{"n1"}},
+		{scenario.SlotPhrase, score.Supports, nil},
+	} {
+		sc := cases()
+		turns := &sc.Sessions[0].Turns
+		for i, text := range []string{"Run the tests nightly, HERON-1.", "Correction: run the tests hourly, HERON-2.", "Name the release branch nightly, JOB-3."} {
+			*turns = append(*turns, scenario.Turn{At: (*turns)[13].At.Add(time.Duration(i+1) * time.Minute), Author: event.AuthorTyped, Kind: event.KindPrompt,
+				Text: text, Plants: []string{"n" + strconv.Itoa(i+1)}})
+		}
+		decision := func(id, supersedes string, slots ...scenario.Slot) scenario.Fact {
+			return scenario.Fact{ID: id, Kinds: []scenario.Kind{scenario.KindDecision}, Authority: scenario.AuthorityUser, Must: scenario.MustStore,
+				Supersedes: supersedes, Slots: slots}
+		}
+		sc.Facts = append(sc.Facts,
+			decision("n1", "", scenario.Slot{Class: scenario.SlotIdent, Value: "HERON-1"}, scenario.Slot{Class: scenario.SlotPhrase, Value: "nightly"}),
+			decision("n2", "n1", scenario.Slot{Class: scenario.SlotIdent, Value: "HERON-2"}, scenario.Slot{Class: scenario.SlotPhrase, Value: "hourly"}),
+			decision("n3", "", scenario.Slot{Class: scenario.SlotIdent, Value: "JOB-3"}, scenario.Slot{Class: tc.class, Value: "nightly"}))
+		if err := sc.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		ex := score.Ideal(sc)
+		if bad := clean(sc, score.Score(sc, ex)); len(bad) != 0 {
+			t.Fatalf("the ideal store, the branch's name a %s: %v", tc.class, bad)
+		}
+		ex.Items = append(ex.Items, active(scenario.KindDecision, score.TagStated, "Run the tests nightly on the branch nightly, JOB-3", src(15), src(17)))
+		r := score.Score(sc, ex)
+		var stale []string
+		for _, fr := range r.Facts {
+			if fr.Outcome == score.StaleInForce {
+				stale = append(stale, fr.Fact)
+			}
+		}
+		if got := r.Items[len(r.Items)-1].Outcome; got != tc.item || !slices.Equal(stale, tc.stale) || r.Metrics.StaleInForce != len(tc.stale) {
+			t.Errorf("the branch's name a %s: the item is %s, kept in force %v, metrics %+v; want %s and %v", tc.class, got, stale, r.Metrics, tc.item, tc.stale)
 		}
 	}
 }
