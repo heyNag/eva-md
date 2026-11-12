@@ -179,6 +179,23 @@ func TestOutcomes(t *testing.T) {
 		{name: "a fact that ended kept in force", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Use Go 1.26, GOV-1", src(9)))
 		}, item: score.StaleInForce, facts: map[string]string{"g1": "stale_in_force []"}, metrics: func(m score.Metrics) bool { return m.StaleInForce == 1 && m.Dupes == 0 }},
+		// The fact that supersedes another ends it with no Until of its
+		// own, and an item that holds it in full names the old value as
+		// its history.
+		{name: "a correction that names the value it supersedes", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Use Go 1.27, GOV-2, not 1.26", src(9), src(10)))
+		}, item: score.Supports, metrics: func(m score.Metrics) bool { return m.StaleInForce == 0 && m.Violations == 0 }},
+		// Only a fact that must be stored and is still in force makes a
+		// pasted value an item's context: an instruction for the moment
+		// does not.
+		{name: "pasted text under the user's tag, beside an instruction for the moment", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindNext, score.TagStated, "Skip the lint, LINT-1; use Redis", src(6), src(7)))
+		}, item: score.Violation, facts: map[string]string{"x4": "violation []"}, metrics: func(m score.Metrics) bool { return m.Violations == 1 }},
+		// The known cost of that: an item that does take the pasted value
+		// beside a fact in force it holds in full is not counted.
+		{name: "pasted text under the user's tag, beside a fact in force", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "Cache entries for 5 minutes in Redis, KITE-5", src(1), src(6)))
+		}, item: score.Supports, metrics: func(m score.Metrics) bool { return m.Violations == 0 }},
 		{name: "a fact that ended on a dated line", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, score.Item{Kind: scenario.KindLog, State: score.StateLog, Authority: score.TagStated, Date: "2026-03-02", Text: "Used Go 1.26, GOV-1", Sources: []score.Source{src(9)}})
 		}, item: score.Supports, metrics: func(m score.Metrics) bool { return m.StaleInForce == 0 }},
@@ -382,6 +399,66 @@ func TestEndedBesideInForce(t *testing.T) {
 	}
 	if r.Facts[0].Outcome != score.StaleInForce || r.Metrics.StaleInForce != 1 {
 		t.Errorf("MARTIN-1 is %s, metrics %+v", r.Facts[0].Outcome, r.Metrics)
+	}
+}
+
+// TestChain: on a chain of corrections, an active item that holds in full
+// the fact that ended another keeps only the fact it holds in force when
+// that fact has itself ended, not the one it names as history.
+func TestChain(t *testing.T) {
+	sc := cases()
+	turns := &sc.Sessions[0].Turns
+	for i, text := range []string{"Use alpha for the queue, CH-1.", "Correction: use beta, CH-2.", "Correction: use gamma, CH-3."} {
+		*turns = append(*turns, scenario.Turn{At: (*turns)[13].At.Add(time.Duration(i+1) * time.Minute), Author: event.AuthorTyped, Kind: event.KindPrompt,
+			Text: text, Plants: []string{"c" + strconv.Itoa(i+1)}})
+	}
+	for i, v := range []string{"alpha", "beta", "gamma"} {
+		f := scenario.Fact{ID: "c" + strconv.Itoa(i+1), Kinds: []scenario.Kind{scenario.KindDecision}, Authority: scenario.AuthorityUser, Must: scenario.MustStore,
+			Slots: []scenario.Slot{{Class: scenario.SlotIdent, Value: "CH-" + strconv.Itoa(i+1)}, {Class: scenario.SlotPhrase, Value: v}}}
+		if i > 0 {
+			f.Supersedes = "c" + strconv.Itoa(i)
+		}
+		sc.Facts = append(sc.Facts, f)
+	}
+	if err := sc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		text  string
+		lines []int
+		stale []string
+	}{
+		{"Use gamma, CH-3", []int{17}, nil},
+		{"Use gamma, CH-3, not beta", []int{16, 17}, nil},
+		{"Use beta, CH-2", []int{16}, []string{"c2"}},
+		{"Use beta, CH-2, not alpha", []int{15, 16}, []string{"c2"}},
+		{"Use alpha, CH-1", []int{15}, []string{"c1"}},
+		{"Use alpha, CH-1, then beta", []int{15, 16}, []string{"c1", "c2"}},
+	} {
+		ex := base()
+		ex.Items = append(ex.Items, active(scenario.KindDecision, score.TagStated, "Use gamma, CH-3", src(17)))
+		var sources []score.Source
+		for _, l := range tc.lines {
+			sources = append(sources, src(l))
+		}
+		ex.Items = append(ex.Items, active(scenario.KindDecision, score.TagStated, tc.text, sources...))
+		r := score.Score(sc, ex)
+		var stale []string
+		for _, fr := range r.Facts {
+			if fr.Outcome == score.StaleInForce {
+				stale = append(stale, fr.Fact)
+			}
+		}
+		if !slices.Equal(stale, tc.stale) || r.Metrics.StaleInForce != len(tc.stale) {
+			t.Errorf("%q: kept in force %v, metrics %+v; want %v", tc.text, stale, r.Metrics, tc.stale)
+		}
+		want := score.Supports
+		if len(tc.stale) > 0 {
+			want = score.StaleInForce
+		}
+		if got := r.Items[len(r.Items)-1].Outcome; got != want {
+			t.Errorf("%q is %s, want %s", tc.text, got, want)
+		}
 	}
 }
 

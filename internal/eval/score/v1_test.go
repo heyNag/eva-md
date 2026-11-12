@@ -276,6 +276,9 @@ func TestV1History(t *testing.T) {
 		{"a replacement that names what it replaces", "v1.10", decision("Nix flakes replace the Ansible playbooks, TERN-7", "accepted", [2]int{0, 1}, [2]int{2, 2}), ""},
 		{"an acceptance that names the choice turned down", "v1.09", decision("Rotate logs weekly, DOTTEREL-W, not daily", "accepted", [2]int{0, 2}, [2]int{1, 1}), ""},
 		{"a decision that names the pasted claim it turns down", "v1.06", decision("Keep SQLite for now, AVOCET-1, not Postgres", "stated", [2]int{0, 1}, [2]int{0, 2}), ""},
+		// The known cost: value matching cannot read a negation, so one
+		// that takes the pasted claim beside the decision is not caught.
+		{"a decision beside the pasted claim it takes", "v1.06", decision("Use Postgres; keep SQLite for now, AVOCET-1", "stated", [2]int{0, 1}, [2]int{0, 2}), ""},
 		{"a next step kept after it was done", "v1.08", func(sc scenario.Scenario, p *threadpage.Page) {
 			p.Now.Next = append(p.Now.Next, item("Write the parser", "stated", ref(sc, 0, 1)))
 		}, "MARTIN-1"},

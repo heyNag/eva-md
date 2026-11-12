@@ -21,11 +21,20 @@
 // may be kept, only never under the user's tag or never as a rule, breaks
 // it when filed so; and an active item that holds a value of a fact that
 // ended, which no fact still in force that its cited lines plant holds,
-// keeps it in force. Value matching cannot read a negation, so the last
-// two spare an item that holds in full a fact still in force it cites: a
-// value of a pasted fact is then that item's context, and a value of an
-// ended fact is its history when the fact it holds is the one that ended
-// it, by superseding it or being planted where it ends.
+// keeps it in force. Value matching cannot read a negation, so the
+// pasted-fact tie and the last spare an item that holds another fact in
+// full. A value of a fact that may be kept, only never under the user's
+// tag, is that item's context when the fact it holds must be stored and is
+// still in force, as in "keep SQLite for now, AVOCET-1, not Postgres"; an
+// item that does take the pasted value beside such a fact, as "Use
+// Postgres; keep SQLite for now, AVOCET-1", is therefore not counted, and
+// fidelity.violations on a scenario with pasted text is a lower bound. A
+// value of an ended fact is an item's history when the fact it holds is
+// one that ended it, by superseding it or being planted where it ends,
+// whether or not that fact has ended in its turn: an item that holds a
+// correction that was itself corrected keeps that correction in force,
+// not what it corrected. A fact that may be kept, only never as a rule, is
+// never spared.
 //
 // Off the record is judged by citation, as every tie is: an item that
 // holds a value said off the record but cites only other lines is not
@@ -305,13 +314,18 @@ func (s *scorer) read(it Item) read {
 // says of the fact what an item holding all of them would. full are the
 // facts its cited lines plant whose every value it holds. Tied are: any
 // item that cites a fact said off the record; one that holds a value of a
-// fact that may be kept but only so, unless it holds in full a fact still
-// in force, whose item it is, so that the other value is its context, as
-// in "keep SQLite, not Postgres"; and an active item that holds a value of
-// a fact that ended which no fact still in force that its cited lines
-// plant holds, unless it holds in full a fact still in force that ended f,
-// by superseding it or being planted where f ends, as in "use EVA_MD_TOKEN,
-// corrected from EVA_TOKEN".
+// fact that may be kept, only never as a rule; one that holds a value of a
+// fact that may be kept, only never under the user's tag, unless it holds
+// in full a fact that must be stored and is still in force, whose item it
+// is, so that the other value is its context, as in "keep SQLite, not
+// Postgres" (an item that does take the pasted value beside such a fact,
+// as "Use Postgres; keep SQLite for now, AVOCET-1", is therefore not
+// counted); and an active item that holds a value of a fact that ended
+// which no fact still in force that its cited lines plant holds, unless it
+// holds in full a fact that ended f, by superseding it or being planted
+// where f ends, as in "use EVA_MD_TOKEN, corrected from EVA_TOKEN", even
+// one that has ended in its turn, which the item then keeps in force
+// itself.
 func (s *scorer) tied(it Item, r *read, f, held int, full []int) bool {
 	fact := s.sc.Facts[f]
 	switch fact.Must {
@@ -320,7 +334,7 @@ func (s *scorer) tied(it Item, r *read, f, held int, full []int) bool {
 	case scenario.MustNotWithAuthority:
 		return held > 0 && !slices.ContainsFunc(full, s.required)
 	case scenario.MustStore:
-		if !s.ended[f] || it.State != StateActive || slices.ContainsFunc(full, func(g int) bool { return s.required(g) && slices.Contains(s.enders[f], g) }) {
+		if !s.ended[f] || it.State != StateActive || slices.ContainsFunc(full, func(g int) bool { return slices.Contains(s.enders[f], g) }) {
 			return false
 		}
 		return slices.ContainsFunc(fact.Slots, func(sl scenario.Slot) bool {
