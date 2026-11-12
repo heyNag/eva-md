@@ -225,6 +225,11 @@ func TestOutcomes(t *testing.T) {
 		}, item: score.StaleInForce, facts: map[string]string{"g1": "stale_in_force []"}, metrics: func(m score.Metrics) bool {
 			return m.StaleInForce == 1 && m.WrongWrite == 0
 		}},
+		// Its one value is the acceptance's too, which is in force: it
+		// lacks the codename, and keeps nothing that ended in force.
+		{name: "an acceptance without its codename", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindDecision, score.TagAccepted, "Rotate logs weekly", src(12), src(13)))
+		}, item: score.ValueDropped, metrics: func(m score.Metrics) bool { return m.StaleInForce == 0 && m.WrongWrite == 1 }},
 		{name: "a fact that ended, retired with a wrong value", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, score.Item{Kind: scenario.KindDecision, State: score.StateRetired, Authority: score.TagStated, Text: "Use Go 1.25, GOV-1", Sources: []score.Source{src(9)}})
 		}, item: score.ValueWrong, metrics: func(m score.Metrics) bool { return m.WrongWrite == 0 && m.StaleInForce == 0 }},

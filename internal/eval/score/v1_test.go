@@ -215,6 +215,56 @@ func TestV1CannedAccountingPage(t *testing.T) {
 	}
 }
 
+// TestV1Paraphrases: on v1's port, what was said off the record, pasted or
+// replaced, stored in other words without its codename, is caught as what
+// it is, not as an ordinary wrong write.
+func TestV1Paraphrases(t *testing.T) {
+	ported := scenario.V1()
+	for _, tc := range []struct {
+		scenario int
+		spoil    func(sc scenario.Scenario, p *threadpage.Page)
+		check    func(score.Metrics) bool
+	}{
+		{0, func(sc scenario.Scenario, p *threadpage.Page) {
+			p.Now.Decisions = append(p.Now.Decisions, item("The budget is ninety-nine thousand", "stated", ref(sc, 0, 4)))
+		}, func(m score.Metrics) bool { return m.OTRStored == 1 && m.Violations == 1 && m.WrongWrite == 0 }},
+		{5, func(sc scenario.Scenario, p *threadpage.Page) {
+			p.Now.Decisions = append(p.Now.Decisions, item("We will use Postgres", "stated", ref(sc, 0, 1)))
+		}, func(m score.Metrics) bool { return m.Violations == 1 && m.WrongWrite == 0 }},
+		{3, func(sc scenario.Scenario, p *threadpage.Page) {
+			p.Now.Decisions = append(p.Now.Decisions, item("The token variable is EVA_TOKEN", "stated", ref(sc, 0, 1)))
+		}, func(m score.Metrics) bool { return m.StaleInForce == 1 && m.WrongWrite == 0 }},
+	} {
+		sc := ported[tc.scenario]
+		p := idealV1(sc)
+		tc.spoil(sc, &p)
+		if m := score.Score(sc, read(t, p)).Metrics; !tc.check(m) {
+			t.Errorf("%s: metrics %+v", sc.ID, m)
+		}
+	}
+}
+
+// TestV1Condition: CONDOR-8's condition holds with its quantity in any
+// form, and is dropped when its words stand outside the clause a marker
+// opens.
+func TestV1Condition(t *testing.T) {
+	sc := scenario.V1()[4]
+	for text, want := range map[string]score.Outcome{
+		"If BenchmarkBrief in scripts/benchmark.py passes 300ms, switch to the streaming parser, CONDOR-8":                   score.Holds,
+		"If BenchmarkBrief in scripts/benchmark.py passes 0.3 s, switch to the streaming parser, CONDOR-8":                   score.Holds,
+		"If the build fails, switch to the streaming parser; BenchmarkBrief in scripts/benchmark.py passes 300 ms, CONDOR-8": score.CondDropped,
+	} {
+		p := threadpage.Page{Now: threadpage.Now{Decisions: []threadpage.Item{item(text, "stated", ref(sc, 0, 1))}}}
+		r := score.Score(sc, read(t, p))
+		if r.Facts[0].Outcome != want {
+			t.Errorf("%q: CONDOR-8 is %s, want %s", text, r.Facts[0].Outcome, want)
+		}
+		if bad := clean(sc, r); want == score.Holds && len(bad) != 0 || want != score.Holds && r.Metrics.WrongWrite != 1 {
+			t.Errorf("%q: %v, metrics %+v", text, bad, r.Metrics)
+		}
+	}
+}
+
 // TestPlanGate is the plan's gate for EV-14, on v1's port: a page with a
 // wrong value, the correction's or the cache's, one with FROST-9's date
 // dropped, and one with an item added, citing nothing and again citing the

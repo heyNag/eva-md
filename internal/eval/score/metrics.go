@@ -38,10 +38,11 @@ type Metrics struct {
 	// StaleInForce counts facts that ended and that an active item keeps
 	// in force.
 	StaleInForce int `json:"stale_in_force"`
-	// Dupes counts active items that support a fact an earlier active item
-	// supports.
+	// Dupes counts active items that support, or are tied to, a fact an
+	// earlier active item supports or is tied to.
 	Dupes int `json:"dupes"`
-	// OTRStored counts items that hold a fact said off the record.
+	// OTRStored counts items that cite a line said off the record, in its
+	// words or in others.
 	OTRStored int `json:"otr_stored"`
 	// Violations counts items that break a fact's Must, those of OTRStored
 	// among them.

@@ -90,7 +90,8 @@ func TestHolds(t *testing.T) {
 		{"When the freeze ends on 2026-03-03, ship", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, true},
 		{"When the freeze ends on 2026-03-04, ship", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, false},
 		{"Ship when the tests pass, the docs build", scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass, the docs build"}, true},
-		{"Ship when the tests pass, then tag it. The docs build",scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass, the docs build"}, false},
+		{"Ship when the freeze ends on March 3, 2026, not before", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, true},
+		{"Ship when the tests pass, then tag it. The docs build", scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass, the docs build"}, false},
 		{"Keep it for now", scenario.Slot{Class: scenario.SlotLimit, Value: "for now"}, true},
 		{"Keep it now", scenario.Slot{Class: scenario.SlotLimit, Value: "for now"}, false},
 	} {

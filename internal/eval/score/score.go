@@ -15,7 +15,12 @@
 // something else wrong, which the result names. An item that holds only
 // some of a fact's values gives the fact and itself the worst of what it
 // lacks: a wrong value, then a dropped date, condition, limit or other
-// value.
+// value. Three ties need less than every value, and give the fact's own
+// verdict instead: an item that cites a line said off the record breaks
+// that fact's Must in any words; one that holds any value of a fact that
+// may be kept, only never under the user's tag or never as a rule, breaks
+// it when filed so; and an active item that holds a value of a fact that
+// ended, which no fact still in force holds, keeps it in force.
 package score
 
 import (
@@ -149,6 +154,7 @@ const (
 	violation                // it breaks the fact's Must
 )
 
+// support is a fact an item is tied to, and what the item says of it.
 type support struct {
 	fact     int
 	verdict  verdict
@@ -160,7 +166,7 @@ type read struct {
 	resolved bool            // it cites a line of the scenario
 	turns    []scenario.Turn // the turns behind the lines it cites
 	text     text
-	supports []support // the facts it holds every value of
+	supports []support // the facts it holds every value of, and its ties
 	partial  int       // when it supports none: the fact it holds most of, or -1
 	lack     Outcome   // and the worst of what it lacks
 	cands    []int     // the facts its turns plant
@@ -250,6 +256,8 @@ func (s *scorer) read(it Item) read {
 		switch {
 		case lack == "":
 			r.supports = append(r.supports, support{fact: f})
+		case s.tied(it, r.text, f, held):
+			r.supports = append(r.supports, support{fact: f})
 		case r.partial < 0 || held > best:
 			r.partial, r.lack, best = f, lack, held
 		}
@@ -258,6 +266,27 @@ func (s *scorer) read(it Item) read {
 		r.partial, r.lack = -1, ""
 	}
 	return r
+}
+
+// tied reports whether an item that cites the line planting fact f, and
+// holds held of its values but not all, is still tied to it, so that it
+// says of the fact what an item holding all of them would: any item that
+// cites a fact said off the record; one that holds a value of a fact that
+// may be kept but only so; and an active item that holds a value of a fact
+// that ended which no fact still in force holds.
+func (s *scorer) tied(it Item, t text, f, held int) bool {
+	fact := s.sc.Facts[f]
+	switch fact.Must {
+	case scenario.MustNotStore:
+		return true
+	case scenario.MustStore:
+		return s.ended[f] && it.State == StateActive && slices.ContainsFunc(fact.Slots, func(sl scenario.Slot) bool {
+			return t.holds(sl) && !slices.ContainsFunc(s.sc.Facts, func(g scenario.Fact) bool {
+				return s.required(s.index[g.ID]) && hasSlot(g, sl)
+			})
+		})
+	}
+	return held > 0
 }
 
 // match counts the slots of f the text holds and gives the worst outcome of
@@ -296,20 +325,20 @@ func (s *scorer) judge(it Item, r *read) {
 	if r.outcome == Unscored {
 		return
 	}
-	for i := range r.supports {
-		r.supports[i].verdict, r.supports[i].problems = s.verdict(it, r, r.supports[i].fact)
+	for i, sp := range r.supports {
+		r.supports[i].verdict, r.supports[i].problems = s.verdict(it, r, sp)
 	}
 	switch {
 	case !r.resolved:
 		r.outcome = Unsupported
 	case len(r.cands) == 0:
 		r.outcome = Noise
-	case len(r.supports) == 0:
-		r.outcome = r.lack
 	case r.has(violation):
 		r.outcome = Violation
 	case r.has(stale):
 		r.outcome = StaleInForce
+	case len(r.supports) == 0:
+		r.outcome = r.lack
 	case r.has(holds) || r.has(history):
 		r.outcome = Supports
 	default:
@@ -321,8 +350,10 @@ func (r read) has(v verdict) bool {
 	return slices.ContainsFunc(r.supports, func(sp support) bool { return sp.verdict == v })
 }
 
-// verdict is what item it, which supports fact f, says of it.
-func (s *scorer) verdict(it Item, r *read, f int) (verdict, []Problem) {
+// verdict is what item it, which supports or is tied to a fact, says of
+// it.
+func (s *scorer) verdict(it Item, r *read, sp support) (verdict, []Problem) {
+	f := sp.fact
 	fact := s.sc.Facts[f]
 	switch fact.Must {
 	case scenario.MustNotStore:
@@ -386,19 +417,19 @@ func (s *scorer) carriedOn(r *read, f int) bool {
 	return false
 }
 
-// covers reports whether every slot of f is a slot of g, by class and by
-// a value or form in common.
+// covers reports whether every slot of f is a slot of g.
 func covers(g, f scenario.Fact) bool {
-	for _, fs := range f.Slots {
-		if !slices.ContainsFunc(g.Slots, func(gs scenario.Slot) bool {
-			return gs.Class == fs.Class && slices.ContainsFunc(literals(gs), func(a string) bool {
-				return slices.ContainsFunc(literals(fs), func(b string) bool { return slices.Equal(words(a), words(b)) })
-			})
-		}) {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(f.Slots, func(fs scenario.Slot) bool { return !hasSlot(g, fs) })
+}
+
+// hasSlot reports whether slot sl is a slot of g, by class and by a value
+// or form in common.
+func hasSlot(g scenario.Fact, sl scenario.Slot) bool {
+	return slices.ContainsFunc(g.Slots, func(gs scenario.Slot) bool {
+		return gs.Class == sl.Class && slices.ContainsFunc(literals(gs), func(a string) bool {
+			return slices.ContainsFunc(literals(sl), func(b string) bool { return slices.Equal(words(a), words(b)) })
+		})
+	})
 }
 
 // tiedFacts are the ids of the facts an item is tied to.
