@@ -68,7 +68,7 @@ Rules every card carries, so they are said once here:
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
 | [EV-11](EV-11.md) | Ownership and size checks | building since 2026-11-11 |
-| [IF-01a](IF-01a.md) | The contract matrix and its check | merged; the lead's rulings on its eleven open needs follow in the matrix |
+| [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
 | [IF-01b](IF-01b.md) | The reader's fake | building since 2026-11-11 |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | after IF-01a, ST-02 and DL-04 |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | building since 2026-11-11 |

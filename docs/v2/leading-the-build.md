@@ -68,6 +68,7 @@ Each of these happened. Items 3 to 8 and 11 are now rules in `AGENTS.md` or in a
 - `AGENTS.md` and `README.md`, beyond the lines a card names for its builder.
 - The merge: the commit on `main`, its message, and CI's result after it.
 - The stored latency baseline, taken from a pass of CI's own job, and the count of passes toward the twenty with no fail between them that make the gate blocking, kept in [baselines/README.md](baselines/README.md). A change to the gate's rule starts that count again.
+- The contract matrix's rulings. [contract-matrix-rulings.md](contract-matrix-rulings.md) holds each with the exact words the plan takes from it. The plan changes only at a stage gate, so the lead writes those words into the plan at the Stage 0 readout, and until then a card for a package a ruling concerns is written from the record.
 - Telling the owner, in plain words, what was measured, what it changed and what is asked of them next.
 
 ## What is the owner's alone
