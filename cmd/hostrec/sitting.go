@@ -29,6 +29,13 @@ func cmdMark(c *cli, args []string) int {
 	if e == nil {
 		return code
 	}
+	// The versions are read before the lock is taken: a host CLI may take
+	// a while to answer, and a hook that waits past lockWait for the lock
+	// keeps nothing.
+	versions := map[string]string{}
+	for host, name := range hostCLIs {
+		versions[host] = hostVersion(name)
+	}
 	unlock, err := e.lock()
 	if err != nil {
 		return c.fail("%v", err)
@@ -41,10 +48,6 @@ func cmdMark(c *cli, args []string) int {
 	opened := !st.Open
 	now := time.Now()
 	_, offset := now.Zone()
-	versions := map[string]string{}
-	for host, name := range hostCLIs {
-		versions[host] = hostVersion(name)
-	}
 	if err := e.line(hostfacts.MarksFile, hostfacts.MarkLine{
 		V: 1, Kind: "mark", Mark: step, Wall: now.UTC().Format(time.RFC3339Nano), MonoNS: nanotime(), UTCOffsetS: offset, Versions: versions,
 	}); err != nil {

@@ -292,6 +292,12 @@ func TestTheHandOver(t *testing.T) {
 	if code, _, _ := h.run(t, "", "pack", h.home); code == 0 {
 		t.Error("pack took a folder holding the private folder")
 	}
+	if code, _, _ := h.run(t, "", "pack", h.rec, "--to", h.rec); code == 0 {
+		t.Error("pack wrote the archive inside the folder it packs")
+	}
+	if _, err := os.Stat(filepath.Join(h.rec, "hf-rec.tar.gz")); !os.IsNotExist(err) {
+		t.Errorf("a refused pack left an archive in the recording: %v", err)
+	}
 	h.must(t, "", "pack", "--clean")
 	for _, p := range []string{archive, archive + ".sha256"} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {

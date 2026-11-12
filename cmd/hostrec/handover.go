@@ -202,6 +202,12 @@ func cmdPack(c *cli, args []string) int {
 	if to == "" {
 		to = sharedDir
 	}
+	if to, err = filepath.Abs(to); err != nil {
+		return c.fail("%v", err)
+	}
+	if within(dir, to) {
+		return c.fail("the archive would be written inside the folder it packs; give --to another folder")
+	}
 	base := filepath.Base(dir)
 	archive := filepath.Join(to, base+".tar.gz")
 	sum := archive + ".sha256"
