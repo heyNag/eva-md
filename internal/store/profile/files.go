@@ -189,7 +189,9 @@ func (c *checker) file(l loc) {
 func (c *checker) frontmatter(d *doc) {
 	seen := map[string]bool{}
 	mayProtect := slices.Contains([]string{"item-file", "workstream-file", "system-page"}, d.loc.class)
-	carried := false
+	// Which marks an entry's fault has named: an unknown key or a merge is
+	// faulted once, under locked, and names both.
+	var carriedLocked, carriedVerified bool
 	for _, e := range d.entries {
 		if namesLibrary(e.Key) {
 			c.fault(d.path, e.Key, "name", "a key names the library")
@@ -201,7 +203,8 @@ func (c *checker) frontmatter(d *doc) {
 					rule = "locked"
 				}
 				c.fault(d.path, e.Key, rule, "only items, workstreams and system pages may carry it")
-				carried = true
+				carriedLocked = carriedLocked || e.Key != "verified"
+				carriedVerified = carriedVerified || e.Key != "locked"
 			}
 			if e.Key == "verified" && e.Written {
 				checkVerified(c, d, e)
@@ -221,13 +224,12 @@ func (c *checker) frontmatter(d *doc) {
 	}
 	// A mark on no entry the codec reads as the key, such as "locked:false"
 	// or a line with a tab before its key, still protects, and is still
-	// carried.
-	if !mayProtect && !carried && (d.prot.Locked || d.prot.Verified) {
-		rule := "locked"
-		if !d.prot.Locked {
-			rule = "verified"
-		}
-		c.fault(d.path, rule, rule, "only items, workstreams and system pages may carry it")
+	// carried: each mark no entry's fault named has a fault of its own.
+	if !mayProtect && d.prot.Locked && !carriedLocked {
+		c.fault(d.path, "locked", "locked", "only items, workstreams and system pages may carry it")
+	}
+	if !mayProtect && d.prot.Verified && !carriedVerified {
+		c.fault(d.path, "verified", "verified", "only items, workstreams and system pages may carry it")
 	}
 	if d.hand || d.loc.class == "system-page" {
 		return
