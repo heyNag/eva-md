@@ -38,7 +38,7 @@ Rules every card carries, so they are said once here:
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged; owed as a small follow-up of test files only: two more cases for the rule on a fork or thread put out alone |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | ready |
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | after DV-03a |
-| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b and EV-14b |
+| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | ready |
 | [EV-03b](EV-03b.md) | The pilot's driver | after EV-03a; the live run waits for the owner's leave, a ceiling and decision 28's keys |
@@ -77,9 +77,9 @@ Rules every card carries, so they are said once here:
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | built, on a branch; in review since 2026-11-12 |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
-| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | built and fixed, on a branch; its closing verification runs since 2026-11-12 |
-| [EV-14c](EV-14c.md) | Six new families, half held out | after EV-14a and EV-14b |
-| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | after EV-14a and EV-14b, before EV-10a |
+| [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged; owed as test files only: one case for the second exemption's "still in force" |
+| [EV-14c](EV-14c.md) | Six new families, half held out | ready |
+| [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | ready; before EV-10a |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | ready |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | after EV-17a |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
