@@ -112,26 +112,40 @@ separator: after a comparison the floor takes nothing, so every value there
 is in the gap shape.
 
 The oracle holds the bounds that `oracleBounds` lists, against the
-widenings it names and others like them, on the near cases it draws. A far
-side is sampled, not exhausted: where it is a set of characters or
-operators, the generator draws each mark that can stand there in turn, at
-the start, inside or at the end of a name where that matters, and an
-operator of a type with a blank on both sides, on one side and on neither,
-but with a few continuations and values only. Where it is a set of names,
-as a variable's prefix, a scope after `$` or a reference's scheme, it draws
-each word of a vocabulary of the names code and configuration give scopes
-and stores (`codeWords`) in turn, and random names besides: a widening to a
-name on neither, or to a name that shares 6 characters with a key or a
-marker, such as `secrets`, which no case can hold (see "Marks in a case's
-text"), is not seen. Each bound has 200 generated near cases at least
-(`TestOracleBoundsHaveNearCases` checks the count, so a shape that gains
-bounds needs a larger count in `genCounts`), and a bound whose far side is
-a vocabulary takes more turns of its generator (its weight). A widening of
-an exception in a way no near case stands for, as in a context the
-generator does not write, or a new condition in the code, is held only once
-it is listed there with near cases of its own. Each review of the oracle
-has found such widenings, and each is recorded as a widening of its bound,
-with a labelled near case it keeps.
+widenings it names and others like them, on the near cases it draws. Each
+near case's key is written as code and configuration write one: bare, in
+double or single quotes or with a tab before its separator, at the start of
+a line, indented, or after `{` or `, ` inside one. A far side is sampled,
+not exhausted: where it is a set of characters or operators, the generator
+draws each mark that can stand there in turn, at the start, inside or at
+the end of a name where that matters, and an operator of a type with a
+blank on both sides, on one side and on neither, but with a few
+continuations and values only. Where it is a set of names, as a variable's
+prefix, a scope after `$` or a reference's scheme, it draws each word of a
+vocabulary of the names code and configuration give scopes and stores
+(`codeWords`) in turn, and random names. Each bound has 200 generated near
+cases at least (`TestOracleBoundsHaveNearCases` checks the count, so a
+shape that gains bounds needs a larger count in `genCounts`), and a bound
+whose far side is a vocabulary takes more turns of its generator (its
+weight). A widening of an exception in a way no near case stands for, as in
+a context the generator does not write, is held only once it is listed
+there with near cases of its own. Each review of the oracle has found such
+widenings, and each is recorded as a widening of its bound, with a labelled
+near case it keeps.
+
+A widening to one more name that is on no list, a prefix, a scope or a
+scheme, is not required to fail `TestOracle`: random names cannot be relied
+on to draw one exact name, and a name that shares 6 characters with a key
+or a marker, such as `secrets`, can stand in no case (see "Marks in a
+case's text"). Its guard is the tripwire, `TestOracleBoundsWidenRedactGo`:
+it holds a fingerprint of the source of every declaration the exceptions
+for code are made of (`exceptionSource` in `oracle_tripwire_test.go`), and
+fails on any change to one, in `redact.go`, `passwords.go` or any other file
+of the package, until a person writes the new fingerprint there. Whoever
+does adds, for what the change lets through, a near case labelled here and
+near cases its bound's generator draws, and the change as a widening of its
+bound; a new condition is a new bound. The switch stays off until the
+oracle holds the new shape.
 
 The switch `redaction_current_rules_only` keeps every secret in such a
 shape, which v1 removes. It stays off until a rule change has closed each of

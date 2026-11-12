@@ -75,6 +75,12 @@ password: '⟦op:Xk9m¦P2vLq7Rt⟧'
 === secret oracle_near_yaml_alias floor.opref: a reviewer's probe, another store's reference, vault://
 password: '⟦vault://Rk3¦Wp7Nc⟧'
 
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a reference of vals, ref+, which only the tripwire need see
+token = '⟦ref+Qw4e¦Rt7yUi9o⟧'
+
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a reference of bws://, which only the tripwire need see
+password: '⟦bws://Xk9m¦P2vLq7Rt⟧'
+
 === secret oracle_near_yaml_alias floor.undefined: the floor leaves alone the word undefined, in lower case and alone
 password: '⟦undefine¦d_Xk9mP2⟧'
 
@@ -108,6 +114,9 @@ password: '⟦*Velvet¦4Rocket⟧'                                              
 === secret oracle_near_yaml_alias alias.rest: an alias has nothing but blanks after it on its line
 password: '⟦*Summer¦2Winter⟧' # x
 
+=== secret oracle_near_yaml_alias alias.rest: an index after a blank after the alias
+password: '⟦*Maple4¦Garden⟧' [0]
+
 === secret oracle_near_name_index floor.variable: a variable, which the floor leaves alone as the baseline rules do, is $, self., config., os.environ. or process.env. and a name of letters, digits and '_' that starts with no digit
 password: '⟦$Xk9mP2¦+vLq7Rt⟧'
 
@@ -131,6 +140,15 @@ password: '⟦$Bt5Mw::¦Qk7Rz2⟧'
 
 === secret oracle_near_name_index floor.variable: a name between two '@', as a template's placeholder
 password: '⟦@Gk2Wp9¦Lv4Nd@⟧'
+
+=== secret oracle_near_name_index floor.variable: a reviewer's probe, a second '$' before the name
+password: '⟦$$Xk9mP¦2vLq7Rt⟧'
+
+=== secret oracle_near_name_index floor.variable: a mark that is no '$' alone before the name
+token: '⟦%Jd4Hs¦8Wq2Nc⟧'
+
+=== secret oracle_near_name_index floor.variable: a reviewer's probe, PowerShell's $using: scope, which only the tripwire need see
+password: '⟦$using:Xk9¦mP2vLq7⟧'
 
 === secret oracle_near_name_index floor.variable.prefix: a variable's prefix is $, self., config., os.environ. or process.env., or it is os.environ alone
 password: '⟦cfg.Xk9m¦P2vLq7Rt⟧'
@@ -156,8 +174,26 @@ password: '⟦vault.Dn6¦Fh2Ks⟧'
 === secret oracle_near_name_index floor.variable.prefix: a prefix of three names, Vite's import.meta.env.
 password: '⟦import.meta.env.¦Vx7⟧'
 
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, a capitalised name and env. before a name
+password: '⟦Qux.env.Xk¦9mP2vL⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, Bun.env., which only the tripwire need see
+password: '⟦Bun.env.Hv¦3Ns7Pc⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, Deno.env., which only the tripwire need see
+token = '⟦Deno.env.Wq¦4Tz8Kd⟧'
+
 === secret oracle_near_name_index index.opens: an index or a literal after the value opens with '[' or '{': no other bracket, such as '<', opens one
 password: '⟦harbor¦Lantern⟧'<x9>
+
+=== secret oracle_near_name_index index.opens: a reviewer's probe, a blank before the '['
+password: '⟦harbor¦Lantern⟧' [x9]
+
+=== secret oracle_near_name_index index.opens: a reviewer's probe, a blank before the '[' of a name of lower-case words
+token = '⟦silver_¦window⟧' [0]
+
+=== secret oracle_near_name_index index.opens: a tab before the '['
+password: '⟦copper¦Basket⟧'	[i]
 
 === secret oracle_near_name_index index.closes: brackets after the value close on its line, even where the line goes on to the next (the value rules read such a bracket as code)
 password: '⟦hunter¦Marble⟧'[x9,
@@ -214,6 +250,9 @@ password: '⟦harbor¦Candle⟧'[x9]:
 === secret oracle_near_name_index index.after: a '!' after the brackets, which the value rules read as code before a closing bracket
 token: '⟦amber¦Falcon⟧'[0]!)
 
+=== secret oracle_near_name_index index.after: a blank before the brackets, and a ':' after them
+password: '⟦walnut¦Candle⟧' [x9]:
+
 === secret oracle_near_name_index index.quoted.words: an index by a quoted name, which any value may have before it, holds a name of words
 api_key: '⟦Jd4Hs8¦Wq2Nc6⟧'["Qw3zR8"]
 
@@ -255,6 +294,12 @@ password: '⟦Lant¦ern42⟧'[0]
 
 === secret oracle_near_name_index index.name.words: a random name with a '_' inside
 password = '⟦Jt5m_K¦w2Pv8Rz⟧'[x9]
+
+=== secret oracle_near_name_index index.name.words: a reviewer's probe, a name of one word and digits after a key in double quotes
+"password": '⟦Summer¦2024⟧'[0]
+
+=== secret oracle_near_name_index index.name.words: a reviewer's probe, a name of one word and digits after a key in single quotes
+'token': '⟦Harbor¦1987⟧'[x]
 
 === secret oracle_near_name_index words.digits.count: a name of words has 4 digits at most after a word
 password: '⟦Summer12¦345Winter⟧'[0]

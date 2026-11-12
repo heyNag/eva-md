@@ -30,31 +30,43 @@ import (
 // those of its near secrets that stand where it widened, and TestOracle
 // fails on them.
 //
-// A far side is sampled, not exhausted. Where it is a set of characters or
-// operators, the generator draws each in turn from the printable marks that
-// can stand there, at the start, inside or at the end of a name where that
-// matters, and for the operators of a type from many operators of more than
-// one character too, each with a blank on both sides, on one side and on
-// neither (spaced), but each with a few continuations and values only; where
-// it is a set of names, as a variable's prefix, a scope after '$' or a
-// reference's scheme, it draws each word of codeWords in turn and random
-// names besides; for some bounds it draws from a short list of the shapes
-// code takes, as for the brackets of an index; where it is a length or a
-// count, it draws the lengths and counts just past the bound and some
-// beyond, and random names run to 40 characters. A widening that admits a
-// member only in a context no near case stands in, as after a continuation
-// the generator does not write, or a name on no list and drawn by no random
-// name, keeps nothing the oracle judges, and TestOracle takes it. A name
-// that shares 6 characters with a key or a marker, as secrets does, stands
-// in no case (checkCase), so a widening to it is not seen.
+// Every near case's line is keyLine's, or shellLine's where the bound is a
+// shell assignment's: a key bare, in double or single quotes or with a tab
+// before its separator, at the start of a line, indented, or after '{' or
+// ", " inside one. A far side is sampled, not exhausted. Where it is a set of
+// characters or operators, the generator draws each in turn from the
+// printable marks that can stand there, at the start, inside or at the end
+// of a name where that matters, and for the operators of a type from many
+// operators of more than one character too, each with a blank on both
+// sides, on one side and on neither (spaced), but each with a few
+// continuations and values only; where it is a set of names, as a
+// variable's prefix, a scope after '$' or a reference's scheme, it draws
+// each word of codeWords in turn and random names, as its comment says; for
+// some bounds it draws from a short list of the shapes code takes, as for
+// the brackets of an index; where it is a length or a count, it draws the
+// lengths and counts just past the bound and some beyond, and random names
+// run to 40 characters. A widening that admits a member only in a context no
+// near case stands in, as after a continuation the generator does not
+// write, keeps nothing the oracle judges, and TestOracle takes it.
+//
+// A widening to one more name that is on no list, a prefix, a scope or a
+// scheme, is not required to fail TestOracle: random names cannot be relied
+// on to draw one exact name, and a name that shares 6 characters with a key
+// or a marker, as secrets does, stands in no case (checkCase). The tripwire,
+// TestOracleBoundsWidenRedactGo, is its guard: it fails on any change to the
+// source of the exceptions (see exceptionSource), and whoever then updates
+// its fingerprint adds near cases, labelled and generated, for what the
+// change lets through; the switch stays off until the oracle holds the new
+// shape. Such widenings that reviewers made are listed in named.
 //
 // TestOracleBoundsHaveNearCases fails when a bound has no near case, labelled
 // or generated, or a near case names no bound. Each bound also says how to
 // widen redact.go past it alone (widen): TestOracleBoundsWidenRedactGo checks
-// that each such change still applies, so a change to an exception's code
-// shows which bounds to look at again, and TestOracleHoldsEachBound, run
-// with -args -widen-bounds, makes each change in turn with go test -overlay
-// and checks that TestOracle fails on that bound's own near cases.
+// that each such change still applies, and TestOracleHoldsEachBound, run
+// with -args -widen-bounds, makes each change of widen and more in turn with
+// go test -overlay and checks that TestOracle fails on that bound's own near
+// cases. TestOracleTripwireSeesEveryWidening checks that each of them, and
+// each of named, changes the tripwire's fingerprint.
 //
 // Conditions that are no bound a secret can cross, so have no near case:
 //   - floorValue's markerStart and looksLikePlaceholder's <...>: a value the
@@ -136,6 +148,12 @@ type oracleBound struct {
 	// more are other widenings past this bound alone, each a list of edits
 	// applied together, as reviewers and fixers of the near classes made them.
 	more [][]edit
+	// named are widenings past this bound to one more name that is on no
+	// list, a prefix, a scope or a scheme, as reviewers made them. No near
+	// case need hold such a name, so TestOracle need not fail on them, and
+	// TestOracleHoldsEachBound does not make them; the tripwire must, and
+	// TestOracleTripwireSeesEveryWidening checks that it does.
+	named [][]edit
 	// near draws the n-th generated near case of the bound: its line, with
 	// %s where the value goes, and what makes the value.
 	near func(g *gen, n int) (line string, value func() string)
@@ -156,10 +174,27 @@ var (
 )
 
 // keyLine is a line of a secret-looking key, one of seps, the value and
-// tail, perhaps indented.
+// tail, as code and configuration write a key: bare, in double quotes, in
+// single quotes or with a tab before the separator, at the start of the
+// line, indented, or inside a line after '{' or ", ". A tab before "==" would
+// make a comparison, which is of the gap shape: that key is bare.
 func keyLine(g *gen, seps []string, tail string) string {
-	return g.pick([]string{"", "  "}) + g.pick(gapKeys) + g.pick(seps) + "%s" + tail
+	key, sep := g.pick(gapKeys), g.pick(seps)
+	switch g.r.Intn(6) {
+	case 1:
+		key = `"` + key + `"`
+	case 2:
+		key = "'" + key + "'"
+	case 3:
+		if !strings.HasPrefix(sep, "==") {
+			key += "\t"
+		}
+	}
+	return g.pick(keyLineStarts) + key + sep + "%s" + tail
 }
+
+// keyLineStarts are what may stand before a key on its line.
+var keyLineStarts = []string{"", "", "  ", "{", "{ ", "x: 1, ", `{"user": "bob", `}
 
 // shellLine is a shell assignment of the value to a secret-looking key,
 // followed by tail.
@@ -261,10 +296,12 @@ var (
 	variableJoins = []string{".", "?.", "!.", "::", "?", ":", "/", "_", "-", "..", ".$", "@", "|", "^", "~", "%", "+", "*", "=", "#"}
 	// codeWords are words that code and configuration name a scope, a store
 	// or a source of values with, as a variable's prefix (props., vars.), a
-	// reference's scheme (vault://) or a scope after '$' ($env:). Where a far
-	// side is a set of such names, the generator draws each of these in turn
-	// and random lower-case names besides: a widening to a name on neither
-	// is not seen. None is a variable's base of variableRef.
+	// reference's scheme (vault://) or a scope after '$' ($env:). The
+	// generators of floor.variable, floor.variable.prefix and floor.opref
+	// draw each of these in turn, and random names besides (each says which):
+	// a widening to a name on neither is not seen by TestOracle, and the
+	// tripwire is its guard (see exceptionSource). None is a variable's base
+	// of variableRef.
 	codeWords = []string{"env", "ENV", "Env", "environ", "environment", "vars", "var", "inputs", "input", "params", "param", "props", "vault", "Vault", "settings", "Settings", "conf", "opts", "options", "args", "argv", "arg", "context", "state", "store", "data", "app", "App", "Rails", "meta", "global", "globals", "local", "locals", "script", "sys", "system", "Self", "window", "document", "req", "request", "res", "response", "session", "user", "values", "Values", "Chart", "Release", "matrix", "steps", "needs", "job", "runner", "keys", "key", "creds", "auth", "pkg", "main", "ns", "module", "mod", "lib", "util", "utils", "provider", "aws", "gcp", "azure", "kube", "k8s", "db", "redis", "kv", "consul", "sops", "ssm", "file", "path", "url", "host", "site", "page", "form", "model", "item", "obj", "record", "row", "node", "server", "api", "web", "prod", "dev", "test", "stage", "tf", "terraform", "pillar", "helm", "import", "export", "use", "my", "our", "public", "static", "let", "def", "new", "get", "set", "fetch", "load", "lookup", "from", "to", "of", "in", "at", "as", "bw", "pass", "gpg", "age", "kms", "sm", "gsm", "akv", "keychain", "keyring", "doppler", "infisical", "chamber", "parameter", "dotenv", "ini", "yaml", "json", "toml", "OP", "Op"}
 	// dottedBases are prefixes of more than one name that code reads values
 	// from, none of them a variable's.
@@ -315,15 +352,6 @@ func spaced(op string, k int) string {
 // lowerName makes a random name of 2 to 10 lower-case letters.
 func lowerName(g *gen) string {
 	return g.chars(2+g.r.Intn(9), "abcdefghijklmnopqrstuvwxyz")
-}
-
-// codeWord draws the n-th name of a far side of names: each of codeWords in
-// turn, and every third time a random lower-case name.
-func codeWord(g *gen, n int) string {
-	if n%3 == 2 {
-		return lowerName(g)
-	}
-	return nthOf(codeWords, n-n/3)
 }
 
 // shortPart makes a random part, as randomPart does, that leaves a value
@@ -501,22 +529,39 @@ var oracleBounds = []oracleBound{
 			// Make's $(NAME) has a '(', at which the baseline rules end a
 			// value; a name between '@', as in a template's @NAME@.
 			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:@[A-Za-z_][A-Za-z0-9_]*@|\$[A-Za-z_][A-Za-z0-9_]*|`}},
+			// A reviewer's: a second '$' before the name ($$NAME).
+			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:\$\$?[A-Za-z_][A-Za-z0-9_]*|`}},
 		},
-		weight: 8,
+		named: [][]edit{
+			// A reviewer's: PowerShell's $using: scope.
+			{{`^(?:\$[A-Za-z_][A-Za-z0-9_]*|`, `^(?:\$(?:using:)?[A-Za-z_][A-Za-z0-9_]*|`}},
+		},
+		weight: 12,
 		near: func(g *gen, n int) (string, func() string) {
-			k := n / 4
-			switch n % 4 {
+			k := n / 5
+			switch n % 5 {
 			case 1:
 				// A scope after '$', joined to the name by ':' or "::" as a
-				// language joins one ($env:X, $Pkg::x): each of codeWords with
-				// each join in turn.
+				// language joins one ($env:X, $Pkg::x), each join for a while
+				// in turn. The scope is by turns each of the first 8 of
+				// codeWords (env, ENV, Env, environ, ...) in turn, a random name
+				// of lower-case letters, each of codeWords in turn, and a
+				// random name of lower-case letters again.
 				return keyLine(g, nearSeps, ""), func() string {
-					p := "$" + nthOf(codeWords, k) + nthOf([]string{":", "::"}, k/len(codeWords))
+					scope := nthOf(codeWords[:8], k/4)
+					switch k % 4 {
+					case 1, 3:
+						scope = lowerName(g)
+					case 2:
+						scope = nthOf(codeWords, k/4)
+					}
+					p := "$" + scope + nthOf([]string{":", "::"}, k/32)
 					return p + shortPart(g, p)
 				}
 			case 2:
-				// A random name after '$' joined to a name by each mark or run
-				// of marks in turn ($a::b, $a/b).
+				// A random name of letters and digits with a capital or a
+				// digit (randomPart) after '$', joined to a name by each mark
+				// or run of marks in turn ($Ab9::Xk, $Ab9/Xk).
 				return keyLine(g, nearSeps, ""), func() string {
 					p := "$" + randomPart(g, 3+g.r.Intn(5)) + nthOf(variableScopeJoins, k)
 					return p + shortPart(g, p)
@@ -526,6 +571,17 @@ var oracleBounds = []oracleBound{
 				return keyLine(g, nearSeps, ""), func() string {
 					w := nthOf(variableWraps, k)
 					return w[0] + shortPart(g, w[0]+w[1]) + w[1]
+				}
+			case 4:
+				// By turns, a second mark before the '$', '$' itself and each
+				// mark of farVariable but '=' ($$X, @$X, %$X), and a mark of
+				// those alone, no '$' (@X, :X, %X), each in turn.
+				return keyLine(g, nearSeps, ""), func() string {
+					marks := "$" + strings.ReplaceAll(farVariable, "=", "")
+					if k%2 == 0 {
+						return nth(marks, k/2) + "$" + shortPart(g, "$$")
+					}
+					return nth(marks[1:], k/2) + shortPart(g, "$")
 				}
 			}
 			n = k
@@ -576,14 +632,31 @@ var oracleBounds = []oracleBound{
 			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|import\.meta\.env|self|config)\.`}},
 			// Any lower-case name, as a prefix.
 			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|[a-z]+)\.`}},
+			// A reviewer's: a capitalised name and env, as Bun.env. and
+			// Deno.env.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|[A-Z][a-z]+\.env)\.`}},
 		},
-		weight: 6,
+		named: [][]edit{
+			// A reviewer's: Bun.env.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|Bun\.env)\.`}},
+			// A reviewer's: Deno.env.
+			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config|Deno\.env)\.`}},
+		},
+		weight: 16,
 		near: func(g *gen, n int) (string, func() string) {
-			k := n / 3
+			k := n / 4
 			bases := append(append([]string{}, codeWords...), dottedBases...)
 			return keyLine(g, nearSeps, ""), func() string {
 				var p string
-				switch n % 3 {
+				switch n % 4 {
+				case 3:
+					// A base of two names, the first a random capitalised name
+					// of 2 to 6 letters, as Bun.env. or Deno.env.: by turns, env,
+					// config, each of codeWords in turn and a random lower-case
+					// name after it.
+					a := g.chars(1, alnum[26:52]) + g.chars(1+g.r.Intn(5), alnum[:26])
+					b := nthOf([]string{"env", "config", nthOf(codeWords, k/4), lowerName(g)}, k)
+					p = a + "." + b + "."
 				case 0:
 					// A variable's base with a join that is no '.', or a base
 					// that is no variable's.
@@ -610,18 +683,29 @@ var oracleBounds = []oracleBound{
 			{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op://") || strings.HasPrefix(v, "vault://") }`}},
 			// Any scheme of lower-case letters.
 			{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op://") || regexp.MustCompile("^[a-z]+://").MatchString(v) }`}},
+			// The references apply leaves alone wherever they stand
+			// (opRefRe, inRef), widened to op: alone.
+			{{"opRefRe  = regexp.MustCompile(`op://", "opRefRe  = regexp.MustCompile(`op:/?/?"}},
 		},
-		weight: 4,
+		named: [][]edit{
+			// A reviewer's: a reference of vals, ref+.
+			{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op://") || strings.HasPrefix(v, "ref+") }`}},
+			// A reviewer's: bws://.
+			{{`return strings.HasPrefix(v, "op://") }`, `return strings.HasPrefix(v, "op://") || strings.HasPrefix(v, "bws://") }`}},
+		},
+		weight: 6,
 		near: func(g *gen, n int) (string, func() string) {
 			k := n / 3
 			return keyLine(g, nearSeps, ""), func() string {
 				switch n % 3 {
 				case 1:
-					// Each name of codeWords in turn as a scheme.
+					// Each name of codeWords in turn as a scheme, with :// after
+					// it.
 					p := nthOf(codeWords, k) + "://"
 					return p + shortPart(g, p)
 				case 2:
-					// A random scheme.
+					// A random name of lower-case letters as a scheme, with ://,
+					// :/ or : after it.
 					name := lowerName(g)
 					for name == "op" {
 						name = lowerName(g)
@@ -901,14 +985,25 @@ var oracleBounds = []oracleBound{
 			// The value rules read no '<' after a name as code (codeHead).
 			{"[?!]?(?:[(\\[]|", "[?!]?(?:[(\\[<]|"},
 		},
+		more: [][]edit{
+			// A reviewer's: blanks before a '['.
+			{
+				{"rest := text[s.end:lineEnd]\n", "rest := text[s.end:lineEnd]\n\tif r := strings.TrimLeft(rest, \" \\t\"); strings.HasPrefix(r, \"[\") {\n\t\trest = r\n\t}\n"},
+				{"[?!]?(?:[(\\[]|[ \\t]*\\{)`", "[?!]?(?:\\(|[ \\t]*[\\[{])`"},
+			},
+		},
+		weight: 2,
 		near: func(g *gen, n int) (string, func() string) {
 			// Every mark the baseline rules end a value at but '[', '{' and
-			// '(' (a call), with what an index holds after it.
-			open := nth("<>)]}&", n)
-			inner := nthOf([]string{"x9", "i", "0", "a, b"}, n/6)
-			closer := map[string]string{"<": ">"}[open]
+			// '(' (a call), and a '[' after a blank or a tab, with what an
+			// index holds after it. A '{' after a blank is a block, which
+			// follows a member path or an instance variable, of the gap shape.
+			opens := []string{"<", ">", ")", "]", "}", "&", " [", "\t[", "  [", " \t["}
+			open := nthOf(opens, n)
+			inner := nthOf([]string{"x9", "i", "0", "a, b"}, n/len(opens))
+			closer := map[string]string{"<": ">", " [": "]", "\t[": "]", "  [": "]", " \t[": "]"}[open]
 			return keyLine(g, nearSeps, open+inner+closer), func() string {
-				switch n / 6 / 4 % 3 {
+				switch n / len(opens) / 4 % 3 {
 				case 0:
 					return wordsValue(g)
 				case 1:
@@ -978,6 +1073,7 @@ var oracleBounds = []oracleBound{
 			// '$' counted as a letter, as a name in code may hold it.
 			{{"return r < 128 && isAlnum(byte(r))", "return r < 128 && (isAlnum(byte(r)) || r == '$')"}},
 		},
+		weight: 2,
 		near: func(g *gen, n int) (string, func() string) {
 			if n%4 == 3 {
 				return keyLine(g, nearSeps, nthOf([]string{"[--]", "[+-]", "{..}", "[!]", `[""]`, "{+}", "[__]", "[_.]", "{_}", "[$_]"}, n/4)), func() string { return wordsValue(g) }
@@ -1050,13 +1146,20 @@ var oracleBounds = []oracleBound{
 		more: [][]edit{
 			{{"strings.IndexByte(\" \\t,;)]}.[(\\\"'`\\\\\", s[0])", "strings.IndexByte(\" \\t,;)]}.[(\\\"'`\\\\!&?\", s[0])"}},
 		},
+		weight: 2,
 		near: func(g *gen, n int) (string, func() string) {
-			if n%2 == 1 {
+			switch n % 4 {
+			case 1, 3:
 				// What the value rules read as code after a bracket (codeEnd),
 				// so that the floor decides.
 				return keyLine(g, nearSeps, nthOf(indexTails, n/2)+nthOf([]string{":", "!", "!)", ":;", "&.size", "?.size", "&page=2", "!,"}, n/2)), func() string { return wordsValue(g) }
+			case 2:
+				// A blank or a tab between the value and its index, and each
+				// mark of farAfter after it in turn.
+				return keyLine(g, nearSeps, nthOf([]string{" ", "\t"}, n/4)+nthOf(indexTails, n/8)+nth(farAfter, n/4)), func() string { return wordsValue(g) }
 			}
-			return keyLine(g, nearSeps, nthOf(indexTails, n/2/len(farAfter))+nth(farAfter, n/2)), func() string { return wordsValue(g) }
+			// Each mark of farAfter after each index in turn.
+			return keyLine(g, nearSeps, nthOf(indexTails, n/4/len(farAfter))+nth(farAfter, n/4)), func() string { return wordsValue(g) }
 		},
 	},
 	{
@@ -1123,6 +1226,7 @@ var oracleBounds = []oracleBound{
 		what:    `an index by a quoted name opens and closes with the same quote, '"' or '''`,
 		example: ex("password: Mv6Rk2"+"Tz8Pq4[xTokenx]", "Mv6Rk2"+"Tz8Pq4"),
 		widen:   []edit{{`if len(s) < 3 || s[0] != s[len(s)-1] || s[0] != '"' && s[0] != '\'' {`, `if len(s) < 3 || s[0] != s[len(s)-1] {`}},
+		weight:  2,
 		near: func(g *gen, n int) (string, func() string) {
 			// Any character but a quote and the marks exprLike refuses.
 			q := nth(without(`"'`+"`;~#[]{}()"), n)
@@ -1182,6 +1286,8 @@ var oracleBounds = []oracleBound{
 		more: [][]edit{
 			// A name that holds a '_', as a name of words does.
 			{{"wordLike(v, 2), true", "(wordLike(v, 2) || strings.Contains(v, \"_\")), true"}},
+			// A reviewer's: a name of one word after a quoted key.
+			{{"wordLike(v, 2), true", "(wordLike(v, 2) || m[3] > m[2] && wordLike(v, 1)), true"}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
@@ -1749,12 +1855,13 @@ var oracleBounds = []oracleBound{
 		what:    "an alias has nothing but blanks after it on its line",
 		example: ex("password: *Summer2"+"Winter # x", "*Summer2"+"Winter"),
 		widen:   []edit{{`aliasName(v[1:]) && whole && strings.TrimSpace(rest) == ""`, `aliasName(v[1:]) && whole && (strings.TrimSpace(rest) == "" || strings.HasPrefix(strings.TrimSpace(rest), "#"))`}},
+		weight:  3,
 		near: func(g *gen, n int) (string, func() string) {
 			// The value ends at a blank or at a mark the baseline rules end it
 			// at (a '(' makes a call, and a '[' or '{' an index); after it
 			// comes anything but blanks alone.
 			start := nthOf([]string{" ", "\t", "  ", ",", ";", ")", "]", "}", "&", "<", ">", "\v", "\f"}, n)
-			rest := nthOf([]string{"# rotated", "and more", "x", "1", "*", "|", "=", ":", "!", "#", "", ",", "- b"}, n/13)
+			rest := nthOf([]string{"# rotated", "and more", "x", "1", "*", "|", "=", ":", "!", "#", "", ",", "- b", "[x9]", "{a}", "[0]"}, n/13)
 			if rest == "" && strings.TrimSpace(start) == "" {
 				rest = "#"
 			}
@@ -2068,22 +2175,60 @@ func applyWidening(src string, widen []edit) (string, error) {
 	return src, nil
 }
 
-// Each bound's widening still applies to redact.go: when a change to the
-// code of an exception moves the text one edits, this fails on the bounds
-// whose near cases and widening to look at again.
+// The tripwire. Each bound's widening still applies to redact.go: when a
+// change to the code of an exception moves the text one edits, this fails on
+// the bounds whose near cases and widening to look at again. And the source
+// of every declaration the exceptions for code are made of is the one
+// exceptionSource holds a fingerprint of: a change to any of them fails it
+// until a person writes the new fingerprint there, and adds near cases for
+// what the change lets through (see exceptionSource).
 func TestOracleBoundsWidenRedactGo(t *testing.T) {
 	isolate(t)
-	src, err := os.ReadFile("redact.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := packageSources(t)
 	for _, b := range oracleBounds {
-		for k, w := range b.widenings() {
-			if _, err := applyWidening(string(src), w); err != nil {
+		for k, w := range append(b.widenings(), b.named...) {
+			if _, err := applyWidening(files["redact.go"], w); err != nil {
 				t.Errorf("bound %s, widening %d: %v", b.id, k+1, err)
 			}
 		}
 	}
+	decls, err := packageDecls(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := exceptionRootsOf(decls, files["redact.go"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := exceptionListing(decls, roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.TrimSpace(exceptionSource); got != want {
+		t.Errorf("the source of the exceptions for code changed: %s\n\n%s\n\nThe new exceptionSource:\n%s", listingDiff(want, got), tripwireAdvice, got)
+	}
+}
+
+// tripwireAdvice is what TestOracleBoundsWidenRedactGo tells whoever changed
+// an exception for code.
+const tripwireAdvice = `A changed declaration may widen an exception for code: with the switch redaction_current_rules_only on, a secret in a shape the change lets through would be kept. TestOracle holds a bound only where a near case stands past it, and a widening to one more name that is on no list, a prefix, a scope or a scheme, is not required to fail it: this test is its guard. Before you write the new fingerprint into exceptionSource (oracle_tripwire_test.go), add for what the change lets through a near case labelled in corpus/oracle_near.txt and near cases its bound's generator draws, and the change alone as a widening of its bound in oracleBounds (oracle_bounds_test.go): in more for a new shape, in named for one more name; a new condition is a new bound, with all of these. Then run TestOracleHoldsEachBound with -args -widen-bounds. The switch stays off until the oracle holds the new shape.`
+
+// listingDiff names the lines of want that got lacks and those of got that
+// want lacks.
+func listingDiff(want, got string) string {
+	w, g := strings.Split(want, "\n"), strings.Split(got, "\n")
+	var out []string
+	for _, l := range w {
+		if !slices.Contains(g, l) {
+			out = append(out, "- "+l)
+		}
+	}
+	for _, l := range g {
+		if !slices.Contains(w, l) {
+			out = append(out, "+ "+l)
+		}
+	}
+	return strings.Join(out, "; ")
 }
 
 // widenBounds runs TestOracleHoldsEachBound, which builds and tests the

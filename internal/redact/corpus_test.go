@@ -278,7 +278,7 @@ var genCounts = map[string]int{
 	// some 200 at least, and one whose far side is a vocabulary more still.
 	"gen_oracle_near_regex_value":     4000,
 	"gen_oracle_near_yaml_alias":      4500,
-	"gen_oracle_near_name_index":      13500,
+	"gen_oracle_near_name_index":      17500,
 	"gen_oracle_near_type_annotation": 8000,
 }
 
