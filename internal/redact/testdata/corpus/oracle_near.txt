@@ -69,6 +69,9 @@ password: '⟦op:Xk9m¦P2vLq7Rt⟧'
 === secret oracle_near_yaml_alias floor.undefined: the floor leaves alone the word undefined, in lower case and alone
 password: '⟦undefine¦d_Xk9mP2⟧'
 
+=== secret oracle_near_yaml_alias alias.star: a YAML alias starts with '*': no other mark, such as a tag's '!', makes one
+password: '⟦!Summer¦3Pillow⟧'
+
 === secret oracle_near_yaml_alias alias.colon: a YAML alias follows ':' only
 secret = '⟦*Garden¦7Pillow⟧'
 
@@ -98,6 +101,9 @@ password: '⟦self?.Rd6W¦m2Kx8Tq⟧'
 
 === secret oracle_near_name_index floor.variable.prefix: a name joined to a prefix's name by "::"
 password: '⟦config::Hv¦3Ns7Pc5Ly⟧'
+
+=== secret oracle_near_name_index index.opens: an index or a literal after the value opens with '[' or '{': no other bracket, such as '<', opens one
+password: '⟦harbor¦Lantern⟧'<x9>
 
 === secret oracle_near_name_index index.closes: brackets after the value close on its line, even where the line goes on to the next (the value rules read such a bracket as code)
 password: '⟦hunter¦Marble⟧'[x9,
@@ -279,6 +285,9 @@ secret: '⟦Nc5Gt1¦Vx8Kp3⟧' || None
 
 === secret oracle_near_type_annotation type.union.operator: a union of types is joined by a '|' alone: no other operator, such as '&', 'or' or '|>', stands for it
 secret: '⟦Lt5Bq9¦Zm3Wx7⟧' & None
+
+=== secret oracle_near_type_annotation type.union.member: each member of a union of types is a type's name: no number, string or mark
+secret: '⟦Bz7Hq2¦Xn4Rw9⟧' | 1
 
 === secret oracle_near_type_annotation type.union.operator: a reviewer's probe, a union by a word
 secret: '⟦Pk2Dv6¦Hr9Mz4⟧' or None

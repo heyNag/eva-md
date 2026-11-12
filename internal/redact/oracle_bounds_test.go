@@ -20,14 +20,26 @@ import (
 // shape (see oracleGapShapes), so the oracle holds the current rules on the
 // edges of each shape only where a near case stands. oracleBounds lists,
 // from floorValue and plainCode in redact.go and the predicates they call,
-// every condition that bounds an exception: each character class, each
-// length, each count and each refusal, one line each. Each bound has near
-// cases on its far side, where the exception does not hold and the current
-// rules alone remove the secret as the baseline rules do: one labelled in
-// corpus/oracle_near.txt, whose name starts with the bound's id and a colon,
-// and many drawn by the near class's generator, named by the id. A rule
-// change that widens an exception past one of its bounds keeps those near
-// secrets, and TestOracle fails on them.
+// the conditions that bound an exception: each character class, each
+// length, each count and each refusal it has found, one line each. Each
+// bound has near cases on its far side, where the exception does not hold
+// and the current rules alone remove the secret as the baseline rules do:
+// one labelled in corpus/oracle_near.txt, whose name starts with the bound's
+// id and a colon, and many drawn by the near class's generator, named by the
+// id. A rule change that widens an exception past one of its bounds keeps
+// those of its near secrets that stand where it widened, and TestOracle
+// fails on them.
+//
+// A far side is sampled, not exhausted. Where it is a set of characters or
+// operators, the generator draws each in turn from the printable marks that
+// can stand there, and for the operators of a type from many operators of
+// more than one character too, but each with a few continuations and values
+// only; for some bounds it draws from a short list of the shapes code
+// takes, as for the brackets of an index; where it is a length or a count, it draws
+// the lengths and counts just past the bound and some beyond. A widening
+// that admits a member only in a context no near case stands in, as after a
+// continuation the generator does not write, keeps nothing the oracle
+// judges, and TestOracle takes it.
 //
 // TestOracleBoundsHaveNearCases fails when a bound has no near case, labelled
 // or generated, or a near case names no bound. Each bound also says how to
@@ -165,22 +177,22 @@ var (
 	// What may follow a closing bracket and goes on as no code does.
 	farAfter = without(" \t,;)]}.[(\"'`\\") + "\v\f"
 	// What a type name does not start with or hold.
-	farTypeFirst = "0123456789+-.!@*%^~?:|"
-	farTypeRest  = "+-!%^~*@:=?/#|$"
+	farTypeFirst = "0123456789+-.!@*%^~?:|#/\\"
+	farTypeRest  = "+-!%^~*@:=?/#|$\\"
 	// A prefix that is no '@' or '$'.
-	farPrefix = "%!^~-+:?.*|#"
+	farPrefix = "%!^~-+:?.*|#/\\"
 	// A character that is no regular expression metacharacter.
 	farMeta = ".-_=~!@%:#"
 	// A character that is no part of a variable's name.
-	farVariable = "+-.~!%^*=:?/#|@"
+	farVariable = "+-.~!%^*=:?/#|@\\"
 	// Prefixes of a name that make no variable.
 	farVariablePrefix = []string{"cfg.", "env.", "settings.", "conf.", "this.", "os.", "process.", "ENV.", "Config.", "SELF.", "os.environ", "process.env", "os_environ.", "self_"}
 	// What may stand before a member path but '@', '$' and "::". A '.' is
 	// left out, since the rules before the floor take such a value, and so
 	// is '=', which the rules read as part of a separator ":=".
-	farPathPrefix = "%!^~-+:?*|#"
+	farPathPrefix = "%!^~-+:?*|#/\\"
 	// What may end a member path but '?' and '!'.
-	farPathSuffix = "#%^~*+-=:@$|"
+	farPathSuffix = "#%^~*+-=:@$|/\\"
 	// What may join two names but '.' and "::".
 	farPathSeparator = ":/|\\+~^%*!?=@$#"
 	// What may stand in a member path's name, at its start, inside it or at
@@ -218,26 +230,31 @@ var (
 	// brackets and quotes, which close or open what they hold.
 	farBracketInner = without(alnum + "[]{}()\"'`")
 	// The bases and joins of a variable's prefix: each base followed by each
-	// join is no variable's prefix but where the base is one and the join
-	// '.' (see variableRef), and the floor takes a value after it.
+	// join is no variable's prefix but where the base is a variable's (the
+	// first four) and the join '.' (see variableRef), and the floor takes a
+	// value after it. A "->" or a '[' is left out: the baseline rules end the
+	// value at its '>' or '['.
 	variableBases = []string{"self", "config", "os.environ", "process.env", "cfg", "this", "env", "ENV", "settings", "conf", "Self", "SELF", "Config", "os", "process", "opts", "ctx"}
 	variableJoins = []string{".", "?.", "!.", "::", "?", ":", "/", "_", "-", "..", ".$", "@", "|", "^", "~", "%", "+", "*", "=", "#"}
 )
 
-// farVariablePrefixes are the prefixes made of variableBases and
-// variableJoins that make no variable.
-var farVariablePrefixes = func() []string {
-	var ps []string
-	for _, b := range variableBases {
-		for _, j := range variableJoins {
-			if j == "." && slices.Contains([]string{"self", "config", "os.environ", "process.env"}, b) {
-				continue
+// farVariablePrefixOf draws the n-th prefix that makes no variable: by turns,
+// one of farVariablePrefix or a base of variableBases with '.' that is no
+// variable's, and a variable's base with each join of variableJoins other
+// than '.', in turn.
+func farVariablePrefixOf(n int) string {
+	if n%2 == 0 {
+		var dotted []string
+		for _, b := range variableBases {
+			if !slices.Contains(variableBases[:4], b) {
+				dotted = append(dotted, b+".")
 			}
-			ps = append(ps, b+j)
 		}
+		return nthOf(append(dotted, farVariablePrefix...), n/2)
 	}
-	return append(ps, farVariablePrefix...)
-}()
+	k := n / 2
+	return nthOf(variableBases[:4], k) + nthOf(variableJoins[1:], k/4)
+}
 
 // wordsOf makes a name of two words, as wordsValue does without digits:
 // SummerWinter or silverWindow.
@@ -279,8 +296,9 @@ var oracleBounds = []oracleBound{
 		example: ex("password: *Hmyhy"+"bbz82)", "*Hmyhy"+"bbz82"),
 		widen:   []edit{{"text[s.end] == '('", `strings.IndexByte("()", text[s.end]) >= 0`}},
 		near: func(g *gen, n int) (string, func() string) {
-			// A stop character that is no '(', or a '(' after a blank.
-			tail := nthOf([]string{")", "<", ">", "]", "}", "[", "{", "&", ",", ";", " (", "\t(", "  ("}, n)
+			// A character the baseline rules end a value at that is no '(', or
+			// a '(' after a blank.
+			tail := nthOf([]string{")", "<", ">", "]", "}", "[", "{", "&", ",", ";", `"`, "'", "`", " (", "\t(", "  (", "\f("}, n)
 			return keyLine(g, nearSeps, tail+g.pick([]string{"", "x"})), func() string { return "*" + nearToken(g) }
 		},
 	},
@@ -290,7 +308,9 @@ var oracleBounds = []oracleBound{
 		example: ex("token = *Tq7Wn"+"3Ks9Bv", "*Tq7Wn"+"3Ks9Bv"),
 		widen:   []edit{{`strings.Contains(sep, "==") && strings.ContainsAny(sep, " \t")`, `strings.Contains(sep, "=") && strings.ContainsAny(sep, " \t")`}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, []string{" = ", " := ", " => ", "  =  "}, ""), func() string { return "*" + nearToken(g) }
+			// Every spaced separator the floor's key takes but "==" (see
+			// floorValueRe): ':' or '=', perhaps followed by '=' or '>'.
+			return keyLine(g, []string{" = ", " := ", " => ", "  =  ", " : ", " :> ", "\t=\t", " =\t", "\t:= ", " =>\t"}, ""), func() string { return "*" + nearToken(g) }
 		},
 	},
 	{
@@ -355,7 +375,7 @@ var oracleBounds = []oracleBound{
 			{{`(?:os\.environ|process\.env|self|config)\.`, `(?:os\.environ|process\.env|self|config)(?:\.|::)`}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, ""), func() string { return nthOf(farVariablePrefixes, n) + nearToken(g) }
+			return keyLine(g, nearSeps, ""), func() string { return farVariablePrefixOf(n) + nearToken(g) }
 		},
 	},
 	{
@@ -458,7 +478,7 @@ var oracleBounds = []oracleBound{
 			{"case t[3] > t[2]:\n\t\t\treturn span{}, false, false", "case t[3] >= t[2]:\n\t\t\treturn span{}, false, false"},
 		},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, nearSeps, nthOf([]string{"<ab>", "[ab]", "<T>", "[x9]"}, n)), func() string { return nearToken(g) }
+			return keyLine(g, nearSeps, nthOf([]string{"<ab>", "[ab]", "<T>", "[x9]", "?", "<T>?", "[]", "<>", "[a]?", ""}, n)), func() string { return nearToken(g) }
 		},
 	},
 	{
@@ -503,6 +523,25 @@ var oracleBounds = []oracleBound{
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, " "+nthOf(farUnionOps, n)+" "+g.pick([]string{"None", "str", "int"})), func() string { return nearToken(g) }
+		},
+	},
+	{
+		id: "type.union.member", shape: "type_annotation",
+		what:    "each member of a union of types is a type's name: no number, string or mark",
+		example: ex("secret: Bz7Hq2"+"Xn4Rw9 | 1", "Bz7Hq2"+"Xn4Rw9"),
+		widen:   []edit{{"\\|[ \\t]+` + typeName + `)*)", "\\|[ \\t]+(?:` + typeName + `|-?[0-9]+))*)"}},
+		more: [][]edit{
+			// Any member at all.
+			{{"\\|[ \\t]+` + typeName + `)*)", "\\|[ \\t]+(?:` + typeName + `|[^ \\t]+))*)"}},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			// A member that starts with a digit or with any mark but those of a
+			// name ('_'), a blank, '|' and '=', or that is a number or a string.
+			m := nthOf([]string{"1", "-1", "0x1", "'x'", `"x"`, "9x", "42"}, n/2)
+			if n%2 == 0 {
+				m = nth(without(alnum+"_|="), n/2) + g.pick([]string{"x", "T", "1", ""})
+			}
+			return keyLine(g, nearSeps, " | "+m+g.pick([]string{"", " = 1"})), func() string { return nearToken(g) }
 		},
 	},
 	{
@@ -602,6 +641,33 @@ var oracleBounds = []oracleBound{
 	},
 
 	// plainCode: an index or a literal after the value.
+	{
+		id: "index.opens", shape: "name_index",
+		what:    "an index or a literal after the value opens with '[' or '{': no other bracket, such as '<', opens one",
+		example: ex("password: harbor"+"Lantern<x9>", "harbor"+"Lantern"),
+		widen: []edit{
+			{"case rest != \"\" && (rest[0] == '[' || rest[0] == '{'):", "case rest != \"\" && (rest[0] == '[' || rest[0] == '{' || rest[0] == '<'):"},
+			{"\t\tcase '{':\n\t\t\twant = append(want, '}')\n\t\tcase ')', ']', '}':\n\t\t\tif len(want) == 0 || want[len(want)-1] != c {", "\t\tcase '{':\n\t\t\twant = append(want, '}')\n\t\tcase '<':\n\t\t\twant = append(want, '>')\n\t\tcase ')', ']', '}', '>':\n\t\t\tif len(want) == 0 || want[len(want)-1] != c {"},
+			// The value rules read no '<' after a name as code (codeHead).
+			{"[?!]?(?:[(\\[]|", "[?!]?(?:[(\\[<]|"},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			// Every mark the baseline rules end a value at but '[', '{' and
+			// '(' (a call), with what an index holds after it.
+			open := nth("<>)]}&", n)
+			inner := nthOf([]string{"x9", "i", "0", "a, b"}, n/6)
+			closer := map[string]string{"<": ">"}[open]
+			return keyLine(g, nearSeps, open+inner+closer), func() string {
+				switch n / 6 / 4 % 3 {
+				case 0:
+					return wordsValue(g)
+				case 1:
+					return g.pick(gapWords) + "." + g.pick(gapWords)
+				}
+				return "@" + strings.ToLower(g.pick(gapWords)) + "_" + strings.ToLower(g.pick(gapWords))
+			}
+		},
+	},
 	{
 		id: "index.closes", shape: "name_index",
 		what:    "brackets after the value close on its line, even where the line goes on to the next (the value rules read such a bracket as code)",
@@ -760,7 +826,8 @@ var oracleBounds = []oracleBound{
 		example: ex("password: Mv6Rk2"+"Tz8Pq4[xTokenx]", "Mv6Rk2"+"Tz8Pq4"),
 		widen:   []edit{{`if len(s) < 3 || s[0] != s[len(s)-1] || s[0] != '"' && s[0] != '\'' {`, `if len(s) < 3 || s[0] != s[len(s)-1] {`}},
 		near: func(g *gen, n int) (string, func() string) {
-			q := nth("x_-0aQ.", n)
+			// Any character but a quote and the marks exprLike refuses.
+			q := nth(without(`"'`+"`;~#[]{}()"), n)
 			name := nthOf([]string{"Token", "access_token", "api-key", "Secret"}, n/7)
 			return keyLine(g, nearSeps, "["+q+name+q+"]"), func() string { return nearToken(g) }
 		},
@@ -1135,12 +1202,36 @@ var oracleBounds = []oracleBound{
 
 	// plainCode: a YAML alias.
 	{
+		id: "alias.star", shape: "yaml_alias",
+		what:    "a YAML alias starts with '*': no other mark, such as a tag's '!', makes one",
+		example: ex("password: !Summer3"+"Pillow", "!Summer3"+"Pillow"),
+		widen: []edit{
+			{"case v[0] == '*':", "case v[0] == '*' || v[0] == '!':"},
+			// The value rules read only '&' and '*' as a reference (refHead).
+			{"refHead = regexp.MustCompile(`^[&*][A-Za-z_]", "refHead = regexp.MustCompile(`^[&*!][A-Za-z_]"},
+		},
+		near: func(g *gen, n int) (string, func() string) {
+			// Every mark that may start the value but '*', '&' (the baseline
+			// rules end a value at it), '$' and '@' (a variable), '/' (a
+			// regular expression) and quotes and brackets.
+			c := nth(without(alnum+"*&$@/\"'`,;<>(){}[]="), n)
+			return keyLine(g, []string{": ", ":", " := "}, ""), func() string {
+				if n%3 == 2 {
+					return c + strings.ToLower(g.pick(gapWords)) + strings.ToLower(g.pick(gapWords))
+				}
+				return c + wordsValue(g)
+			}
+		},
+	},
+	{
 		id: "alias.colon", shape: "yaml_alias",
 		what:    "a YAML alias follows ':' only",
 		example: ex("secret = *Garden7"+"Pillow", "*Garden7"+"Pillow"),
 		widen:   []edit{{"return sep == ':' && aliasName", "return (sep == ':' || sep == '=') && aliasName"}},
 		near: func(g *gen, n int) (string, func() string) {
-			return keyLine(g, []string{" = ", " => ", " ="}, ""), func() string { return "*" + wordsValue(g) }
+			// Every separator the floor's key takes whose first mark is '='
+			// but a spaced "==", a comparison.
+			return keyLine(g, []string{" = ", " => ", " =", "=", "=>", "\t=\t", "==", "= ", " =>"}, ""), func() string { return "*" + wordsValue(g) }
 		},
 	},
 	{
@@ -1431,9 +1522,17 @@ func TestOracleBoundsHaveNearCases(t *testing.T) {
 			generated[b.id]++
 		}
 	}
+	// Each bound's generator draws from its far side in turn, so a bound
+	// whose share of its near class shrinks, as more bounds of its shape are
+	// listed, leaves members of its far side out: raise the class's count
+	// in genCounts then.
+	minGenerated := 200
+	if raceOn {
+		minGenerated /= 20
+	}
 	for _, b := range oracleBounds {
-		if labelled[b.id] == 0 || generated[b.id] == 0 {
-			t.Errorf("bound %s has %d labelled and %d generated near cases, want one of each at least", b.id, labelled[b.id], generated[b.id])
+		if labelled[b.id] == 0 || generated[b.id] < minGenerated {
+			t.Errorf("bound %s has %d labelled and %d generated near cases, want one labelled and %d generated at least", b.id, labelled[b.id], generated[b.id], minGenerated)
 		}
 		if !examples[b.id] {
 			t.Errorf("bound %s: no labelled near case has the text of its example %q", b.id, b.example.text)

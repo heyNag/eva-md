@@ -273,11 +273,12 @@ var genCounts = map[string]int{
 	"gen_oracle_gap_name_index":      1000,
 	"gen_oracle_gap_type_annotation": 1000,
 	// Secrets just outside each of those shapes, held to the baseline (see
-	// oracleNearShapes).
+	// oracleNearShapes), shared among the bounds of each shape in turn: the
+	// shapes of more bounds have more, so each bound has some 200 at least.
 	"gen_oracle_near_regex_value":     4000,
 	"gen_oracle_near_yaml_alias":      4000,
-	"gen_oracle_near_name_index":      4000,
-	"gen_oracle_near_type_annotation": 4000,
+	"gen_oracle_near_name_index":      10000,
+	"gen_oracle_near_type_annotation": 6000,
 }
 
 func genCount(class string) int {
