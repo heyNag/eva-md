@@ -17,6 +17,7 @@ before its first case are comments.
 | `structured.txt` | private key blocks, JWTs, URL passwords, Authorization values, and a secret key's value in each shape: shell, YAML, JSON, TOML, URL query, connection string |
 | `commands.txt` | command-line passwords, a password in prose, random tokens near a trigger word |
 | `misses.txt` | the shapes the audit found kept (F2, redact-m2), as `secret`: recorded as misses, not fixed |
+| `oracle_gaps.txt` | the shapes `TestOracle` found where the current rules alone keep a secret the baseline rules remove, as `secret` of a class whose name starts with `oracle_gap_`: recorded, not fixed (see below) |
 | `negatives.txt` | code, prose, docs, chat-like lines written by hand, SHAs, UUIDs, `op://` and `$VAR` references |
 | `facts.txt` | facts about authentication written as `key: value`, the T3 row of the ledger design's section 10.3 and more like them |
 
@@ -64,3 +65,17 @@ no 6 consecutive characters of it appear anywhere else in its case or in a
 marker such as `[REDACTED:github_token]`; that is why a fine-grained GitHub
 token's secret starts after its prefix. The loader checks each of these
 rules.
+
+## Gap classes
+
+`TestOracle` holds the current rules alone to the frozen baseline: a secret
+the baseline rules remove must not be kept. A class whose name starts with
+`oracle_gap_`, in `oracle_gaps.txt`, or `gen_oracle_gap_` from a generator,
+records a shape in which the oracle found the current rules alone keeping
+such secrets. No rule is changed for it here, and the measure is not
+loosened: its violations are counted apart, as `oracle_gap_violations` in
+`../rates.txt`, every other class is still held to none, and `TestOracle`
+fails when a gap class has no violation left, so the rule change that closes
+it (LG-26) moves its cases to the class of their shape. While a gap class
+exists, the switch `redaction_current_rules_only` keeps secrets that v1
+removes, and stays off.

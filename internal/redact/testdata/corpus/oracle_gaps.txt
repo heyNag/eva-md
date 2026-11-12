@@ -1,0 +1,27 @@
+The shapes TestOracle found where the current rules alone keep a secret that
+the baseline rules, and so v1, remove, as secrets of a class whose name starts
+with oracle_gap_. No rule is changed for them here (card LG-12): TestOracle
+holds the current rules to the baseline on every other class, and fails when a
+gap class has no violation left, so a rule change that closes one (LG-26)
+moves its cases to the class of their shape. Until then the switch
+redaction_current_rules_only keeps these secrets. See README.md for the format.
+
+The value of a secret-looking key, unquoted after ':' or ' = ', that reads as
+a regular expression literal: it starts with '/', holds a metacharacter such
+as '+', and ends with '/' and perhaps flags. A base64 key can start with '/'.
+
+=== secret oracle_gap_regex_value yaml key with a value that starts with a slash
+SECRET_KEY: '⟦/Qm7Rt2+Wx9¦Lp4Zk8Vn3Bc/n⟧'
+
+=== secret oracle_gap_regex_value yaml key with no space after the colon
+db_password:'⟦/Hv3Kd8+Pz1Ty¦6Wq0Ln5Rb/u⟧'
+
+=== secret oracle_gap_regex_value key with spaces around the equals sign and no flags
+SecretKey = '⟦/kaR4Wfn+P2tY¦JmoCLEQzsdVb/⟧'
+
+=== secret oracle_gap_regex_value aws secret access key shorter than the aws rule takes
+aws_secret_access_key = '⟦/Zp3Lc7+Mt1Qx¦5Bv9Nk2Rh6Jw/g⟧'
+
+=== secret oracle_gap_regex_value indented yaml token
+service:
+  access_token: '⟦/Tp6Mw1+Rg4Ls¦8Ny3Bk7Ch/i⟧'

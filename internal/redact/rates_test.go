@@ -39,8 +39,10 @@ var ratesHeader = `# Redaction rates of v1's engine (Redact with the baseline ru
 #                      kept when the output holds any 6 consecutive
 #                      characters of it. Classes gen_* are generated.
 # changed.<class>      the share of a class of negative cases changed at all.
-# spans_replaced       the ranges replaced in the corpus files' cases.
-# spans_on_a_secret    those of them that hold part of a labelled secret.
+# spans_replaced       the ranges replaced in every case, of the corpus files
+#                      and generated.
+# spans_on_a_secret    those of them that hold part of a labelled or
+#                      generated secret.
 # precision            spans_on_a_secret over spans_replaced.
 # fact_loss_rate       the share of facts whose value the output no longer
 #                      holds whole.
@@ -48,6 +50,11 @@ var ratesHeader = `# Redaction rates of v1's engine (Redact with the baseline ru
 #                      phrase (class gen_hex32) kept.
 # oracle_violations    secrets, labelled or generated, that the baseline rules
 #                      remove and the engine keeps (TestOracle).
+# oracle_gap_violations
+#                      those of them in the gap classes (*oracle_gap_*), the
+#                      shapes recorded in corpus/oracle_gaps.txt, where the
+#                      current rules alone are known to keep secrets the
+#                      baseline rules remove. TestOracle fails on any other.
 #
 `
 
@@ -66,6 +73,7 @@ type engineFigures struct {
 	lost, facts           int
 	hexKept, hex          int
 	violations, oracleAll int
+	gapViolations, gapAll int
 }
 
 // figures counts what one engine, whose run of case i is run(i), did to
@@ -90,8 +98,15 @@ func figures(m *measured, cases []corpusCase, run func(i int) engineRun) engineF
 					}
 				}
 				f.oracleAll++
-				if kept && !keeps(m.baseline[i].out, v) {
+				violates := kept && !keeps(m.baseline[i].out, v)
+				if violates {
 					f.violations++
+				}
+				if oracleGap(c.class) {
+					f.gapAll++
+					if violates {
+						f.gapViolations++
+					}
 				}
 			}
 		case labelNegative:
@@ -106,9 +121,6 @@ func figures(m *measured, cases []corpusCase, run func(i int) engineRun) engineF
 					f.lost++
 				}
 			}
-		}
-		if i >= m.corpusCount {
-			continue
 		}
 		for _, sp := range e.spans {
 			f.spans++
@@ -148,6 +160,7 @@ func ratesTable(m *measured, cases []corpusCase) string {
 		rateRow{"fact_loss_rate", fmt.Sprint(v1.facts), ratio(v1.lost, v1.facts), ratio(cur.lost, cur.facts)},
 		rateRow{"hex32_kept_rate", fmt.Sprint(v1.hex), ratio(v1.hexKept, v1.hex), ratio(cur.hexKept, cur.hex)},
 		rateRow{"oracle_violations", fmt.Sprint(v1.oracleAll), fmt.Sprint(v1.violations), fmt.Sprint(cur.violations)},
+		rateRow{"oracle_gap_violations", fmt.Sprint(v1.gapAll), fmt.Sprint(v1.gapViolations), fmt.Sprint(cur.gapViolations)},
 	)
 	var b bytes.Buffer
 	b.WriteString(ratesHeader)
@@ -249,5 +262,37 @@ func TestRatesSeeALabelChange(t *testing.T) {
 				t.Fatalf("the rates did not change when %s did: %s", name, before)
 			}
 		})
+	}
+}
+
+// The spans and precision count every case, the generated ones too, not
+// only the corpus files' cases.
+func TestRatesCountTheSpansOfEveryCase(t *testing.T) {
+	isolate(t)
+	m := measure(t)
+	if m.generated == 0 {
+		t.Fatal("no generated case")
+	}
+	for name, run := range map[string]func(i int) engineRun{
+		"v1":      func(i int) engineRun { return m.v1[i] },
+		"current": func(i int) engineRun { return m.alone[i] },
+	} {
+		all := figures(m, m.cases, run)
+		corpus := figures(m, m.cases[:m.corpusCount], run)
+		want, onSecret := 0, 0
+		for i, c := range m.cases {
+			for _, sp := range run(i).spans {
+				want++
+				for _, s := range c.secrets {
+					if sp.start < s.end && s.start < sp.end {
+						onSecret++
+						break
+					}
+				}
+			}
+		}
+		if all.spans != want || all.onSecret != onSecret || all.spans <= corpus.spans || all.onSecret <= corpus.onSecret {
+			t.Errorf("%s: %d spans, %d on a secret, want %d and %d; the corpus files' cases alone have %d and %d", name, all.spans, all.onSecret, want, onSecret, corpus.spans, corpus.onSecret)
+		}
 	}
 }

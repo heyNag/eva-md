@@ -8,9 +8,11 @@ var baselineOff atomic.Bool
 
 // SetBaselineAtRunTime says whether Redact and Scan run the baseline rules
 // (internal/redact/baseline) beside the current rules and remove the union
-// of what both remove, as v1 does, or run the current rules alone, which
-// TestOracle holds to remove every labelled and generated secret the
-// baseline rules remove (decision 7 of the plan). It is on until a caller
+// of what both remove, as v1 does, or run the current rules alone (decision
+// 7 of the plan). TestOracle holds the current rules alone to remove every
+// secret of its corpus and generators that the baseline rules remove, but
+// for the gap classes it records (see Redact): while one remains, the
+// current rules alone keep secrets v1 removes. It is on until a caller
 // turns it off; config.LoadContext sets it from the switch
 // redaction_current_rules_only of every config it returns. It is safe for
 // concurrent use. RedactKnown and Identifier never run the baseline rules

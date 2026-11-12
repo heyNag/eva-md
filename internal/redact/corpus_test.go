@@ -267,6 +267,9 @@ var genCounts = map[string]int{
 	"gen_random":   6000,
 	"gen_password": 6000,
 	"gen_hex32":    3000,
+	// The shape of oracle_gaps.txt: a value after a secret-looking key that
+	// reads as a regular expression literal.
+	"gen_oracle_gap_regex_value": 1000,
 }
 
 func genCount(class string) int {
@@ -521,6 +524,23 @@ func generatedCases() []corpusCase {
 	for i := 0; i < genCount("gen_hex32"); i++ {
 		add("gen_hex32", "32 hex characters after a phrase", g.pick(hexCarriers), func() string { return g.chars(32, hexLower) })
 	}
+	// Values that read as regular expression literals after a secret-looking
+	// key, unquoted after ':' or ' = ': base64 that starts with '/', holds a
+	// '+', and ends with '/' and up to two flags. Where the current rules
+	// alone keep one that the baseline rules remove, TestOracle counts it as
+	// a gap of its class, not as a violation (see oracle_gaps.txt).
+	g = newGen(1205)
+	gapKeys := []string{"SECRET_KEY", "secret_key", "SecretKey", "db_password", "api_key", "ACCESS_TOKEN", "client_secret", "aws_secret_access_key", "private_key", "auth_token"}
+	gapShapes := []string{"%s: %s", "%s:%s", "%s = %s", "  %s: %s", "%s: %s # rotated"}
+	gapFlags := []string{"", "g", "i", "m", "u", "gi", "im"}
+	for i := 0; i < genCount("gen_oracle_gap_regex_value"); i++ {
+		shape := strings.Replace(g.pick(gapShapes), "%s", g.pick(gapKeys), 1)
+		add("gen_oracle_gap_regex_value", "regex-like value after a key", shape, func() string {
+			body := []byte(g.chars(16+g.r.Intn(25), base64Set))
+			body[1+g.r.Intn(len(body)-1)] = '+'
+			return "/" + string(body) + "/" + g.pick(gapFlags)
+		})
+	}
 	return all
 }
 
@@ -628,6 +648,29 @@ func TestCorpusReads(t *testing.T) {
 		}
 	}
 	t.Logf("%d cases, %d secrets, labels %v", len(cases), secrets, labels)
+}
+
+// The corpus is in a public repository: no case names a model, as a chat
+// line could say which one the owner uses. A case that needs a model's id
+// makes one up, as model-x-20261028.
+func TestCorpusNamesNoModel(t *testing.T) {
+	isolate(t)
+	files, err := filepath.Glob(filepath.Join(corpusDir, "*"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no corpus files: %v", err)
+	}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.ToLower(string(data))
+		for _, word := range []string{"claude", "opus", "sonnet", "haiku", "gpt-", "gemini", "llama", "mistral"} {
+			if strings.Contains(text, word) {
+				t.Errorf("%s names a model (%q): make one up", f, word)
+			}
+		}
+	}
 }
 
 // The reader refuses a case that breaks the README's rules.

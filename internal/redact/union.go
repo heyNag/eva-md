@@ -20,11 +20,14 @@ import (
 // baseline rules miss. Redacting the result again changes nothing.
 //
 // With the switch redaction_current_rules_only on (decision 7 of the plan),
-// only the current rules run, and TestOracle holds them to the baseline: on
-// a labelled corpus and on generated secrets, no secret the baseline rules
-// remove is kept. The switch reaches Redact through SetBaselineAtRunTime,
-// which config.LoadContext calls. Redacting the result again changes
-// nothing then too.
+// only the current rules run, and TestOracle holds them to the baseline on
+// the labelled corpus and the generated secrets of its tests, and on nothing
+// else: there, no secret the baseline rules remove is kept, but for the gap
+// classes it records, shapes in which the current rules alone are known to
+// keep such secrets (testdata/corpus/oracle_gaps.txt). So the switch is not
+// safe to turn on while a gap class remains. It reaches Redact through
+// SetBaselineAtRunTime, which config.LoadContext calls. Redacting the result
+// again changes nothing then too.
 //
 // Redact is Scan to the end of the text, then Apply.
 func Redact(text string) (string, int) {
