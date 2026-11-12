@@ -93,8 +93,8 @@ secrets stand just past the bounds of the exceptions that make the shape,
 where the current rules remove them today. A bound is one condition of
 `floorValue` or `plainCode` in `redact.go`, or of a predicate they call,
 that limits an exception: a character class, a length, a count or a
-refusal. `oracleBounds` in `oracle_bounds_test.go` lists every one, one line
-each, with an example, a generator of near cases on its far side and a
+refusal. `oracleBounds` in `oracle_bounds_test.go` lists each one found, one
+line each, with an example, a generator of near cases on its far side and a
 change of `redact.go` that widens the exception past it alone; its comment
 lists the conditions that are no bound a secret can cross, and why. Each
 case of `oracle_near.txt` is a labelled near case of one bound, named by the
@@ -112,10 +112,18 @@ separator: after a comparison the floor takes nothing, so every value there
 is in the gap shape.
 
 The oracle holds the bounds that `oracleBounds` lists, against the
-widenings it names and others like them, on the near cases it draws: a
-widening of an exception in a way no near case stands for, or a new
-condition in the code, is held only once it is listed there with near
-cases of its own.
+widenings it names and others like them, on the near cases it draws. A far
+side is sampled, not exhausted: where it is a set of characters or
+operators, the generator draws each mark that can stand there in turn, at
+the start, inside or at the end of a name where that matters, but with a
+few continuations and values only, and each bound has 200 generated near
+cases at least (`TestOracleBoundsHaveNearCases` checks the count, so a
+shape that gains bounds needs a larger count in `genCounts`). A widening of
+an exception in a way no near case stands for, as in a context the
+generator does not write, or a new condition in the code, is held only once
+it is listed there with near cases of its own. Each review of the oracle
+has found such widenings, and each is recorded as a widening of its bound,
+with a labelled near case it keeps.
 
 The switch `redaction_current_rules_only` keeps every secret in such a
 shape, which v1 removes. It stays off until a rule change has closed each of

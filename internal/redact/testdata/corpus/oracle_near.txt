@@ -3,7 +3,7 @@ of oracle_gaps.txt, as secrets of a class whose name starts with
 oracle_near_. A bound is one condition of floorValue or plainCode in
 redact.go, or of a predicate they call, that limits an exception: a
 character class, a length, a count or a refusal. oracleBounds in
-oracle_bounds_test.go lists every one, with what it says, changes of
+oracle_bounds_test.go lists each one found, with what it says, changes of
 redact.go that widen the exception past it alone, and a generator of near
 cases. Each case here is a labelled near case of one bound: its name starts
 with the bound's id and a colon, and one case of each bound has the text of
@@ -83,6 +83,9 @@ password: '⟦*Lant¦ernsx⟧'
 
 === secret oracle_near_yaml_alias alias.words: a random name with a '_' inside
 password: '⟦*Xk9m_P¦2vLq7⟧'
+
+=== secret oracle_near_yaml_alias alias.words: a long random name, after a key the entropy rule does not know
+SecretKey: '⟦*Jf6Rn2Xw8¦Kt4Mz9Gb3Lq7Vy⟧'
 
 === secret oracle_near_yaml_alias alias.lower: an alias's name of one word is lower-case letters only
 password: '⟦*lant¦ern42⟧'
@@ -282,6 +285,9 @@ password: '⟦@@Qm7¦Rt2⟧'[i]
 
 === secret oracle_near_name_index index.ivar.words: a random name with a '_' inside
 password: '⟦@Hd4_Wn¦8zKq⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.words: a long random name, after a key the entropy rule does not know
+SecretKey: '⟦@Wm4Tz8Kq2¦Lx7Bn3Pv9Hc5Rd⟧'[i]
 
 === secret oracle_near_name_index index.ivar.prefixed: an instance variable has a prefix: a name of one word alone is none
 password: '⟦copper¦falcon⟧'[i]

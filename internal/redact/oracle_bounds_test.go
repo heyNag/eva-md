@@ -955,7 +955,7 @@ var oracleBounds = []oracleBound{
 			return keyLine(g, nearSeps, nthOf(indexTails, n/2)), func() string {
 				if n%2 == 1 {
 					// A random name with a '_' inside.
-					return separated(g, 9+g.r.Intn(12), "_")
+					return separated(g, 9+g.r.Intn(32), "_")
 				}
 				w := g.pick(gapWords)
 				return w + g.chars(max(1, 8-len(w))+g.r.Intn(2), digits)
@@ -1168,7 +1168,7 @@ var oracleBounds = []oracleBound{
 					return nearToken(g) + "." + nearToken(g)
 				}
 				// Random names with a '_' inside.
-				return g.pick(gapWords) + "." + separated(g, 6+g.r.Intn(10), "_")
+				return g.pick(gapWords) + "." + separated(g, 6+g.r.Intn(30), "_")
 			}
 		},
 	},
@@ -1272,17 +1272,19 @@ var oracleBounds = []oracleBound{
 			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || name[0] >= 'A' && name[0] <= 'Z')"}},
 			// A name that holds a '_', as a name of words does.
 			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || strings.Contains(name, \"_\"))"}},
+			// A long name, of 23 characters or more.
+			{{"name != v && memberSegment.MatchString(name) && wordLike(name, 1)", "name != v && memberSegment.MatchString(name) && (wordLike(name, 1) || len(name) >= 23)"}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, nearSeps, nthOf(indexTails, n)), func() string {
 				// Names of every length from what the floor takes, 8 characters
-				// with the prefix, to 22.
+				// with the prefix, to 40.
 				p := nthOf([]string{"@", "@@"}, n)
 				if n%3 == 2 {
 					// A name with a '_' inside, which memberSegment takes.
-					return p + separated(g, 6+g.r.Intn(12), "_")
+					return p + separated(g, 6+g.r.Intn(35), "_")
 				}
-				return p + randomPart(g, 8-len(p)+n/2%(15+len(p)))
+				return p + randomPart(g, 8-len(p)+n/2%(33+len(p)))
 			}
 		},
 	},
@@ -1414,6 +1416,8 @@ var oracleBounds = []oracleBound{
 		more: [][]edit{
 			// A name that holds a '_', as a name of words does.
 			{{"return wordLike(name, 2) ||", "return wordLike(name, 2) || strings.Contains(name, \"_\") ||"}},
+			// A long name, of 23 characters or more.
+			{{"return wordLike(name, 2) ||", "return wordLike(name, 2) || len(name) >= 23 ||"}},
 		},
 		near: func(g *gen, n int) (string, func() string) {
 			return keyLine(g, []string{": ", ":", " := "}, ""), func() string {
@@ -1423,7 +1427,7 @@ var oracleBounds = []oracleBound{
 				case 2:
 					// A name with '_', '-' or '.' inside, which aliasName takes
 					// as separators of words.
-					return "*" + separated(g, 9+g.r.Intn(12), "_-.")
+					return "*" + separated(g, 9+g.r.Intn(32), "_-.")
 				}
 				w := g.pick(gapWords)
 				return "*" + w + g.chars(max(2, 9-len(w)), "abcdefghijklmnopqrstuvwxyz")

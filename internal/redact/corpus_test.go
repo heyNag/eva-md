@@ -609,11 +609,11 @@ func generatedCases() []corpusCase {
 	return all
 }
 
-// nearToken makes a random token of 10 to 22 letters and digits that starts
+// nearToken makes a random token of 10 to 40 letters and digits that starts
 // with a letter and reads as no name of words, as a generated password does.
 func nearToken(g *gen) string {
 	for {
-		s := g.chars(1, alnum[:52]) + g.mixed(9+g.r.Intn(13))
+		s := g.chars(1, alnum[:52]) + g.mixed(9+g.r.Intn(31))
 		if !wordLike(s, 1) {
 			return s
 		}
