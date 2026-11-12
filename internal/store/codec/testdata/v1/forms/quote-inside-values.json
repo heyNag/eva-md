@@ -1,0 +1,49 @@
+{
+  "type": "knowledge",
+  "title": "it's the feed: tide",
+  "description": "",
+  "status": "",
+  "stale_after": "",
+  "generated": {
+    "by": "codex/model-b, it\"s",
+    "at": "2026-11-04T06:12:09Z"
+  },
+  "verified": null,
+  "sources": [
+    {
+      "id": "",
+      "resource": "s:9c41aa07#14",
+      "title": "it's: kept",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    },
+    {
+      "id": "",
+      "resource": "s:1",
+      "title": "it's",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    }
+  ],
+  "extra": {
+    "aliases": [
+      "tide",
+      "harbour's feed",
+      "bay",
+      "a\", b"
+    ],
+    "model": [
+      "it's"
+    ],
+    "repos": [
+      "- tide\"tables",
+      "- x: harbour\"s"
+    ],
+    "writer": "it's, fine"
+  },
+  "body": "\n# Body\n\nSome text.\n"
+}

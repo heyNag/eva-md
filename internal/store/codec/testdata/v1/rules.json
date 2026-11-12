@@ -1,0 +1,18 @@
+{
+  "type": "rules",
+  "title": "Rules: tide-tables",
+  "description": "Standing rules for example-org/tide-tables",
+  "status": "stable",
+  "stale_after": "",
+  "generated": {
+    "by": "codex/model-b",
+    "at": "2026-11-04T06:12:09Z"
+  },
+  "verified": null,
+  "sources": null,
+  "extra": {
+    "locked": false,
+    "writer": "codex/model-b"
+  },
+  "body": "\n# Rules: tide-tables\n\n## Rules\n<!-- eva:rules:start -->\n- Never commit station keys; use the fake ones in testdata. <!-- r:1 --> s:9c41aa07#3\n- Times are UTC with an explicit offset: 2026-11-04T06:00:00+00:00. <!-- r:2 --> s:9c41aa07#8\n<!-- eva:rules:end -->\n\n## Notes\nKept by hand: ask before renaming a table.\n"
+}

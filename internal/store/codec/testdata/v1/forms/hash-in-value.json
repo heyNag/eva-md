@@ -1,0 +1,24 @@
+{
+  "type": "knowledge",
+  "title": "C#",
+  "description": "",
+  "status": "",
+  "stale_after": "",
+  "generated": null,
+  "verified": null,
+  "sources": [
+    {
+      "id": "",
+      "resource": "s:9c41aa07#14",
+      "title": "",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    }
+  ],
+  "extra": {
+    "model": "x#1"
+  },
+  "body": "\n# Body\n\nSome text.\n"
+}

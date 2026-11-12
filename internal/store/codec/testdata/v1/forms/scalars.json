@@ -1,0 +1,24 @@
+{
+  "type": "knowledge",
+  "title": "Tide feed",
+  "description": "",
+  "status": "",
+  "stale_after": "",
+  "generated": null,
+  "verified": null,
+  "sources": null,
+  "extra": {
+    "as_of": "2026-11-04T06:12:09Z",
+    "branch": ".inf",
+    "head": "007",
+    "kind": "~",
+    "model": "0x1f",
+    "parent": -7,
+    "project": 1000,
+    "remote": "git.example.test:example-org/tide-tables",
+    "scope": "TRUE",
+    "state": "12:30",
+    "writer": "Tide: feed"
+  },
+  "body": "\n# Body\n\nSome text.\n"
+}

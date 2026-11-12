@@ -1,0 +1,18 @@
+{
+  "type": "rules",
+  "title": "Rules: general",
+  "description": "Standing rules for general conversations",
+  "status": "stable",
+  "stale_after": "",
+  "generated": {
+    "by": "claude-code/model-a",
+    "at": "2026-11-05T21:40:00Z"
+  },
+  "verified": null,
+  "sources": null,
+  "extra": {
+    "locked": true,
+    "writer": "claude-code/model-a"
+  },
+  "body": "\n# Rules: general\n\n## Rules\n<!-- eva:rules:start -->\n- Answer in British spelling. <!-- r:1 --> s:51d0e2b4#2\n<!-- eva:rules:end -->\n"
+}

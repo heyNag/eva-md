@@ -1,0 +1,14 @@
+{
+  "type": "knowledge",
+  "title": "Tide feed",
+  "description": "",
+  "status": "stable",
+  "stale_after": "",
+  "generated": null,
+  "verified": null,
+  "sources": null,
+  "extra": {
+    "kind": "decision"
+  },
+  "body": "\n# Body\n\nSome text.\n"
+}

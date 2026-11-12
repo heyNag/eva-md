@@ -1,0 +1,31 @@
+{
+  "type": "knowledge",
+  "title": "Tide feed",
+  "description": "",
+  "status": "",
+  "stale_after": "",
+  "generated": null,
+  "verified": null,
+  "sources": null,
+  "extra": {
+    "model_note": [
+      "a",
+      [
+        "b",
+        "c"
+      ]
+    ],
+    "repos": [
+      "tide-tables",
+      "harbour"
+    ],
+    "writer": {
+      "b": [
+        1,
+        2.5,
+        null
+      ]
+    }
+  },
+  "body": "\n# Body\n\nSome text.\n"
+}
