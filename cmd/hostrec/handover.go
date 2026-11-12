@@ -289,7 +289,7 @@ func cmdFixtures(c *cli, args []string) int {
 	if inside, err := hostfacts.InsideCheckout(flags["rec"]); err != nil || inside {
 		return c.fail("the recording %s is inside a git checkout; keep it outside any checkout", flags["rec"])
 	}
-	if h := flags["host"]; h != "" && h != "claude-code" && h != "codex" {
+	if h := flags["host"]; h != "" && h != hostClaude && h != hostCodex {
 		return c.fail("--host must be claude-code or codex")
 	}
 	meta, err := hostfacts.WriteFixtures(hostfacts.FixtureOptions{Rec: flags["rec"], Out: flags["out"], Host: flags["host"]})

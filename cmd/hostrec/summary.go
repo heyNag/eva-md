@@ -81,7 +81,7 @@ func readRecording(rec string, hosts []string) (*recording, error) {
 }
 
 // scopeHosts are the hosts whose events a summary lists.
-var scopeHosts = map[string][]string{"sitting-1": {"claude-code"}, "sitting-2": {"codex"}}
+var scopeHosts = map[string][]string{"sitting-1": {hostClaude}, "sitting-2": {hostCodex}}
 
 func cmdSummary(c *cli, args []string) int {
 	if len(args) != 1 {
@@ -97,7 +97,7 @@ func cmdSummary(c *cli, args []string) int {
 	}
 	hosts, ok := scopeHosts[args[0]]
 	if !ok {
-		hosts = []string{"claude-code", "codex"}
+		hosts = []string{hostClaude, hostCodex}
 	}
 	r, err := readRecording(e.rec, hosts)
 	if err != nil {
@@ -125,7 +125,7 @@ func cmdSummary(c *cli, args []string) int {
 			continue
 		}
 		var parts []string
-		for _, h := range []string{"claude-code", "codex"} {
+		for _, h := range []string{hostClaude, hostCodex} {
 			v := m.Versions[h]
 			parts = append(parts, h+" "+v)
 			if prev, ok := last[h]; ok && prev != v {
@@ -210,7 +210,7 @@ func cmdVoiceCheck(c *cli, args []string) int {
 	}
 	var call []voiceEvent
 	for _, ev := range events {
-		if ev.Mark == "X-44" && ev.Host == "codex" {
+		if ev.Mark == "X-44" && ev.Host == hostCodex {
 			call = append(call, ev)
 		}
 	}

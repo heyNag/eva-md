@@ -15,7 +15,7 @@ import (
 var hostTimeout = 2 * time.Minute
 
 // hostCLIs are the hosts' commands, whose versions each mark keeps.
-var hostCLIs = map[string]string{"claude-code": "claude", "codex": "codex"}
+var hostCLIs = map[string]string{hostClaude: cliClaude, hostCodex: cliCodex}
 
 func cmdMark(c *cli, args []string) int {
 	if len(args) != 1 {

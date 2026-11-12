@@ -73,14 +73,14 @@ func hostEnv(flags map[string]string) []string {
 }
 
 // pluginsOf are the scratch plugins of Part 1, by host.
-var pluginsOf = map[string][]string{"claude-code": {claudePlugin}, "codex": {codexPlugin}}
+var pluginsOf = map[string][]string{hostClaude: {claudePlugin}, hostCodex: {codexPlugin}}
 
 // listCommand is the host's own list of its plugins.
 func listCommand(host string) []string {
-	if host == "codex" {
-		return []string{"codex", "plugin", "list", "--json"}
+	if host == hostCodex {
+		return []string{cliCodex, "plugin", "list", "--json"}
 	}
-	return []string{"claude", "plugin", "list", "--json"}
+	return []string{cliClaude, "plugin", "list", "--json"}
 }
 
 // listed gives the scratch plugins a host's list names.
@@ -180,12 +180,12 @@ func registerCheck(c *cli, e *env, env []string, hosts []string) int {
 // hostsAndPlugin reads register's and unregister's words: a host or all,
 // and a plugin of that host.
 func hostsAndPlugin(words []string, allowAll bool) (hosts []string, plugin string, ok bool) {
-	hosts = []string{"claude-code", "codex"}
+	hosts = []string{hostClaude, hostCodex}
 	if len(words) == 0 {
 		return hosts, "", true
 	}
 	switch words[0] {
-	case "claude-code", "codex":
+	case hostClaude, hostCodex:
 		hosts = words[:1]
 	case "all":
 		if !allowAll || len(words) > 1 {
@@ -209,15 +209,15 @@ func hostsAndPlugin(words []string, allowAll bool) (hosts []string, plugin strin
 func unregisterCommands(host, plugin string, market bool) [][]string {
 	var out [][]string
 	switch host {
-	case "claude-code":
-		out = append(out, []string{"claude", "plugin", "uninstall", plugin + "@" + marketplace, "--scope", "user", "--json"})
+	case hostClaude:
+		out = append(out, []string{cliClaude, "plugin", "uninstall", plugin + "@" + marketplace, "--scope", "user", "--json"})
 		if market {
-			out = append(out, []string{"claude", "plugin", "marketplace", "remove", marketplace, "--json"})
+			out = append(out, []string{cliClaude, "plugin", "marketplace", "remove", marketplace, "--json"})
 		}
-	case "codex":
-		out = append(out, []string{"codex", "plugin", "remove", plugin + "@" + marketplace, "--json"})
+	case hostCodex:
+		out = append(out, []string{cliCodex, "plugin", "remove", plugin + "@" + marketplace, "--json"})
 		if market {
-			out = append(out, []string{"codex", "plugin", "marketplace", "remove", marketplace, "--json"})
+			out = append(out, []string{cliCodex, "plugin", "marketplace", "remove", marketplace, "--json"})
 		}
 	}
 	return out
@@ -310,7 +310,7 @@ type hookCount struct {
 func hooksList(cwd string) ([]hookCount, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), trustTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "codex", "--no-daemon", "app-server", "--stdio")
+	cmd := exec.CommandContext(ctx, cliCodex, "--no-daemon", "app-server", "--stdio")
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = time.Second
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

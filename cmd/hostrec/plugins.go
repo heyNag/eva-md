@@ -86,12 +86,12 @@ func claudeHooks(tools string) map[string]any {
 	bin := filepath.Join(tools, "hostrec")
 	hooks := map[string]any{}
 	for _, ev := range claudeEvents {
-		groups := []hookGroup{group("", hookEntry{"type": "command", "command": hookCommand(bin, "claude-code", ev, ""), "timeout": claudeTimeout})}
+		groups := []hookGroup{group("", hookEntry{"type": "command", "command": hookCommand(bin, hostClaude, ev, ""), "timeout": claudeTimeout})}
 		if ev == "UserPromptSubmit" {
 			groups = append(groups,
 				group("", hookEntry{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hf-exec-check", "args": []string{ev}, "timeout": claudeTimeout}),
-				group("", hookEntry{"type": "command", "command": hookCommand(filepath.Join(tools, "hf-missing-check"), "claude-code", ev, "missing-check"), "timeout": claudeTimeout}),
-				group("", hookEntry{"type": "command", "command": hookCommand(bin, "claude-code", ev, "timeout-check"), "timeout": 2}),
+				group("", hookEntry{"type": "command", "command": hookCommand(filepath.Join(tools, "hf-missing-check"), hostClaude, ev, "missing-check"), "timeout": claudeTimeout}),
+				group("", hookEntry{"type": "command", "command": hookCommand(bin, hostClaude, ev, "timeout-check"), "timeout": 2}),
 			)
 		}
 		hooks[ev] = groups
@@ -119,16 +119,16 @@ func codexHooks(tools string) map[string]any {
 	hooks := map[string]any{}
 	for _, ev := range codexEvents {
 		row := codexTable[ev]
-		groups := []hookGroup{group("", entry(hookCommand(bin, "codex", ev, ""), row))}
+		groups := []hookGroup{group("", entry(hookCommand(bin, hostCodex, ev, ""), row))}
 		switch ev {
 		case "PreToolUse":
 			groups = append(groups,
-				group("^Bash$", entry(hookCommand(bin, "codex", ev, "shell-matcher"), row)),
-				group("Edit|Write", entry(hookCommand(bin, "codex", ev, "edit-matcher"), row)))
+				group("^Bash$", entry(hookCommand(bin, hostCodex, ev, "shell-matcher"), row)),
+				group("Edit|Write", entry(hookCommand(bin, hostCodex, ev, "edit-matcher"), row)))
 		case "SessionStart":
-			groups = append(groups, group("", entry(hookCommand(bin, "codex", ev, "plain-start"), codexRow{timeout: row.timeout})))
+			groups = append(groups, group("", entry(hookCommand(bin, hostCodex, ev, "plain-start"), codexRow{timeout: row.timeout})))
 		case "UserPromptSubmit":
-			groups = append(groups, group("", entry(hookCommand(filepath.Join(tools, "hf-missing-check"), "codex", ev, "missing-check"), row)))
+			groups = append(groups, group("", entry(hookCommand(filepath.Join(tools, "hf-missing-check"), hostCodex, ev, "missing-check"), row)))
 		}
 		hooks[ev] = groups
 	}
@@ -156,9 +156,9 @@ func textFile(path, text string) pluginFile { return pluginFile{path, []byte(tex
 // Code's with hf-recorder, Codex's with hf-hooks. Part 2 adds hf-recorder's
 // MCP entry, hf-tools and hf-hooks-two.
 func pluginFiles(market, tools string) []pluginFile {
-	cc := filepath.Join(market, "claude-code")
+	cc := filepath.Join(market, hostClaude)
 	rec := filepath.Join(cc, "plugins", claudePlugin)
-	cx := filepath.Join(market, "codex")
+	cx := filepath.Join(market, hostCodex)
 	hk := filepath.Join(cx, "plugins", codexPlugin)
 	about := "Made-up scratch plugin for the host sittings. Nothing in it is real."
 	return []pluginFile{
@@ -198,8 +198,8 @@ func pluginFiles(market, tools string) []pluginFile {
 // pluginRoots are the roots of the scratch plugins of Part 1.
 func pluginRoots(market string) []string {
 	return []string{
-		filepath.Join(market, "claude-code", "plugins", claudePlugin),
-		filepath.Join(market, "codex", "plugins", codexPlugin),
+		filepath.Join(market, hostClaude, "plugins", claudePlugin),
+		filepath.Join(market, hostCodex, "plugins", codexPlugin),
 	}
 }
 
@@ -207,15 +207,15 @@ func pluginRoots(market string) []string {
 // marketplace and plugin, as setup prints them and register runs them.
 func registerCommands(host, market string) [][]string {
 	switch host {
-	case "claude-code":
+	case hostClaude:
 		return [][]string{
-			{"claude", "plugin", "marketplace", "add", filepath.Join(market, "claude-code"), "--json"},
-			{"claude", "plugin", "install", claudePlugin + "@" + marketplace, "--scope", "user", "--json"},
+			{cliClaude, "plugin", "marketplace", "add", filepath.Join(market, hostClaude), "--json"},
+			{cliClaude, "plugin", "install", claudePlugin + "@" + marketplace, "--scope", "user", "--json"},
 		}
-	case "codex":
+	case hostCodex:
 		return [][]string{
-			{"codex", "plugin", "marketplace", "add", filepath.Join(market, "codex"), "--json"},
-			{"codex", "plugin", "add", codexPlugin + "@" + marketplace, "--json"},
+			{cliCodex, "plugin", "marketplace", "add", filepath.Join(market, hostCodex), "--json"},
+			{cliCodex, "plugin", "add", codexPlugin + "@" + marketplace, "--json"},
 		}
 	}
 	return nil

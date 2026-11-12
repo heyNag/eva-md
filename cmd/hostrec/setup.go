@@ -169,7 +169,7 @@ func cmdSetup(c *cli, args []string) int {
 	c.say("the scratch folders under %s, and the scratch marketplaces under %s.", filepath.Join(home, scratchName), market)
 	c.say("Kept %s to replace in everything written to the recording.", plural(1+len(others)+len(names.Computer), "name of this machine", "names of this machine's accounts and computer"))
 	c.say("The hosts' commands that add the scratch plugins, which hostrec register runs:")
-	for _, host := range []string{"claude-code", "codex"} {
+	for _, host := range []string{hostClaude, hostCodex} {
 		for _, argv := range registerCommands(host, market) {
 			c.say("  %s </dev/null", printable(argv))
 		}

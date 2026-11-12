@@ -106,7 +106,7 @@ func hookRun(c *cli, args []string) (answer string, pause time.Duration) {
 	}
 	host, event, via := flags["host"], flags["event"], flags["via"]
 	switch {
-	case argErr != nil || len(words) != 0 || event == "" || !slices.Contains([]string{"claude-code", "codex"}, host):
+	case argErr != nil || len(words) != 0 || event == "" || !slices.Contains([]string{hostClaude, hostCodex}, host):
 		e.oops("hook", errors.New("the hook's arguments do not read"))
 		return "{}", 0
 	case readErr != nil:
@@ -328,7 +328,7 @@ func gitShape(dir string) *hostfacts.GitShape {
 // hostFolder is the host's own folder: the one its environment names, or
 // the default.
 func hostFolder(home, host string) string {
-	if host == "codex" {
+	if host == hostCodex {
 		if d := os.Getenv("CODEX_HOME"); filepath.IsAbs(d) {
 			return d
 		}
