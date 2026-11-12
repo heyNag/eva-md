@@ -243,7 +243,7 @@ func TestRows(t *testing.T) {
 	want := map[string]string{score.MetricFactRecall: "ratio", score.MetricFactHolds: "ratio", score.MetricWrongWrite: "count", score.MetricNoise: "count",
 		score.MetricMisattributed: "count", score.MetricStaleInForce: "count", score.MetricDupes: "count", score.MetricOTRStored: "count", score.MetricViolations: "count"}
 	template := results.Row{Commit: strings.Repeat("0123456789abcdef", 4)[:40], Instrument: "fidelity", Scenario: "not-this-one", Seed: 7,
-		Host: "codex", HostVersion: "0.1.0", Time: time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)}
+		Host: string(adapter.Codex), HostVersion: "0.1.0", Time: time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)}
 	for _, sc := range append(scenario.V1(), cases()) {
 		ex, _ := score.Distort(score.Ideal(sc), sc, score.DistortValueWrong)
 		r := score.Score(sc, ex)
@@ -253,7 +253,7 @@ func TestRows(t *testing.T) {
 		}
 		seen := map[string]bool{}
 		for _, row := range rows {
-			if want[row.Metric] != row.Unit || seen[row.Metric] || row.Scenario != sc.ID || row.Commit != template.Commit || row.Seed != 7 || row.Host != "codex" {
+			if want[row.Metric] != row.Unit || seen[row.Metric] || row.Scenario != sc.ID || row.Commit != template.Commit || row.Seed != 7 || row.Host != template.Host {
 				t.Errorf("%s: row %+v", sc.ID, row)
 			}
 			seen[row.Metric] = true
