@@ -94,7 +94,7 @@ func TestHolds(t *testing.T) {
 		{"Ship when the freeze ends on Mar. 3, 2026", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, true},
 		{"Ship when the tests pass; the docs build", scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass; the docs build"}, true},
 		{"Ship when the tests pass; then the docs build", scenario.Slot{Class: scenario.SlotCond, Value: "when the tests pass, the docs build"}, false},
-		{"Ship once on 3 March 2026, the freeze ends",scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, true},
+		{"Ship once on 3 March 2026, the freeze ends", scenario.Slot{Class: scenario.SlotCond, Value: "once the freeze ends on 3 March 2026"}, true},
 		{"Unless BenchmarkBrief in scripts/benchmark.py passes 300 ms, switch", cond, false},
 		{"Unless the index grows past 2 MiB, keep one file", scenario.Slot{Class: scenario.SlotCond, Value: "unless the index grows past 2 MiB"}, true},
 		{"If the index grows past 2 MiB, shard it", scenario.Slot{Class: scenario.SlotCond, Value: "unless the index grows past 2 MiB"}, false},

@@ -247,6 +247,9 @@ func TestOutcomes(t *testing.T) {
 		{name: "an item under the user's tag that holds none of the pasted line's values", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "The user pasted an old note", src(6)))
 		}, item: score.ValueDropped, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 && m.Violations == 0 }},
+		{name: "a rule that holds none of the values of an instruction for the moment", spoil: func(e *score.Export) {
+			e.Items = append(e.Items, active(scenario.KindRule, score.TagStated, "Format the code first", src(7)))
+		}, item: score.ValueDropped, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 && m.Violations == 0 }},
 		{name: "a dropped limit and a dropped value", spoil: func(e *score.Export) {
 			e.Items = append(e.Items, active(scenario.KindDecision, score.TagStated, "The freeze is on 3 March 2026", src(8)))
 		}, item: score.LimitDropped, metrics: func(m score.Metrics) bool { return m.WrongWrite == 1 && m.Dupes == 0 }},
