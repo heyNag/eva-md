@@ -85,6 +85,7 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	for _, name := range p.opts.PassEnv {
 		tr.Env = append(tr.Env, name+"="+os.Getenv(name))
 	}
+	tr.Env = append(tr.Env, p.entry.OffEnv...)
 	link := filepath.Join(tr.Dirs.Bin, p.host.Names.CLI)
 	probe := adapter.Probe(ctx, p.host.ID, adapter.Env{
 		LookPath: func(file string) (string, error) {

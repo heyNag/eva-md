@@ -234,6 +234,18 @@ var (
 	redirectNames    = []string{"GNUPGHOME", "SSH_AUTH_SOCK"}
 )
 
+// setsOff reports whether a host's OffEnv sets the variable name.
+func setsOff(name string) bool {
+	for _, e := range hosts {
+		for _, kv := range e.OffEnv {
+			if strings.HasPrefix(kv, name+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // redirects reports whether --pass-env may not pass the variable name.
 func redirects(name string) bool {
 	if slices.Contains(redirectNames, name) {
@@ -421,7 +433,7 @@ func prepare(o Options) (*plan, error) {
 		switch {
 		case !envName.MatchString(name):
 			return nil, usagef("--pass-env %d is not a variable's name", i+1)
-		case slices.Contains(builtEnv, name):
+		case slices.Contains(builtEnv, name) || setsOff(name):
 			return nil, usagef("--pass-env %s is one the driver sets itself", name)
 		case redirects(name):
 			return nil, usagef("--pass-env %s would point the chat at a configuration outside its trial", name)

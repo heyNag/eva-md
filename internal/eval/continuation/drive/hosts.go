@@ -75,6 +75,10 @@ type hostEntry struct {
 	// Off are the flags of a chat with the host's own memory off and no
 	// plugin loaded.
 	Off []string
+	// OffEnv are the variables, NAME=value, that turn the host's own memory
+	// off too, beside its flags. Every chat of the host has them, whatever
+	// its condition, one that loads the plugin among them.
+	OffEnv []string
 	// Plugin gives what loads eva-md's plugin as setup installed it in the
 	// trial's home, with the host's own memory still off. It never writes a
 	// trust record.
@@ -96,8 +100,10 @@ var hosts = map[adapter.ID]hostEntry{
 	//   - F-069: --max-turns bounds the run, and --resume <id> continues the
 	//     session.
 	//   - F-062: the settings given by --settings turn its own memory off
-	//     for this run, writing no settings file. A trial's home is new, so
-	//     no plugin is installed there to turn off.
+	//     for this run, writing no settings file, and so does the variable
+	//     CLAUDE_CODE_DISABLE_AUTO_MEMORY (evaluate.md 4.5 and 14, fact 3),
+	//     which every chat gets too. A trial's home is new, so no plugin is
+	//     installed there to turn off.
 	//   - F-115: --plugin-dir loads a plugin from a folder, and its hooks
 	//     fire under an API key.
 	//   - F-067: the run is headless under an API key; its permission mode
@@ -117,7 +123,8 @@ var hosts = map[adapter.ID]hostEntry{
 			args = append(args, c.Extra...)
 			return append(args, "--", c.Prompt)
 		},
-		Off: []string{"--settings", `{"autoMemoryEnabled":false}`},
+		Off:    []string{"--settings", `{"autoMemoryEnabled":false}`},
+		OffEnv: []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"},
 		Plugin: func(home string, h adapter.Host) (pluginLoad, error) {
 			dir := pluginDir(home, h)
 			if info, err := os.Stat(dir); err != nil || !info.IsDir() {
@@ -135,7 +142,7 @@ var hosts = map[adapter.ID]hostEntry{
 	//   - F-169: --disable hooks --disable plugins turn hooks and plugins off
 	//     for this run, writing no settings file.
 	//   - F-170 (not EV-03's): its own memory is off by default and takes no
-	//     exec session, so nothing turns it off.
+	//     exec session, so nothing turns it off, and it has no OffEnv.
 	//   - F-163: managed hooks need no review, so eva-md's hooks are loaded
 	//     as managed hooks, from a requirements file under the trial's home,
 	//     and the plugin itself stays off. Where Codex reads that file in a

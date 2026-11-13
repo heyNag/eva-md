@@ -10,7 +10,8 @@
 // shapes of the driver's host table (drive/hosts.go), which are its own
 // until the pilot (EV-03) records the real ones. Each call is recorded as
 // a line of Calls in the script's folder: its arguments, the names of its
-// variables (and the values of the four the driver builds), its folder,
+// variables (and the values of the four the driver builds and OffVar's),
+// its folder,
 // its prompt, its session and the files of its folder before it changed
 // any, and those of the folder that holds it. Then it lays the task's
 // decoy/ overlay over the folder until every one of the script's facts has
@@ -115,6 +116,10 @@ type Script struct {
 	Pad int `json:"pad"`
 }
 
+// OffVar is a variable that turns a host's own memory off, whose value the
+// record keeps beside the four the driver builds.
+const OffVar = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"
+
 // ChildVar is the variable that makes the test binary a fake's child: it
 // writes a line to the named pipe the variable names, when it names one,
 // and blocks until it is killed.
@@ -126,7 +131,7 @@ type Call struct {
 	Mode    string            `json:"mode"` // "version", "start", "continue", or "other" for a call that is none
 	Args    []string          `json:"args"`
 	Env     []string          `json:"env"`   // every variable's name, sorted
-	Fixed   map[string]string `json:"fixed"` // HOME, PATH, TMPDIR, GIT_CONFIG_NOSYSTEM
+	Fixed   map[string]string `json:"fixed"` // HOME, PATH, TMPDIR, GIT_CONFIG_NOSYSTEM and OffVar
 	Dir     string            `json:"dir"`
 	Session string            `json:"session,omitempty"`
 	Prompt  string            `json:"prompt,omitempty"`
@@ -173,7 +178,7 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	for _, kv := range os.Environ() {
 		name, value, _ := strings.Cut(kv, "=")
 		c.Env = append(c.Env, name)
-		if name == "HOME" || name == "PATH" || name == "TMPDIR" || name == "GIT_CONFIG_NOSYSTEM" {
+		if name == "HOME" || name == "PATH" || name == "TMPDIR" || name == "GIT_CONFIG_NOSYSTEM" || name == OffVar {
 			c.Fixed[name] = value
 		}
 	}

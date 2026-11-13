@@ -110,9 +110,18 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 					adapter.ClaudeCode: {"--settings", `{"autoMemoryEnabled":false}`},
 					adapter.Codex:      {"--disable", "hooks", "--disable", "plugins"},
 				}[h.ID]
+				// And Claude Code's by a variable too (evaluate.md 4.5); Codex
+				// has none (F-170).
+				env := []string{fakehost.ScriptVar, "GIT_CONFIG_NOSYSTEM", "HOME", "PATH", "TMPDIR"}
+				if h.ID == adapter.ClaudeCode {
+					env = []string{fakehost.OffVar, fakehost.ScriptVar, "GIT_CONFIG_NOSYSTEM", "HOME", "PATH", "TMPDIR"}
+				}
 				for _, call := range calls {
-					if want := []string{fakehost.ScriptVar, "GIT_CONFIG_NOSYSTEM", "HOME", "PATH", "TMPDIR"}; !slices.Equal(call.Env, want) {
-						t.Fatalf("the environment: %v, want %v", call.Env, want)
+					if !slices.Equal(call.Env, env) {
+						t.Fatalf("the environment: %v, want %v", call.Env, env)
+					}
+					if value, set := call.Fixed[fakehost.OffVar]; set != (h.ID == adapter.ClaudeCode) || set && value != "1" {
+						t.Fatalf("the variable that turns memory off: %q %v", value, set)
 					}
 					if call.Fixed["HOME"] != filepath.Join(dir, "home") || call.Fixed["TMPDIR"] != filepath.Join(dir, "tmp") ||
 						call.Fixed["GIT_CONFIG_NOSYSTEM"] != "1" || call.Fixed["PATH"] != filepath.Join(dir, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH") {
@@ -682,6 +691,11 @@ func TestPluginLaunch(t *testing.T) {
 			calls := r.calls()
 			args := calls[len(calls)-1].Args
 			home := calls[len(calls)-1].Fixed["HOME"]
+			// The plugin's chat has the host's own memory off by its variable
+			// too.
+			if value, set := calls[len(calls)-1].Fixed[fakehost.OffVar]; set != (h.ID == adapter.ClaudeCode) || set && value != "1" {
+				t.Fatalf("the variable that turns memory off: %q %v", value, set)
+			}
 			switch h.ID {
 			case adapter.ClaudeCode:
 				if !holdsRun(args, []string{"--plugin-dir", pluginDir(home, h)}) || !holdsRun(args, []string{"--settings", `{"autoMemoryEnabled":false}`}) {
@@ -753,20 +767,21 @@ func TestNoAskedAgainWhenNotMeasured(t *testing.T) {
 // Usage errors start nothing.
 func TestUsageErrors(t *testing.T) {
 	for name, set := range map[string]func(o *Options){
-		"no host":                func(o *Options) { o.Host = "" },
-		"an unknown host":        func(o *Options) { o.Host = "made-up-host" },
-		"a relative CLI":         func(o *Options) { o.CLI = "claude" },
-		"a CLI that is no file":  func(o *Options) { o.CLI = filepath.Join(filepath.Dir(o.CLI), "made-up-cli") },
-		"no trials":              func(o *Options) { o.Trials = 0 },
-		"no session ceiling":     func(o *Options) { o.MaxSessions = 0 },
-		"no token ceiling":       func(o *Options) { o.MaxTokens = 0 },
-		"a pass-env with =":      func(o *Options) { o.PassEnv = append(o.PassEnv, "A=B") },
-		"a pass-env the driver":  func(o *Options) { o.PassEnv = append(o.PassEnv, "HOME") },
-		"a pass-env not set":     func(o *Options) { o.PassEnv = append(o.PassEnv, "EVAL_MADE_UP_UNSET") },
-		"a pass-env given twice": func(o *Options) { o.PassEnv = append(o.PassEnv, o.PassEnv[0]) },
-		"a model not an id":      func(o *Options) { o.Model = "Made Up" },
-		"no results folder":      func(o *Options) { o.Out = "" },
-		"no tasks":               func(o *Options) { o.Tasks = filepath.Join(filepath.Dir(o.Tasks), "none") },
+		"no host":                 func(o *Options) { o.Host = "" },
+		"an unknown host":         func(o *Options) { o.Host = "made-up-host" },
+		"a relative CLI":          func(o *Options) { o.CLI = "claude" },
+		"a CLI that is no file":   func(o *Options) { o.CLI = filepath.Join(filepath.Dir(o.CLI), "made-up-cli") },
+		"no trials":               func(o *Options) { o.Trials = 0 },
+		"no session ceiling":      func(o *Options) { o.MaxSessions = 0 },
+		"no token ceiling":        func(o *Options) { o.MaxTokens = 0 },
+		"a pass-env with =":       func(o *Options) { o.PassEnv = append(o.PassEnv, "A=B") },
+		"a pass-env the driver":   func(o *Options) { o.PassEnv = append(o.PassEnv, "HOME") },
+		"a pass-env a host's off": func(o *Options) { o.PassEnv = append(o.PassEnv, fakehost.OffVar) },
+		"a pass-env not set":      func(o *Options) { o.PassEnv = append(o.PassEnv, "EVAL_MADE_UP_UNSET") },
+		"a pass-env given twice":  func(o *Options) { o.PassEnv = append(o.PassEnv, o.PassEnv[0]) },
+		"a model not an id":       func(o *Options) { o.Model = "Made Up" },
+		"no results folder":       func(o *Options) { o.Out = "" },
+		"no tasks":                func(o *Options) { o.Tasks = filepath.Join(filepath.Dir(o.Tasks), "none") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t, 1)
