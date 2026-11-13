@@ -87,9 +87,13 @@ var limitWords = map[string][]string{
 // limit_dropped. A finding with a limit may be filed as a fact, an open
 // question or a dated line. A hypothesis's limit is its hedge: it may be
 // filed only as an open question or as a fact, never as a dated line,
-// which would record a guess as what happened, and in either it keeps the
-// hedge. The scorer cannot make a slot depend on the kind an item is
-// filed in, so an open question must keep a hedge word too.
+// which would record a guess as what happened, and it keeps a hedge word
+// in every filing, the open question included. So an open question about
+// a hypothesis with no hedge word, such as "Does the X cache cause the
+// slow start?", scores limit_dropped, though a store that wrote it did
+// nothing wrong. That is the scorer's limit, not the store's: the scorer
+// cannot ask a slot of one kind and not of another (the lead's ruling of
+// 2026-11-13). The family is held out, so no tuning leans on it.
 func limit(seed uint64) scenario.Scenario {
 	b := newBuilder("limit", scenario.SplitHeldout, seed, "a finding with a stated limit")
 	v := b.g.names(1)[0]
@@ -208,7 +212,10 @@ var acceptedTexts = map[string][]string{
 // accepted plants the agent's proposal and the user's acceptance of it,
 // picked in a dialog or approved in a plan. The acceptance must be stored
 // under the accepted authority as a decision or a procedure, and never as
-// a rule (decision 10). The model gives a fact one Must, so the acceptance
+// a rule (decision 10). The scorer reads stated as it reads accepted, so a
+// store that files the acceptance under stated holds today; this package
+// does not ask more of it (the lead's ruling of 2026-11-13, the card's
+// first). The model gives a fact one Must, so the acceptance
 // is planted twice at its turn: once as a fact to store, which supersedes
 // the proposal, and once as one a store may never keep as a rule. v1 keeps
 // no dialog or plan entry, so the family renders only as events.

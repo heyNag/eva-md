@@ -265,11 +265,9 @@ func TestUnagreedHasNoAuthority(t *testing.T) {
 
 // TestAcceptedIsADecisionNeverARule: the acceptance is stored under the
 // accepted authority as a decision; stored as a rule it is a violation;
-// stored under another's authority it is found with the wrong authority.
-// The scorer reads stated and accepted alike as the user's, so an
-// acceptance filed as stated still holds: this test records that gap, and
-// fails once the scorer tells the two apart, when it is to say found with
-// the wrong authority, as the card asks.
+// stored under the agent's authority, suggested or observed, it is found
+// with the wrong authority. Stored under stated it is
+// TestAcceptedUnderStatedHoldsUntilTheScorerTellsThemApart's.
 func TestAcceptedIsADecisionNeverARule(t *testing.T) {
 	for _, sc := range instances(t)["accepted"] {
 		stored, nevers := facts(sc, scenario.MustStore), facts(sc, scenario.MustNotAsRule)
@@ -285,13 +283,40 @@ func TestAcceptedIsADecisionNeverARule(t *testing.T) {
 		if r.Metrics.Violations != 1 || r.Items[len(r.Items)-1].Outcome != score.Violation || factResult(r, never.ID).Outcome != score.Violation {
 			t.Errorf("%s: the acceptance stored as a rule scores %+v", sc.ID, r.Metrics)
 		}
-		for tag, want := range map[string]score.Outcome{score.TagSuggested: score.Found, score.TagObserved: score.Found, score.TagStated: score.Holds} {
+		for _, tag := range []string{score.TagSuggested, score.TagObserved} {
 			ex := score.Ideal(sc)
 			ex.Items[1].Authority = tag
 			fr := factResult(score.Score(sc, ex), choice.ID)
-			if fr.Outcome != want || want == score.Found && !slices.Equal(fr.Problems, []score.Problem{score.ProblemAuthority}) {
-				t.Errorf("%s: the acceptance under %s is %s %v, want %s", sc.ID, tag, fr.Outcome, fr.Problems, want)
+			if fr.Outcome != score.Found || !slices.Equal(fr.Problems, []score.Problem{score.ProblemAuthority}) {
+				t.Errorf("%s: the acceptance under %s is %s %v, want found with the wrong authority", sc.ID, tag, fr.Outcome, fr.Problems)
 			}
+		}
+	}
+}
+
+// TestAcceptedUnderStatedHoldsUntilTheScorerTellsThemApart holds today's
+// score of an acceptance stored under the stated authority, and fails by
+// design when the scorer changes. The scorer reads stated and accepted
+// alike as the user's, so it scores that store as holding, though the
+// family asks for accepted. This package may read the scorer and not
+// change it, so the lead's ruling of 2026-11-13 (the card's first ruling)
+// has this test hold today's score. When EV-14b's scorer tells accepted
+// from stated, this test fails: the acceptance under stated is then to be
+// found with the wrong authority, as the card first asked, and the test
+// is changed to say so.
+func TestAcceptedUnderStatedHoldsUntilTheScorerTellsThemApart(t *testing.T) {
+	for _, sc := range instances(t)["accepted"] {
+		stored := facts(sc, scenario.MustStore)
+		if len(stored) != 2 {
+			t.Fatalf("%s plants %d facts to store", sc.ID, len(stored))
+		}
+		choice := stored[1]
+		ex := score.Ideal(sc)
+		ex.Items[1].Authority = score.TagStated
+		r := score.Score(sc, ex)
+		if fr := factResult(r, choice.ID); fr.Outcome != score.Holds || len(fr.Problems) != 0 || r.Metrics != scoreIdeal(sc).Metrics {
+			t.Errorf("%s: the acceptance under stated is %s %v, metrics %+v; today's scorer holds it, so the scorer has changed: "+
+				"it is now to be found with the wrong authority, as the card first asked", sc.ID, fr.Outcome, fr.Problems, r.Metrics)
 		}
 	}
 }
@@ -386,23 +411,39 @@ func TestLimitSurvives(t *testing.T) {
 				t.Errorf("%s: the finding with %q, as %s, scores %+v", sc.ID, bound.Value, kind, r.Metrics)
 			}
 		}
-		if form == "hypothesis" {
-			// The scorer cannot require a slot in some kinds only, so a
-			// hypothesis keeps its hedge in every filing, an open question
-			// included: one asked with no hedge word drops the limit. This
-			// records that rule. If the card comes to let an open question
-			// drop the hedge, and the scorer to require a slot by kind, this
-			// row is to hold instead.
-			asked := score.Export{Items: []score.Item{itemOf(t, sc, scenario.KindOpen, score.TagSuggested,
-				"Does the "+f.Slots[0].Value+" cache cause the slow start?", f.ID)}}
-			if r := score.Score(sc, asked); r.Metrics != (score.Metrics{WrongWrite: 1}) || r.Facts[0].Outcome != score.LimitDropped {
-				t.Errorf("%s: the hypothesis asked as an open question with no hedge scores %+v, fact %s; the rule recorded is limit_dropped",
-					sc.ID, r.Metrics, r.Facts[0].Outcome)
-			}
-		}
 	}
 	if len(forms) != len(limitForms) {
 		t.Errorf("the draw holds the forms %v, want all of %v", forms, limitForms)
+	}
+}
+
+// TestHypothesisKeepsItsHedgeEvenAsAnOpenQuestion holds today's score of a
+// hypothesis filed as an open question with no hedge word: limit_dropped,
+// though a store that wrote it did nothing wrong. That is the scorer's
+// limit, not the store's: the scorer cannot ask a slot of one kind and not
+// of another, so the family asks the hedge in every filing, the open
+// question included (the lead's ruling of 2026-11-13, the card's second).
+// The family is held out, so no tuning leans on it. When EV-14b's scorer
+// lets a fact ask a slot of some kinds only, this test fails by design: the
+// open question with no hedge is then to hold, and the family takes the
+// card's first wording back.
+func TestHypothesisKeepsItsHedgeEvenAsAnOpenQuestion(t *testing.T) {
+	seen := 0
+	for _, sc := range instances(t)["limit"] {
+		f := sc.Facts[0]
+		if len(f.Slots) != 2 || !slices.Contains(hedges, f.Slots[1].Value) {
+			continue
+		}
+		seen++
+		asked := score.Export{Items: []score.Item{itemOf(t, sc, scenario.KindOpen, score.TagSuggested,
+			"Does the "+f.Slots[0].Value+" cache cause the slow start?", f.ID)}}
+		if r := score.Score(sc, asked); r.Metrics != (score.Metrics{WrongWrite: 1}) || r.Facts[0].Outcome != score.LimitDropped {
+			t.Errorf("%s: the hypothesis asked as an open question with no hedge word scores %+v, fact %s; today's scorer drops "+
+				"its limit, so the scorer has changed: the open question is now to hold", sc.ID, r.Metrics, r.Facts[0].Outcome)
+		}
+	}
+	if seen == 0 {
+		t.Error("the draw holds no hypothesis")
 	}
 }
 
