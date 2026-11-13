@@ -5,6 +5,7 @@ import (
 	"errors"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -321,6 +322,7 @@ func TestLoadRefusesEachRule(t *testing.T) {
 			raw(t, dir, func(s string) string { return s + "{}" })
 		}},
 		{"a control task", "h01", ruleID, edited(func(k *Task) { k.Family = "control" })},
+		{"a family that holds a value and a line of its own", "h01", ruleID, edited(func(k *Task) { k.Family = "widestword\nd09 hidden ok" })},
 		{"an id past five", "h01", ruleID, edited(func(k *Task) { k.ID = "h06" })},
 		{"a handoff's id for a hidden decision", "d01", ruleID, edited(func(k *Task) { k.ID = "h01" })},
 		{"a folder not named for the id", "h01", ruleID, edited(func(k *Task) { k.ID = "h02" })},
@@ -371,6 +373,21 @@ func TestLoadRefusesEachRule(t *testing.T) {
 		{"a Python test in a Go task", "h01", ruleTests, edited(func(k *Task) { k.Tests[0].Run = []string{"python3", "-m", "unittest", "x"} })},
 		{"a go command that is not go test", "h01", ruleTests, edited(func(k *Task) { k.Tests[0].Run = []string{"go", "run", "."} })},
 		{"an empty argument", "h04", ruleTests, edited(func(k *Task) { k.Tests[0].Run = append(k.Tests[0].Run, "") })},
+		{"go test of every package", "h01", ruleTests, edited(func(k *Task) { k.Tests[0].Run[5] = "./..." })},
+		{"go test with no -count=1", "h01", ruleTests, edited(func(k *Task) { k.Tests[0].Run[2] = "-v" })},
+		{"go test of a pattern of tests", "h01", ruleTests, edited(func(k *Task) { k.Tests[0].Run[4] = "Hidden" })},
+		{"go test in another folder", "h01", ruleTests, edited(func(k *Task) {
+			k.Tests[0].Run = slices.Insert(k.Tests[0].Run, 2, "-C", "..")
+		})},
+		{"go test through a program of its own", "h01", ruleTests, edited(func(k *Task) {
+			k.Tests[0].Run = slices.Insert(k.Tests[0].Run, 2, "-exec", "env")
+		})},
+		{"unittest discovering from the root", "h04", ruleTests, edited(func(k *Task) {
+			k.Tests[0].Run = []string{"python3", "-m", "unittest", "discover", "-s", "/"}
+		})},
+		{"unittest of a whole module", "h04", ruleTests, edited(func(k *Task) { k.Tests[0].Run[3] = "test_hidden" })},
+		{"unittest of a path", "h04", ruleTests, edited(func(k *Task) { k.Tests[0].Run[3] = "../other/test_hidden.py" })},
+		{"unittest of two tests", "h04", ruleTests, edited(func(k *Task) { k.Tests[0].Run = append(k.Tests[0].Run, k.Tests[1].Run[3]) })},
 		{"a test encoding a fact the task lacks", "h01", ruleTests, edited(func(k *Task) { k.Tests[0].Facts = []string{"f9"} })},
 		{"a hidden decision's fact no test encodes", "d01", ruleEncoded, edited(func(k *Task) { k.Tests[1].Facts = nil })},
 		{"a note missing a fact", "h01", ruleNote, edited(func(k *Task) { k.Note = "Hand-over: see the chat." })},
@@ -424,8 +441,11 @@ func TestLoadRefusesEachRule(t *testing.T) {
 				t.Errorf("Load kept %d tasks, want d02 alone", len(tasks))
 			}
 			mutated := readTaskLoose(filepath.Join(dir, c.id))
-			if words := append(Forbid(orig), Forbid(mutated)...); holds(e.Error(), words) {
-				t.Errorf("the message %q holds a value or a repository's name", e.Error())
+			if words := append(Forbid(orig), Forbid(mutated)...); holds(e.Error(), words) || holds(e.Family, words) {
+				t.Errorf("the message %q, or the family %q, holds a value or a repository's name", e.Error(), e.Family)
+			}
+			if e.Family != "" && e.Family != orig.Family {
+				t.Errorf("the family given is %q, which is not the task's family", e.Family)
 			}
 		})
 	}
@@ -488,6 +508,43 @@ func remove(rel string) func(*testing.T, string) {
 		if err := os.RemoveAll(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// Before a task's id is known to be good, an error names its folder only
+// when the name is too short to be a value or a repository's name, and
+// otherwise as folder-<n>, by its place in the tasks folder: a folder or
+// a file named for a repository or a value, or with a line break in its
+// name, is not named.
+func TestLoadNamesNoFolderThatCouldHoldAValue(t *testing.T) {
+	dir := copyTasks(t, "h01")
+	for _, name := range []string{"quillmark", "widestword\nh02 handoff ok"} {
+		if err := copyTree(filepath.Join(dir, "h01"), filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(dir, "uniqtally.txt"), "x\n")
+	writeFile(t, filepath.Join(dir, "h09", "task.json"), "{")
+	_, err := Load(dir)
+	var joined interface{ Unwrap() []error }
+	if !errors.As(err, &joined) {
+		t.Fatalf("Load: %v", err)
+	}
+	got := map[string]string{}
+	for _, e := range joined.Unwrap() {
+		var te *Error
+		if !errors.As(e, &te) {
+			t.Fatalf("Load gave %v, not a rule broken", e)
+		}
+		got[te.Task] = te.Rule
+		if holds(te.Error(), []string{"quillmark", "widestword", "uniqtally"}) || strings.Contains(te.Error(), "\n") {
+			t.Errorf("the message %q names a folder by a value or a repository's name", te.Error())
+		}
+	}
+	// The listing is sorted: h01, h09, quillmark, uniqtally.txt, widestword...
+	want := map[string]string{"h09": ruleFormat, "folder-3": ruleID, "folder-4": ruleLayout, "folder-5": ruleID}
+	if !maps.Equal(got, want) {
+		t.Errorf("Load refused %v, want %v", got, want)
 	}
 }
 

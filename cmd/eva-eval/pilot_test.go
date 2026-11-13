@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,46 @@ import (
 // The tests raise check's limit on each test run once, here, so a slow
 // machine fails no task.
 func init() { pilotCheckLimit = time.Hour }
+
+// pilotHome gives the test a home of its own, as isolate does, for a
+// pilot command that runs go. Go's build cache is the one exception
+// (AGENTS.md): it is found first, with go env as go test itself finds it,
+// and kept through GOCACHE, and GOENV=off keeps go from reading a
+// settings file of the person running the tests.
+func pilotHome(t *testing.T) {
+	t.Helper()
+	out, err := exec.Command("go", "env", "GOCACHE").Output()
+	cache := strings.TrimSpace(string(out))
+	if err != nil || cache == "" || cache == "off" {
+		t.Fatalf("go env GOCACHE gives no build cache: %v", err)
+	}
+	isolate(t)
+	home := os.Getenv("HOME")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOCACHE", cache)
+}
+
+// The pilot's tests run go with a home of their own and Go's build cache
+// alone kept from the caller's.
+func TestPilotHome(t *testing.T) {
+	cache, err := exec.Command("go", "env", "GOCACHE").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pilotHome(t)
+	out, err := exec.Command("go", "env", "GOENV", "GOCACHE").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "\n" + string(cache); string(out) != want {
+		t.Errorf("go env GOENV GOCACHE gives %q, want %q", out, want)
+	}
+	if home := os.Getenv("HOME"); !strings.HasPrefix(home, os.TempDir()) {
+		t.Errorf("HOME is %q, outside the temporary folder", home)
+	}
+}
 
 // pilotTasks is the folder of the committed tasks.
 func pilotTasks(t *testing.T) string {
@@ -53,6 +94,7 @@ func copyPilotTasks(t *testing.T, ids ...string) string {
 // eva-eval pilot check, run from the repository's root with no flag,
 // reads the committed tasks, passes every one, one line each, and exits 0.
 func TestPilotCheckPassesTheCommittedTasks(t *testing.T) {
+	pilotHome(t)
 	t.Chdir(moduleRoot(t))
 	code, out, errOut := cmd("pilot", "check")
 	want := "d01 hidden ok\nd02 hidden ok\nd03 hidden ok\nd04 hidden ok\nd05 hidden ok\n" +
@@ -66,6 +108,7 @@ func TestPilotCheckPassesTheCommittedTasks(t *testing.T) {
 // Check finds it, and the command exits 1; the other tasks still get
 // theirs.
 func TestPilotCheckNamesTheRuleBroken(t *testing.T) {
+	pilotHome(t)
 	dir := copyPilotTasks(t, "d04", "h04", "d05")
 	replaceIn(t, filepath.Join(dir, "h04", "task.json"), `"prompt": "Let's finish`, `"prompt": "Do snooze first. Let's finish`)
 	replaceIn(t, filepath.Join(dir, "d05", "decoy", "drovershaw", "importer.py"), "return len(accepted), len(rejected)", "return len(accepted)")
@@ -82,6 +125,28 @@ func TestPilotCheckNamesTheRuleBroken(t *testing.T) {
 		"h09 - format: task.json is not a task: it does not decode\n"
 	if code != 1 || out != want || errOut != "" {
 		t.Errorf("pilot check: %d\n%s%s", code, out, errOut)
+	}
+}
+
+// A rule Check alone finds broken, with every task loaded, exits 1 too,
+// and a folder named for a value or holding a line break of its own is
+// not named on its line.
+func TestPilotCheckExitsOneOnARuleCheckFinds(t *testing.T) {
+	pilotHome(t)
+	dir := copyPilotTasks(t, "d05")
+	replaceIn(t, filepath.Join(dir, "d05", "decoy", "drovershaw", "importer.py"), "return len(accepted), len(rejected)", "return len(accepted)")
+	code, out, errOut := cmd("pilot", "check", "--tasks", dir)
+	if want := "d05 hidden decoy: hidden test t1 fails with the decoy, though it encodes no fact\n"; code != 1 || out != want || errOut != "" {
+		t.Errorf("pilot check: %d\n%s%s", code, out, errOut)
+	}
+
+	dir = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "drovershaw\nd09 hidden ok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut = cmd("pilot", "check", "--tasks", dir)
+	if want := "folder-1 - format: cannot read task.json: open: no such file or directory\n"; code != 1 || out != want || errOut != "" {
+		t.Errorf("pilot check of a folder named for a value: %d\n%q%s", code, out, errOut)
 	}
 }
 

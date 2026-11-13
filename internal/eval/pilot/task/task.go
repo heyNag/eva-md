@@ -183,12 +183,13 @@ func Load(dir string) ([]Task, error) {
 	}
 	var tasks []Task
 	var errs []error
-	for _, e := range entries {
+	for i, e := range entries {
+		label := folderLabel(e.Name(), i)
 		if !e.IsDir() {
-			errs = append(errs, &Error{Task: e.Name(), Rule: ruleLayout, Why: "the tasks folder holds something that is not a task's folder"})
+			errs = append(errs, &Error{Task: label, Rule: ruleLayout, Why: "the tasks folder holds something that is not a task's folder"})
 			continue
 		}
-		t, err := loadOne(filepath.Join(dir, e.Name()))
+		t, err := loadOne(filepath.Join(dir, e.Name()), label)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -203,25 +204,43 @@ func Load(dir string) ([]Task, error) {
 }
 
 // loadOne reads the task in dir and applies the rules that run nothing.
-func loadOne(dir string) (Task, error) {
+// label names the folder in an error until the id is known to be good.
+func loadOne(dir, label string) (Task, error) {
 	t := Task{Dir: dir}
 	name := filepath.Base(dir)
 	data, err := os.ReadFile(filepath.Join(dir, "task.json"))
 	if err != nil {
-		return t, &Error{Task: name, Rule: ruleFormat, Why: "cannot read task.json: " + bare(err)}
+		return t, &Error{Task: label, Rule: ruleFormat, Why: "cannot read task.json: " + bare(err)}
 	}
 	if err := decodeStrict(data, &t); err != nil {
-		return t, &Error{Task: name, Rule: ruleFormat, Why: "task.json is not a task: " + err.Error()}
+		return t, &Error{Task: label, Rule: ruleFormat, Why: "task.json is not a task: " + err.Error()}
 	}
 	t.Dir = dir
 	if rule, why := t.rules(name); rule != "" {
 		task := t.ID
 		if rule == ruleFormat || rule == ruleID {
-			task = name
+			task = label
 		}
-		return t, &Error{Task: task, Family: t.Family, Rule: rule, Why: why}
+		// The family is task.json's own text until it is known to be one.
+		family := ""
+		if _, ok := familyIDPattern[t.Family]; ok {
+			family = t.Family
+		}
+		return t, &Error{Task: task, Family: family, Rule: rule, Why: why}
 	}
 	return t, nil
+}
+
+// folderLabel is how an error names the entry name, the i-th of the tasks
+// folder, before its id is known to be good: by its name when the name is
+// an id too short to hold a value or a repository's name, which have six
+// letters and digits or more, and otherwise as folder-<n>, n counted from
+// 1, which no name it shows can be.
+func folderLabel(name string, i int) string {
+	if idPattern.MatchString(name) && utf8.RuneCountInString(letters(name)) < 6 {
+		return name
+	}
+	return "folder-" + strconv.Itoa(i+1)
 }
 
 // decodeStrict decodes one JSON value, refusing unknown fields and
@@ -423,7 +442,7 @@ func (t *Task) checkTests(string) (string, string) {
 		case !slices.Contains(t.Repos, test.Repo):
 			return ruleTests, "test " + test.ID + " runs in no repository of the task"
 		case !runsWith(test.Run, t.Lang):
-			return ruleTests, "test " + test.ID + " is not run by its language's runner: go test, or python3 -m unittest"
+			return ruleTests, "test " + test.ID + " is not run as one hidden test is: go test -count=1 -run ^TestName$ ., or python3 -m unittest module.Class.method"
 		}
 		seen[test.ID] = true
 		for _, id := range test.Facts {
@@ -435,17 +454,24 @@ func (t *Task) checkTests(string) (string, string) {
 	return "", ""
 }
 
-// runsWith reports whether run is an argv of the language's test runner,
-// with no empty argument.
+var (
+	goTestName = regexp.MustCompile(`^\^Test[A-Za-z0-9_]*\$$`)
+	pyTestName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*){2,}$`)
+)
+
+// runsWith reports whether run is an argv that runs one hidden test, of
+// the repository it runs in, with its language's runner, and nothing
+// else: "go test -count=1 -run ^TestName$ ." for Go, and
+// "python3 -m unittest module.Class.method" for Python. No other flag or
+// path gets through, since one could run the repository's own tests too,
+// or reach outside it.
 func runsWith(run []string, lang string) bool {
-	if slices.Contains(run, "") || slices.ContainsFunc(run, func(a string) bool { return strings.ContainsRune(a, 0) }) {
-		return false
-	}
 	switch lang {
 	case LangGo:
-		return len(run) >= 2 && run[0] == "go" && run[1] == "test"
+		return len(run) == 6 && run[0] == "go" && run[1] == "test" && run[2] == "-count=1" && run[3] == "-run" &&
+			goTestName.MatchString(run[4]) && run[5] == "."
 	case LangPython:
-		return len(run) >= 3 && run[0] == "python3" && run[1] == "-m" && run[2] == "unittest"
+		return len(run) == 4 && run[0] == "python3" && run[1] == "-m" && run[2] == "unittest" && pyTestName.MatchString(run[3])
 	}
 	return false
 }

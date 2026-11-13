@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -140,6 +142,35 @@ func TestGradeLeavesTheWorkspaceAlone(t *testing.T) {
 	if err != nil || !slices.Equal(failed, []string{"t1", "t2"}) {
 		t.Errorf("Grade on the start with tests of its own that pass: %v, %v", failed, err)
 	}
+
+	// The copy a test runs in holds no .git folder and no link, so no test
+	// reaches the workspace through one; the workspace holds both still.
+	synth := synthetic(t, LangPython, nil, map[string]string{
+		"test_copy.py": "import os\nimport unittest\n\n\nclass T(unittest.TestCase):\n" +
+			"    def test_copy(self):\n" +
+			"        self.assertTrue(os.path.isfile(\"x.py\"))\n" +
+			"        self.assertFalse(os.path.lexists(\".git\"))\n" +
+			"        self.assertFalse(os.path.lexists(\"linked.py\"))\n" +
+			"        self.assertFalse(os.path.lexists(\"linked\"))\n",
+	}, []string{"python3", "-m", "unittest", "test_copy.T.test_copy"})
+	ws = filepath.Join(t.TempDir(), "workspace")
+	writeFile(t, filepath.Join(ws, "x.py"), "\n")
+	writeFile(t, filepath.Join(ws, "sub", "y.py"), "\n")
+	writeFile(t, filepath.Join(ws, ".git", "HEAD"), "ref: refs/heads/main\n")
+	if err := os.Symlink(filepath.Join(ws, "x.py"), filepath.Join(ws, "linked.py")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(ws, "sub"), filepath.Join(ws, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	before = digest(t, ws)
+	failed, err = grade(t, synth, ws, filepath.Join(t.TempDir(), "scratch"), time.Hour)
+	if err != nil || len(failed) != 0 {
+		t.Errorf("a workspace with a .git folder and links: %v, %v", failed, err)
+	}
+	if digest(t, ws) != before {
+		t.Error("Grade changed a workspace with a .git folder and links")
+	}
 }
 
 // Grade copies each repository from under its name when the chats run
@@ -186,14 +217,27 @@ func synthetic(t *testing.T, lang string, repo, hidden map[string]string, runs .
 // A test that blocks until it is killed fails at the limit given to that
 // one call of Grade, and the call returns, for a Python test and for go
 // test, whose test binary is a child of go's in the same process group.
+// The limit holds for each test of one call: a test after one that ran
+// out of time has the whole limit again, and so does the next call.
 func TestGradeFailsATestOutOfTime(t *testing.T) {
-	task := synthetic(t, LangPython, map[string]string{"x.py": "\n"}, map[string]string{
+	blocks := map[string]string{
 		"test_block.py": "import threading\nimport unittest\n\n\nclass T(unittest.TestCase):\n" +
-			"    def test_block(self):\n        threading.Event().wait()\n",
-	}, []string{"python3", "-m", "unittest", "test_block.T.test_block"})
+			"    def test_block(self):\n        threading.Event().wait()\n\n" +
+			"    def test_pass(self):\n        pass\n",
+	}
+	task := synthetic(t, LangPython, map[string]string{"x.py": "\n"}, blocks, []string{"python3", "-m", "unittest", "test_block.T.test_block"})
 	failed, err := grade(t, task, filepath.Join(task.Dir, treeRepos, "synthrepo"), filepath.Join(t.TempDir(), "scratch"), 300*time.Millisecond)
 	if err != nil || !slices.Equal(failed, []string{"t1"}) {
 		t.Errorf("a blocked Python test: %v, %v", failed, err)
+	}
+
+	// The limit is long enough for a test that passes, whatever the
+	// machine's speed, and the hang guard stays above it.
+	task = synthetic(t, LangPython, map[string]string{"x.py": "\n"}, blocks,
+		[]string{"python3", "-m", "unittest", "test_block.T.test_block"}, []string{"python3", "-m", "unittest", "test_block.T.test_pass"})
+	failed, err = grade(t, task, filepath.Join(task.Dir, treeRepos, "synthrepo"), filepath.Join(t.TempDir(), "scratch"), time.Minute)
+	if err != nil || !slices.Equal(failed, []string{"t1"}) {
+		t.Errorf("a blocked Python test, then one that passes: %v, %v", failed, err)
 	}
 
 	task = synthetic(t, LangGo, map[string]string{"go.mod": "module synthrepo\n\ngo 1.22\n", "x.go": "package synthrepo\n"},
@@ -202,6 +246,116 @@ func TestGradeFailsATestOutOfTime(t *testing.T) {
 	failed, err = grade(t, task, filepath.Join(task.Dir, treeRepos, "synthrepo"), filepath.Join(t.TempDir(), "scratch"), 3*time.Second)
 	if err != nil || !slices.Equal(failed, []string{"t1"}) {
 		t.Errorf("a blocked Go test: %v, %v", failed, err)
+	}
+}
+
+// When a run is stopped, its whole process group is killed: go test's
+// test binary, a child of go's that has written its process id and then
+// blocks, does not outlive go. The run is stopped by ending Grade's
+// context once the id is written, which kills as the limit does, so no
+// time decides when it is stopped.
+func TestGradeKillsTheWholeProcessGroup(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	src := fmt.Sprintf(`package synthrepo
+
+import (
+	"os"
+	"strconv"
+	"testing"
+)
+
+func TestBlock(t *testing.T) {
+	if err := os.WriteFile(%[1]q+".new", []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(%[1]q+".new", %[1]q); err != nil {
+		t.Fatal(err)
+	}
+	select {}
+}
+`, pidFile)
+	task := synthetic(t, LangGo, map[string]string{"go.mod": "module synthrepo\n\ngo 1.22\n", "x.go": "package synthrepo\n"},
+		map[string]string{"block_test.go": src}, []string{"go", "test", "-count=1", "-run", "^TestBlock$", "."})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := Grade(ctx, task, filepath.Join(task.Dir, treeRepos, "synthrepo"), filepath.Join(t.TempDir(), "scratch"), time.Hour)
+		done <- err
+	}()
+
+	guard := time.After(hangGuard)
+	pid := 0
+	for pid == 0 {
+		if data, err := os.ReadFile(pidFile); err == nil {
+			if pid, err = strconv.Atoi(string(data)); err != nil {
+				t.Fatalf("the test binary wrote %q", data)
+			}
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("Grade returned before the test binary started: %v", err)
+		case <-guard:
+			t.Fatalf("the test binary did not start within %v", hangGuard)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	// Should the binary outlive Grade, the test does not leave it behind.
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	if pid == os.Getpid() {
+		t.Fatal("the test binary wrote this process's id")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("Grade with its context ended: %v", err)
+		}
+	case <-guard:
+		t.Fatalf("Grade did not return within %v", hangGuard)
+	}
+	for alive(pid) {
+		select {
+		case <-guard:
+			t.Fatalf("the test binary, a child of go's, was not killed with it")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+// alive reports whether the process pid runs: it exists and, where /proc
+// tells, is not a zombie, which a process killed after its parent stays
+// until something reaps it.
+func alive(pid int) bool {
+	if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+		return false
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return true
+	}
+	if i := strings.LastIndexByte(string(data), ')'); i >= 0 && i+2 < len(data) {
+		return data[i+2] != 'Z' && data[i+2] != 'X'
+	}
+	return true
+}
+
+// alive tells a process that runs from one that has ended.
+func TestAlive(t *testing.T) {
+	cmd := exec.Command("go", "version")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	if !alive(os.Getpid()) {
+		t.Error("this process is not alive")
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if alive(pid) {
+		t.Error("a process that has ended and been reaped is alive")
 	}
 }
 
