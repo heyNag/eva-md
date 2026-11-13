@@ -58,7 +58,11 @@ func ByName(name string) (Family, bool) {
 
 // Draw makes n instances of the family called name from seed, each from a
 // seed of its own that seed's stream gives. A held-out family is drawn so
-// at gate time, with SeedOf the candidate's commit.
+// at gate time, with SeedOf the candidate's commit. The stream starts from
+// the seed mixed, not from the seed itself: splitmix64 steps by a constant,
+// so two raw starts that differ by a few steps would share all but a few
+// instances. Mixed, two draws from different seeds share an instance only
+// by a collision of 64-bit numbers.
 func Draw(name string, seed uint64, n int) ([]scenario.Scenario, error) {
 	f, ok := ByName(name)
 	if !ok {
@@ -67,7 +71,7 @@ func Draw(name string, seed uint64, n int) ([]scenario.Scenario, error) {
 	if n < 1 {
 		return nil, errors.New("families: a draw makes at least one instance")
 	}
-	g := &gen{state: seed}
+	g := &gen{state: mix(seed)}
 	var out []scenario.Scenario
 	seen := map[uint64]bool{}
 	for len(out) < n {
@@ -106,9 +110,17 @@ func Hash(sc scenario.Scenario) (string, error) {
 // instance depends on no library's choice of algorithm.
 type gen struct{ state uint64 }
 
+// golden is splitmix64's step.
+const golden = 0x9e3779b97f4a7c15
+
 func (g *gen) next() uint64 {
-	g.state += 0x9e3779b97f4a7c15
-	z := g.state
+	g.state += golden
+	return mix(g.state)
+}
+
+// mix is splitmix64's finalizer, a bijection of 64-bit numbers that
+// scatters numbers close together far apart.
+func mix(z uint64) uint64 {
 	z = (z ^ z>>30) * 0xbf58476d1ce4e5b9
 	z = (z ^ z>>27) * 0x94d049bb133111eb
 	return z ^ z>>31

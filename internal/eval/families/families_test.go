@@ -224,23 +224,29 @@ func TestTemplatesAndBanks(t *testing.T) {
 }
 
 // TestDraws: a draw makes n distinct instances, the same for the same seed;
-// two draws with different seeds share no instance; a draw of no family
-// or of no instance is an error; and SeedOf reads the first 16 hex digits
-// of a commit and refuses anything else.
+// two draws with different seeds share no instance, among them seeds a
+// step or a few of the stream apart, which would share all but a few were
+// the stream started from the seed unmixed; a draw of no family or of no
+// instance is an error; and SeedOf reads the first 16 hex digits of a
+// commit and refuses anything else.
 func TestDraws(t *testing.T) {
 	for _, f := range All() {
 		a, err := Draw(f.Name, testSeed, 25)
 		if err != nil {
 			t.Fatal(err)
 		}
-		b, _ := Draw(f.Name, testSeed+1, 25)
-		c, _ := Draw(f.Name, ^uint64(testSeed), 25)
+		draws := [][]scenario.Scenario{a}
+		seed, step := uint64(testSeed), uint64(golden)
+		for _, seed := range []uint64{seed + 1, ^seed, seed + step, seed + 3*step, seed - 2*step} {
+			d, _ := Draw(f.Name, seed, 25)
+			draws = append(draws, d)
+		}
 		again, _ := Draw(f.Name, testSeed, 25)
 		if !reflect.DeepEqual(a, again) {
 			t.Errorf("%s: two draws from one seed differ", f.Name)
 		}
 		ids, hashes := map[string]int{}, map[string]int{}
-		for i, draw := range [][]scenario.Scenario{a, b, c} {
+		for i, draw := range draws {
 			if len(draw) != 25 {
 				t.Fatalf("%s: a draw of 25 made %d", f.Name, len(draw))
 			}
