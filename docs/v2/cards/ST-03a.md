@@ -36,3 +36,12 @@ Everything else. `internal/store/profile`, the fixture store, `docs/spec/store-f
 - Setting each key an item may hold, with generated values, on a copy of a fixture item leaves `profile.Check` with no `written-form` or `frontmatter` fault for it.
 - Each refusal of step 6 has a test, and the refused `Doc` still writes its input.
 - No error text names the library v1 was built on. `go test -run '^$' -fuzz FuzzRoundTrip -fuzztime 10m ./internal/store/codec` finds no panic; report the run (a report, not a gate).
+
+## Scheduled for deletion
+
+Written by the lead on 2026-11-13, when the size check merged (EV-11's card, "The size check's first reading"). This codec replaces the page library's adapter (plan section 6.0: "The page library (okf) and its adapter: replace with eva-md's own codec"), which leaves at the cut-over. The block also freezes that folder: no package changes it before then.
+
+```deletes
+internal/okfadapter/**
+```
+

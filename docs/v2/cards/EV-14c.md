@@ -25,6 +25,10 @@ A new package, `internal/eval/families`, that no release contains. It imports `i
 
 `internal/eval/families/**` (new), with its test data.
 
+```paths
+internal/eval/families/**
+```
+
 ## Must not touch
 
 Everything else. `internal/eval/scenario` and `internal/eval/score` are EV-14a's and EV-14b's and are read, never edited; if a family needs a slot class or renderer they lack, stop and report it. `cmd/eva-eval`, `eval/**` and `cmd/live-accuracy` are EV-14d's.

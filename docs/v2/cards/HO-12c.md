@@ -24,6 +24,20 @@ The MCP server keeps `QuickNotice` (HO-23 moves it).
 
 `internal/health/conditions.go`, `notice.go` and their tests (new); `internal/hook/notice.go` and `notice_test.go` (new); in `internal/hook`, the notice call in `resume.go`, the timer's name in `maintain.go` and the reason word in `handlers.go`; in `cmd/eva-md/commands.go`, the `--notice` flag and the doctor's synopsis; README's doctor line.
 
+```paths
+internal/health/conditions.go
+internal/health/conditions_test.go
+internal/health/notice.go
+internal/health/notice_test.go
+internal/hook/notice.go
+internal/hook/notice_test.go
+internal/hook/resume.go
+internal/hook/maintain.go
+internal/hook/handlers.go
+cmd/eva-md/commands.go
+README.md
+```
+
 ## Must not touch
 
 `internal/update`, `internal/mcp`, `internal/install`, `internal/work`, HO-12b's rows, what a hook stores in the inbox, any plugin byte, and anything with the switch off.
