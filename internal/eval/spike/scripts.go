@@ -377,33 +377,44 @@ var schedulerSettings = []setting{
 	{"sched_max_inflight", "40", scenario.SlotInt},
 }
 
+// How bounds.01 states a setting, and how the agent acknowledges one; each
+// is taken in turn. An acknowledgement holds no value.
+var (
+	settingSays = []string{"Set %s to %s.", "%s should be %s.", "Keep %s at %s.", "We agreed that %s is %s."}
+	settingAcks = []string{"Noted.", "Got it.", "Understood, noted.", "Recorded."}
+)
+
 // bounds builds bounds.01: one chat in which the user states 26 settings,
-// each a fact to store, so an answer that keeps them all needs more
-// operations than the schema allows (F-064).
+// relay and scheduler settings in turn, each in a typed prompt of its own
+// that the agent acknowledges, and each a fact to store. So an answer that
+// keeps each in an operation of its own needs more operations than the
+// schema allows (F-064), and no entry, quote or segment holds two
+// settings for an operation to keep at once.
 func bounds() Script {
 	sid := fmt.Sprintf("%08x-4444-4000-8000-%012d", 0xb0d50001, 1)
 	start := time.Date(2026, 3, 10, 9, 0, 0, 0, time.FixedZone("", 3600))
 	sc := scenario.Scenario{ID: "bounds.01", Family: "bounds", Name: "more settings stated in one chat than an answer may hold", Split: scenario.SplitTuning}
 	s := scenario.Session{Host: string(adapter.All()[0].ID), ID: sid, Branch: "main"}
-	for i, group := range []struct {
-		name     string
-		settings []setting
-	}{{"relay", relaySettings}, {"scheduler", schedulerSettings}} {
-		var b strings.Builder
-		fmt.Fprintf(&b, "Here are the %s settings we agreed. Keep every one of them:", group.name)
-		var ids []string
-		for _, st := range group.settings {
-			fmt.Fprintf(&b, "\n- %s is %s", st.key, st.value)
-			ids = append(ids, fmt.Sprintf("f%d", len(sc.Facts)+1))
-			sc.Facts = append(sc.Facts, scenario.Fact{ID: ids[len(ids)-1],
+	say := func(author event.Author, kind event.Kind, text string, plants ...string) {
+		s.Turns = append(s.Turns, scenario.Turn{At: start.Add(time.Duration(len(s.Turns)) * time.Minute), Author: author, Kind: kind, Text: text, Plants: plants})
+	}
+	say(event.AuthorTyped, event.KindPrompt, "I'll give you the relay and scheduler settings we agreed, one at a time. Keep every one of them.")
+	say(event.AuthorAgent, event.KindReply, "Ready.")
+	if len(relaySettings) != len(schedulerSettings) {
+		panic("spike: bounds.01's two lists of settings differ in length")
+	}
+	n := 0
+	for i := range relaySettings {
+		for _, st := range []setting{relaySettings[i], schedulerSettings[i]} {
+			id := fmt.Sprintf("f%d", len(sc.Facts)+1)
+			sc.Facts = append(sc.Facts, scenario.Fact{ID: id,
 				Kinds:     []scenario.Kind{scenario.KindDecision, scenario.KindConstraint, scenario.KindFact},
 				Authority: scenario.AuthorityUser, Must: scenario.MustStore,
 				Slots: []scenario.Slot{{Class: scenario.SlotIdent, Value: st.key}, {Class: st.class, Value: st.value}}})
+			say(event.AuthorTyped, event.KindPrompt, fmt.Sprintf(settingSays[n%len(settingSays)], st.key, st.value), id)
+			say(event.AuthorAgent, event.KindReply, settingAcks[n%len(settingAcks)])
+			n++
 		}
-		at := start.Add(time.Duration(2*i) * time.Minute)
-		s.Turns = append(s.Turns,
-			scenario.Turn{At: at, Author: event.AuthorTyped, Kind: event.KindPrompt, Text: b.String(), Plants: ids},
-			scenario.Turn{At: at.Add(time.Minute), Author: event.AuthorAgent, Kind: event.KindReply, Text: fmt.Sprintf("Noted, all %d %s settings.", len(group.settings), group.name)})
 	}
 	sc.Sessions = []scenario.Session{s}
 	sc.Passes = []scenario.Pass{{Session: 0}}

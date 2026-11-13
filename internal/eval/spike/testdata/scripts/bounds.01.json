@@ -15,55 +15,403 @@
             "at": "2026-03-10T09:00:00+01:00",
             "author": "typed",
             "kind": "prompt",
-            "text": "Here are the relay settings we agreed. Keep every one of them:\n- relay_dial_timeout is 450 ms\n- relay_idle_timeout is 90 s\n- relay_max_frames is 4096\n- relay_backlog is 128\n- relay_retry_limit is 7\n- relay_buffer_kib is 640\n- relay_heartbeat is 15 s\n- relay_shutdown_grace is 30 s\n- relay_peer_cap is 48\n- relay_route_cache is 2000\n- relay_drain_batch is 256\n- relay_window is 64\n- relay_log_sample is 25",
-            "plants": [
-              "f1",
-              "f2",
-              "f3",
-              "f4",
-              "f5",
-              "f6",
-              "f7",
-              "f8",
-              "f9",
-              "f10",
-              "f11",
-              "f12",
-              "f13"
-            ]
+            "text": "I'll give you the relay and scheduler settings we agreed, one at a time. Keep every one of them."
           },
           {
             "at": "2026-03-10T09:01:00+01:00",
             "author": "agent",
             "kind": "reply",
-            "text": "Noted, all 13 relay settings."
+            "text": "Ready."
           },
           {
             "at": "2026-03-10T09:02:00+01:00",
             "author": "typed",
             "kind": "prompt",
-            "text": "Here are the scheduler settings we agreed. Keep every one of them:\n- sched_tick is 250 ms\n- sched_queue_depth is 512\n- sched_lease is 45 s\n- sched_workers is 12\n- sched_retry_backoff is 800 ms\n- sched_stale_after is 6 h\n- sched_batch is 96\n- sched_jitter is 120 ms\n- sched_history is 14 days\n- sched_priority_levels is 5\n- sched_spill_mib is 300\n- sched_lock_ttl is 20 s\n- sched_max_inflight is 40",
+            "text": "Set relay_dial_timeout to 450 ms.",
             "plants": [
-              "f14",
-              "f15",
-              "f16",
-              "f17",
-              "f18",
-              "f19",
-              "f20",
-              "f21",
-              "f22",
-              "f23",
-              "f24",
-              "f25",
-              "f26"
+              "f1"
             ]
           },
           {
             "at": "2026-03-10T09:03:00+01:00",
             "author": "agent",
             "kind": "reply",
-            "text": "Noted, all 13 scheduler settings."
+            "text": "Noted."
+          },
+          {
+            "at": "2026-03-10T09:04:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sched_tick should be 250 ms.",
+            "plants": [
+              "f2"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:05:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Got it."
+          },
+          {
+            "at": "2026-03-10T09:06:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Keep relay_idle_timeout at 90 s.",
+            "plants": [
+              "f3"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:07:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Understood, noted."
+          },
+          {
+            "at": "2026-03-10T09:08:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "We agreed that sched_queue_depth is 512.",
+            "plants": [
+              "f4"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:09:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Recorded."
+          },
+          {
+            "at": "2026-03-10T09:10:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Set relay_max_frames to 4096.",
+            "plants": [
+              "f5"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:11:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Noted."
+          },
+          {
+            "at": "2026-03-10T09:12:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sched_lease should be 45 s.",
+            "plants": [
+              "f6"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:13:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Got it."
+          },
+          {
+            "at": "2026-03-10T09:14:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Keep relay_backlog at 128.",
+            "plants": [
+              "f7"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:15:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Understood, noted."
+          },
+          {
+            "at": "2026-03-10T09:16:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "We agreed that sched_workers is 12.",
+            "plants": [
+              "f8"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:17:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Recorded."
+          },
+          {
+            "at": "2026-03-10T09:18:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Set relay_retry_limit to 7.",
+            "plants": [
+              "f9"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:19:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Noted."
+          },
+          {
+            "at": "2026-03-10T09:20:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sched_retry_backoff should be 800 ms.",
+            "plants": [
+              "f10"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:21:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Got it."
+          },
+          {
+            "at": "2026-03-10T09:22:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Keep relay_buffer_kib at 640.",
+            "plants": [
+              "f11"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:23:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Understood, noted."
+          },
+          {
+            "at": "2026-03-10T09:24:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "We agreed that sched_stale_after is 6 h.",
+            "plants": [
+              "f12"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:25:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Recorded."
+          },
+          {
+            "at": "2026-03-10T09:26:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Set relay_heartbeat to 15 s.",
+            "plants": [
+              "f13"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:27:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Noted."
+          },
+          {
+            "at": "2026-03-10T09:28:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sched_batch should be 96.",
+            "plants": [
+              "f14"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:29:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Got it."
+          },
+          {
+            "at": "2026-03-10T09:30:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Keep relay_shutdown_grace at 30 s.",
+            "plants": [
+              "f15"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:31:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Understood, noted."
+          },
+          {
+            "at": "2026-03-10T09:32:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "We agreed that sched_jitter is 120 ms.",
+            "plants": [
+              "f16"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:33:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Recorded."
+          },
+          {
+            "at": "2026-03-10T09:34:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Set relay_peer_cap to 48.",
+            "plants": [
+              "f17"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:35:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Noted."
+          },
+          {
+            "at": "2026-03-10T09:36:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sched_history should be 14 days.",
+            "plants": [
+              "f18"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:37:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Got it."
+          },
+          {
+            "at": "2026-03-10T09:38:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Keep relay_route_cache at 2000.",
+            "plants": [
+              "f19"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:39:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Understood, noted."
+          },
+          {
+            "at": "2026-03-10T09:40:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "We agreed that sched_priority_levels is 5.",
+            "plants": [
+              "f20"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:41:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Recorded."
+          },
+          {
+            "at": "2026-03-10T09:42:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Set relay_drain_batch to 256.",
+            "plants": [
+              "f21"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:43:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Noted."
+          },
+          {
+            "at": "2026-03-10T09:44:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sched_spill_mib should be 300.",
+            "plants": [
+              "f22"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:45:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Got it."
+          },
+          {
+            "at": "2026-03-10T09:46:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Keep relay_window at 64.",
+            "plants": [
+              "f23"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:47:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Understood, noted."
+          },
+          {
+            "at": "2026-03-10T09:48:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "We agreed that sched_lock_ttl is 20 s.",
+            "plants": [
+              "f24"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:49:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Recorded."
+          },
+          {
+            "at": "2026-03-10T09:50:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Set relay_log_sample to 25.",
+            "plants": [
+              "f25"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:51:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Noted."
+          },
+          {
+            "at": "2026-03-10T09:52:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sched_max_inflight should be 40.",
+            "plants": [
+              "f26"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:53:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Got it."
           }
         ]
       }
@@ -100,11 +448,11 @@
         "slots": [
           {
             "class": "ident",
-            "value": "relay_idle_timeout"
+            "value": "sched_tick"
           },
           {
             "class": "quantity",
-            "value": "90 s"
+            "value": "250 ms"
           }
         ],
         "must": "store"
@@ -120,237 +468,17 @@
         "slots": [
           {
             "class": "ident",
-            "value": "relay_max_frames"
+            "value": "relay_idle_timeout"
           },
           {
-            "class": "int",
-            "value": "4096"
+            "class": "quantity",
+            "value": "90 s"
           }
         ],
         "must": "store"
       },
       {
         "id": "f4",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_backlog"
-          },
-          {
-            "class": "int",
-            "value": "128"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f5",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_retry_limit"
-          },
-          {
-            "class": "int",
-            "value": "7"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f6",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_buffer_kib"
-          },
-          {
-            "class": "int",
-            "value": "640"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f7",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_heartbeat"
-          },
-          {
-            "class": "quantity",
-            "value": "15 s"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f8",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_shutdown_grace"
-          },
-          {
-            "class": "quantity",
-            "value": "30 s"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f9",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_peer_cap"
-          },
-          {
-            "class": "int",
-            "value": "48"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f10",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_route_cache"
-          },
-          {
-            "class": "int",
-            "value": "2000"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f11",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_drain_batch"
-          },
-          {
-            "class": "int",
-            "value": "256"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f12",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_window"
-          },
-          {
-            "class": "int",
-            "value": "64"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f13",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "relay_log_sample"
-          },
-          {
-            "class": "int",
-            "value": "25"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f14",
-        "kinds": [
-          "decision",
-          "constraint",
-          "fact"
-        ],
-        "authority": "user",
-        "slots": [
-          {
-            "class": "ident",
-            "value": "sched_tick"
-          },
-          {
-            "class": "quantity",
-            "value": "250 ms"
-          }
-        ],
-        "must": "store"
-      },
-      {
-        "id": "f15",
         "kinds": [
           "decision",
           "constraint",
@@ -370,7 +498,27 @@
         "must": "store"
       },
       {
-        "id": "f16",
+        "id": "f5",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_max_frames"
+          },
+          {
+            "class": "int",
+            "value": "4096"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f6",
         "kinds": [
           "decision",
           "constraint",
@@ -390,7 +538,27 @@
         "must": "store"
       },
       {
-        "id": "f17",
+        "id": "f7",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_backlog"
+          },
+          {
+            "class": "int",
+            "value": "128"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f8",
         "kinds": [
           "decision",
           "constraint",
@@ -410,7 +578,27 @@
         "must": "store"
       },
       {
-        "id": "f18",
+        "id": "f9",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_retry_limit"
+          },
+          {
+            "class": "int",
+            "value": "7"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f10",
         "kinds": [
           "decision",
           "constraint",
@@ -430,7 +618,27 @@
         "must": "store"
       },
       {
-        "id": "f19",
+        "id": "f11",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_buffer_kib"
+          },
+          {
+            "class": "int",
+            "value": "640"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f12",
         "kinds": [
           "decision",
           "constraint",
@@ -450,7 +658,27 @@
         "must": "store"
       },
       {
-        "id": "f20",
+        "id": "f13",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_heartbeat"
+          },
+          {
+            "class": "quantity",
+            "value": "15 s"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f14",
         "kinds": [
           "decision",
           "constraint",
@@ -470,7 +698,27 @@
         "must": "store"
       },
       {
-        "id": "f21",
+        "id": "f15",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_shutdown_grace"
+          },
+          {
+            "class": "quantity",
+            "value": "30 s"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f16",
         "kinds": [
           "decision",
           "constraint",
@@ -490,7 +738,27 @@
         "must": "store"
       },
       {
-        "id": "f22",
+        "id": "f17",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_peer_cap"
+          },
+          {
+            "class": "int",
+            "value": "48"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f18",
         "kinds": [
           "decision",
           "constraint",
@@ -510,7 +778,27 @@
         "must": "store"
       },
       {
-        "id": "f23",
+        "id": "f19",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_route_cache"
+          },
+          {
+            "class": "int",
+            "value": "2000"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f20",
         "kinds": [
           "decision",
           "constraint",
@@ -530,7 +818,27 @@
         "must": "store"
       },
       {
-        "id": "f24",
+        "id": "f21",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_drain_batch"
+          },
+          {
+            "class": "int",
+            "value": "256"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f22",
         "kinds": [
           "decision",
           "constraint",
@@ -550,7 +858,27 @@
         "must": "store"
       },
       {
-        "id": "f25",
+        "id": "f23",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_window"
+          },
+          {
+            "class": "int",
+            "value": "64"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f24",
         "kinds": [
           "decision",
           "constraint",
@@ -565,6 +893,26 @@
           {
             "class": "quantity",
             "value": "20 s"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f25",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_log_sample"
+          },
+          {
+            "class": "int",
+            "value": "25"
           }
         ],
         "must": "store"

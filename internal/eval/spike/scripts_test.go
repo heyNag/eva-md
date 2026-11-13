@@ -200,14 +200,18 @@ func TestAssentFamilyCounts(t *testing.T) {
 }
 
 // TestBoundsPlantsOverTheBound: bounds.01 plants more facts to store, in
-// one session, than an answer may hold operations.
+// one session, than an answer may hold operations, each in a typed prompt
+// of its own: no shown entry, and so no quote of an entry and no segment,
+// holds the values of two facts, so an answer that keeps each fact in an
+// operation of its own needs more than MaxOps of them, in either form.
 func TestBoundsPlantsOverTheBound(t *testing.T) {
 	s := family("bounds")
 	if len(s) != 1 || len(s[0].Scenario.Sessions) != 1 {
 		t.Fatalf("bounds: %d scripts", len(s))
 	}
+	sc := s[0].Scenario
 	n := 0
-	for _, f := range s[0].Scenario.Facts {
+	for _, f := range sc.Facts {
 		if f.Must == scenario.MustStore {
 			n++
 		}
@@ -215,6 +219,48 @@ func TestBoundsPlantsOverTheBound(t *testing.T) {
 	if n <= MaxOps {
 		t.Errorf("bounds.01 plants %d facts to keep, want over %d", n, MaxOps)
 	}
+	if got := entriesHoldingTwo(t, sc); len(got) > 0 {
+		t.Errorf("bounds.01: %v", got)
+	}
+	// The check finds a turn that states two settings.
+	two := sc
+	two.Sessions = slices.Clone(sc.Sessions)
+	two.Sessions[0].Turns = slices.Clone(sc.Sessions[0].Turns)
+	tr := &two.Sessions[0].Turns[2]
+	tr.Text += " Also " + sc.Facts[1].Slots[0].Value + " is " + sc.Facts[1].Slots[1].Value + "."
+	if got := entriesHoldingTwo(t, two); len(got) != 2 {
+		t.Errorf("the check finds %v in a turn that states two settings", got)
+	}
+}
+
+// entriesHoldingTwo lists, in each form, the shown entries of sc's first
+// session that plant more than one fact or hold the key of more than one.
+func entriesHoldingTwo(t *testing.T, sc scenario.Scenario) []string {
+	t.Helper()
+	var out []string
+	sess := sc.Sessions[0]
+	for _, f := range Forms {
+		in, err := Render(sess, nil, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range in.Entries {
+			keys := 0
+			for _, fact := range sc.Facts {
+				if strings.Contains(e.Text, fact.Slots[0].Value) {
+					keys++
+				}
+			}
+			planted := 0
+			if e.N <= int64(len(sess.Turns)) {
+				planted = len(sess.Turns[e.N-1].Plants)
+			}
+			if keys > 1 || planted > 1 {
+				out = append(out, fmt.Sprintf("%s: entry %d plants %d facts and holds %d keys", f, e.N, planted, keys))
+			}
+		}
+	}
+	return out
 }
 
 // TestEverySlotIsSaid: each slot of the new families' facts is said, as
