@@ -579,7 +579,10 @@ func TestGrounding(t *testing.T) {
 		{"Switch to the \"streaming parser", cond, true},
 		{"Switch the parser in run_bench.", cond, false},
 		{"Switch the parser in bench.yaml.", cond, false},
-		{"Switch the parser, e.g. now.", cond, false},
+		{"Switch the parser, e.g. now.", cond, true},
+		{"Switch the parser, i.e. the slow one, at 9 a.m.", cond, false},
+		{"Switch the parser, i.e. the slow one, by a.m.", cond, true},
+		{"Switch the parser in scripts/bench.", cond, false},
 		{"Switch the parser soon.", cond, true},
 	} {
 		j := judgeOne(in, nil, add("decision", c.text, sq(1, c.quote, "said")), FormQuotes)
@@ -596,15 +599,56 @@ func TestGrounding(t *testing.T) {
 	if j := judgeOne(a1, nil, Op{Op: "note", Kind: ptr("found"), Text: ptr("The user said no 3 times."), Ev: []Span{sq(3, "no", "said")}}, FormQuotes); j.Code != "ungrounded" {
 		t.Errorf("a stated note is not grounded: %q", j.Code)
 	}
+	// A number, a version or a path cut short is a changed value, and is
+	// not found in the longer one the user gave.
+	said := "Set the timeout to 5.5 seconds, keep 1,500 entries, pin version 1.2.3, write to scripts/bench/out, allow 2-3 retries, alarm at -5 degrees, start at 10:30, wait .5 s."
+	grounding := scenario.Session{ID: "made-up-grounding", Branch: "main", Turns: []scenario.Turn{
+		{At: time.Date(2026, 4, 7, 9, 1, 0, 0, time.UTC), Author: event.AuthorTyped, Kind: event.KindPrompt, Text: said},
+	}}
+	gin, err := Render(grounding, nil, FormQuotes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		text string
+		ok   bool
+	}{
+		{"The timeout is 5.5 seconds.", true},
+		{"The timeout is 5 seconds.", false},
+		{"Keep 1,500 entries.", true},
+		{"Keep 500 entries.", false},
+		{"Keep 1 entry.", false},
+		{"Pin version 1.2.3.", true},
+		{"Pin version 1.2.", false},
+		{"Write to scripts/bench/out.", true},
+		{"Write to scripts/bench.", false},
+		{"Allow 2-3 retries.", true},
+		{"Allow 2 retries.", false},
+		{"Allow 3 retries.", false},
+		{"Alarm at -5 degrees.", true},
+		{"Alarm at 5 degrees.", false},
+		{"Start at 10:30.", true},
+		{"Start at 10.", false},
+		{"Wait .5 s.", true},
+		{"Wait 5 s.", false},
+	} {
+		j := judgeOne(gin, nil, add("constraint", c.text, sq(1, said, "said")), FormQuotes)
+		if j.Accepted() != c.ok || (!c.ok && j.Code != "ungrounded") {
+			t.Errorf("%q citing the whole entry: code %q", c.text, j.Code)
+		}
+	}
 }
 
 // TestGroundTokens: the tokens that must be grounded, and where a token is
 // found whole.
 func TestGroundTokens(t *testing.T) {
-	got := groundTokens("Run `make vendor-snap` at 5 pm on api.v2, see docs/run.md, \"Blue Fox\" and “Red Owl”, not e.g. this or that, nor 'single'.")
-	want := []string{"make", "vendor-snap", "5", "api.v2", "docs/run.md", "Blue", "Fox", "Red", "Owl", "e.g"}
+	got := groundTokens("Run `make vendor-snap` at 5 pm on api.v2, see docs/run.md, \"Blue Fox\" and “Red Owl”, not e.g. this, i.e. that, U.S.A. or a.m., but ab.c, a.bc and x.y.zz, nor 'single', scripts/bench or a/b.")
+	want := []string{"make", "vendor-snap", "5", "api.v2", "docs/run.md", "Blue", "Fox", "Red", "Owl", "ab.c", "a.bc", "x.y.zz", "scripts/bench", "a/b"}
 	if !slices.Equal(got, want) {
 		t.Errorf("tokens %q, want %q", got, want)
+	}
+	if got := groundTokens("Wait .5 s, (.25). or ..75, then -5."); !slices.Equal(got, []string{".5", ".25", ".75", "-5"}) {
+		t.Errorf("a point or a minus that opens a number is part of it: %q", got)
 	}
 	for _, c := range []struct {
 		words, tok string
@@ -614,8 +658,29 @@ func TestGroundTokens(t *testing.T) {
 		{"cache for 15 minutes", "5", false},
 		{"cache for 51 minutes", "5", false},
 		{"cache for 5.", "5", true},
-		{"cache for 5.5 s", "5", true},
-		{"cache_5 here", "5", true},
+		{"cache for 5.5 s", "5", false},
+		{"cache_5 here", "5", false},
+		{"cache for 5.5 s", "5.5", true},
+		{"cache 1,500 rows", "500", false},
+		{"cache 1,500 rows", "1", false},
+		{"port 8080, not 9090", "8080", true},
+		{"cache for 5, then 6", "5", true},
+		{"cache for 5: done", "5", true},
+		{"cache for 5- or so", "5", true},
+		{"retry 2-3 times", "2", false},
+		{"retry 2-3 times", "3", false},
+		{"at -5 degrees", "5", false},
+		{"at .5 s", "5", false},
+		{"at - 5 degrees", "5", true},
+		{"version 1.2.3", "1.2", false},
+		{"version 1.2.3", "2.3", false},
+		{"version 1.2.3", "1.2.3", true},
+		{"in scripts/bench/out", "scripts/bench", false},
+		{"in scripts/bench/out", "bench/out", false},
+		{"in scripts/bench/", "scripts/bench", true},
+		{"at 10:30", "10", false},
+		{"a_b_c", "b_c", false},
+		{"say e.g. this", "e.g", true},
 		{"a5 then 5", "5", true},
 		{"tool ./scripts/x.sh ran", "./scripts/x.sh", true},
 		{"tool /scripts/x.sh ran", "/scripts/x.sh", true},

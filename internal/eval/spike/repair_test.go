@@ -218,3 +218,54 @@ func TestRepairChangesNoMoreThanItMay(t *testing.T) {
 }
 
 func ptrOp(op Op) *Op { return &op }
+
+// TestNoRepairForWhatNoReplacementMends: an operation past MaxOps is
+// refused at place ops, and one in a form the contract lacks at place
+// form; a replacement would be judged at the same index in the same form
+// and refused again, so neither is sent. An answer over the bound with
+// nothing else wrong makes no repair call, and its operations still add
+// up: the ones past the bound are refused as bad_shape.
+func TestNoRepairForWhatNoReplacementMends(t *testing.T) {
+	f := FormQuotes
+	s := scriptByID(t, "assent.01")
+	note := `{"op":"note","id":null,"kind":"found","text":"Noted.","admit":null,"ev":[{"e":7,"q":"yes","as":"said"}]}`
+	over := []byte(`{"ops":[` + strings.TrimSuffix(strings.Repeat(note+",", MaxOps+1), ",") + `],"nothing":null}`)
+	fixes := []byte(`{"fixes":[{"index":25,"op":` + note + `}]}`)
+	o := runPass(t, s, 1, &Store{}, f, over, fixes)
+	v := o.First
+	if !v.Breaks || len(v.Ops) != MaxOps+1 || v.Ops[MaxOps].Code != "bad_shape" || v.Ops[MaxOps].Place != "ops" {
+		t.Fatalf("an answer of %d operations: breaks %v, codes %q", len(v.Ops), v.Breaks, codes(v))
+	}
+	if got := v.ToRepair(); len(got) != 0 {
+		t.Errorf("operations past the bound are sent to repair: %v", got)
+	}
+	if o.RepairCalled {
+		t.Error("an answer over the bound with nothing else wrong makes a repair call")
+	}
+	if strings.Contains(string(RepairInput(nil, over, v)), "\n#") {
+		t.Error("the repair input lists an operation past the bound")
+	}
+	in := renderPass(t, s, 1, nil, f)
+	if got := ApplyRepair(in, nil, v, parseRepair(t, fixes, f), f); !reflect.DeepEqual(got, v) {
+		t.Error("a fix for an operation past the bound changed the verdict")
+	}
+	var tally Tally
+	tally.Add(o)
+	c := counts(tally)
+	if c["ops_proposed"] != MaxOps+1 || c["ops_accepted_final"] != MaxOps || c["refused_bad_shape"] != 1 || c["repair_calls"] != 0 || c["repair_sent"] != 0 || c["schema_breaks"] != 1 {
+		t.Errorf("counts %v", c)
+	}
+	checkSums(t, "over the bound", tally)
+	// With a fault before the bound, only that fault is sent.
+	bad := `{"op":"note","id":null,"kind":"found","text":"Noted.","admit":null,"ev":[{"e":7,"q":"no","as":"said"}]}`
+	mixed := []byte(`{"ops":[` + bad + "," + strings.TrimSuffix(strings.Repeat(note+",", MaxOps+1), ",") + `],"nothing":null}`)
+	m := Check(in, nil, parse(t, mixed, f), f)
+	if got := m.ToRepair(); !slices.Equal(got, []int{0}) {
+		t.Errorf("sent %v, want [0]", got)
+	}
+	// An answer in a form the contract lacks is refused at place form, and
+	// not sent.
+	if got := Check(in, nil, parse(t, []byte(`{"ops":[`+note+`],"nothing":null}`), f), "pages"); got.Ops[0].Place != "form" || len(got.ToRepair()) != 0 {
+		t.Errorf("an unknown form: %+v, sent %v", got.Ops[0], got.ToRepair())
+	}
+}

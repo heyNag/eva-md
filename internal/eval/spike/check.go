@@ -424,7 +424,7 @@ func groundTokens(text string) []string {
 	var out []string
 	add := func(part string, quoted bool) {
 		for _, f := range strings.Fields(part) {
-			tok := strings.TrimFunc(f, edge)
+			tok := trimToken(f)
 			if tok != "" && (quoted || mustGround(tok)) {
 				out = append(out, tok)
 			}
@@ -449,38 +449,74 @@ func groundTokens(text string) []string {
 	return out
 }
 
+// trimToken trims the marks edge reports from either end of a word, but
+// for a point that opens a number, as in ".5", which is part of its value.
+func trimToken(w string) string {
+	w = strings.TrimRightFunc(w, edge)
+	for w != "" {
+		r, n := utf8.DecodeRuneInString(w)
+		if !edge(r) {
+			break
+		}
+		if next, _ := utf8.DecodeRuneInString(w[n:]); r == '.' && unicode.IsDigit(next) {
+			break
+		}
+		w = w[n:]
+	}
+	return w
+}
+
 // edge reports a mark trimmed from either end of a token: punctuation that
 // ends a sentence or a clause, brackets and quotes.
 func edge(r rune) bool { return strings.ContainsRune(".,;:!?()[]{}<>\"'`“”‘’", r) }
 
 // mustGround reports a token that holds a digit, a slash, an underscore or
-// a dot between two letters.
+// a dot between two letters, but for a dot of an abbreviation such as
+// "e.g." or "a.m.", whose letters on both sides stand alone: a letter that
+// is the whole of its run of letters.
 func mustGround(tok string) bool {
 	rs := []rune(tok)
+	letter := func(i int) bool { return i >= 0 && i < len(rs) && unicode.IsLetter(rs[i]) }
 	for i, r := range rs {
 		switch {
 		case unicode.IsDigit(r), r == '/', r == '_':
 			return true
-		case r == '.' && i > 0 && i+1 < len(rs) && unicode.IsLetter(rs[i-1]) && unicode.IsLetter(rs[i+1]):
+		case r == '.' && letter(i-1) && letter(i+1) && (letter(i-2) || letter(i+2)):
 			return true
 		}
 	}
 	return false
 }
 
-// holds reports whether words hold tok whole: at a place where no letter
-// or digit stands right before or right after it.
+// joiners are the marks that join two parts of one value: a decimal point
+// or a version's dot, a thousands mark, a path's slash, an identifier's
+// underscore, a range's dash and a time's colon.
+const joiners = ".,/_-:"
+
+// holds reports whether words hold tok whole: at a place where the value
+// goes on neither before nor after it. It goes on where a letter or a
+// digit stands right next to it, or a joiner with a letter or a digit
+// beyond; and before a token that starts with a digit, where a minus sign
+// or a point stands right before it. So 5 is not held by 15, 5.5, 1,500,
+// 4-5, 5-6, -5 or .5, 1.2 not by 1.2.3, and scripts/bench not by
+// scripts/bench/out; 5 is held by "5." and "5, then".
 func holds(words, tok string) bool {
 	alnum := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
+	joiner := func(r rune) bool { return strings.ContainsRune(joiners, r) }
+	digit := tok != "" && unicode.IsDigit([]rune(tok)[0])
 	for from := 0; from <= len(words); {
 		i := strings.Index(words[from:], tok)
 		if i < 0 {
 			return false
 		}
-		at := from + i
-		before, _ := utf8.DecodeLastRuneInString(words[:at])
-		after, _ := utf8.DecodeRuneInString(words[at+len(tok):])
-		if (at == 0 || !alnum(before)) && (at+len(tok) == len(words) || !alnum(after)) {
+		at, end := from+i, from+i+len(tok)
+		b1, n1 := utf8.DecodeLastRuneInString(words[:at])
+		b2, _ := utf8.DecodeLastRuneInString(words[:at-n1])
+		a1, m1 := utf8.DecodeRuneInString(words[end:])
+		a2, _ := utf8.DecodeRuneInString(words[end+m1:])
+		goesOnBefore := n1 > 0 && (alnum(b1) || joiner(b1) && at-n1 > 0 && alnum(b2) || digit && (b1 == '-' || b1 == '.'))
+		goesOnAfter := m1 > 0 && (alnum(a1) || joiner(a1) && end+m1 < len(words) && alnum(a2))
+		if !goesOnBefore && !goesOnAfter {
 			return true
 		}
 		_, size := utf8.DecodeRuneInString(words[at:])

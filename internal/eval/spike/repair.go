@@ -18,13 +18,20 @@ func repairable(code string) bool {
 	return slices.ContainsFunc(Codes, func(c Code) bool { return c.ID == code && c.Repairable })
 }
 
+// unfixable are the places of a bad_shape that no replacement can mend,
+// since a replacement is judged at the same index in the same form: an
+// operation past MaxOps, and an answer in a form the contract lacks.
+var unfixable = []string{"ops", "form"}
+
 // ToRepair lists the indexes, from 0, of the operations of v refused with
-// a code one repair round may fix and not yet sent to one: the operations
-// a repair call is made for.
+// a code one repair round may fix, at a place a replacement can mend, and
+// not yet sent to one: the operations a repair call is made for. An
+// answer over MaxOps operations with nothing else wrong makes no repair
+// call.
 func (v Verdict) ToRepair() []int {
 	var out []int
 	for i, j := range v.Ops {
-		if repairable(j.Code) && !j.Sent {
+		if repairable(j.Code) && !slices.Contains(unfixable, j.Place) && !j.Sent {
 			out = append(out, i)
 		}
 	}
