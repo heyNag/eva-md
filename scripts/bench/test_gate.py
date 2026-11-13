@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import random
+import re
 import signal
 import subprocess
 import sys
@@ -1339,6 +1340,154 @@ class Simulation(unittest.TestCase):
         base = sim.from_gates([{"samples": whole}, {"samples": lost}])
         for seed in range(10):
             self.assertEqual(sorted(run["capture"][0] for run in base(random.Random(seed))), [1.0]*4+[2.0]*4)
+
+
+class MissedLimits(unittest.TestCase):
+    """What the padded inbox allows for a hook it timed past its limit,
+    which delivers nothing by design: a start of the stand-in missing, or an
+    empty output, from that hook alone. On made-up numbers, and on a
+    stand-in that drops one of its starts."""
+
+    GUARD = 30  # seconds: a hang guard, never what decides a test
+
+    def times(self, slow_stops=0, stops=30, ends=30):
+        """The (event, ms) of the padded inbox's Stop and SessionEnd hooks,
+        the first slow_stops of the Stops timed just past their limit."""
+        return [("Stop", 290.0 if i < slow_stops else 40.0) for i in range(stops)] + [("SessionEnd", 60.0)]*ends
+
+    def test_none_slow_and_one_missing_fails(self):
+        self.assertEqual(core.starts_allowed(60, 59, self.times()), (False, 0))
+        self.assertEqual(core.starts_allowed(60, 60, self.times()), (True, 0))
+
+    def test_one_slow_and_one_missing_passes(self):
+        self.assertEqual(core.starts_allowed(60, 59, self.times(1)), (True, 1))
+        self.assertEqual(core.starts_allowed(60, 60, self.times(1)), (True, 1))
+
+    def test_one_slow_and_two_missing_fails(self):
+        self.assertEqual(core.starts_allowed(60, 58, self.times(1)), (False, 1))
+        self.assertEqual(core.starts_allowed(60, 58, self.times(2)), (True, 2))
+
+    def test_more_seen_than_expected_fails(self):
+        self.assertEqual(core.starts_allowed(60, 61, self.times()), (False, 0))
+        self.assertEqual(core.starts_allowed(60, 61, self.times(1)), (False, 1))
+        self.assertEqual(core.starts_allowed(1, 2, []), (False, 0))
+
+    def test_a_hook_is_past_its_limit_from_its_limit_less_the_margin(self):
+        for event in ("Stop", "SessionEnd", "UserPromptSubmit"):
+            self.assertFalse(core.past_limit(event, 289.999), event)
+            self.assertTrue(core.past_limit(event, 290), event)
+        for event in ("SessionStart", "PostToolUse", "PostToolUseFailure"):
+            self.assertFalse(core.past_limit(event, 1489.999), event)
+            self.assertTrue(core.past_limit(event, 1490), event)
+        self.assertEqual(core.starts_allowed(30, 29, [("Stop", 289.999)]*30), (False, 0))
+        self.assertEqual(core.starts_allowed(30, 29, [("SessionStart", 1000.0)]*30), (False, 0))
+
+    def test_the_figures_mirror_the_hooks_go_code(self):
+        # budget in internal/hook/hook.go gives each event its limit, and
+        # Run there ends its work's context that much before the deadline.
+        src = (HERE.parent.parent/"internal/hook/hook.go").read_text()
+        body = re.search(r"\nfunc budget\(event string\) time\.Duration \{\n(.*?)\n\}\n", src, re.S).group(1)
+        cases = re.findall(r"case ([^:]+):\s*return (\d+) \* time\.Millisecond", body)
+        limits = {event.strip('" '): int(ms) for events, ms in cases for event in events.split(",")}
+        self.assertEqual(limits, core.EVENT_LIMIT_MS)
+        self.assertEqual([int(ms) for ms in re.findall(r"\n\treturn (\d+) \* time\.Millisecond", body)], [core.DEFAULT_LIMIT_MS])
+        margins = re.findall(r"workCtx, cancel := env\.withDeadline\(ctx, deadline\.Add\(-(\d+)\*time\.Millisecond\)\)", src)
+        self.assertEqual([int(ms) for ms in margins], [core.LIMIT_MARGIN_MS])
+
+    def read(self, results, name="prompt_with_pointers"):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            indexes = bench.to_read(name, "UserPromptSubmit", results)
+        return indexes, err.getvalue()
+
+    def test_an_empty_output_in_time_fails(self):
+        results = [('{"a": 1}', 40.0)]*99 + [("", 289.0)]
+        with self.assertRaisesRegex(RuntimeError, "prompt_with_pointers: 1 of 100 hooks gave no output inside their limit"):
+            self.read(results)
+        # Even beside one that passed its limit.
+        with self.assertRaisesRegex(RuntimeError, "1 of 100 hooks gave no output inside their limit"):
+            self.read([("", 400.0)] + results[1:])
+
+    def test_an_empty_output_past_the_limit_is_passed_over(self):
+        results = [('{"a": 1}', 40.0)]*99 + [("", 290.0)]
+        indexes, err = self.read(results)
+        self.assertEqual(indexes, list(range(99)))
+        self.assertEqual(err, "benchmark: prompt_with_pointers: 1 of 100 hooks passed their limit, 300 ms less 10\n")
+
+    def test_more_than_one_in_twenty_past_the_limit_fails(self):
+        # Five of 100 past the limit is one in twenty, and passes; six is
+        # more, and fails, when an empty output was passed over.
+        five = [('{"a": 1}', 300.0)]*4 + [("", 300.0)] + [('{"a": 1}', 40.0)]*95
+        indexes, err = self.read(five)
+        self.assertEqual(indexes, [i for i in range(100) if i != 4])
+        self.assertIn("5 of 100 hooks passed their limit", err)
+        six = five[:5] + [('{"a": 1}', 300.0)] + five[6:]
+        with self.assertRaisesRegex(RuntimeError, "6 of 100 hooks passed their limit, more than one in twenty, and 1 gave no output"):
+            self.read(six)
+        # With no output to pass over there is nothing to excuse: hooks
+        # past their limit that answered are the p95's to judge.
+        indexes, err = self.read([('{"a": 1}', 300.0)]*10 + [('{"a": 1}', 40.0)]*90)
+        self.assertEqual((indexes, err), (list(range(100)), "benchmark: prompt_with_pointers: 10 of 100 hooks passed their limit, 300 ms less 10\n"))
+
+    def test_hooks_in_time_print_nothing(self):
+        self.assertEqual(self.read([('{"a": 1}', 289.0)]*25), (list(range(25)), ""))
+
+    # A stand-in that writes its arguments, as the benchmark's does, but
+    # drops its DROP-th call, the warm-up being the first.
+    DROPPING = ('#!/bin/sh\nn=$(cat "$HOME/calls" 2>/dev/null || echo 0)\nn=$((n+1))\necho "$n" > "$HOME/calls"\n'
+                '[ "$n" = "$DROP" ] || echo "$*" >> "$HOME/spawned"\n')
+
+    def started(self, drop):
+        """The lines the padded inbox's starts leave, in its order, with the
+        drop-th call of the stand-in dropped; the warm-up's line is left out,
+        as the scenario leaves it out."""
+        with tempfile.TemporaryDirectory() as d:
+            standin = Path(d)/"eva-md"
+            standin.write_text(self.DROPPING); standin.chmod(0o700)
+            env = dict(os.environ, HOME=d, DROP=str(drop))
+            calls = [["warm-up"], ["maintain"], ["update", "--sweep=2026-11-13"]]
+            calls += [["update", "--session", "codex:m1-spawn", "--trigger", "stop_size"]]*30
+            calls += [["update", "--session", "claude-code:m1-end-%d" % i, "--trigger", "session_end"] for i in range(30)]
+            for args in calls:
+                subprocess.run([str(standin)] + args, env=env, check=True, timeout=self.GUARD)
+            return (Path(d)/"spawned").read_text().splitlines()[1:]
+
+    def test_a_start_lost_with_no_slow_hook_fails_and_names_its_kind(self):
+        # The 10th call is a Stop's start, the 40th a SessionEnd's.
+        lines = self.started(10)
+        self.assertEqual(len(lines), 61)
+        with self.assertRaises(RuntimeError) as e:
+            bench.check_starts(lines, bench.start_groups([40.0]*30, [60.0]*30))
+        message = str(e.exception)
+        self.assertEqual(message, "the hooks started the stand-in 61 times, not 62, with 0 of the hooks that start it past their limit: "
+                         "Stop 29 of 30 (1 short), SessionEnd 30 of 30, maintain 1 of 1, the sweep 1 of 1; seen: maintain: 1, "
+                         "update --session claude-code:m#-end-# --trigger session_end: 30, "
+                         "update --session codex:m#-spawn --trigger stop_size: 29, update --sweep=#-#-#: 1")
+        with self.assertRaisesRegex(RuntimeError, r"Stop 30 of 30, SessionEnd 29 of 30 \(1 short\)"):
+            bench.check_starts(self.started(40), bench.start_groups([40.0]*30, [60.0]*30))
+
+    def test_a_start_lost_beside_a_slow_hook_of_its_kind_passes(self):
+        slow_stop = [290.0] + [40.0]*29
+        self.assertEqual(bench.check_starts(self.started(10), bench.start_groups(slow_stop, [60.0]*30)), 1)
+        self.assertEqual(bench.check_starts(self.started(0), bench.start_groups(slow_stop, [60.0]*30)), 1)
+        self.assertEqual(bench.check_starts(self.started(0), bench.start_groups([40.0]*30, [60.0]*30)), 0)
+        # A slow Stop excuses no SessionEnd's start, and nothing excuses
+        # maintain's or the sweep's.
+        for drop in (40, 2, 3):
+            with self.assertRaisesRegex(RuntimeError, r"with 1 of the hooks that start it past their limit: .*\(1 short\)"):
+                bench.check_starts(self.started(drop), bench.start_groups(slow_stop, [60.0]*30))
+
+    def test_a_start_of_no_kind_asked_for_fails(self):
+        lines = self.started(0)
+        for extra, why in (("maintain", r"maintain 2 of 1 \(1 too many\)"), ("maintain --push-only", "1 of no kind asked for"),
+                           ("update --session codex:m1-spawn --trigger stop_size", r"Stop 31 of 30 \(1 too many\)")):
+            with self.assertRaisesRegex(RuntimeError, why):
+                bench.check_starts(lines + [extra], bench.start_groups([290.0]*30, [60.0]*30))
+
+    def test_a_kind_replaces_digits(self):
+        self.assertEqual(bench.kind("update --session claude-code:m1-end-17 --trigger session_end"),
+                         "update --session claude-code:m#-end-# --trigger session_end")
+        self.assertEqual(bench.kind("update --sweep=2026-11-13"), "update --sweep=#-#-#")
 
 
 class GateLoops(unittest.TestCase):

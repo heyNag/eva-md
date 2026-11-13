@@ -135,6 +135,35 @@ LAUNCH_PROCESSES = {"claude-code": 1, "codex": 2}
 # The seconds a hook may run before the benchmark stops it.
 HOOK_LIMIT = 4
 
+# The hook's own time limit for each event, in milliseconds, and the margin
+# it takes off it for its work. They mirror budget in internal/hook/hook.go
+# (300 ms, and 1500 ms for SessionStart, PostToolUse and PostToolUseFailure)
+# and the 10*time.Millisecond that Run there takes off the deadline for its
+# work's context. A capture whose work passes that delivers nothing, by
+# design: no output but Codex Stop's {}, and no background job.
+EVENT_LIMIT_MS = {"SessionStart": 1500, "PostToolUse": 1500, "PostToolUseFailure": 1500}
+DEFAULT_LIMIT_MS = 300
+LIMIT_MARGIN_MS = 10
+
+
+def past_limit(event, ms):
+    """Whether a hook of event, timed at ms milliseconds, process start
+    included, reached its limit less its margin. Only such a hook can have
+    missed its limit, since the time a hook measures for itself is never
+    longer than the benchmark's."""
+    return ms >= EVENT_LIMIT_MS.get(event, DEFAULT_LIMIT_MS) - LIMIT_MARGIN_MS
+
+
+def starts_allowed(expected, seen, times):
+    """Whether seen starts of the stand-in are what expected hooks allow,
+    and how many of those hooks passed their limit: times holds the event
+    and the measured milliseconds of each hook that should have started
+    one. A hook past its limit (past_limit) may have delivered nothing, its
+    start included, so seen may be short by as many as passed it; with none
+    past it the count is exact. More than expected is never allowed."""
+    late = sum(1 for event, ms in times if past_limit(event, ms))
+    return expected-late <= seen <= expected, late
+
 
 def start(argv, env):
     """Starts a hook's launch in a process group of its own, so that stop
