@@ -115,6 +115,62 @@ func TestGitCounterKeepsTheStatusOfAGitASignalEnded(t *testing.T) {
 	}
 }
 
+// logRecorder is a test's T that keeps what is logged through it, so a test
+// can see what a helper would show if the test failed.
+type logRecorder struct {
+	testing.TB
+	logs []string
+}
+
+func (r *logRecorder) Logf(format string, args ...any) {
+	r.logs = append(r.logs, fmt.Sprintf(format, args...))
+}
+
+// When the cache and Resolve agree because both lost their git, the
+// fixture's resolve passes, but logs both errors and the wrapper's statuses,
+// so a caller that then fails on the general area shows them. A resolve
+// without an error logs nothing.
+func TestCacheFixtureLogsTheErrorsBothGave(t *testing.T) {
+	home := gitEnvForTest(t)
+	repo := newRepo(t, filepath.Join(home, "code", "repo"), true)
+	fakeGitOnConfig(t, "kill -s KILL $$; exit 99")
+	f := cacheFixture{home: home, cache: Cache{Dir: filepath.Join(home, "cache")}}
+	f.runs, f.statuses = wrapGit(t)
+
+	plain := mkdir(t, filepath.Join(home, "plain"))
+	rec := &logRecorder{TB: t}
+	if got, _ := f.resolve(rec, plain); got != General() {
+		t.Fatalf("plain folder: %+v", got)
+	}
+	if len(rec.logs) != 0 {
+		t.Fatalf("a resolve without an error logged %q", rec.logs)
+	}
+
+	got, _ := f.resolve(rec, repo)
+	if got != General() {
+		t.Fatalf("got %+v; want the general area", got)
+	}
+	status := fmt.Sprint(128 + int(syscall.SIGKILL))
+	if len(rec.logs) != 1 {
+		t.Fatalf("logged %q; want one line", rec.logs)
+	}
+	line := rec.logs[0]
+	for _, want := range []string{
+		"cache identity: git config exited with " + status,
+		"live identity: git config exited with " + status,
+		"statuses of the gits the test started that did not exit 0: ",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("logged %q; want it to hold %q", line, want)
+		}
+	}
+	// The plain folder's gits said 128, not a repository; the two configs a
+	// signal ended come last.
+	if !strings.HasSuffix(line, " "+status+" "+status) {
+		t.Fatalf("logged %q; want the statuses to end with the two gits a signal ended, %s %s", line, status, status)
+	}
+}
+
 func readStatuses(t *testing.T, path string) []string {
 	t.Helper()
 	data, err := os.ReadFile(path)

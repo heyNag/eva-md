@@ -99,8 +99,12 @@ func newCacheFixture(t *testing.T) cacheFixture {
 }
 
 // resolve checks that the cache answers exactly like Resolve and reports
-// whether it answered without starting git.
-func (f cacheFixture) resolve(t *testing.T, cwd string) (Project, bool) {
+// whether it answered without starting git. When either answered with an
+// error, both errors and the wrapper's statuses go to the test's log, which
+// is shown only when the test fails: a caller that then fails on the answer,
+// as on the general area where a project was due, shows why git failed, and
+// whether git or its wrapper died, though the two agreed.
+func (f cacheFixture) resolve(t testing.TB, cwd string) (Project, bool) {
 	t.Helper()
 	ctx := context.Background()
 	before := f.runs()
@@ -110,11 +114,14 @@ func (f cacheFixture) resolve(t *testing.T, cwd string) (Project, bool) {
 	if got != want || (err == nil) != (wantErr == nil) {
 		t.Fatalf("cache and Resolve differ for %s:\n cache %+v, %v\n  live %+v, %v\n%s", cwd, got, err, want, wantErr, f.gitExits())
 	}
+	if err != nil || wantErr != nil {
+		t.Logf("resolve %s: cache %v; live %v; %s", cwd, err, wantErr, f.gitExits())
+	}
 	return got, hit
 }
 
 // miss expects a resolve that starts git, then a second one that doesn't.
-func (f cacheFixture) miss(t *testing.T, cwd string) Project {
+func (f cacheFixture) miss(t testing.TB, cwd string) Project {
 	t.Helper()
 	p, hit := f.resolve(t, cwd)
 	if hit {
@@ -127,7 +134,7 @@ func (f cacheFixture) miss(t *testing.T, cwd string) Project {
 }
 
 // live expects that the cache does not keep an answer for cwd.
-func (f cacheFixture) live(t *testing.T, cwd string) Project {
+func (f cacheFixture) live(t testing.TB, cwd string) Project {
 	t.Helper()
 	for range 2 {
 		if p, hit := f.resolve(t, cwd); hit {
@@ -138,7 +145,7 @@ func (f cacheFixture) live(t *testing.T, cwd string) Project {
 	return p
 }
 
-func (f cacheFixture) hit(t *testing.T, cwd string) Project {
+func (f cacheFixture) hit(t testing.TB, cwd string) Project {
 	t.Helper()
 	p, hit := f.resolve(t, cwd)
 	if !hit {
