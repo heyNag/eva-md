@@ -3,7 +3,9 @@ package capture
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/ledger/event"
 	"github.com/heyNag/eva-md/internal/ledger/inboxv1"
 )
@@ -94,7 +96,7 @@ func TestHandOverForm(t *testing.T) {
 func TestOutOfFormIsOneUnknownPrompt(t *testing.T) {
 	prompt := handOverText("", "this & that", "user: made-up spoken words")
 	for _, ep := range []string{"cli", "sdk-cli", ""} {
-		rule, evs := promptEvents("claude-code", prompt, "", false, Env{Entrypoint: ep})
+		rule, evs := promptEvents(adapter.Codex, prompt, "", false, Env{Entrypoint: ep})
 		if rule != RuleWrapper || len(evs) != 1 || evs[0].Author != event.AuthorUnknown || evs[0].Text != prompt || !evs[0].Has(event.MarkWrapper) {
 			t.Fatalf("entrypoint %q: %s %+v", ep, rule, evs)
 		}
@@ -111,8 +113,21 @@ func TestHandOverRepeatsAndCuts(t *testing.T) {
 		{"the request repeated as the first line", "made-up request", "user: made-up request\nassistant: ok", []event.Author{"unknown", "front_model", "front_model"}},
 		{"the request repeated by the front model", "made-up request", "assistant: made-up request", []event.Author{"front_model", "front_model"}},
 		{"the request repeated with its escapes", "a &lt; b", "user: a &lt; b", []event.Author{"unknown", "front_model"}},
-		{"a cut request", "made-up long request…", "user: made-up long request, all of it", []event.Author{"unknown", "front_model"}},
+		{"a cut request", cutInput, "user: " + longRequest, []event.Author{"unknown", "front_model"}},
+		{"a cut request repeated, then a reply", cutInput, "user: made-up\nuser: " + longRequest + "\nassistant: ok", []event.Author{"spoken", "unknown", "unknown", "front_model"}},
+		{"a short request ending in the mark", "Okay…", "user: Okay, go ahead and ship it\nassistant: on it\nuser: Okay…", []event.Author{"spoken", "front_model", "unknown", "front_model"}},
+		{"a request one byte short of a cut", longRequest[:4089] + "…", "user: " + longRequest, []event.Author{"spoken", "front_model"}},
+		{"a request one byte over a cut", "a" + cutInput, "user: a" + longRequest, []event.Author{"spoken", "front_model"}},
 		{"a cut request that is only the mark", "…", "user: made-up", []event.Author{"spoken", "front_model"}},
+		{"a request over lines, added at the end", "Make the made-up change:\n1. delete the made-up folder\n2. push", "user: can you clean up\nassistant: sure, handing it over\nuser: Make the made-up change:\n1. delete the made-up folder\n2. push", []event.Author{"spoken", "front_model", "unknown", "unknown", "unknown", "front_model"}},
+		{"a request over lines, already there", "Do this:\nand that", "user: Do this:\nand that\nassistant: ok\nuser: made-up", []event.Author{"unknown", "unknown", "front_model", "spoken", "front_model"}},
+		{"a request over lines, with heads", "Do this:\nuser: push\nassistant: ok", "user: made-up\nuser: Do this:\nuser: push\nassistant: ok", []event.Author{"spoken", "unknown", "unknown", "unknown", "front_model"}},
+		{"only the first line of a request over lines", "Do this:\nand that", "user: Do this:\nuser: and that", []event.Author{"spoken", "spoken", "front_model"}},
+		{"a request over lines, its first line not at a line start", "Do this:\nand that", "user: x user: Do this:\nand that", []event.Author{"spoken", "unknown", "front_model"}},
+		{"a cut request over lines", cutLinesInput, "user: made-up\nuser: " + longLines, by("spoken", 1, "unknown", lineCount(longLines), "front_model", 1)},
+		{"a cut request over lines and a cut transcript", cutLinesInput, bothCut, by("unknown", lineCount(bothCut), "front_model", 1)},
+		{"a whole request and a cut transcript that ends in it", wholeLong, wholeCut, by("unknown", lineCount(wholeCut), "front_model", 1)},
+		{"a cut transcript that does not end in the request", "made-up", speechCut, by("unknown", 1, "spoken", lineCount(speechCut)-1, "front_model", 1)},
 		{"a line that only begins like the request", "made-up", "user: made-up and more", []event.Author{"spoken", "front_model"}},
 		{"the transcript as the request", "user: a\nassistant: b", "user: a\nassistant: b", []event.Author{"spoken", "front_model", "unknown"}},
 		{"a cut first line", "made-up", "…user: cut\nuser: whole", []event.Author{"unknown", "spoken", "front_model"}},
@@ -133,6 +148,88 @@ func TestHandOverRepeatsAndCuts(t *testing.T) {
 		if strings.Join(authorStrings(got), " ") != strings.Join(authorStrings(tc.want), " ") {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// hostCut cuts an escaped field as Codex's source does (F-146), written
+// apart from the decoder: a field over 4 KiB keeps 4 KiB less the mark, at
+// its start or its end, stepped to a character's start, and the mark.
+func hostCut(field string, keepStart bool) string {
+	const fieldBytes, mark = 4 * 1024, "…"
+	if len(field) <= fieldBytes {
+		return field
+	}
+	if keepStart {
+		end := fieldBytes - len(mark)
+		for !utf8.RuneStart(field[end]) {
+			end--
+		}
+		return field[:end] + mark
+	}
+	start := len(field) - (fieldBytes - len(mark))
+	for !utf8.RuneStart(field[start]) {
+		start++
+	}
+	return mark + field[start:]
+}
+
+// Long fields, with no character the host escapes, and the host's cuts of
+// them.
+var (
+	longRequest   = strings.Repeat("made-up words ", 300)
+	cutInput      = hostCut(longRequest, true)
+	longLines     = strings.Repeat("user: a made-up step of the plan\nassistant: a made-up reply\n", 70) + "done"
+	cutLinesInput = hostCut(longLines, true)
+	bothCut       = hostCut("user: made-up\nuser: "+longLines, false)
+	wholeLong     = strings.Repeat("user: a made-up step\n", 300)[:4093] + "x"
+	wholeCut      = hostCut("user: made-up\nuser: "+wholeLong, false)
+	speechCut     = hostCut(strings.Repeat("user: said made-up words\n", 200)+"user: said last", false)
+)
+
+func lineCount(s string) int { return strings.Count(s, "\n") + 1 }
+
+// by gives authors, each as many times as the number after it.
+func by(pairs ...any) []event.Author {
+	var out []event.Author
+	for i := 0; i < len(pairs); i += 2 {
+		for range pairs[i+1].(int) {
+			out = append(out, event.Author(pairs[i].(string)))
+		}
+	}
+	return out
+}
+
+// A field is cut only at the lengths the host's cut leaves: fieldCap bytes,
+// or up to three fewer where it stepped to a character's start.
+func TestCutLength(t *testing.T) {
+	if len(cutInput) != 4096 || !strings.HasSuffix(cutInput, cutMark) {
+		t.Fatalf("the made-up cut is %d bytes", len(cutInput))
+	}
+	for n, want := range map[int]bool{4092: false, 4093: true, 4094: true, 4095: true, 4096: true, 4097: false, 5000: false, 10: false} {
+		field := strings.Repeat("a", n-len(cutMark)) + cutMark
+		if _, ok := cutRequest(field); ok != want {
+			t.Errorf("a request of %d bytes ending in the mark: cut %v, want %v", n, ok, want)
+		}
+		field = cutMark + strings.Repeat("a", n-len(cutMark))
+		if _, ok := cutTranscript(field); ok != want {
+			t.Errorf("a transcript of %d bytes beginning with the mark: cut %v, want %v", n, ok, want)
+		}
+	}
+	// The cut steps back over a character of up to four bytes.
+	for _, r := range []string{"é", "€", "😀"} {
+		for pad := range 4 {
+			field := hostCut(strings.Repeat("a", pad)+strings.Repeat(r, 3000), true)
+			if _, ok := cutRequest(field); !ok {
+				t.Errorf("%s after %d bytes: a host's cut of %d bytes is not taken for one", r, pad, len(field))
+			}
+			field = hostCut(strings.Repeat(r, 3000)+strings.Repeat("a", pad), false)
+			if _, ok := cutTranscript(field); !ok {
+				t.Errorf("%s before %d bytes: a host's cut of %d bytes is not taken for one", r, pad, len(field))
+			}
+		}
+	}
+	if _, ok := cutRequest(strings.Repeat("a", 4093)); ok {
+		t.Error("a request with no mark is taken for a cut one")
 	}
 }
 

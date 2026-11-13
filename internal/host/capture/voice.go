@@ -2,6 +2,7 @@ package capture
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/heyNag/eva-md/internal/ledger/event"
 )
@@ -121,13 +122,17 @@ func handOver(prompt string) ([]event.Event, bool) {
 	transcript := ""
 	if h.transcript != nil {
 		transcript = unescape.Replace(*h.transcript)
+		// An escape holds no line break, so the lines as written and as
+		// unescaped are the same lines.
+		lines := strings.Split(transcript, "\n")
+		held := appended(*h.transcript, h.input, len(lines))
 		// A first line the host's cut left short begins with the cut mark,
 		// so it has no head and is unknown, as any other line.
-		for _, line := range strings.Split(transcript, "\n") {
+		for i, line := range lines {
 			spoken, isSpoken := strings.CutPrefix(line, headSpoken)
 			front, isFront := strings.CutPrefix(line, headFront)
 			switch {
-			case isSpoken && repeats(spoken, request):
+			case held[i]:
 				// The host adds the request as a user line.
 				add(event.AuthorUnknown, line)
 			case isSpoken:
@@ -151,12 +156,87 @@ func handOver(prompt string) ([]event.Event, bool) {
 	return evs, true
 }
 
-// repeats reports a spoken line that is the request: equal to it, or, when
-// the host cut the request, beginning with what is left of it.
-func repeats(line, request string) bool {
-	if line == request {
-		return true
+// fieldCap is the most a field of a hand-over holds once escaped, the cut
+// mark within it (F-146): the host keeps 4 KiB less the mark and steps
+// back, or on, to a character's start, so a field it cut holds fieldCap
+// bytes or up to three fewer.
+const fieldCap = 4 << 10
+
+// cutLength reports a field, as written, of the length the host's cut
+// leaves.
+func cutLength(field string) bool {
+	return len(field) <= fieldCap && len(field) >= fieldCap-(utf8.UTFMax-1)
+}
+
+// cutRequest gives what the host kept of a request it cut: the field ends
+// with the cut mark and has the length the cut leaves. A shorter request
+// whose own words end in the mark was not cut.
+func cutRequest(input string) (string, bool) {
+	kept, ok := strings.CutSuffix(input, cutMark)
+	return kept, ok && cutLength(input)
+}
+
+// cutTranscript gives what the host kept of a transcript it cut: its end.
+func cutTranscript(transcript string) (string, bool) {
+	kept, ok := strings.CutPrefix(transcript, cutMark)
+	return kept, ok && cutLength(transcript)
+}
+
+// appended marks which of the transcript's n lines hold the request as the
+// host adds it: one user line, `user: ` and the request, which runs over
+// several lines when the request holds a line break. Both fields are as
+// written, so a cut is measured as the host made it.
+//
+//   - A whole request: each place the block begins a line and ends one.
+//   - A cut request: from the last place the block's kept part begins a
+//     line to the transcript's end, since how far the rest ran is unknown.
+//   - A cut transcript whose every line may lie in the block: all of them.
+//     When the request was cut too, the block is longer than what the
+//     transcript keeps, so what is left of the transcript is taken to lie
+//     in it.
+func appended(transcript, input string, n int) []bool {
+	held := make([]bool, n)
+	if input == "" {
+		return held
 	}
-	kept, cut := strings.CutSuffix(request, cutMark)
-	return cut && kept != "" && strings.HasPrefix(line, kept)
+	line := func(i int) int { return strings.Count(transcript[:i], "\n") }
+	mark := func(from, to int) {
+		for l := line(from); l <= line(to); l++ {
+			held[l] = true
+		}
+	}
+	// starts gives each place block begins a line of the transcript.
+	starts := func(block string) []int {
+		var out []int
+		for i := 0; i+len(block) <= len(transcript); i++ {
+			j := strings.Index(transcript[i:], block)
+			if j < 0 {
+				break
+			}
+			i += j
+			if i == 0 || transcript[i-1] == '\n' {
+				out = append(out, i)
+			}
+		}
+		return out
+	}
+	rest, transcriptCut := cutTranscript(transcript)
+	if kept, cut := cutRequest(input); cut {
+		if at := starts(headSpoken + kept); len(at) > 0 {
+			mark(at[len(at)-1], len(transcript)-1)
+		} else if transcriptCut {
+			mark(0, len(transcript)-1)
+		}
+		return held
+	}
+	block := headSpoken + input
+	for _, i := range starts(block) {
+		if end := i + len(block); end == len(transcript) || transcript[end] == '\n' {
+			mark(i, end-1)
+		}
+	}
+	if transcriptCut && strings.HasSuffix("\n"+block, rest) {
+		mark(0, len(transcript)-1)
+	}
+	return held
 }

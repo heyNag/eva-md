@@ -54,8 +54,8 @@ const (
 	RuleAgent             = "agent_id"               // a prompt with an agent id: a subagent's
 	RuleSource            = "source"                 // a listed source: the list's author
 	RuleSourceUnlisted    = "source_unlisted"        // any other source: unknown
-	RuleVoice             = "voice"                  // a hand-over in form, decoded line by line
-	RuleWrapper           = "wrapper"                // a hand-over out of form: one unknown prompt
+	RuleVoice             = "voice"                  // Codex, a hand-over in form, decoded line by line
+	RuleWrapper           = "wrapper"                // Codex, a hand-over out of form: one unknown prompt
 	RulePrefix            = "prefix"                 // a listed prefix: the list's author
 	RuleTag               = "tag"                    // any other leading tag: unknown
 	RuleProgram           = "entrypoint_program"     // Claude Code, a program's entrypoint
@@ -188,14 +188,19 @@ func object(raw []byte) (map[string]json.RawMessage, error) {
 		if err := dec.Decode(&value); err != nil {
 			return nil, ErrNotJSON
 		}
+		// An error names a key only when it is one Decode reads, so it
+		// carries none of the payload's own text.
 		if _, twice := fields[key]; twice {
-			return nil, fmt.Errorf("%w: the key %q is there twice", ErrNotJSON, key)
+			if slices.Contains(readKeys, key) {
+				return nil, fmt.Errorf("%w: the key %s is there twice", ErrNotJSON, key)
+			}
+			return nil, fmt.Errorf("%w: a key is there twice", ErrNotJSON)
 		}
 		for _, k := range readKeys {
 			if key != k && strings.EqualFold(key, k) {
 				// v1 reads it as the field, so it is the field twice or
 				// in doubt.
-				return nil, fmt.Errorf("%w: the key %q is %s in another case", ErrNotJSON, key, k)
+				return nil, fmt.Errorf("%w: a key is %s in another case", ErrNotJSON, k)
 			}
 		}
 		fields[key] = value
@@ -290,7 +295,10 @@ func promptEvents(host adapter.ID, prompt, source string, agent bool, env Env) (
 			return one(RuleSource, e.Author)
 		}
 		return one(RuleSourceUnlisted, event.AuthorUnknown)
-	case strings.HasPrefix(head, VoiceWrapper):
+	case host == adapter.Codex && strings.HasPrefix(head, VoiceWrapper):
+		// Only Codex writes a hand-over (F-141). On another host the form
+		// is only the prompt's shape, which whoever wrote it chose, so the
+		// prompt falls to the tag rule.
 		if evs, ok := handOver(prompt); ok {
 			return RuleVoice, evs
 		}

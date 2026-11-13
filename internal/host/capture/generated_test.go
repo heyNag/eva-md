@@ -55,19 +55,53 @@ func escape(s string) string {
 	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
 }
 
+// request makes a front model's request, at times over several lines, some
+// of which begin with a head.
+func (g gen) request() string {
+	r := "do " + g.words(1+g.r.IntN(3))
+	for g.r.IntN(3) == 0 {
+		r += "\n" + g.pick([]string{"", "user: ", "assistant: ", "user: said ", "1. "}) + g.words(1+g.r.IntN(2))
+	}
+	return r
+}
+
+// longRequest makes a request over the host's 4 KiB cap, with line breaks,
+// escapes and characters of more than one byte.
+func (g gen) longRequest() string {
+	var b strings.Builder
+	b.WriteString("do ")
+	for b.Len() < 4400+g.r.IntN(400) {
+		b.WriteString(g.words(1 + g.r.IntN(4)))
+		b.WriteString(g.pick([]string{" ", " ", "\n", "\nuser: ", "\nassistant: ", " é "}))
+	}
+	return b.String()
+}
+
+// splitsAnEscape reports a field cut inside an escape, which leaves a bare
+// & that puts the hand-over out of form.
+func splitsAnEscape(input string) bool {
+	kept := strings.TrimSuffix(input, cutMark)
+	i := strings.LastIndexByte(kept, '&')
+	return i >= 0 && !strings.Contains(kept[i:], ";")
+}
+
 // handOver makes a hand-over in form, and what each of its lines is.
 func (g gen) handOver() (string, truth) {
 	tr := truth{handOver: true, inForm: true}
-	request := "do " + g.words(1+g.r.IntN(3))
+	request := g.request()
 	source := ""
-	switch g.r.IntN(8) {
+	long := false
+	switch g.r.IntN(9) {
 	case 0:
 		request = ""
 	case 1:
 		source = TailFlush
 		request = "The user just ended their realtime session."
 	case 2:
-		request += cutMark // the host cut it
+		request += cutMark // its own words end in the mark: no cut
+	case 3:
+		long = true // the host cuts it
+		request = g.longRequest()
 	}
 	var lines []string
 	if g.r.IntN(5) == 0 {
@@ -75,7 +109,7 @@ func (g gen) handOver() (string, truth) {
 		lines = append(lines, cutMark+g.pick([]string{"user: ", "assistant: ", "ser: ", ""})+g.words(1))
 	}
 	for range g.r.IntN(6) {
-		switch g.r.IntN(7) {
+		switch g.r.IntN(8) {
 		case 0, 1, 2:
 			said := "said " + g.words(1+g.r.IntN(3))
 			lines = append(lines, headSpoken+said)
@@ -85,14 +119,24 @@ func (g gen) handOver() (string, truth) {
 		case 5:
 			lines = append(lines, g.pick([]string{"system: ", "User: ", "user:", " user: ", "ASSISTANT: ", ""})+g.words(1))
 		case 6:
-			// The host adds the request as a user line, whole, where
-			// the request may be cut.
-			if kept, cut := strings.CutSuffix(request, cutMark); cut {
-				lines = append(lines, headSpoken+kept+g.pick([]string{"", " and the rest"}))
-			} else if request != "" {
+			// The host adds the request as a user line, whole, which
+			// runs over lines where the request does. A long one it
+			// adds at the end, below.
+			if request != "" && !long {
 				lines = append(lines, headSpoken+request)
 			}
+		case 7:
+			// The person says what begins like a request whose own
+			// words end in the mark.
+			if kept, ok := strings.CutSuffix(request, cutMark); ok && !long {
+				said := strings.ReplaceAll(kept, "\n", " ") + " and the rest"
+				lines = append(lines, headSpoken+said)
+				tr.spoken = append(tr.spoken, said)
+			}
 		}
+	}
+	if long && g.r.IntN(4) != 0 {
+		lines = append(lines, headSpoken+request)
 	}
 	transcript := strings.Join(lines, "\n")
 	if transcript == "" && g.r.IntN(2) == 0 {
@@ -100,8 +144,21 @@ func (g gen) handOver() (string, truth) {
 		tr.spoken = append(tr.spoken, "said alone")
 	}
 	input := escape(request)
+	if long {
+		input = hostCut(input, true)
+		if splitsAnEscape(input) {
+			tr.inForm, tr.spoken = false, nil
+		}
+	}
 	if request == "" && transcript != "" && g.r.IntN(2) == 0 {
 		input = escape(transcript) // the host's stand-in for an empty request
+	}
+	written := escape(transcript)
+	if long && len(written) > 4096 && g.r.IntN(2) == 0 {
+		// The host cuts the transcript too, keeping its end, which lies
+		// in the request it added: no line left is the person's.
+		written = hostCut(written, false)
+		tr.spoken = nil
 	}
 	s := g.space()
 	if s == " " || s == " " {
@@ -112,8 +169,8 @@ func (g gen) handOver() (string, truth) {
 		s += "  <source>" + source + "</source>\n"
 	}
 	s += "  <input>" + input + "</input>\n"
-	if transcript != "" {
-		s += "  <transcript_delta>" + escape(transcript) + "</transcript_delta>\n"
+	if written != "" {
+		s += "  <transcript_delta>" + written + "</transcript_delta>\n"
 	}
 	return s + voiceClose + g.pick([]string{"", "\n", " \r\n"}), tr
 }
@@ -191,7 +248,7 @@ func TestGeneratedPayloads(t *testing.T) {
 	names := []string{"UserPromptSubmit", "Stop", "PostToolUse", "PostToolUseFailure", "PostCompact", "PreCompact", "SessionStart", "SessionEnd", "StopFailure", "PostModelSwitch", "Interrupt", "SubagentStop", "made-up"}
 	entrypoints := append(values(entrypoints), "claude-desktop-3p", "local-agent", "", "CLI", "cli ", "made-up")
 	sources := append(values(sources), "SCHEDULED", " cron", "made-up", "")
-	typed, spoken, wrappers := 0, 0, 0
+	typed, spoken, wrappers, hand := 0, 0, 0, 0
 	for i := range 40000 {
 		host, entrypoint := g.pick(hostStrings(hosts)), g.pick(entrypoints)
 		name := "UserPromptSubmit"
@@ -234,7 +291,7 @@ func TestGeneratedPayloads(t *testing.T) {
 				}
 			case event.AuthorSpoken:
 				spoken++
-				if !tr.inForm || d.Rule != RuleVoice || !slices.Contains(tr.spoken, e.Text) {
+				if host != string(adapter.Codex) || !tr.inForm || d.Rule != RuleVoice || !slices.Contains(tr.spoken, e.Text) {
 					t.Fatalf("payload %d: %q spoken from %q (rule %s, in form %v)", i, e.Text, prompt, d.Rule, tr.inForm)
 				}
 			case event.AuthorFront:
@@ -247,8 +304,15 @@ func TestGeneratedPayloads(t *testing.T) {
 			t.Fatalf("payload %d on %s, entrypoint %q, source %q, agent %q: %d typed, want %v, for %q (rule %s)", i, host, entrypoint, source, agent, got, want, prompt, d.Rule)
 		}
 		typed += got
-		// A hand-over decides when no rule before it does.
-		if tr.handOver && name == "UserPromptSubmit" && host != "made-up-host" && agent == "" && source == "" {
+		// On Codex a hand-over decides when no rule before it does; on
+		// Claude Code, which writes none, its form is a leading tag.
+		if tr.handOver && name == "UserPromptSubmit" && host == string(adapter.ClaudeCode) && agent == "" && source == "" {
+			hand++
+			if d.Rule != RuleTag || len(d.Events) != 1 || d.Events[0].Author != event.AuthorUnknown || d.Events[0].Text != prompt || len(d.Events[0].Marks) != 0 {
+				t.Fatalf("payload %d: a hand-over's form on Claude Code, entrypoint %q, %q gave %s %+v", i, entrypoint, prompt, d.Rule, d.Events)
+			}
+		}
+		if tr.handOver && name == "UserPromptSubmit" && host == string(adapter.Codex) && agent == "" && source == "" {
 			if tr.inForm {
 				var people []string
 				for _, e := range d.Events {
@@ -267,8 +331,8 @@ func TestGeneratedPayloads(t *testing.T) {
 			}
 		}
 	}
-	if typed < 500 || spoken < 2000 || wrappers < 300 {
-		t.Fatalf("the run made too few cases: %d typed, %d spoken, %d out of form", typed, spoken, wrappers)
+	if typed < 500 || spoken < 1000 || wrappers < 100 || hand < 1000 {
+		t.Fatalf("the run made too few cases: %d typed, %d spoken, %d out of form, %d hand-overs on Claude Code", typed, spoken, wrappers, hand)
 	}
 }
 

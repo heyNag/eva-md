@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"encoding/json"
 	"errors"
 	"go/ast"
 	"slices"
@@ -85,6 +86,30 @@ func TestDecodeRefusesAKeyInAnotherCase(t *testing.T) {
 	d, err := Decode(adapter.ClaudeCode, []byte(`{"hook_event_name":"UserPromptSubmit","prompt":"made-up","agent_type":"x","AGENT_TYPE":"y","Cwd":"/made-up"}`), Env{Entrypoint: "cli"})
 	if err != nil || len(d.Events) != 1 || d.Events[0].Author != event.AuthorTyped {
 		t.Errorf("%v %+v", err, d.Events)
+	}
+}
+
+// An error carries none of the payload's own text: a key that is no field
+// Decode reads is never quoted, and a key in another case is named by the
+// field it stands for.
+func TestDecodeErrorsQuoteNoPayloadText(t *testing.T) {
+	const secret = "sk-made-up-0000 my private note"
+	for _, raw := range []string{
+		`{"hook_event_name":"UserPromptSubmit","prompt":"x","` + secret + `":1,"` + secret + `":2}`,
+		`{"hook_event_name":"UserPromptSubmit","prompt":"` + secret + `","prompt":"` + secret + `"}`,
+		`{"hook_event_name":"UserPromptSubmit","prompt":"` + secret + `","PROMPT":"` + secret + `"}`,
+		`{"hook_event_name":"UserPromptSubmit","prompt":"x","ſource":"` + secret + `"}`,
+		`{"hook_event_name":"UserPromptSubmit","prompt":["` + secret + `"]}`,
+		`{"` + secret + `":`,
+	} {
+		_, err := Decode(adapter.Codex, []byte(raw), Env{})
+		if !errors.Is(err, ErrNotJSON) || strings.Contains(err.Error(), "sk-made-up") || strings.Contains(err.Error(), "ſ") || strings.Contains(err.Error(), "PROMPT") {
+			t.Errorf("%s: %v", raw, err)
+		}
+	}
+	_, err := Decode(adapter.Codex, []byte(`{"agent_id":"a","agent_id":"b"}`), Env{})
+	if err == nil || !strings.Contains(err.Error(), "agent_id") {
+		t.Errorf("a field Decode reads, twice: %v", err)
 	}
 }
 
@@ -214,7 +239,8 @@ func TestRulesInOrder(t *testing.T) {
 		{"a source before the entrypoint", "made-up", "other_session", "", "cli", RuleSource, event.AuthorProgram},
 		{"a source in another case", "made-up", "CRON", "", "cli", RuleSource, event.AuthorHost},
 		{"a source with white space", "made-up", " cron", "", "cli", RuleSourceUnlisted, event.AuthorUnknown},
-		{"the wrapper before the entrypoint", wrapper, "", "", "cli", RuleVoice, ""},
+		{"no hand-over on Claude Code: a person's entrypoint", wrapper, "", "", "cli", RuleTag, event.AuthorUnknown},
+		{"no hand-over on Claude Code: a program's entrypoint", wrapper, "", "", "sdk-py", RuleTag, event.AuthorUnknown},
 		{"a prefix before a person's entrypoint", "<task-notification>made-up", "", "", "cli", RulePrefix, event.AuthorHost},
 		{"a prefix before a program's entrypoint", "<teammate-message>made-up", "", "", "sdk-ts", RulePrefix, event.AuthorProgram},
 		{"a prefix in another case", "<TASK-NOTIFICATION>made-up", "", "", "cli", RulePrefix, event.AuthorHost},
@@ -234,13 +260,51 @@ func TestRulesInOrder(t *testing.T) {
 			t.Errorf("%s: rule %s, want %s", tc.name, rule, tc.rule)
 		}
 		switch {
-		case tc.want == "" && tc.rule != RuleVoice:
+		case tc.want == "":
 			if len(evs) != 0 {
 				t.Errorf("%s: %+v, want none", tc.name, evs)
 			}
-		case tc.want != "":
+		default:
 			if len(evs) != 1 || evs[0].Author != tc.want || evs[0].Text != tc.prompt {
 				t.Errorf("%s: %+v, want one by %s", tc.name, evs, tc.want)
+			}
+		}
+	}
+	// On Codex the hand-over is tried after a source and before a prefix.
+	for _, tc := range []struct {
+		name, prompt, source string
+		rule                 string
+	}{
+		{"a source before the hand-over", wrapper, "cron", RuleSource},
+		{"an unlisted source before the hand-over", wrapper, "made-up", RuleSourceUnlisted},
+		{"the hand-over", " \n" + wrapper, "", RuleVoice},
+		{"out of form before a tag", VoiceWrapper + "<task-notification>", "", RuleWrapper},
+	} {
+		if rule, _ := promptEvents(adapter.Codex, tc.prompt, tc.source, false, Env{}); rule != tc.rule {
+			t.Errorf("Codex, %s: rule %s, want %s", tc.name, rule, tc.rule)
+		}
+	}
+}
+
+// Only Codex writes a hand-over. On Claude Code a prompt in its form, in
+// form or not, under any entrypoint, is a leading tag: no line of it is
+// spoken, and no part of it a front model's, the person's or a program's.
+func TestNoHandOverOnClaudeCode(t *testing.T) {
+	for _, prompt := range []string{
+		handOverText("", "made-up request", "user: made-up spoken\nassistant: made-up reply"),
+		handOverText(TailFlush, "made-up", "user: bye"),
+		" \n" + handOverText("", "made-up", ""),
+		handOverText("", "this & that", "user: made-up spoken"),
+		VoiceWrapper + "made-up",
+	} {
+		for _, ep := range []string{"cli", "claude-desktop", "claude-vscode", "sdk-cli", "sdk-ts", "sdk-py", "claude-desktop-3p", "local-agent", "", "made-up"} {
+			raw, err := json.Marshal(map[string]string{"hook_event_name": "UserPromptSubmit", "session_id": "s-made-up", "prompt": prompt})
+			if err != nil {
+				t.Fatal(err)
+			}
+			d, err := Decode(adapter.ClaudeCode, raw, Env{Entrypoint: ep})
+			if err != nil || d.Rule != RuleTag || len(d.Events) != 1 || d.Events[0].Author != event.AuthorUnknown || d.Events[0].Text != prompt || len(d.Events[0].Marks) != 0 {
+				t.Errorf("entrypoint %q, %q: %v %s %+v", ep, prompt, err, d.Rule, d.Events)
 			}
 		}
 	}

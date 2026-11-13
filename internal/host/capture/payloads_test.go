@@ -109,10 +109,18 @@ func TestPayloadsCoverEveryRuleOnBothHosts(t *testing.T) {
 			authors[e.Author] = true
 		}
 	}
-	claudeOnly := []string{RuleProgram, RuleInteractive, RuleEntrypointUnknown}
+	only := map[adapter.ID][]string{
+		adapter.ClaudeCode: {RuleProgram, RuleInteractive, RuleEntrypointUnknown},
+		adapter.Codex:      {RuleVoice, RuleWrapper, RuleNoEvidence},
+	}
 	for _, rule := range ruleWords(t) {
 		for _, h := range adapter.All() {
-			want := !(h.ID == adapter.ClaudeCode && rule == RuleNoEvidence) && !(h.ID != adapter.ClaudeCode && slices.Contains(claudeOnly, rule))
+			want := true
+			for other, rules := range only {
+				if other != h.ID && slices.Contains(rules, rule) {
+					want = false
+				}
+			}
 			if seen[h.ID][rule] != want {
 				t.Errorf("on %s the labels cover the rule %q: %v, want %v", h.ID, rule, seen[h.ID][rule], want)
 			}
@@ -136,6 +144,8 @@ func TestPayloadsHoldEveryHandOverCase(t *testing.T) {
 		"codex-voice-empty-request.json", "codex-voice-escapes.json", "codex-voice-cut.json", "codex-voice-cut-request.json",
 		"codex-voice-request-is-transcript.json", "codex-voice-unknown-line.json", "codex-voice-steered.json",
 		"codex-wrapper-audit-off.json", "codex-wrapper-audit-space.json", "codex-wrapper-audit-bare.json",
+		"codex-voice-multiline-request.json", "codex-voice-multiline-heads.json", "codex-voice-ellipsis-request.json",
+		"codex-voice-both-cut.json", "codex-voice-transcript-cut.json", "claude-voice-on-claude-sdk.json",
 	} {
 		if !files[f] {
 			t.Errorf("no payload %s", f)

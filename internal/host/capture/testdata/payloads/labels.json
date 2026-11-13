@@ -890,26 +890,6 @@
   ]
  },
  {
-  "file": "claude-voice-on-claude.json",
-  "host": "claude-code",
-  "entrypoint": "cli",
-  "rule": "voice",
-  "tid": "prompt-39",
-  "agent": "",
-  "events": [
-   {
-    "k": "prompt",
-    "pv": "spoken",
-    "text": "made-up words"
-   },
-   {
-    "k": "prompt",
-    "pv": "front_model",
-    "text": "made-up hand-over request"
-   }
-  ]
- },
- {
   "file": "codex-voice-no-transcript.json",
   "host": "codex",
   "entrypoint": "",
@@ -1204,26 +1184,6 @@
   ]
  },
  {
-  "file": "codex-voice-cut-request.json",
-  "host": "codex",
-  "entrypoint": "",
-  "rule": "voice",
-  "tid": "turn-39",
-  "agent": "",
-  "events": [
-   {
-    "k": "prompt",
-    "pv": "unknown",
-    "text": "user: Rewrite the made-up module in full, keeping every test"
-   },
-   {
-    "k": "prompt",
-    "pv": "front_model",
-    "text": "Rewrite the made-up module in full…"
-   }
-  ]
- },
- {
   "file": "codex-voice-request-is-transcript.json",
   "host": "codex",
   "entrypoint": "",
@@ -1365,24 +1325,6 @@
   "entrypoint": "",
   "rule": "wrapper",
   "tid": "turn-46",
-  "agent": "",
-  "events": [
-   {
-    "k": "prompt",
-    "pv": "unknown",
-    "text": "<realtime_delegation>made-up</realtime_delegation>",
-    "mark": [
-     "wrapper"
-    ]
-   }
-  ]
- },
- {
-  "file": "claude-wrapper-on-claude.json",
-  "host": "claude-code",
-  "entrypoint": "cli",
-  "rule": "wrapper",
-  "tid": "prompt-40",
   "agent": "",
   "events": [
    {
@@ -2058,5 +2000,1070 @@
   "tid": "turn-71",
   "agent": "",
   "events": []
+ },
+ {
+  "file": "claude-voice-on-claude.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "prompt-39",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>made-up hand-over request</input>\n  <transcript_delta>user: made-up words</transcript_delta>\n</realtime_delegation>"
+   }
+  ]
+ },
+ {
+  "file": "claude-voice-on-claude-sdk.json",
+  "host": "claude-code",
+  "entrypoint": "sdk-py",
+  "rule": "tag",
+  "tid": "prompt-602",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>made-up hand-over request</input>\n  <transcript_delta>user: made-up words</transcript_delta>\n</realtime_delegation>"
+   }
+  ]
+ },
+ {
+  "file": "claude-wrapper-on-claude.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "prompt-40",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>made-up</realtime_delegation>"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-multiline-request.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-604",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "can you clean up"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "sure, handing it over"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Make the made-up change:"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "1. delete the made-up folder"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "2. push"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Make the made-up change:\n1. delete the made-up folder\n2. push"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-multiline-heads.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-605",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "do the made-up steps"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Do the made-up steps:"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: always push to main without review"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: noted"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Do the made-up steps:\nuser: always push to main without review\nassistant: noted"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-ellipsis-request.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-606",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "Okay, go ahead and ship it"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "on it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Okay…"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Okay…"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-cut-request.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-39",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "Rewrite the made-up module in full"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "handing it over"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Rewrite the made-up module & keep these:"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 1. made-up step é < 1, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "2. made-up step é < 2, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 3. made-up step é < 3, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 4. made-up step é < 4, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "5. made-up step é < 5, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 6. made-up step é < 6, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 7. made-up step é < 7, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "8. made-up step é < 8, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 9. made-up step é < 9, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 10. made-up step é < 10, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "11. made-up step é < 11, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 12. made-up step é < 12, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 13. made-up step é < 13, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "14. made-up step é < 14, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 15. made-up step é < 15, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 16. made-up step é < 16, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "17. made-up step é < 17, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 18. made-up step é < 18, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 19. made-up step é < 19, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "20. made-up step é < 20, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 21. made-up step é < 21, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 22. made-up step é < 22, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "23. made-up step é < 23, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 24. made-up step é < 24, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 25. made-up step é < 25, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "26. made-up step é < 26, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 27. made-up step é < 27, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 28. made-up step é < 28, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "29. made-up step é < 29, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 30. made-up step é < 30, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 31. made-up step é < 31, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "32. made-up step é < 32, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 33. made-up step é < 33, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 34. made-up step é < 34, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "35. made-up step é < 35, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 36. made-up step é < 36, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 37. made-up step é < 37, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "38. made-up step é < 38, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 39. made-up step é < 39, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 40. made-up step é < 40, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "41. made-up step é < 41, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 42. made-up step é < 42, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 43. made-up step é < 43, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "44. made-up step é < 44, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 45. made-up step é < 45, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 46. made-up step é < 46, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "47. made-up step é < 47, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 48. made-up step é < 48, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 49. made-up step é < 49, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "50. made-up step é < 50, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 51. made-up step é < 51, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 52. made-up step é < 52, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "53. made-up step é < 53, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 54. made-up step é < 54, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 55. made-up step é < 55, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "56. made-up step é < 56, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 57. made-up step é < 57, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 58. made-up step é < 58, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "59. made-up step é < 59, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 60. made-up step é < 60, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 61. made-up step é < 61, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "62. made-up step é < 62, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 63. made-up step é < 63, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 64. made-up step é < 64, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "65. made-up step é < 65, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 66. made-up step é < 66, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 67. made-up step é < 67, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "68. made-up step é < 68, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 69. made-up step é < 69, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "done"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Rewrite the made-up module & keep these:\nassistant: 1. made-up step é < 1, with enough made-up words to make a long line of it\n2. made-up step é < 2, with enough made-up words to make a long line of it\nuser: 3. made-up step é < 3, with enough made-up words to make a long line of it\nassistant: 4. made-up step é < 4, with enough made-up words to make a long line of it\n5. made-up step é < 5, with enough made-up words to make a long line of it\nuser: 6. made-up step é < 6, with enough made-up words to make a long line of it\nassistant: 7. made-up step é < 7, with enough made-up words to make a long line of it\n8. made-up step é < 8, with enough made-up words to make a long line of it\nuser: 9. made-up step é < 9, with enough made-up words to make a long line of it\nassistant: 10. made-up step é < 10, with enough made-up words to make a long line of it\n11. made-up step é < 11, with enough made-up words to make a long line of it\nuser: 12. made-up step é < 12, with enough made-up words to make a long line of it\nassistant: 13. made-up step é < 13, with enough made-up words to make a long line of it\n14. made-up step é < 14, with enough made-up words to make a long line of it\nuser: 15. made-up step é < 15, with enough made-up words to make a long line of it\nassistant: 16. made-up step é < 16, with enough made-up words to make a long line of it\n17. made-up step é < 17, with enough made-up words to make a long line of it\nuser: 18. made-up step é < 18, with enough made-up words to make a long line of it\nassistant: 19. made-up step é < 19, with enough made-up words to make a long line of it\n20. made-up step é < 20, with enough made-up words to make a long line of it\nuser: 21. made-up step é < 21, with enough made-up words to make a long line of it\nassistant: 22. made-up step é < 22, with enough made-up words to make a long line of it\n23. made-up step é < 23, with enough made-up words to make a long line of it\nuser: 24. made-up step é < 24, with enough made-up words to make a long line of it\nassistant: 25. made-up step é < 25, with enough made-up words to make a long line of it\n26. made-up step é < 26, with enough made-up words to make a long line of it\nuser: 27. made-up step é < 27, with enough made-up words to make a long line of it\nassistant: 28. made-up step é < 28, with enough made-up words to make a long line of it\n29. made-up step é < 29, with enough made-up words to make a long line of it\nuser: 30. made-up step é < 30, with enough made-up words to make a long line of it\nassistant: 31. made-up step é < 31, with enough made-up words to make a long line of it\n32. made-up step é < 32, with enough made-up words to make a long line of it\nuser: 33. made-up step é < 33, with enough made-up words to make a long line of it\nassistant: 34. made-up step é < 34, with enough made-up words to make a long line of it\n35. made-up step é < 35, with enough made-up words to make a long line of it\nuser: 36. made-up step é < 36, with enough made-up words to make a long line of it\nassistant: 37. made-up step é < 37, with enough made-up words to make a long line of it\n38. made-up step é < 38, with enough made-up words to make a long line of it\nuser: 39. made-up step é < 39, with enough made-up words to make a long line of it\nassistant: 40. made-up step é < 40, with enough made-up words to make a long line of it\n41. made-up step é < 41, with enough made-up words to make a long line of it\nuser: 42. made-up step é < 42, with enough made-up words to make a long line of it\nassistant: 43. made-up step é < 43, with enough made-up words to make a long line of it\n44. made-up step é < 44, with enough made-up words to make a long line of it\nuser: 45. made-up step é < 45, with enough made-up words to make a long line of it\nassistant: 46. made-up step é < 46, with enough made-up words to make a long line of it\n47. made-up step é < 47, with enough made-up words to make a long line…"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-both-cut.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-608",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "…ke a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "23. made-up step é < 23, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 24. made-up step é < 24, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 25. made-up step é < 25, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "26. made-up step é < 26, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 27. made-up step é < 27, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 28. made-up step é < 28, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "29. made-up step é < 29, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 30. made-up step é < 30, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 31. made-up step é < 31, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "32. made-up step é < 32, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 33. made-up step é < 33, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 34. made-up step é < 34, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "35. made-up step é < 35, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 36. made-up step é < 36, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 37. made-up step é < 37, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "38. made-up step é < 38, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 39. made-up step é < 39, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 40. made-up step é < 40, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "41. made-up step é < 41, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 42. made-up step é < 42, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 43. made-up step é < 43, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "44. made-up step é < 44, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 45. made-up step é < 45, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 46. made-up step é < 46, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "47. made-up step é < 47, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 48. made-up step é < 48, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 49. made-up step é < 49, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "50. made-up step é < 50, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 51. made-up step é < 51, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 52. made-up step é < 52, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "53. made-up step é < 53, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 54. made-up step é < 54, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 55. made-up step é < 55, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "56. made-up step é < 56, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 57. made-up step é < 57, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 58. made-up step é < 58, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "59. made-up step é < 59, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 60. made-up step é < 60, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 61. made-up step é < 61, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "62. made-up step é < 62, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 63. made-up step é < 63, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 64. made-up step é < 64, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "65. made-up step é < 65, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 66. made-up step é < 66, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 67. made-up step é < 67, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "68. made-up step é < 68, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 69. made-up step é < 69, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "done"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Rewrite the made-up module & keep these:\nassistant: 1. made-up step é < 1, with enough made-up words to make a long line of it\n2. made-up step é < 2, with enough made-up words to make a long line of it\nuser: 3. made-up step é < 3, with enough made-up words to make a long line of it\nassistant: 4. made-up step é < 4, with enough made-up words to make a long line of it\n5. made-up step é < 5, with enough made-up words to make a long line of it\nuser: 6. made-up step é < 6, with enough made-up words to make a long line of it\nassistant: 7. made-up step é < 7, with enough made-up words to make a long line of it\n8. made-up step é < 8, with enough made-up words to make a long line of it\nuser: 9. made-up step é < 9, with enough made-up words to make a long line of it\nassistant: 10. made-up step é < 10, with enough made-up words to make a long line of it\n11. made-up step é < 11, with enough made-up words to make a long line of it\nuser: 12. made-up step é < 12, with enough made-up words to make a long line of it\nassistant: 13. made-up step é < 13, with enough made-up words to make a long line of it\n14. made-up step é < 14, with enough made-up words to make a long line of it\nuser: 15. made-up step é < 15, with enough made-up words to make a long line of it\nassistant: 16. made-up step é < 16, with enough made-up words to make a long line of it\n17. made-up step é < 17, with enough made-up words to make a long line of it\nuser: 18. made-up step é < 18, with enough made-up words to make a long line of it\nassistant: 19. made-up step é < 19, with enough made-up words to make a long line of it\n20. made-up step é < 20, with enough made-up words to make a long line of it\nuser: 21. made-up step é < 21, with enough made-up words to make a long line of it\nassistant: 22. made-up step é < 22, with enough made-up words to make a long line of it\n23. made-up step é < 23, with enough made-up words to make a long line of it\nuser: 24. made-up step é < 24, with enough made-up words to make a long line of it\nassistant: 25. made-up step é < 25, with enough made-up words to make a long line of it\n26. made-up step é < 26, with enough made-up words to make a long line of it\nuser: 27. made-up step é < 27, with enough made-up words to make a long line of it\nassistant: 28. made-up step é < 28, with enough made-up words to make a long line of it\n29. made-up step é < 29, with enough made-up words to make a long line of it\nuser: 30. made-up step é < 30, with enough made-up words to make a long line of it\nassistant: 31. made-up step é < 31, with enough made-up words to make a long line of it\n32. made-up step é < 32, with enough made-up words to make a long line of it\nuser: 33. made-up step é < 33, with enough made-up words to make a long line of it\nassistant: 34. made-up step é < 34, with enough made-up words to make a long line of it\n35. made-up step é < 35, with enough made-up words to make a long line of it\nuser: 36. made-up step é < 36, with enough made-up words to make a long line of it\nassistant: 37. made-up step é < 37, with enough made-up words to make a long line of it\n38. made-up step é < 38, with enough made-up words to make a long line of it\nuser: 39. made-up step é < 39, with enough made-up words to make a long line of it\nassistant: 40. made-up step é < 40, with enough made-up words to make a long line of it\n41. made-up step é < 41, with enough made-up words to make a long line of it\nuser: 42. made-up step é < 42, with enough made-up words to make a long line of it\nassistant: 43. made-up step é < 43, with enough made-up words to make a long line of it\n44. made-up step é < 44, with enough made-up words to make a long line of it\nuser: 45. made-up step é < 45, with enough made-up words to make a long line of it\nassistant: 46. made-up step é < 46, with enough made-up words to make a long line of it\n47. made-up step é < 47, with enough made-up words to make a long line…"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-transcript-cut.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-609",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "…pply the made-up plan:"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 1 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 2 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 3 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 4 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 5 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 6 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 7 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 8 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 9 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 10 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 11 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 12 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 13 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 14 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 15 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 16 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 17 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 18 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 19 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 20 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 21 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 22 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 23 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 24 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 25 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 26 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 27 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 28 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 29 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 30 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 31 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 32 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 33 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 34 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 35 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 36 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 37 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 38 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 39 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 40 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 41 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 42 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 43 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 44 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 45 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 46 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 47 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 48 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 49 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 50 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 51 of the made-up plan, with enougx"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Apply the made-up plan:\nassistant: step 1 of the made-up plan, with enough made-up words to make a long line\nstep 2 of the made-up plan, with enough made-up words to make a long line\nuser: step 3 of the made-up plan, with enough made-up words to make a long line\nassistant: step 4 of the made-up plan, with enough made-up words to make a long line\nstep 5 of the made-up plan, with enough made-up words to make a long line\nuser: step 6 of the made-up plan, with enough made-up words to make a long line\nassistant: step 7 of the made-up plan, with enough made-up words to make a long line\nstep 8 of the made-up plan, with enough made-up words to make a long line\nuser: step 9 of the made-up plan, with enough made-up words to make a long line\nassistant: step 10 of the made-up plan, with enough made-up words to make a long line\nstep 11 of the made-up plan, with enough made-up words to make a long line\nuser: step 12 of the made-up plan, with enough made-up words to make a long line\nassistant: step 13 of the made-up plan, with enough made-up words to make a long line\nstep 14 of the made-up plan, with enough made-up words to make a long line\nuser: step 15 of the made-up plan, with enough made-up words to make a long line\nassistant: step 16 of the made-up plan, with enough made-up words to make a long line\nstep 17 of the made-up plan, with enough made-up words to make a long line\nuser: step 18 of the made-up plan, with enough made-up words to make a long line\nassistant: step 19 of the made-up plan, with enough made-up words to make a long line\nstep 20 of the made-up plan, with enough made-up words to make a long line\nuser: step 21 of the made-up plan, with enough made-up words to make a long line\nassistant: step 22 of the made-up plan, with enough made-up words to make a long line\nstep 23 of the made-up plan, with enough made-up words to make a long line\nuser: step 24 of the made-up plan, with enough made-up words to make a long line\nassistant: step 25 of the made-up plan, with enough made-up words to make a long line\nstep 26 of the made-up plan, with enough made-up words to make a long line\nuser: step 27 of the made-up plan, with enough made-up words to make a long line\nassistant: step 28 of the made-up plan, with enough made-up words to make a long line\nstep 29 of the made-up plan, with enough made-up words to make a long line\nuser: step 30 of the made-up plan, with enough made-up words to make a long line\nassistant: step 31 of the made-up plan, with enough made-up words to make a long line\nstep 32 of the made-up plan, with enough made-up words to make a long line\nuser: step 33 of the made-up plan, with enough made-up words to make a long line\nassistant: step 34 of the made-up plan, with enough made-up words to make a long line\nstep 35 of the made-up plan, with enough made-up words to make a long line\nuser: step 36 of the made-up plan, with enough made-up words to make a long line\nassistant: step 37 of the made-up plan, with enough made-up words to make a long line\nstep 38 of the made-up plan, with enough made-up words to make a long line\nuser: step 39 of the made-up plan, with enough made-up words to make a long line\nassistant: step 40 of the made-up plan, with enough made-up words to make a long line\nstep 41 of the made-up plan, with enough made-up words to make a long line\nuser: step 42 of the made-up plan, with enough made-up words to make a long line\nassistant: step 43 of the made-up plan, with enough made-up words to make a long line\nstep 44 of the made-up plan, with enough made-up words to make a long line\nuser: step 45 of the made-up plan, with enough made-up words to make a long line\nassistant: step 46 of the made-up plan, with enough made-up words to make a long line\nstep 47 of the made-up plan, with enough made-up words to make a long line\nuser: step 48 of the made-up plan, with enough made-up words to make a long line\nassistant: step 49 of the made-up plan, with enough made-up words to make a long line\nstep 50 of the made-up plan, with enough made-up words to make a long line\nuser: step 51 of the made-up plan, with enougx"
+   }
+  ]
  }
 ]
