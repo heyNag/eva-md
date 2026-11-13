@@ -48,3 +48,17 @@ Everything else. `cmd/eva-eval/main.go`, `internal/eval/results` and `internal/r
 - `redact.Scan` finds nothing in any file under `eval/pilot/`, and no file there matches the workplace pattern of `TestThePublicRepoUsesNeutralWording`, which reads nothing under `eval/`: a test of the package does both.
 - `TestHostLiteralCount` passes unchanged.
 - A reviewer's mutations (the prompt check dropped, a hidden test that passes on the start accepted, a decoy that fails a test encoding no fact accepted, a grade that lets go reach the network) each fail a test.
+
+## As merged
+
+Merged from `pkg/ev-03a-r1` on 2026-11-13, after a review, a fix round and a verification that accepted it. Its first builder was cut off by a restart of the machine after four commits, and the second read that work against this page before adding to it. The fix round's check failed in the benchmark alone, twice, on a busy machine; nothing a hook runs imports the package.
+
+The lead's rulings:
+
+- **`pilot check` exits 2 when a task cannot be checked at all**, as when a runner is not installed: that is nearer a usage error than a task that breaks a rule, which exits 1.
+- **An error shows nothing a task's files hold.** An id that holds a value is refused before any message names an id, an unknown field is not named, and a folder whose name cannot be shown appears as `folder-<n>`.
+
+To watch and to know:
+
+- The tasks had not run on macOS when this merged: grading finds `python3` and `go` on the caller's PATH and links them into a path of its own. CI's macOS job is the first proof.
+- One test of a time limit lets a passing test finish inside 60 seconds, so every run of the package's tests takes a minute more, and again under the race detector. A passing test has to fit inside some limit; the window is wide, and it is the one outcome there that rests on time.

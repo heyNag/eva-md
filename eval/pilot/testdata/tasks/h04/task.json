@@ -1,0 +1,86 @@
+{
+  "v": 1,
+  "id": "h04",
+  "family": "handoff",
+  "lang": "python",
+  "repos": [
+    "pebblewick"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "pebblewick should have every command its README lists. Do add, list and done first, with tests, and keep main returning 2 for a command it doesn't know.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Done. todo.py has open_items, which sorts the open items by due day and keeps the order they were added on a tie, and cmd_add, cmd_list and cmd_done, registered in COMMANDS; main returns 2 and says so for an unknown command. test_todo.py covers adding and listing, done, and an unknown command, and python3 -m unittest passes.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "Great. I need to go; what's still missing?",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Two README commands are missing. snooze <n> <days> moves the n-th item of list's order that many days later, printing nothing. sweepdone removes the done items from the list itself and prints how many it removed. Each needs a cmd_ function and an entry in COMMANDS; nothing else changes.",
+      "plants": [
+        "f1",
+        "f2"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "Still to do: the snooze <n> <days> command, which moves the n-th item of list's order that many days later and prints nothing.",
+      "values": [
+        "snooze"
+      ],
+      "name": false
+    },
+    {
+      "id": "f2",
+      "statement": "Still to do: the sweepdone command, which removes the done items from the list and prints how many it removed.",
+      "values": [
+        "sweepdone"
+      ],
+      "name": false
+    }
+  ],
+  "prompt": "Let's finish the pebblewick to-do list where we stopped last time.",
+  "note": "Hand-over for pebblewick. Done: add, list and done in todo.py, registered in COMMANDS, with tests; unknown commands return 2. Left from the README: snooze <n> <days> (n-th item of list's order, that many days later, prints nothing) and sweepdone (removes done items, prints the count).",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "pebblewick",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_snooze"
+      ],
+      "facts": [
+        "f1"
+      ]
+    },
+    {
+      "id": "t2",
+      "repo": "pebblewick",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_sweepdone"
+      ],
+      "facts": [
+        "f2"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}

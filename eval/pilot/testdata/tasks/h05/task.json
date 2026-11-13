@@ -1,0 +1,97 @@
+{
+  "v": 1,
+  "id": "h05",
+  "family": "handoff",
+  "lang": "python",
+  "repos": [
+    "ledgerhub",
+    "tallyport"
+  ],
+  "workdir": "outside",
+  "history": [
+    {
+      "by": "user",
+      "text": "tallyport's March totals are about a hundred times what ledgerhub shows, and refunds look like they're counted as sales. Both repositories are in this folder. Find out why before we change anything.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Found it, across the two. ledgerhub's export.py writes format 2: the header is date,account,amount_minor,kind, the amount is in cents, and a refund is a row whose kind is reversal. tallyport's totals still reads every export as format 1, the amount in units, so it multiplies cents by 100 again and adds refunds as if they were sales.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "Makes sense. Start the fix in tallyport; ledgerhub is right as it is.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "I added read_header to tally.py: it tells format 1 from format 2 by the header and returns the data lines, and refuses an unknown header. totals calls it, but still treats every amount as units. There's a test for read_header, and the format 1 test still passes.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "I'm out of time. Write down exactly what's left.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Left, in tallyport's totals, for format 2 only: amount_minor is already in cents, so take it as a whole number instead of multiplying by 100; and a row whose kind is reversal is money given back, so subtract it from the account. Format 1 stays as it is, and ledgerhub needs no change.",
+      "plants": [
+        "f1",
+        "f2"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "Still to do: in a format 2 export, amount_minor is already cents; take it as a whole number.",
+      "values": [
+        "amount_minor"
+      ],
+      "name": false
+    },
+    {
+      "id": "f2",
+      "statement": "Still to do: in a format 2 export, a row of kind reversal is money given back; subtract it.",
+      "values": [
+        "reversal"
+      ],
+      "name": false
+    }
+  ],
+  "prompt": "Let's finish the fix for the totals that disagree between the two repositories in this folder.",
+  "note": "Hand-over for ledgerhub and tallyport. Cause: ledgerhub exports format 2 (header date,account,amount_minor,kind; cents; refunds as kind reversal) and tallyport read it as format 1. Done: tally.read_header tells the formats apart. Left in tally.totals, format 2 only: take amount_minor as whole cents, and subtract reversal rows. ledgerhub stays as it is.",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "tallyport",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_cents"
+      ],
+      "facts": [
+        "f1"
+      ]
+    },
+    {
+      "id": "t2",
+      "repo": "tallyport",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_reversal"
+      ],
+      "facts": [
+        "f2"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}
