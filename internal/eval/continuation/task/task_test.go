@@ -29,8 +29,8 @@ func TestLoadAllFixtures(t *testing.T) {
 	if h.Dir != filepath.Join(fixtures, "hidden-parse") || !h.Facts[0].Name || h.Tests[0].Limit() != DefaultLimit {
 		t.Fatalf("hidden-parse loaded as %+v", h)
 	}
-	if limit := tasks[1].Tests[1].Limit(); limit != 300 {
-		t.Fatalf("split-refuses-zero's limit = %d, want 300", limit)
+	if limit := tasks[1].Tests[1].Limit(); limit != 900 {
+		t.Fatalf("split-refuses-zero's limit = %d, want 900", limit)
 	}
 }
 

@@ -133,12 +133,18 @@ func TestCheckFindsABrokenTask(t *testing.T) {
 }
 
 // stubTask is a task whose tests run the test binary as a stub runner, one
-// test for each stub named, in a workspace of one made-up file.
-func stubTask(t *testing.T, limit int, stubs ...string) (Task, string) {
+// test for each stub named, in a workspace of one made-up file. The stub
+// that blocks has a limit of 1 second; the others the default, so that
+// only their exit decides them, however slowly the machine starts them.
+func stubTask(t *testing.T, stubs ...string) (Task, string) {
 	t.Helper()
 	x := base(t)
 	x.Tests = nil
 	for _, s := range stubs {
+		limit := 0
+		if s == stubBlock {
+			limit = 1
+		}
 		x.Tests = append(x.Tests, Test{ID: s, Repo: "ledgerkit", Run: []string{os.Args[0], s}, LimitS: limit})
 	}
 	ws := tempDir(t)
@@ -147,7 +153,7 @@ func stubTask(t *testing.T, limit int, stubs ...string) (Task, string) {
 }
 
 func TestGradeTimeLimit(t *testing.T) {
-	x, ws := stubTask(t, 1, stubBlock, stubPass, stubFail)
+	x, ws := stubTask(t, stubBlock, stubPass, stubFail)
 	g, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade"))
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +165,7 @@ func TestGradeTimeLimit(t *testing.T) {
 }
 
 func TestGradeEndedContextIsAnError(t *testing.T) {
-	x, ws := stubTask(t, 0, stubPass)
+	x, ws := stubTask(t, stubPass)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := Grade(ctx, x, tempDir(t), ws, filepath.Join(tempDir(t), "grade")); err == nil {
@@ -168,7 +174,7 @@ func TestGradeEndedContextIsAnError(t *testing.T) {
 }
 
 func TestGradeRunnerNotInstalled(t *testing.T) {
-	x, ws := stubTask(t, 0, stubPass)
+	x, ws := stubTask(t, stubPass)
 	x.Tests[0].Run = []string{"eva-md-no-such-runner", "test"}
 	if _, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade")); err == nil || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("Grade = %v, want an error saying the runner is not installed", err)
@@ -176,7 +182,7 @@ func TestGradeRunnerNotInstalled(t *testing.T) {
 }
 
 func TestGradeRunsInAnEnvironmentOfItsOwn(t *testing.T) {
-	x, ws := stubTask(t, 0, stubPass)
+	x, ws := stubTask(t, stubPass)
 	write(t, ws, "go.mod", "module example.com/ledgerkit\n\ngo 1.22\n")
 	write(t, ws, "env_test.go", `package ledgerkit
 
@@ -228,7 +234,7 @@ func TestEnv(t *testing.T) {
 }
 
 func TestGradeRunnerByPath(t *testing.T) {
-	x, ws := stubTask(t, 0, stubPass)
+	x, ws := stubTask(t, stubPass)
 	if err := os.MkdirAll(filepath.Join(ws, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}

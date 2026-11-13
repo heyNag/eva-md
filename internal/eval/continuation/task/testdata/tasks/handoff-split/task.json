@@ -43,7 +43,7 @@
       "repo": "ledgerkit",
       "run": ["go", "test", "-count=1", "-run", "^TestSplitRefusesZero$", "."],
       "facts": ["f-zero"],
-      "limit_s": 300
+      "limit_s": 900
     }
   ],
   "max_turns": 30,
