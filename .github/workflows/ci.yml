@@ -27,6 +27,32 @@ jobs:
       - run: go test ./...
       - run: go test -race ./...
       - run: go build -mod=readonly -o bin/eva-md ./cmd/eva-md
+      # What the system kept of a process that crashed or was killed, for a
+      # failure no test's output explains (run 107: a git child ended by a
+      # signal no one could name). Only the names, sizes and dates of the
+      # crash reports, never what they hold. It runs on every run, so it is
+      # known to work before a failure needs it, and it never fails the job.
+      - name: Crash reports (names, sizes and dates only)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          for dir in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
+            echo "== $dir"
+            if [ -d "$dir" ]; then
+              find "$dir" -type f -exec ls -lT {} +
+            else
+              echo "(no such folder)"
+            fi
+          done
+      # After a failure only: what the system log says of processes it ended
+      # for memory, which would explain a child that a signal ended.
+      - name: Memory kills in the system log (after a failure)
+        if: failure()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          log show --last 40m --style compact --predicate 'eventMessage CONTAINS "memorystatus"' | tail -n 50
 
   # The latency gate, in a job of its own: it times hooks, and after the
   # tests of the job above the machine's load is several times its CPUs,

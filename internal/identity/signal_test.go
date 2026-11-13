@@ -35,8 +35,11 @@ func TestResolveNamesTheSignalThatEndedGit(t *testing.T) {
 		name string
 		sig  syscall.Signal
 	}{
+		// No signal here is one macOS writes a crash report for, as it does
+		// for SEGV whoever sent it: that report would land in the real
+		// user's Library, whatever HOME is, and a test never writes there.
 		{"KILL", syscall.SIGKILL},
-		{"SEGV", syscall.SIGSEGV},
+		{"HUP", syscall.SIGHUP},
 		{"TERM", syscall.SIGTERM},
 	} {
 		t.Run(c.name, func(t *testing.T) {
