@@ -173,6 +173,7 @@ type codexStream struct {
 	turnFailed bool
 	errorEvent bool // an error event, apart from an error item
 	skipped    bool // a line that is not JSON, such as a notice
+	known      int  // the known events read, item.* included
 	diag       codexDiag
 	usage      Usage
 	usageSeen  bool
@@ -268,6 +269,7 @@ func (s *codexStream) event(line []byte) {
 			return
 		}
 	}
+	s.known++
 	switch kind {
 	case "turn.completed":
 		s.addUsage(e["usage"])
@@ -316,7 +318,11 @@ func (s *codexStream) addUsage(raw json.RawMessage) {
 }
 
 // result names the run's class from what the stream showed and how the CLI
-// ended. The core puts a missing CLI, then a tool, then a timeout first.
+// ended. The core puts a missing CLI, then a tool, then a timeout first. A
+// run that exited 0 but showed no known event is host, answer or not: a
+// reader that saw nothing can vouch for nothing, and the chat is not blamed
+// for a stream nobody could read. A failed exit is still named from its
+// text, since a CLI that fails before its first event prints none.
 func (s *codexStream) result(e exit, output, effort string) result {
 	res := result{class: ClassHost, toolSign: s.toolUsed, usage: s.usage, usageSeen: s.usageSeen}
 	if s.skipped {
@@ -332,6 +338,8 @@ func (s *codexStream) result(e exit, output, effort string) result {
 		answer, ok := codexReadOutput(output)
 		clean := !e.failed && !s.turnFailed
 		switch {
+		case !e.failed && s.known == 0:
+			// host: a clean exit with no event read.
 		case clean && ok:
 			res.class, res.answer = ClassOK, answer
 			if s.diag.mcpFailed {

@@ -58,14 +58,17 @@ jobs:
   # tests of the job above the machine's load is several times its CPUs,
   # which the gate can only call "not judged". It builds the binary of the
   # commit before the change (the pull request's base, or the push's
-  # parent) and the change's own, and runs each twice a round, alternating,
-  # so that other splits of the same runs into two like halves serve as
-  # controls (scripts/benchmark.py --compare). Advisory: it reports and
-  # never fails the job, until an unchanged binary has passed it twenty
-  # times with no fail between them, as docs/v2/baselines/README.md counts.
+  # parent) and the change's own, and runs each twice a round, three rounds
+  # by default, alternating, so that other splits of the same runs into two
+  # like halves serve as controls (scripts/benchmark.py --compare).
+  # Advisory: it reports and never fails the job, until an unchanged binary
+  # has passed the gate's third rule twenty times with no fail among the
+  # runs that count and fewer than one in four of them not judged, as
+  # docs/v2/baselines/README.md counts. At three rounds its twelve runs
+  # take about 13 minutes on this runner, after a wait of up to five.
   latency:
     runs-on: macos-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       # The whole history, to build the commit before the change.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,7 +82,7 @@ jobs:
       - run: go build -mod=readonly -o bin/eva-md ./cmd/eva-md
       - name: Latency gate (advisory)
         continue-on-error: true
-        timeout-minutes: 30
+        timeout-minutes: 45
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           SHA: ${{ github.sha }}
