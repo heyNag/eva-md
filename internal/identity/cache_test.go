@@ -24,30 +24,67 @@ import (
 // real git, so a test can tell whether a resolve started any git process.
 func gitCounter(t *testing.T) func() int {
 	t.Helper()
+	runs, _ := wrapGit(t)
+	return runs
+}
+
+// wrapGit puts first on PATH the git gitCounter describes. It runs the real
+// git as its child, not by exec, so that when git's status is not 0 it can
+// append that status alone, 128 plus the signal's number for a git a signal
+// ended, as a line of the file whose path it returns, beside the count, and
+// then exit with it. A failure then tells a git that died from a wrapper
+// that did. No test of this package ends its own git while the wrapper is on
+// PATH: a kill from Resolve would reach the wrapper and not git.
+func wrapGit(t *testing.T) (runs func() int, statuses string) {
+	t.Helper()
 	real, err := exec.LookPath("git")
 	if err != nil {
 		t.Skip("git not found")
 	}
 	dir := t.TempDir()
-	runs := filepath.Join(dir, "runs")
-	script := "#!/bin/sh\necho run >> '" + runs + "'\nexec '" + real + "' \"$@\"\n"
+	count := filepath.Join(dir, "runs")
+	statuses = filepath.Join(dir, "statuses")
+	script := "#!/bin/sh\necho run >> '" + count + "'\n'" + real + "' \"$@\"\nstatus=$?\n" +
+		"[ \"$status\" -eq 0 ] || echo \"$status\" >> '" + statuses + "'\nexit \"$status\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return func() int {
-		data, _ := os.ReadFile(runs)
+		data, _ := os.ReadFile(count)
 		return bytes.Count(data, []byte("\n"))
+	}, statuses
+}
+
+// gitStatuses says which statuses other than 0 the gits a wrapGit wrapper ran
+// exited with, from its file of statuses, so a test's failure shows whether
+// git or the wrapper died: a git a signal ended shows as 128 plus the
+// signal's number, and a wrapper a signal ended adds no line.
+func gitStatuses(path string) string {
+	if path == "" {
+		return "the gits the test started were not wrapped"
 	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "no git the test started exited with a status other than 0"
+	}
+	if err != nil {
+		return "the statuses of the gits the test started are unreadable: " + err.Error()
+	}
+	return "statuses of the gits the test started that did not exit 0: " + strings.Join(strings.Fields(string(data)), " ")
 }
 
 // cacheFixture is a temporary home with git isolated, a cache folder in it
-// and a git that counts its runs.
+// and a git that counts its runs and keeps the statuses other than 0.
 type cacheFixture struct {
-	home  string
-	cache Cache
-	runs  func() int
+	home     string
+	cache    Cache
+	runs     func() int
+	statuses string // the file of wrapGit's statuses; empty when git is not wrapped
 }
+
+// gitExits is gitStatuses for the fixture's wrapper.
+func (f cacheFixture) gitExits() string { return gitStatuses(f.statuses) }
 
 func newCacheFixture(t *testing.T) cacheFixture {
 	t.Helper()
@@ -56,12 +93,18 @@ func newCacheFixture(t *testing.T) cacheFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return cacheFixture{home: real, cache: Cache{Dir: filepath.Join(real, "state", "cache", "identity")}, runs: gitCounter(t)}
+	f := cacheFixture{home: real, cache: Cache{Dir: filepath.Join(real, "state", "cache", "identity")}}
+	f.runs, f.statuses = wrapGit(t)
+	return f
 }
 
 // resolve checks that the cache answers exactly like Resolve and reports
-// whether it answered without starting git.
-func (f cacheFixture) resolve(t *testing.T, cwd string) (Project, bool) {
+// whether it answered without starting git. When either answered with an
+// error, both errors and the wrapper's statuses go to the test's log, which
+// is shown only when the test fails: a caller that then fails on the answer,
+// as on the general area where a project was due, shows why git failed, and
+// whether git or its wrapper died, though the two agreed.
+func (f cacheFixture) resolve(t testing.TB, cwd string) (Project, bool) {
 	t.Helper()
 	ctx := context.Background()
 	before := f.runs()
@@ -69,13 +112,16 @@ func (f cacheFixture) resolve(t *testing.T, cwd string) (Project, bool) {
 	hit := f.runs() == before
 	want, wantErr := Resolve(ctx, cwd)
 	if got != want || (err == nil) != (wantErr == nil) {
-		t.Fatalf("cache and Resolve differ for %s:\n cache %+v, %v\n  live %+v, %v", cwd, got, err, want, wantErr)
+		t.Fatalf("cache and Resolve differ for %s:\n cache %+v, %v\n  live %+v, %v\n%s", cwd, got, err, want, wantErr, f.gitExits())
+	}
+	if err != nil || wantErr != nil {
+		t.Logf("resolve %s: cache %v; live %v; %s", cwd, err, wantErr, f.gitExits())
 	}
 	return got, hit
 }
 
 // miss expects a resolve that starts git, then a second one that doesn't.
-func (f cacheFixture) miss(t *testing.T, cwd string) Project {
+func (f cacheFixture) miss(t testing.TB, cwd string) Project {
 	t.Helper()
 	p, hit := f.resolve(t, cwd)
 	if hit {
@@ -88,7 +134,7 @@ func (f cacheFixture) miss(t *testing.T, cwd string) Project {
 }
 
 // live expects that the cache does not keep an answer for cwd.
-func (f cacheFixture) live(t *testing.T, cwd string) Project {
+func (f cacheFixture) live(t testing.TB, cwd string) Project {
 	t.Helper()
 	for range 2 {
 		if p, hit := f.resolve(t, cwd); hit {
@@ -99,7 +145,7 @@ func (f cacheFixture) live(t *testing.T, cwd string) Project {
 	return p
 }
 
-func (f cacheFixture) hit(t *testing.T, cwd string) Project {
+func (f cacheFixture) hit(t testing.TB, cwd string) Project {
 	t.Helper()
 	p, hit := f.resolve(t, cwd)
 	if !hit {
@@ -551,7 +597,7 @@ func TestCacheConcurrentHooks(t *testing.T) {
 				}
 				p, err := f.cache.Resolve(ctx, repo)
 				if err != nil || p.Root != repo || p.Kind != KindLocal || !valid[p.Branch] {
-					errs <- fmt.Errorf("got %+v, %v", p, err)
+					errs <- fmt.Errorf("got %+v, %v\n%s", p, err, f.gitExits())
 					return
 				}
 			}

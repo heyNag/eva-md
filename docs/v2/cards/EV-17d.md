@@ -41,3 +41,11 @@ Everything else: `cmd/eva-md/main.go`, `setup.go`, `timelimits_raised.go`, `rele
 - **The gate is lifted**: eva-md built with `evamd_eval` alone (not the stand-in's tag, which sets `hostOS` too) runs `eva-md setup` in a home of its own and passes the line `macOS` of "Checking this Mac" on Linux; the test reads only that line. On macOS it passes anyway, and the release-side tests above carry the proof there.
 - A reviewer's mutations (the build line dropped from `evalbuild.go`, `hostOS` left unset, the seam made to ignore the variable's value, a `-tags evamd_eval` added to a workflow's `go build`) are each caught by a test.
 - With the tag absent, `go build ./cmd/eva-md` compiles the same files as before.
+
+## As merged
+
+Merged from `pkg/ev-17d-r1` on 2026-11-13, after two reviews, a fix round and a verification that accepted it. Both reviewers found the same fault, and the fix answers it: the test that no release carries the file had asked only about the machine it ran on, while a release is built for macOS on both architectures without cgo. It now reads the release workflow's build step, lists and builds for each of its targets in that step's environment, and looks in the built binaries for the tag and for the file's code. Three widened build constraints that had passed are caught.
+
+- The seam is keyed on the command `hook` alone, as the card says, not on the host. A Codex hook ignores the entrypoint it sets, and the jobs a hook starts are given an environment that holds neither variable, so the effect stays in the hook.
+- Owed, outside this card: a step in the release workflow that reads each published binary's build information and fails on a build tag, so that the published file itself is checked. It needs a card that owns `release.yml`.
+

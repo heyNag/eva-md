@@ -21,6 +21,7 @@ This card makes a repeat explain itself. It changes no outcome: the test fails a
 internal/identity/identity.go
 internal/identity/identity_test.go
 internal/identity/cache_test.go
+internal/identity/signal_test.go
 internal/host/adapter/probe_test.go
 ```
 
@@ -39,3 +40,12 @@ Everything else. `.github/workflows/**` is the lead's. No other error's words ch
 - The probe test's cleanup, given a pid file that names a process that is not its `sleep` (the test's own pid), kills nothing. By test.
 - The latency gate's comparison with the commit before, since `internal/identity` is run by every hook: `scripts/linux-gate.sh`, as the rules of every card say.
 - No new module; only eva's name in any output.
+
+## As merged
+
+Merged from `pkg/seam-0e-r1` on 2026-11-13, after a review, a fix round and a verification that accepted it. No test of the package has identity end its own git while the counting wrapper is on PATH, so the wrapper keeps no `exec` form.
+
+- **The lead's ruling: the test ends its fake git with HUP, not SEGV.** The card listed KILL, SEGV and TERM. macOS writes a crash report for a process that SEGV ended, whoever sent the signal, into the real user's `~/Library/Logs/DiagnosticReports` whatever `HOME` is, and a test never writes to the real home. The lead changed the one line in a commit of its own after the package's.
+- **CI's two steps** are in the macOS `test` job as item 4 asked: after every run the names, sizes and dates of the system's crash reports, and after a failure the system log's lines on processes ended for memory.
+- The latency gate could not judge on the build machine, which was busy each time. The only change a hook runs is on the path of a git child that a signal ended, which no scenario of the benchmark takes; CI's `latency` job on the merge is the reading.
+

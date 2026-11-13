@@ -36,7 +36,7 @@ internal/derive/modelrun/codex_test.go
 
 ## Must not touch
 
-DV-11a's files (the rig is used unchanged; a gap in it goes in the report), DV-11c's, `internal/update/**`, `internal/host/adapter/**`, `internal/hostfake/**`.
+DV-11a's files (the rig is used unchanged; a gap in it goes in the report), DV-11c's, `internal/update/**`, `internal/host/adapter/**`, `internal/host/hostfake/**`.
 
 ## Accepted when
 
