@@ -43,7 +43,7 @@
 //     load, each with its key, eventName, pluginId, enabled and trustStatus.
 //   - While a registered marketplace's folder has no manifest, Codex's
 //     marketplace list and the plugin lists that take it in fail with Codex
-//     0.166.0's words: "- `<name>` at <folder, symlinks resolved>:
+//     0.166.0's words: "- `<name>` at <folder as added, symlinks resolved>:
 //     marketplace root does not contain a supported manifest" (adapter quirk
 //     codex.marketplace-folder-missing, v1's missingFolder).
 //   - Claude Code refuses to install a plugin it has, which it loads in

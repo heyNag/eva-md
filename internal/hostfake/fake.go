@@ -104,10 +104,10 @@ type state struct {
 	Calls    []Call                 `json:"calls,omitempty"`
 }
 
-// market is a registered marketplace: its name, and its folder as it was
-// given.
+// market is a registered marketplace: its name, its folder as it was given,
+// and that folder with its symlinks resolved when it was added.
 type market struct {
-	Name, Path string
+	Name, Path, Real string
 }
 
 // plugin is an installed plugin: Source is the folder it was installed

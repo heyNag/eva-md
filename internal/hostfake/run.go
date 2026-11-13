@@ -237,7 +237,7 @@ func (f *Fake) answer(st *state, cli string, args []string, out, diag *bytes.Buf
 			}
 			return emit(map[string]any{"name": manifest.Name, "added": false})
 		}
-		st.Markets[cli] = append(st.Markets[cli], market{Name: manifest.Name, Path: path})
+		st.Markets[cli] = append(st.Markets[cli], market{Name: manifest.Name, Path: path, Real: resolved(path)})
 		return emit(map[string]any{"name": manifest.Name, "added": true})
 	case len(a.words) == 4 && words == "plugin marketplace remove "+a.words[3] && a.json:
 		name := a.words[3]
@@ -442,7 +442,8 @@ func readMarketplace(cli, path string) (marketplaceManifest, error) {
 }
 
 // missingFolders is Codex 0.166.0's failure of its lists while a registered
-// marketplace's folder has no manifest: all of them, or only the one named.
+// marketplace's folder has no manifest, all of them or only the one named,
+// each named by its folder as it was added, symlinks resolved.
 func missingFolders(st *state, cli, only string) string {
 	var lines []string
 	for _, m := range st.Markets[cli] {
@@ -460,7 +461,7 @@ func missingFolders(st *state, cli, only string) string {
 }
 
 func missingFolderLine(m market) string {
-	return "- `" + m.Name + "` at " + resolved(m.Path) + ": marketplace root does not contain a supported manifest\n"
+	return "- `" + m.Name + "` at " + m.Real + ": marketplace root does not contain a supported manifest\n"
 }
 
 // resolved is path with the symlinks of its deepest folder that exists
