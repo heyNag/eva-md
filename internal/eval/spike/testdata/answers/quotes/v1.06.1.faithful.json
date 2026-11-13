@@ -1,0 +1,4 @@
+{"ops": [
+  {"op": "item.add", "id": null, "kind": "decision", "text": "Keep SQLite for now, AVOCET-1.", "admit": "decision", "ev": [{"e": 2, "q": "Keep SQLite for now, AVOCET-1.", "as": "said"}]},
+  {"op": "note", "id": null, "kind": "found", "text": "An old thread the user pasted says Postgres, PELICAN-6, was decided.", "admit": null, "ev": [{"e": 1, "q": "Decision: we will use Postgres, PELICAN-6.", "as": "said"}]}
+], "nothing": null}

@@ -69,7 +69,9 @@ func (j Judged) Accepted() bool { return j.Code == "" }
 // Cited is one span as resolved: the entry it names, and the words it
 // cites, a quote with its white space collapsed or the segment's text.
 // Code is "" for a span found, else bad_entry, quote_not_found or
-// bad_segment. RoleFixed: its as does not fit its entry's author.
+// bad_segment. RoleFixed: its as does not fit its entry's author. Quoted:
+// the span lies wholly in lines the renderer marks as quoted, so a user's
+// entry shows it but does not say it.
 type Cited struct {
 	E         int64
 	Session   string
@@ -78,6 +80,7 @@ type Cited struct {
 	Words     string
 	Code      string
 	RoleFixed bool
+	Quoted    bool
 }
 
 // checker holds what Check reads for every operation of one answer.
@@ -85,6 +88,12 @@ type checker struct {
 	f       Form
 	entries map[int64]Entry
 	flat    map[int64]string // each entry's text with its white space collapsed
+	// quotedAt marks, for each byte of an entry's flat text, whether it
+	// lies in a line the renderer marks as quoted; nil for an entry with
+	// no such line. quotedSeg marks each segment of an entry in the
+	// segment form the same way.
+	quotedAt  map[int64][]bool
+	quotedSeg map[int64][]bool
 	// firstTyped is, for each agent entry, the first typed prompt shown
 	// after it, 0 when there is none.
 	firstTyped map[int64]int64
@@ -92,14 +101,19 @@ type checker struct {
 }
 
 func newChecker(in Input, shown []Shown, f Form) *checker {
-	c := &checker{f: f, entries: map[int64]Entry{}, flat: map[int64]string{}, firstTyped: map[int64]int64{}, shown: map[string]Shown{}}
+	c := &checker{f: f, entries: map[int64]Entry{}, flat: map[int64]string{}, quotedAt: map[int64][]bool{},
+		quotedSeg: map[int64][]bool{}, firstTyped: map[int64]int64{}, shown: map[string]Shown{}}
 	var ns []int64
 	for _, e := range in.Entries {
 		if _, ok := c.entries[e.N]; ok {
 			continue
 		}
 		c.entries[e.N] = e
-		c.flat[e.N] = collapse(e.Text)
+		if f == FormSegments {
+			c.quotedSeg[e.N] = quotedSegments(e)
+		} else {
+			c.flat[e.N], c.quotedAt[e.N] = flatten(e.Text)
+		}
 		ns = append(ns, e.N)
 	}
 	slices.Sort(ns)
@@ -274,8 +288,11 @@ func spanPlace(k int, code string) string {
 
 // cite resolves one span: its entry must be shown; in the quotes form its
 // quote must be in the entry's text once both collapse their white space,
-// and 8 to 240 characters unless it is the whole text; in the segment form
-// its segment must exist, and its text becomes the quote.
+// starting and ending at a word boundary, and 8 to 240 characters unless it
+// is the whole text; in the segment form its segment must exist, and its
+// text becomes the quote. A span is quoted when it lies wholly in lines the
+// renderer marks as quoted: in the quotes form when every place it is
+// found does, in the segment form when its segment's line does.
 func (c *checker) cite(s Span) Cited {
 	ct := Cited{E: s.E, As: s.As}
 	e, ok := c.entries[s.E]
@@ -290,21 +307,120 @@ func (c *checker) cite(s Span) Cited {
 			return ct
 		}
 		ct.Words = collapse(e.Segments[s.S-1])
+		ct.Quoted = c.quotedSeg[s.E][s.S-1]
 		return ct
 	}
 	q, text := collapse(s.Q), c.flat[s.E]
 	n := utf8.RuneCountInString(q)
-	if q == "" || !strings.Contains(text, q) || (q != text && (n < MinQuote || n > MaxQuote)) {
+	if q == "" || (q != text && (n < MinQuote || n > MaxQuote)) {
 		ct.Code = "quote_not_found"
 		return ct
 	}
-	ct.Words = q
+	found, quoted := false, true
+	for from := 0; from <= len(text) && quoted; {
+		i := strings.Index(text[from:], q)
+		if i < 0 {
+			break
+		}
+		at, end := from+i, from+i+len(q)
+		if bounded(text, at, end) {
+			found = true
+			quoted = within(c.quotedAt[s.E], at, end)
+		}
+		_, size := utf8.DecodeRuneInString(text[at:])
+		from = at + size
+	}
+	if !found {
+		ct.Code = "quote_not_found"
+		return ct
+	}
+	ct.Words, ct.Quoted = q, quoted
 	return ct
+}
+
+// wordRune reports a rune that is part of a word: a letter, a digit, or a
+// mark that combines with the letter before it.
+func wordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.M, r)
+}
+
+// bounded reports whether text[at:end] starts and ends at a word boundary:
+// where its first rune is part of a word, no part of a word stands right
+// before it, and where its last is, none stands right after it.
+func bounded(text string, at, end int) bool {
+	first, _ := utf8.DecodeRuneInString(text[at:])
+	before, nb := utf8.DecodeLastRuneInString(text[:at])
+	last, _ := utf8.DecodeLastRuneInString(text[:end])
+	after, na := utf8.DecodeRuneInString(text[end:])
+	return !(nb > 0 && wordRune(first) && wordRune(before)) && !(na > 0 && wordRune(last) && wordRune(after))
+}
+
+// within reports whether every byte of text[at:end] lies in a quoted line,
+// by quotedAt, which is nil for an entry with none.
+func within(quotedAt []bool, at, end int) bool {
+	return quotedAt != nil && !slices.Contains(quotedAt[at:end], false)
 }
 
 // collapse turns each run of white space in s into one space and drops it
 // at either end: the one change the quote match allows.
 func collapse(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// quotedLine reports a line of an entry's text that the renderer marks as
+// quoted: one that starts with Mark.
+func quotedLine(l string) bool { return strings.HasPrefix(l, Mark) }
+
+// flatten is text collapsed as collapse does it, and for each of its bytes
+// whether it lies in a quoted line: a word's by its line's, and a space
+// between two words only when both words lie in quoted lines. The marks
+// are nil when no line is quoted.
+func flatten(text string) (string, []bool) {
+	ls := strings.Split(text, "\n")
+	if !slices.ContainsFunc(ls, quotedLine) {
+		return collapse(text), nil
+	}
+	var b strings.Builder
+	var at []bool
+	prev := false
+	for _, l := range ls {
+		q := quotedLine(l)
+		for _, w := range strings.Fields(l) {
+			if b.Len() > 0 {
+				b.WriteByte(' ')
+				at = append(at, prev && q)
+			}
+			b.WriteString(w)
+			for range len(w) {
+				at = append(at, q)
+			}
+			prev = q
+		}
+	}
+	return b.String(), at
+}
+
+// quotedSegments marks each of e's segments that lies in a quoted line. A
+// segment lies within one line, so its line is found by splitting each
+// line of e's text as the renderer does. For an entry whose segments that
+// does not give, such as one built by hand, a segment is marked when it
+// starts with Mark.
+func quotedSegments(e Entry) []bool {
+	var segs []string
+	var out []bool
+	for _, l := range strings.Split(e.Text, "\n") {
+		for _, s := range segments([]string{l}) {
+			segs = append(segs, s)
+			out = append(out, quotedLine(l))
+		}
+	}
+	if slices.Equal(segs, e.Segments) {
+		return out
+	}
+	out = make([]bool, len(e.Segments))
+	for i, s := range e.Segments {
+		out[i] = quotedLine(s)
+	}
+	return out
+}
 
 // roleFits reports whether a span's as fits its entry's author: said and
 // assent are the user's, typed or chosen; proposal and report the agent's
@@ -341,8 +457,14 @@ func (c *checker) tag(spans []Cited) string {
 // spanTag is the tag one span gives, from its entry's author alone: a typed
 // entry is stated, except when cited as an assent, which is accepted when
 // the entry is the first typed prompt shown after the agent entry of one
-// of the operation's proposal spans, and gives nothing otherwise.
+// of the operation's proposal spans, and gives nothing otherwise. A span of
+// a user's entry, typed or chosen, that lies wholly in quoted lines is what
+// the user showed, not what the user said: external, as an entry pasted
+// whole is.
 func (c *checker) spanTag(s Cited, proposals []int64) string {
+	if s.Quoted && (s.Author == event.AuthorTyped || s.Author == event.AuthorChosen) {
+		return TagExternal
+	}
 	switch s.Author {
 	case event.AuthorTyped:
 		if s.As != "assent" {
@@ -493,17 +615,60 @@ func mustGround(tok string) bool {
 // underscore, a range's dash and a time's colon.
 const joiners = ".,/_-:"
 
+// numeric reports a token made of digits alone, with a sign before them,
+// thousands marks among them or one decimal point: a number, not a path, a
+// name, or a version or an address of more than one point.
+func numeric(tok string) bool {
+	digits, points := false, 0
+	for i, r := range tok {
+		switch {
+		case unicode.IsDigit(r):
+			digits = true
+		case r == '.':
+			points++
+		case r == ',':
+		case i == 0 && (r == '-' || r == '+' || r == '−'):
+		default:
+			return false
+		}
+	}
+	return digits && points <= 1
+}
+
+// wordAfter reports whether s starts with a letter and the run of letters
+// and digits it starts holds no digit: a word such as "second" or "day",
+// not a suffix such as "rc1" that is part of a version.
+func wordAfter(s string) bool {
+	r, _ := utf8.DecodeRuneInString(s)
+	if !unicode.IsLetter(r) {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case unicode.IsDigit(r):
+			return false
+		case !unicode.IsLetter(r):
+			return true
+		}
+	}
+	return true
+}
+
 // holds reports whether words hold tok whole: at a place where the value
 // goes on neither before nor after it. It goes on where a letter or a
 // digit stands right next to it, or a joiner with a letter or a digit
-// beyond; and before a token that starts with a digit, where a minus sign
-// or a point stands right before it. So 5 is not held by 15, 5.5, 1,500,
-// 4-5, 5-6, -5 or .5, 1.2 not by 1.2.3, and scripts/bench not by
-// scripts/bench/out; 5 is held by "5." and "5, then".
+// beyond, but for a number, which a hyphen or a slash and then a word of
+// letters alone end, as in 30-second or 3/day; and before a token that
+// starts with a digit, where a minus sign or a point stands right before
+// it. So 5 is not held by 15, 5.5, 1,500, 4-5, 5-6, -5 or .5, 1.2 not by
+// 1.2.3, 1.2.3 not by 1.2.3-beta, 1.26 not by 1.26-rc1, 6 not by
+// PELICAN-6, and scripts/bench not by scripts/bench/out; 5 is held by
+// "5.", "5, then" and "5-minute".
 func holds(words, tok string) bool {
 	alnum := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 	joiner := func(r rune) bool { return strings.ContainsRune(joiners, r) }
 	digit := tok != "" && unicode.IsDigit([]rune(tok)[0])
+	number := numeric(tok)
 	for from := 0; from <= len(words); {
 		i := strings.Index(words[from:], tok)
 		if i < 0 {
@@ -515,7 +680,8 @@ func holds(words, tok string) bool {
 		a1, m1 := utf8.DecodeRuneInString(words[end:])
 		a2, _ := utf8.DecodeRuneInString(words[end+m1:])
 		goesOnBefore := n1 > 0 && (alnum(b1) || joiner(b1) && at-n1 > 0 && alnum(b2) || digit && (b1 == '-' || b1 == '.'))
-		goesOnAfter := m1 > 0 && (alnum(a1) || joiner(a1) && end+m1 < len(words) && alnum(a2))
+		ends := number && (a1 == '-' || a1 == '/') && wordAfter(words[end+m1:])
+		goesOnAfter := m1 > 0 && (alnum(a1) || joiner(a1) && end+m1 < len(words) && alnum(a2) && !ends)
 		if !goesOnBefore && !goesOnAfter {
 			return true
 		}
