@@ -394,6 +394,10 @@ func TestHandlersDoNotRunPastAGuard(t *testing.T) {
 			t.Fatalf("the capture Run gave up on still held the session's lock after %v: %v", hangGuard, err)
 		}
 		unlock()
+		// It still writes its heartbeat after letting go of the lock: wait
+		// for it to return, so that nothing writes under the test's folders
+		// while they are removed.
+		awaitNoCapture(t, "the capture Run gave up on")
 		if got := atOf(pr.turns()); !slices.Contains(got, atGuarded) || slices.Contains(got, atLaunch) {
 			t.Fatalf("a run past its deadline ran the handlers at %v", got)
 		}
