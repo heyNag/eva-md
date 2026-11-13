@@ -339,9 +339,7 @@ func TestNoReleaseContainsIt(t *testing.T) {
 	if len(files) < 3 || len(scripts) < 3 {
 		t.Fatalf("found %v and %v; the check read the wrong folders", files, scripts)
 	}
-	name := regexp.MustCompile(`eva-eval|cmd/eva-eval|internal/eval\b`)
-	// CI's own workflow, which no release runs, runs the guards' commands.
-	guards := regexp.MustCompile(`go run \./cmd/eva-eval (paths|size)\b`)
+	ci := filepath.Join(root, ".github", "workflows", "ci.yml")
 	for _, path := range append(files, scripts...) {
 		if info, err := os.Stat(path); err != nil || info.IsDir() {
 			continue
@@ -350,11 +348,47 @@ func TestNoReleaseContainsIt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if filepath.Base(path) == "ci.yml" && filepath.Base(filepath.Dir(path)) == "workflows" {
-			data = guards.ReplaceAll(data, nil)
-		}
-		if m := name.Find(data); m != nil {
+		if m := namesHarness(string(data), path == ci); m != "" {
 			t.Errorf("%s names %s", path, m)
+		}
+	}
+}
+
+var (
+	harnessName = regexp.MustCompile(`eva-eval|cmd/eva-eval|internal/eval\b`)
+	guardsRun   = regexp.MustCompile(`go run \./cmd/eva-eval (paths|size)\b`)
+)
+
+// namesHarness returns the first name of the harness a workflow's or
+// script's text holds, or "". ci is true for CI's own workflow, which no
+// release runs, whose guards job alone may go run the harness's paths and
+// size.
+func namesHarness(text string, ci bool) string {
+	if ci {
+		text = guardsRun.ReplaceAllString(text, "")
+	}
+	return harnessName.FindString(text)
+}
+
+// The guards' exception holds in CI's own workflow alone, and only for
+// the guards' two commands.
+func TestOnlyCINamesTheGuards(t *testing.T) {
+	cases := []struct {
+		text  string
+		ci    bool
+		names bool
+	}{
+		{"      - run: go run ./cmd/eva-eval paths \"$BASE\" \"$SHA\"\n      - run: go run ./cmd/eva-eval size\n", true, false},
+		{"      - run: go run ./cmd/eva-eval paths \"$BASE\" \"$SHA\"\n", false, true},
+		{"      - run: go run ./cmd/eva-eval size\n", false, true},
+		{"      - run: go run ./cmd/eva-eval fidelity\n", true, true},
+		{"      - run: go build -o bin/x ./cmd/eva-eval\n", true, true},
+		{"      - run: go test ./internal/eval/...\n", true, true},
+		{"      - run: go build -o bin/eva-md ./cmd/eva-md\n", false, false},
+	}
+	for _, c := range cases {
+		if got := namesHarness(c.text, c.ci) != ""; got != c.names {
+			t.Errorf("%q in ci.yml %v: names the harness %v, want %v", c.text, c.ci, got, c.names)
 		}
 	}
 }

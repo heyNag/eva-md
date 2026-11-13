@@ -473,9 +473,6 @@ func TestNoReleaseBuildsIt(t *testing.T) {
 	if len(files) < 3 || len(scripts) < 3 {
 		t.Fatalf("found %v and %v; the check read the wrong folders", files, scripts)
 	}
-	// A command runs to the end of its line, or to a ;, & or |; a line a
-	// backslash continues is one line.
-	gocmd := regexp.MustCompile(`\bgo +(build|install|run)\b([^\n;&|]*)`)
 	ci := filepath.Join(root, ".github", "workflows", "ci.yml")
 	builds, guards := 0, 0
 	for _, path := range append(files, scripts...) {
@@ -486,28 +483,70 @@ func TestNoReleaseBuildsIt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		text := strings.ReplaceAll(string(data), "\\\n", " ")
-		if strings.Contains(text, "live-accuracy") {
-			t.Errorf("%s names live-accuracy", path)
+		problems, b, g := releaseBuilds(string(data), path == ci)
+		for _, p := range problems {
+			t.Errorf("%s: %s", path, p)
 		}
-		for _, m := range gocmd.FindAllStringSubmatch(text, -1) {
-			var pkgs []string
-			for _, f := range strings.Fields(m[2]) {
-				if f = strings.Trim(f, `"'`); strings.HasPrefix(f, "./") || strings.Contains(f, "...") {
-					pkgs = append(pkgs, f)
-				}
-			}
-			switch {
-			case path == ci && m[1] == "run" && slices.Equal(pkgs, []string{"./cmd/eva-eval"}):
-				guards++
-			case !slices.Equal(pkgs, []string{"./cmd/eva-md"}):
-				t.Errorf("%s: go %s%s builds %q", path, m[1], m[2], pkgs)
-			}
-			builds++
-		}
+		builds, guards = builds+b, guards+g
 	}
 	if builds < 3 || guards == 0 {
 		t.Fatalf("found %d builds, %d of them the guards' in %s; the check read the wrong files", builds, guards, ci)
+	}
+}
+
+// A command runs to the end of its line, or to a ;, & or |; a line a
+// backslash continues is one line.
+var gocmd = regexp.MustCompile(`\bgo +(build|install|run)\b([^\n;&|]*)`)
+
+// releaseBuilds checks one workflow's or script's text: what it builds
+// other than ./cmd/eva-md alone, and whether it names this command. ci
+// is true for CI's own workflow, which no release runs and which alone
+// may go run ./cmd/eva-eval, for its guards job. It also returns the go
+// commands it found and how many of them were the guards'.
+func releaseBuilds(text string, ci bool) (problems []string, builds, guards int) {
+	text = strings.ReplaceAll(text, "\\\n", " ")
+	if strings.Contains(text, "live-accuracy") {
+		problems = append(problems, "names live-accuracy")
+	}
+	for _, m := range gocmd.FindAllStringSubmatch(text, -1) {
+		var pkgs []string
+		for _, f := range strings.Fields(m[2]) {
+			if f = strings.Trim(f, `"'`); strings.HasPrefix(f, "./") || strings.Contains(f, "...") {
+				pkgs = append(pkgs, f)
+			}
+		}
+		switch {
+		case ci && m[1] == "run" && slices.Equal(pkgs, []string{"./cmd/eva-eval"}):
+			guards++
+		case !slices.Equal(pkgs, []string{"./cmd/eva-md"}):
+			problems = append(problems, "go "+m[1]+m[2]+" builds "+strconv.Quote(strings.Join(pkgs, " ")))
+		}
+		builds++
+	}
+	return problems, builds, guards
+}
+
+// The guards' exception holds in CI's own workflow alone, and only for go
+// run: a release workflow or a script that runs the harness fails.
+func TestOnlyCIRunsTheGuards(t *testing.T) {
+	cases := []struct {
+		text     string
+		ci       bool
+		problems int
+	}{
+		{"      - run: go run ./cmd/eva-eval paths \"$BASE\" \"$SHA\"\n", true, 0},
+		{"      - run: go run ./cmd/eva-eval size\n", true, 0},
+		{"      - run: go run ./cmd/eva-eval paths \"$BASE\" \"$SHA\"\n", false, 1},
+		{"      - run: go build -o bin/eva-eval ./cmd/eva-eval\n", true, 1},
+		{"      - run: go run ./cmd/eva-eval ./cmd/eva-md\n", true, 1},
+		{"      - run: go run ./cmd/live-accuracy --host claude\n", true, 2},
+		{"      - run: go build -o bin/eva-md ./cmd/eva-md\n", false, 0},
+	}
+	for _, c := range cases {
+		problems, builds, _ := releaseBuilds(c.text, c.ci)
+		if len(problems) != c.problems || builds != 1 {
+			t.Errorf("%q in ci.yml %v: %q in %d builds, want %d problems", c.text, c.ci, problems, builds, c.problems)
+		}
 	}
 }
 

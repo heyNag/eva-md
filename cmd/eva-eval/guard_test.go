@@ -47,6 +47,16 @@ func TestPathsCommand(t *testing.T) {
 		t.Fatalf("%d\n%s\nwant\n%s", code, out, want)
 	}
 
+	// A line that sets out to name a card in another form fails the
+	// commit; it is not the lead's.
+	write(t, filepath.Join(repo, "a", "w.go"), "package a\n")
+	slip := commitAll(t, repo, "a slip\n\nCard: AA-1 (part 2)")
+	code, out, _ = cmd("paths", "--repo", repo, outside, slip)
+	want = slip[:12] + ` the line "Card: AA-1 (part 2)" does not name one card: a card is named by a line that reads "Card: <ID>", one card a line` + "\n1 commits: 1 judged, 0 the lead's; 1 faults.\n"
+	if code != 1 || out != want {
+		t.Fatalf("%d\n%s\nwant\n%s", code, out, want)
+	}
+
 	for name, args := range map[string][]string{
 		"one commit":      {"paths", "--repo", repo, base},
 		"three commits":   {"paths", "--repo", repo, base, lead, outside},
