@@ -62,3 +62,6 @@ To watch and to know:
 
 - The tasks had not run on macOS when this merged: grading finds `python3` and `go` on the caller's PATH and links them into a path of its own. CI's macOS job is the first proof.
 - One test of a time limit lets a passing test finish inside 60 seconds, so every run of the package's tests takes a minute more, and again under the race detector. A passing test has to fit inside some limit; the window is wide, and it is the one outcome there that rests on time.
+
+Added by the lead on 2026-11-13: EV-03b no longer builds a driver for these tasks, nor `eval/pilot/metrics.json`. By the ruling under the index's table it exports them to the continuation format, and they run on EV-17's driver.
+

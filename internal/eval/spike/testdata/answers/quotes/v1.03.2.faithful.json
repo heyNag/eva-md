@@ -1,0 +1,3 @@
+{"ops": [
+  {"op": "item.supersede", "id": "h1", "kind": "decision", "text": "Pages are stored as JSONL, OSPREY-J.", "admit": null, "ev": [{"e": 1, "q": "store pages as JSONL after all, OSPREY-J.", "as": "said"}]}
+], "nothing": null}

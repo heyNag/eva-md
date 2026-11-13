@@ -29,8 +29,8 @@ internal/eval/pilot/**
 eval/pilot/**
 cmd/eva-eval/pilot.go
 cmd/eva-eval/pilot_test.go
-cmd/eva-eval/pilot_run.go
-cmd/eva-eval/pilot_run_test.go
+cmd/eva-eval/pilot_export.go
+cmd/eva-eval/pilot_export_test.go
 ```
 
 ## Must not touch

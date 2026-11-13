@@ -1,45 +1,56 @@
-# EV-03b: the pilot's driver
+# EV-03b: the pilot's ten tasks, exported to the continuation format
 
-**Plan:** section 8, Stage 0 row EV-03 and its "Needs from you"; decisions 16, 28. **Design:** `docs/v2/working-papers/design/evaluate.md` 4.3 to 4.5, 5.3, row EV-03; `docs/v2/host-facts.md`, the facts kept for EV-03. **Size:** M. **Reviewers:** two: the contract, and one who tries to start a session unasked, pass a ceiling or leak a key. **Depends on:** EV-03a, EV-12 (merged).
+**Plan:** section 8, Stage 0 row EV-03 as the lead's ruling of 2026-11-13 left it ("only the tasks and their export are thrown away"); decisions 16 and 28. **Design:** `docs/v2/working-papers/design/evaluate.md` 4.3 to 4.5 and row EV-03. **Size:** S. **Reviewers:** one. **Depends on:** EV-03a, EV-17a.
 
 ## Why
 
-EV-03a's tasks run under three conditions on real hosts in containers billed to evaluation keys (decision 28); tests drive a fake CLI given by path. Throwaway: in no release, deleted when EV-17 lands. eva-md is unchanged: no switch.
+This card replaces one for a second driver, withdrawn by the lead's ruling: the pilot runs on EV-17's driver (`internal/eval/continuation/drive`) and its v1 condition. The pilot's tasks are nearly in that format already. Three fields of their `task.json` (`v`, `lang`, `minutes`) are ones the continuation's strict decoder refuses, and each task keeps its repositories in its own `repos/`, where the driver reads one shared `--repos` folder. This card writes the copy the driver reads. The committed tasks stay as they are, and `eva-eval pilot check` stays their gate. It is throwaway and in no release. eva-md is unchanged: no switch, and no line added to `./cmd/eva-md`.
+
+Not here: the driver's guards before a live run (EV-17g); whether eva-md's hooks fired in the new chat (EV-17c); the report and the pilot's README (EV-03c), which gives `--session-timeout` the tasks' 20 minutes; the run-book is the lead's. The live run is the lead's alone, after the owner's leave and ceiling and decision 28's keys and price.
 
 ## What to build
 
-1. **`eva-eval pilot run --cli path ... --eva-md path --work dir --out dir --trials n --max-sessions n --max-tokens n [--tasks dir] [--task id ...] [--repo dir] [--session-timeout d] [--pass-env NAME ...] [--seed n] --spend-model-quota`**, in `cmd/eva-eval/pilot_run.go`, added to EV-03a's `pilot` map. A `--cli` is an absolute path named as a host's `Names.CLI`, its version read by `adapter.Probe` with an `Env.Run` the driver gives and bounds (tests cannot raise Probe's 5 seconds). Without `--spend-model-quota` it prints the plan (sessions, updates, ceilings) and exits 2, starting nothing, as live-accuracy does. So does a usage error: a ceiling missing, a relative path, an unknown CLI, a `--pass-env` with `=`, a `--work` not empty or, links resolved, in the invoking home, this checkout, the tasks, `/tmp` or `/var/tmp` (which `tempPath` in `internal/hook/hook.go` skips).
-2. **A trial** gets a folder under `--work` with its own `HOME` (a made-up git identity), `TMPDIR` and copies of the repositories, each committed once. `off`: nothing added. `oracle`: the note, a blank line, the prompt. `eva`, v1 from `--eva-md`, a release-way build:
-   - `eva-md init --remote <a local bare repository> --dir <folder> --no-push`; `eva-md install --host <InstallName>` (not setup: macOS only);
-   - the config's `updates` set false by `config.Load` and `config.Save`, so no hook starts an update (`queueJob`, `internal/hook/trigger.go`);
-   - the history fed to `eva-md hook --host <id>` from `workdir`, one `payload` of `internal/hook/hook.go` a call: `SessionStart`, `UserPromptSubmit` per user turn, `Stop` with `last_assistant_message` per agent turn, `SessionEnd`;
-   - `updates` true, `eva-md update --session <id>:<session> --foreground` timed, `updates` false again.
+1. **`eva-eval pilot export --out DIR [--tasks dir] [--task id]...`**, in `cmd/eva-eval/pilot_export.go`, added with `addPilot` from its `init`; the work in a package `internal/eval/pilot/export`, which takes the time limit as an argument. `--tasks` defaults to `eval/pilot/testdata/tasks`, as `pilot check`'s does. With `--task`, only the tasks named.
+2. **The pilot's checker first.** Each task exported is read with `task.Load` and checked with `task.Check` of `internal/eval/pilot/task`, the command passing `pilotCheckLimit`, in a scratch folder made in `TMPDIR` and removed, errors ignored, as `pilot check` does. It is then converted and must pass the continuation's `Validate` (`internal/eval/continuation/task`, `Dir` empty). A task any of these refuses gets the line `pilot check` prints for it (`broke`), or the continuation's message, and the command exits 1; a task that cannot be checked at all exits 2, as in `pilot check`. A task not named by `--task` is neither checked nor written.
+3. **What it writes**, only once every check has passed: `DIR/tasks/<id>/task.json`, a continuation `Task` holding every field the pilot's has but `v`, `lang` and `minutes`, with no `limit_s`; `DIR/tasks/<id>/hidden/`, `solution/` and, for a hidden decision, `decoy/`, copied byte for byte, and no `start/`; and `DIR/repos/<name>/` from each task's `repos/<name>/`. A file is executable exactly when its source is. DIR is left with mode 0700, so the second user the run-book runs the CLI as (EV-17g) cannot read it. Nothing else is written in DIR, two exports of one source give the same bytes, and a write that fails part way removes what it wrote and exits 2.
+4. **Refused with exit 2, nothing written:** no `--out`; an argument; an unknown flag or `--task` id; a DIR that exists and is not an empty folder, is a link, or lies inside `--tasks`, links resolved; two exported tasks that name one repository (one `--repos` folder holds them all).
+5. **Output** is ids and figures only: a line a task, `<id> <family> exported`, then `session-timeout <n>m`, the largest `minutes` exported. No value, repository name or path is in output or an error.
+6. **Bounded.** It reads no host's or model's output: only the source folder, which `pilot check` admits (folders and plain files, no link). Files are copied by streaming.
 
-   Session B is the host's headless command in `workdir`, bounded by `max_turns` and `--session-timeout` (else the task's `minutes`), past which its process group is killed and the trial unjudged. While `Grade` fails and rounds remain, the same session gets one prompt naming the failing tests and stating each fact they encode not yet supplied; each fact so supplied is a correction.
-3. **`hosts.go`**, a table by adapter id, each entry naming its host fact: the headless command with a turn bound and machine-readable output (F-068), the permission it needs to edit and run tests, the resume (F-069), and a reader of the session id, tool calls, tokens and the model that answered. Usage is read as v1's update reads it (`claudeTokens`, `codexStream.usage` in `internal/update`); prompt tokens include cached ones.
-4. **Ceilings.** A session is session B with its resumes. None starts past `--max-sessions`, nor once the tokens of sessions and updates reach `--max-tokens`. A stream with no usage stops the run, the rest unjudged.
-5. **Keys.** The driver holds, reads and writes no secret. A child gets `HOME`, `TMPDIR`, `PATH` (the CLI's and `--eva-md`'s folders, then the invoking `PATH`), `GIT_CONFIG_NOSYSTEM=1` and only the variables `--pass-env` names. A key reaches the CLI from the container's environment or proxy.
-6. **Rows** through `results.Store`, `Forbid` the union of `task.Forbid`: instrument `pilot`, scenario `<task>.<arm>.t<n>`, host and version, the model that answered when it is a results id, the seed; commit and dirty from `results.Source` on `--repo`. Metrics: `pilot.solved`, `pilot.first_try` (`ratio`); `.corrections`, `.agent_events` (tool calls), `.hook_seen` (session B's events that `inboxv1.Backend` reads in the trial's inbox; `eva` only), `.peeked` (tool calls naming the tasks folder) (`count`); `.prompt_tokens`, `.cached_tokens`, `.output_tokens`, `.update_tokens` (`tokens_in` plus `tokens_out` in the trial's `~/.local/state/eva-md/updates/`) (`tokens`); `.wall_ms`, `.update_ms` (`ms`); `pilot.unjudged.sign_in`, `.rate_limit`, `.timeout`, `.no_usage` (`count`). `eval/pilot/metrics.json` lists each, with paths `internal/eval/pilot` and `eval/pilot/testdata`.
+When EV-17's own tasks land (EV-17e), the pilot's tasks, their checker and this export are deleted; EV-17e may first rewrite a pilot task into its own set. The continuation format, the driver, its v1 condition and EV-03c's report stay.
 
 ## Owns and may touch
 
+The package, and the command's file and test, all new.
+
 ```paths
-internal/eval/pilot/run/**
-eval/pilot/metrics.json
-cmd/eva-eval/pilot_run.go
-cmd/eva-eval/pilot_run_test.go
+internal/eval/pilot/export/**
+internal/eval/pilot/task/grade.go
+internal/eval/pilot/task/grade_test.go
+cmd/eva-eval/pilot_export.go
+cmd/eva-eval/pilot_export_test.go
 ```
 
 ## Must not touch
 
-Everything else; `internal/eval/pilot/task`, `cmd/eva-eval/pilot.go` and `main.go` are read only. `eval/pilot/README.md` is EV-03c's; the lead fills `docs/v2/host-facts.md`.
+Everything else. Read only: `internal/eval/pilot/task` but `grade.go` and its test, for the telemetry ruling below alone; `eval/pilot/testdata`, `internal/eval/continuation/**`, `cmd/eva-eval/pilot.go` (`addPilot`, `broke`, `pilotCheckLimit`), `cmd/eva-eval/pilot_test.go` (`pilotHome`, `copyPilotTasks`, `replaceIn`), `main.go` and `main_test.go`. A committed task the continuation refuses is reported to the lead, never edited.
 
 ## Accepted when
 
-- `scripts/linux-check.sh` passes; `TestNoReleaseContainsIt` and `TestHostLiteralCount` pass unchanged; the package's `TestMain` calls `testgitenv.Clear()`.
-- Without the flag, and on each usage error, it exits 2, and a CLI that marks a file when run marks nothing.
-- The package's fake CLI re-runs the test binary, answers `--version`, writes each host's stream with made-up usage, and lays `solution/` when a script passed by `--pass-env` says. On it and a fake eva-md, two of EV-03a's tasks, three arms, two trials and both hosts give exactly the expected rows, that `results.Load` and the catalogue's `Check` accept. No two trials share a home, none is the test's; `off` and `oracle` homes hold nothing of eva-md; `eva`'s calls come in item 2's order; only `oracle`'s prompt has the note.
-- Each ceiling stops at its exact count; a stalled fake and its children are killed at a `--session-timeout` given to that run, under a 30-second hang guard; a fake that passes after one correction gives `solved` 1, `first_try` 0, `corrections` 1.
-- A passed variable's made-up value is in no row, output or file the driver writes.
-- With eva-md built from this checkout with `-tags evamd_testlimits` (raised hook limits), `init` and each task's history fed for each host into a new home make `eva-md brief --cwd <workdir> --host <id> --as startup` print text of that history.
-- Mutations (no flag check, a ceiling off by one, the note given to `eva`, a shared home, a key printed) fail tests.
+- `scripts/linux-check.sh` passes; `TestNoReleaseContainsIt` and `TestHostLiteralCount` pass unchanged; `go list -deps ./cmd/eva-md` names no `internal/eval` package. A test that runs go calls `pilotHome` first; the export package's `TestMain`, if its tests run go or git, calls `testgitenv.Clear()` and gives go a home with telemetry off, as `internal/eval/pilot/task/main_test.go` does.
+- The ten committed tasks export with exit 0. On the result the continuation's `LoadAll` takes all ten; `eva-eval continuation check --tasks DIR/tasks --repos DIR/repos` prints ten `ok` lines; each task's continuation `Forbid` equals the pilot's as a set; every field both formats have is equal.
+- Every file under the exported overlays and `repos/` has its source's bytes and executable bit (a copy with one file made executable included), and none is added or missing; a second export gives the same bytes.
+- DIR holds exactly item 3's paths, with mode 0700; HOME, the working folder and the source are unchanged after.
+- `--task` gives only the tasks named and their repositories.
+- Each of these exits as item 2 or 4 says and writes nothing in DIR: each refusal of item 4; two tasks sharing a repository (a copy of one task under a second id); a task `Load` refuses; one only `Check` refuses (a broken decoy); one only the continuation refuses (in a handoff task, a fact's value replaced, everywhere `task.json` holds it, by `continuation`, a word inside every continuation metric's name).
+- Output and errors hold no word of the union of `Forbid`, by test.
+- A reviewer's mutations (`minutes` kept, an overlay byte changed, a refused task written, the repository clash let through, DIR left readable) each fail a test.
+
+## The lead's rulings of 2026-11-13
+
+The card's checker left these to the lead.
+
+- **The export runs the pilot's whole check**, hidden tests included: a task with a broken decoy is not exported. It is slow and it is right.
+- **DIR is made with mode 0700**, since the run-book runs the chat as a second user who must not read it.
+- **The pilot's own grading turns Go's telemetry off too.** This card also owns `internal/eval/pilot/task/grade.go` and its test, for that alone: before any test, grading writes `off` as Go's telemetry mode into the home it gives go, as EV-17g does for the continuation's, with a test that a stub failing without the file passes. Nothing else in the pilot's `task` package changes.
+- If the continuation's check refuses one of the ten exported tasks, the builder stops and reports, as the card says; no task is edited to pass.

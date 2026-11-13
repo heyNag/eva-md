@@ -1,0 +1,7 @@
+{"fixes": [
+  {"index": 2, "op": {"op": "note", "id": null, "kind": "found", "text": "The user turned down the slowtide profile.", "admit": null, "ev": [{"e": 11, "q": "Nope.", "as": "said"}]}},
+  {"index": 4, "op": {"op": "ask.add", "id": null, "kind": null, "text": "Should the importer skip the rows the orphan-sweep check flags?", "admit": null, "ev": [{"e": 98, "q": "Should the importer skip the rows the orphan-sweep check flags?", "as": "proposal"}]}},
+  {"index": 5, "op": {"op": "item.add", "id": null, "kind": "decision", "text": "Every rejected row is logged to rejects.jsonl in the run folder.", "admit": "decision", "ev": [{"e": 16, "q": "How about logging every rejected row to rejects.jsonl in the run folder?", "as": "proposal"}, {"e": 17, "q": "Yes, do that.", "as": "assent"}]}},
+  {"index": 6, "op": null},
+  {"index": 7, "op": {"op": "item.add", "id": null, "kind": "decision", "text": "The importer moves to the quillstream parser.", "admit": "decision", "ev": [{"e": 2, "q": "I could move the importer to the quillstream parser.", "as": "agreed"}]}}
+]}

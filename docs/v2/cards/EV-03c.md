@@ -1,40 +1,55 @@
-# EV-03c: the pilot's report and its README
+# EV-03c: the pilot's report, over the continuation's rows
 
-**Plan:** section 8, Stage 0 row EV-03 ("variance, tokens and minutes per session, and whether the tasks can show a difference at all"); section 15.4 (a price for one evaluation session); decision 16. **Design:** `docs/v2/working-papers/design/evaluate.md` sections 6.3 (the screens), 7 (paired log-ratios) and 9 (the budget the report replaces). **Size:** S. **Reviewers:** one. **Depends on:** EV-03a (the `pilot` map). It may run beside [EV-03b](EV-03b.md): the rows it reads are the ones EV-03b's item 6 names.
+**Plan:** section 8, Stage 0 row EV-03 (variance, tokens and minutes per session, whether tasks can show a difference), as ruled on 2026-11-13; 15.4 (a session's price); decision 16. **Design:** `working-papers/design/evaluate.md` 6.3 (screens), 7 and 9. **Size:** M. **Reviewers:** one. **Depends on:** [EV-17g](EV-17g.md).
 
 ## Why
 
-The pilot exists for three figures: what one session costs, how much a paired outcome varies, which sets how many trials a pack needs, and which tasks can show a difference at all. They come from rows, never from a chat's text. Throwaway: in no release, deleted when EV-17 lands. Nothing v1 does changes: no switch.
+The pilot's figures come from the driver's rows and EV-17g's run records. EV-17 screens its tasks on the same rows, so the report is kept beside the instrument; only the README is the pilot's. No switch; no line added to `./cmd/eva-md`. Elsewhere: the export (EV-03b); the record, the no-usage stop, what a chat can reach (EV-17g); `memory_off` and memory's cost (EV-17c); the live run (the lead).
 
 ## What to build
 
-1. **`eva-eval pilot report [--catalogue file] [--rates in,cached,out] rows`**, in `cmd/eva-eval/pilot_report.go`, added to EV-03a's `pilot` map; the work in a package `internal/eval/pilot/report`. It reads the rows with `results.Load`, checks them with the catalogue's `Check` (default `eval/pilot/metrics.json`), and refuses a row whose instrument is not `pilot` or whose scenario is not `<task>.<arm>.t<n>` with arm `off`, `eva` or `oracle`. The family is the task id's first letter: `h` a handoff, `d` a hidden decision (EV-03a). It prints ids and numbers only. Exit 0, or 2 for a usage error or rows it cannot read.
-2. **Per host, task and arm**: trials judged, and unjudged by reason (`pilot.unjudged.*`); trials solved, solved at the first try, and corrections; the median, least and most of `agent_events`, `prompt_tokens`, `cached_tokens`, `output_tokens` and minutes (`wall_ms`). An `eva` trial whose `hook_seen` is 0 is printed as memory not on and counts in no figure.
-3. **A session's cost**, per host and arm: the median prompt, cached and output tokens and minutes. With `--rates`, money for a million uncached prompt tokens, cached prompt tokens and output tokens, it adds the median price, (prompt − cached) × in + cached × cached + output × out, over a million, and the `eva` arm's update apart, `update_tokens` at the `in` rate (a floor: it sums input and output) and `update_ms` in minutes. No rate is kept in the repository: the lead gives them at run time.
-4. **Variance**, per host, for `eva` and `oracle` each against `off`: for every task and trial number where both trials are judged and both figures above 0, `ln(arm/off)` of `agent_events` and of `prompt_tokens`; `s`, their sample standard deviation (divided by pairs less one; none under two pairs, said so); `n = ceil((3·s / ln(4/3))²)`, the paired trials a pack needs to see a 25% reduction at three standard errors.
-5. **Screens**, per host and task (design 6.3): a hidden decision passes when `oracle` solved at the first try in two trials or more and `off` did not in two or more; a handoff passes when `off` solved in one trial or more and `oracle`'s median `agent_events` is at most 0.7 of `off`'s. Each prints pass, fail, or too few trials.
-6. **`eval/pilot/README.md`**: the pilot is throwaway and is run only with the owner's leave and inside the ceiling the owner names; what a container needs (git 2.44 or newer, Go, python3, the host CLIs, an eva-md built from the checkout `--repo` names, the provider's API host open, the tasks folder out of the sessions' reach); what a key needs (made for evaluation only, reaching the CLI from the container's environment or proxy, never on a command line or in a file); that each host's command line is in `internal/eval/pilot/run/hosts.go` (EV-03b); and which rows answer which host fact of `docs/v2/host-facts.md`: `hook_seen` F-115 and F-163, `agent_events` F-068, corrections by resume F-069, a judged trial F-067, tokens and minutes F-207. F-070, F-071, F-072, F-116, F-117 and F-169 are not answered by the pilot.
+1. **`eva-eval continuation report --tasks DIR [--catalogue file] [--rates in,cached,out] OUT...`** in `cmd/eva-eval/continuation_report.go`; the work in `internal/eval/continuation/report`, which takes loaded tasks, so tests may build them. `report` adds itself from its file to the map EV-17g gives `continuation`'s subcommands. Output: ids and figures in fixed words, by host, task, then condition. Exit 0, or 2 with no figure for a usage error or refused data.
+2. **Reads.** Each OUT is a results folder: rows by `results.Load` (none if there is no `results.jsonl`), held by `Check` to the catalogue (default `eval/continuation/metrics.json`); records by `drive.LoadRuns` (`runs.jsonl`). Tasks by `task.LoadAll`: for the pilot, the export's `tasks/`. A file over 64 MiB is refused unopened, as both loaders read whole. No host output is read; the loaders admit ids and numbers. Their errors, which can hold a path, are not shown.
+3. **Refused:** instrument not `continuation`, or no host; a metric whose family is not its task's; a scenario not `<task>.t<n>` with n the seed; a task, in a row or a record, not in `--tasks`; one host, metric and scenario twice, in a folder or across two; a trial lacking one of `solved` to `wall_ms`, or, under `eva`, `memory_tokens` or `memory_ms`; a folder with no record; per folder, host and condition, rows or judged trials not the sum of the records' `rows` and `judged`. `asked_again` is not read.
+4. **Per host and condition, from the records:** runs by `ended`; `planned`, `judged`, `not_run`, `unjudged` by every code of `drive.Codes` (`memory_off` among them), `no_model`, `tokens`; each once, `commit`, `dirty`, `host_versions`, `model` asked, and the models the rows name. Two commits are both shown.
+5. **Per host, task and condition, from rows:** trials judged, solved, solved first try; median, least and most of corrections, rounds, `agent_events`, prompt, cached and output tokens and minutes (`wall_ms`); under `eva`, `memory_tokens` and memory minutes. An even count's median is the mean of the middle two.
+6. **A session's cost**, per host and condition: those medians over every judged trial. With `--rates`, money per million tokens, uncached prompt, cached and output; each trial's price, ((prompt − cached) × in + cached × cached + output × out) / 10⁶, and its median; under `eva`, memory apart: `memory_tokens` at `in` (a floor: it sums input and output) and its minutes. No rate is committed.
+7. **Variance**, per host, `eva` and `oracle` each against `off`: per task and trial number both judged with both figures above 0, `ln(arm/off)` of `agent_events` and of `prompt_tokens`; pairs, mean, `s` (over pairs less one; none under two pairs, said so), `n = ceil((3·s / ln(4/3))²)`.
+8. **Screens**, per host and task (design 6.3): a hidden decision passes when `oracle` solved at the first try in two trials or more and `off` did not in two or more; a handoff when `off` solved once or more and `oracle`'s median `agent_events` is at most 0.7 of `off`'s; a control task, none. Too few: under two judged trials of either. Tasks passed, per host.
+9. **`eval/pilot/README.md`**: tasks, checker and export are throwaway; a run needs the owner's leave and ceiling. In order: `pilot check`; `pilot export`; `continuation check` on it; eva-md built `-tags evamd_eval`; a smoke run, one task and trial per host and condition, in its own `--out`; six runs (2 hosts × 3 conditions), `--trials 3`, the export's `--session-timeout`, one fresh `--out`, an empty `--work` each, one `--model`; `report` over every folder with the full export's `tasks/`. A task with no trial judged, or of a killed run (rows no record covers), reruns alone: `pilot export --task`, a fresh `--out`. Container: git 2.44+, Go, python3, the CLIs, the provider open, the CLI as a second user via `--cli`, an evaluation key by `--pass-env`. Command lines are in `drive/hosts.go`. Facts: F-067 judged trials, F-068 `agent_events`, F-069 corrections, F-115 and F-163 `memory_off`, F-207 tokens and minutes; not F-070 to F-072, F-116, F-117, F-169.
 
 ## Owns and may touch
 
-The package, the command's file and test, and the README, all new.
+All new.
 
 ```paths
-internal/eval/pilot/report/**
+internal/eval/continuation/report/**
+cmd/eva-eval/continuation_report.go
+cmd/eva-eval/continuation_report_test.go
 eval/pilot/README.md
-cmd/eva-eval/pilot_report.go
-cmd/eva-eval/pilot_report_test.go
 ```
 
 ## Must not touch
 
-Everything else. `internal/eval/results`, `cmd/eva-eval/main.go` and `cmd/eva-eval/pilot.go` are read only; `eval/pilot/metrics.json` is EV-03b's. Section 9 of the design and decision 16's ceiling are rewritten by the lead from the report.
+Everything else; the driver, `task`, `results`, the catalogue, `main.go` and `pilot.go` are read only; `internal/eval/pilot` is not imported. Design 9 and decision 16's ceiling are the lead's.
 
 ## Accepted when
 
-- `scripts/linux-check.sh` passes, and `TestNoReleaseContainsIt` passes unchanged.
-- On hand-made rows and a catalogue in the package's `testdata`, every median, least and most, `s`, `n`, price and screen, each screen both ways, is exact, by test. One pair, and a pair with 0 events, give no `s` and say so.
-- An `eva` trial with `hook_seen` 0 changes no figure and is printed as memory not on.
-- A row of another instrument, an unknown arm, or a metric not in the catalogue exits 2.
-- The README names no person, model or machine, and EV-03a's test of every file under `eval/pilot/` passes with it.
-- A reviewer's mutations (`s` divided by the pairs, a screen one trial short, cached tokens at the uncached rate, a memory-not-on trial counted) each fail a test.
+- `scripts/linux-check.sh` passes; `TestNoReleaseContainsIt`, `TestContinuationIsRegistered` and `TestHostLiteralCount` unchanged.
+- On hand-made rows and records in the package's `testdata`, every median (odd, even), least, most, mean, `s`, `n`, price and screen (pass, fail, too few) is exact; one pair, or two with one at 0 events, gives no `s`.
+- Each refusal of item 3, and a file just over 64 MiB (sparse), exits 2: a test each. A folder of records and no rows is read.
+- Two records' unjudged counts add; an unjudged trial moves no figure.
+- `off` and `oracle` run on `newContRig` into one `--out`, each with an empty `--work`; `report` exits 0 with their judged counts.
+- Output and errors hold no path and no word of the tasks' `Forbid`; the README passes `TestEvalPilotHoldsNoSecretAndNoWorkplace`, naming no person, model or machine.
+- Mutations (`s` over pairs, a screen a trial short, cached at the `in` rate, one middle for an even median, a duplicate let through, a code dropped) each fail a test.
+
+## The lead's rulings of 2026-11-13
+
+The card's checker left these to the lead.
+
+- **EV-17g adds the command's map**, so this card owns only its own files.
+- **The run records are `drive.Record`**, read with `drive.LoadRuns`, as EV-17g's item 4 fixes them.
+- **The README holds the commands and the rules; the run-book is the lead's** and holds the split of the owner's ceiling over the runs, the container and the order of the live run.
+- **Rows of more than one commit for a host and condition are shown, not refused**: the host table may be corrected during the pilot.
+- **The screens are read as carded**: a hidden decision passes twice when it is solved at the first try; a handoff is solvable from the repository alone when memory off solved it once or more; and 30% fewer agent events means the ideal record's median is at most 0.7 of memory off's.
+- When EV-17e deletes the pilot it takes `eval/pilot/README.md` with the rest; its paths cover the folder.

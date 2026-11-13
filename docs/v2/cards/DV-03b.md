@@ -53,3 +53,18 @@ Everything else, DV-03a's files included: if the contract must change, stop and 
 - The repair input starts with the first input byte for byte; `repair_prefix_bytes` is its length: a test.
 - Canned answers citing a refusal and a hedge as assent give exact plant counts, and a partial answer counts only its refused half: a test. A hand-built run of three passes gives exact figures for every measure.
 - A reviewer's mutations (case folded in the quote match, the tag taken from `as`, the first-prompt rule dropped, repair offered for `tag_too_low`, a refused op taking its neighbour with it) are each caught by a test.
+
+## As merged
+
+Merged from `pkg/dv-03b-r1` on 2026-11-13, after a review, one fix round and a verification that accepted it. The review's two major faults: a number, version or path the model cut short was found inside the longer value the user gave, so a changed number passed as grounded; and an operation past the 24th went to a repair round that could never mend it, which would have pulled down the very measure that says whether a repair round pays. `CHECK.md` in the package is this part's spec.
+
+Accepted as built, beyond the card: an operation needs text that is not blank; a target must be of its operation's sort, and one changed earlier in the same answer is unknown to later operations; an operation whose spans give no tag at all is refused; the repair input says its numbers count from 1; no repair is offered for a fault of the whole answer's shape.
+
+The lead's rulings of 2026-11-13, built in a short second round on this card's files:
+
+1. **A quote starts and ends at a word boundary.** As merged, `acceptable to ship` is found in `unacceptable to ship`. That changes no tag, but it counts as found a quote that says the opposite, on the measure that decides between quotes and segments.
+2. **A number followed by a hyphen or a slash and a letter is that number.** As merged, `30` is not found in `a 30-second timeout`, which a faithful rewording writes all the time. A joiner still makes a value go on when a digit follows it, or when the token is a path or a name.
+3. **A span that lies wholly in lines the renderer marks as quoted is not the user's own words**: it is tagged as what the user showed, not what the user said, so pasted text cannot ground a decision as stated (the design's 5.5; the known failure of v1's sixth script). A span that takes in both kinds of line stays the user's.
+4. **The counts of schema breaks and of invalid answers are kept apart for first answers and for repair answers**, so DV-03c can read either.
+
+Known and left: quotes are not normalized to NFC, which Go's standard library lacks; the prompt's own example of a wrong operation (a hold-off cited as a yes) is accepted by the checker, which does not judge meaning, and decision 10's plant measures count that mistake; `8080` is not found in `localhost:8080`, nor `80` in `80,443`, the cost of refusing a value cut short.
