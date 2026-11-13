@@ -193,10 +193,10 @@ func tagGaps(name, text string) []string {
 func TestNoReleaseCarriesTheEvaluationBuild(t *testing.T) {
 	list := func(args ...string) []string {
 		t.Helper()
-		var files []string
-		out := goCommand(t, buildDir, nil, append(append([]string{"list"}, args...), "-f", "{{json .GoFiles}}", ".")...)
-		if err := json.Unmarshal([]byte(out), &files); err != nil || len(files) < 10 {
-			t.Fatalf("go list gave %q (%v)", out, err)
+		out := goCommand(t, buildDir, nil, append(append([]string{"list"}, args...), "-f", "{{range .GoFiles}}{{.}}\n{{end}}", ".")...)
+		files := strings.Fields(out)
+		if len(files) < 10 || !slices.Contains(files, "main.go") {
+			t.Fatalf("go list gave %q", out)
 		}
 		return files
 	}
