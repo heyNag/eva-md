@@ -296,6 +296,10 @@ func TestLateCaptureStartsNoMaintain(t *testing.T) {
 		t.Fatalf("the capture Run gave up on still held the session's lock after %v: %v", hangGuard, err)
 	}
 	unlock()
+	// It still writes its heartbeat after letting go of the lock: wait for
+	// it to return, so that it writes nothing beside the next event or
+	// while the test's folders are removed.
+	awaitNoCapture(t, "the capture Run gave up on")
 	if got, names := spawned(), commitFolder(t, env); got != nil || names != nil {
 		t.Fatalf("a capture past its deadline spawned %q and left %q once it ended", got, names)
 	}
