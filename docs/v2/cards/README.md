@@ -52,7 +52,7 @@ Rules every card carries, so they are said once here:
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | building since 2026-11-13; a first builder was cut off part way and left nothing |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records, and a card is owed for a hook test that depends on speed |
-| [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | ready |
+| [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | building since 2026-11-13 |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | building since 2026-11-13 |
