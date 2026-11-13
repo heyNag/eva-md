@@ -100,7 +100,12 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 					}
 				}
 				dir := r.trialDir(strings.TrimPrefix(strings.SplitN(out, "\n", 3)[1], "run "), 1)
-				entry := hosts[h.ID]
+				// Memory off and no plugin, by the facts the host table
+				// names (F-062 and F-169).
+				off := map[adapter.ID][]string{
+					adapter.ClaudeCode: {"--settings", `{"autoMemoryEnabled":false}`},
+					adapter.Codex:      {"--disable", "hooks", "--disable", "plugins"},
+				}[h.ID]
 				for _, call := range calls {
 					if want := []string{fakehost.ScriptVar, "GIT_CONFIG_NOSYSTEM", "HOME", "PATH", "TMPDIR"}; !slices.Equal(call.Env, want) {
 						t.Fatalf("the environment: %v, want %v", call.Env, want)
@@ -115,7 +120,7 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 					if call.Dir != filepath.Join(dir, "workspace") {
 						t.Fatalf("the chat ran in %s", call.Dir)
 					}
-					if !holdsRun(call.Args, entry.Off) {
+					if len(off) == 0 || !holdsRun(call.Args, off) {
 						t.Fatalf("the call %v lacks the flags that turn memory and plugins off", call.Args)
 					}
 					for _, f := range call.Files {
