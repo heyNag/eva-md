@@ -137,6 +137,10 @@ func TestLateRunRecordsItsTime(t *testing.T) {
 			t.Fatalf("a run's time was measured from %v, not from Run's start, between %v and %v", started, before, asked)
 		}
 	}
+	file := filepath.Join(env.Dirs.State, "heartbeats", "codex", "Stop.json")
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the late run left no heartbeat: %v", err)
+	}
 	runs := beatRuns(t, env, "codex", "Stop")
 	switch {
 	case len(runs) != 1:
@@ -151,7 +155,7 @@ func TestLateRunRecordsItsTime(t *testing.T) {
 	var beat struct {
 		Elsewhere bool `json:"transcript_elsewhere"`
 	}
-	if data, err := os.ReadFile(filepath.Join(env.Dirs.State, "heartbeats", "codex", "Stop.json")); err != nil || json.Unmarshal(data, &beat) != nil || !beat.Elsewhere {
+	if data, err := os.ReadFile(file); err != nil || json.Unmarshal(data, &beat) != nil || !beat.Elsewhere {
 		t.Fatalf("the late run's heartbeat doesn't say the transcript is elsewhere: %s %v", data, err)
 	}
 }
