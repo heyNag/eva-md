@@ -172,7 +172,9 @@ func TestRepairChangesNoMoreThanItMay(t *testing.T) {
 	}
 	shown := []Shown{{Handle: "h1", Kind: "decision", Tag: TagStated, Text: "The relay is small."}}
 	said := func(e int64) Span { return sq(e, in.Entries[e-1].Text, "said") }
-	retire := func(e int64) Op { return Op{Op: "item.retire", ID: ptr("h1"), Text: ptr("It is gone."), Ev: []Span{said(e)}} }
+	retire := func(e int64) Op {
+		return Op{Op: "item.retire", ID: ptr("h1"), Text: ptr("It is gone."), Ev: []Span{said(e)}}
+	}
 	note := func(e int64) Op { return Op{Op: "note", Kind: ptr("found"), Text: ptr("Noted."), Ev: []Span{said(e)}} }
 	bad := Op{Op: "note", Kind: ptr("found"), Text: ptr("Noted."), Ev: []Span{sq(1, "not in the entry", "said")}}
 	a := Answer{Ops: []Op{retire(1), bad, bad, bad, bad}}

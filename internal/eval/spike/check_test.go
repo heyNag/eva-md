@@ -431,7 +431,9 @@ func TestSupersedeAndRetire(t *testing.T) {
 	sup := func(id, kind string, e int64) Op {
 		return Op{Op: "item.supersede", ID: &id, Kind: &kind, Text: ptr("The relay is smaller."), Ev: []Span{span(e)}}
 	}
-	ret := func(op, id string, e int64) Op { return Op{Op: op, ID: &id, Text: ptr("It is done."), Ev: []Span{span(e)}} }
+	ret := func(op, id string, e int64) Op {
+		return Op{Op: op, ID: &id, Text: ptr("It is done."), Ev: []Span{span(e)}}
+	}
 	for _, c := range []struct {
 		name string
 		op   Op
