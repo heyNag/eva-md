@@ -60,8 +60,12 @@ const (
 
 var overlays = []string{OverlayStart, OverlayHidden, OverlaySolution, OverlayDecoy}
 
-// DefaultLimit is a test's time limit in seconds when it gives none.
-const DefaultLimit = 600
+// DefaultLimit is a test's time limit in seconds when it gives none, and
+// MaxLimit the longest it may give.
+const (
+	DefaultLimit = 600
+	MaxLimit     = 3600
+)
 
 // MinHistory is the fewest characters an earlier chat may hold: v1's update
 // waits on a chat with less (planWait, internal/update/pass.go), so a
@@ -268,10 +272,10 @@ func (t Task) validate() error {
 			return fmt.Errorf("test %d: its id is not an id, or is given twice", i+1)
 		case !slices.Contains(t.Repos, x.Repo):
 			return fmt.Errorf("test %d: its repository is not the task's", i+1)
-		case len(x.Run) == 0 || x.Run[0] == "" || slices.Contains(x.Run, ""):
+		case len(x.Run) == 0 || x.Run[0] == "":
 			return fmt.Errorf("test %d: run is not an argv", i+1)
-		case x.LimitS < 0:
-			return fmt.Errorf("test %d: limit_s is negative", i+1)
+		case x.LimitS < 0 || x.LimitS > MaxLimit:
+			return fmt.Errorf("test %d: limit_s is not 0 to %d", i+1, MaxLimit)
 		case t.Family == FamilyControl && len(x.Facts) > 0:
 			return fmt.Errorf("test %d: a control task's test encodes no fact", i+1)
 		}
@@ -284,6 +288,9 @@ func (t Task) validate() error {
 		}
 	}
 	if t.Family == FamilyHidden {
+		if len(t.Facts) == 0 {
+			return errors.New("a hidden-decision task hides no fact")
+		}
 		for i, f := range t.Facts {
 			if !encoded[f.ID] {
 				return fmt.Errorf("fact %d: no test encodes it, in a hidden-decision task", i+1)

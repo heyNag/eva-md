@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -32,13 +33,16 @@ func (g Grading) Solved() bool { return len(g.Fail) == 0 }
 // waitDelay bounds how long a test's run is waited for once it is killed.
 const waitDelay = 10 * time.Second
 
-// Grade copies the workspace into scratch, which must not exist or be an
-// empty folder outside the workspace, lays the hidden/ overlay of the task
-// in taskDir over the copy, and runs each test in its repository's copy
-// within its time limit. A test passes when it exits 0; one that fails or
-// runs out of time fails. A runner that is not installed, or a ctx that
-// ends, is an error. It never writes the workspace, and Go runs with no
-// proxy, no other toolchain and no workspace file, so nothing is fetched.
+// Grade copies the workspace into scratch/workspace/, where scratch must not
+// exist or be an empty folder that neither holds the workspace nor is in
+// it, lays the hidden/ overlay of the task in taskDir over the copy, and
+// runs each test in its repository's copy within its time limit. A test
+// passes when it exits 0; one that fails or runs out of time fails. A
+// runner that is not installed, or a ctx that ends, is an error. It never
+// writes the workspace. Tests run in an environment built from nothing
+// (see testEnv), with a home and a temporary folder of their own in
+// scratch, so no secret of the caller's reaches the code under test and
+// nothing is fetched.
 func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Grading, error) {
 	if err := apart(workspace, scratch); err != nil {
 		return Grading{}, fmt.Errorf("task %s: %w", t.ID, err)
@@ -46,19 +50,26 @@ func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Gra
 	if err := emptyDir(scratch); err != nil {
 		return Grading{}, fmt.Errorf("task %s: the grading folder: %w", t.ID, err)
 	}
-	if err := copyTree(workspace, scratch); err != nil {
+	cp, home, tmp := filepath.Join(scratch, "workspace"), filepath.Join(scratch, "home"), filepath.Join(scratch, "tmp")
+	for _, dir := range []string{cp, home, tmp} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			return Grading{}, fmt.Errorf("task %s: %w", t.ID, err)
+		}
+	}
+	if err := copyTree(workspace, cp); err != nil {
 		return Grading{}, fmt.Errorf("task %s: copying the workspace: %w", t.ID, err)
 	}
 	hidden := t
 	hidden.Dir = taskDir
 	for _, name := range t.Repos {
-		if err := layOverlay(hidden, OverlayHidden, name, repoRoot(t, scratch, name)); err != nil {
+		if err := layOverlay(hidden, OverlayHidden, name, repoRoot(t, cp, name)); err != nil {
 			return Grading{}, fmt.Errorf("task %s: %w", t.ID, err)
 		}
 	}
+	env := testEnv(home, tmp)
 	var g Grading
 	for _, x := range t.Tests {
-		pass, err := runTest(ctx, x, repoRoot(t, scratch, x.Repo))
+		pass, err := runTest(ctx, x, repoRoot(t, cp, x.Repo), env)
 		if err != nil {
 			return Grading{}, fmt.Errorf("task %s: test %s: %w", t.ID, x.ID, err)
 		}
@@ -72,10 +83,10 @@ func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Gra
 }
 
 // apart returns an error when one of the folders a and b is, or is inside,
-// the other.
+// the other, links resolved.
 func apart(a, b string) error {
-	a, errA := filepath.Abs(a)
-	b, errB := filepath.Abs(b)
+	a, errA := resolve(a)
+	b, errB := resolve(b)
 	if err := errors.Join(errA, errB); err != nil {
 		return err
 	}
@@ -83,6 +94,27 @@ func apart(a, b string) error {
 		return errors.New("the grading folder and the workspace overlap")
 	}
 	return nil
+}
+
+// resolve returns p made absolute with its links resolved, as far as it
+// exists.
+func resolve(p string) (string, error) {
+	p, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(p)
+	switch {
+	case err == nil:
+		return real, nil
+	case !errors.Is(err, fs.ErrNotExist) || filepath.Dir(p) == p:
+		return "", err
+	}
+	parent, err := resolve(filepath.Dir(p))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(p)), nil
 }
 
 // within reports whether p is dir or inside it; both are absolute.
@@ -128,21 +160,32 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// runTest runs the test x in dir and reports whether it passed.
-func runTest(ctx context.Context, x Test, dir string) (bool, error) {
-	runner, err := exec.LookPath(x.Run[0])
-	if err != nil {
+// runTest runs the test x in dir with the environment env and reports
+// whether it passed. A runner named with no slash is looked up on env's
+// PATH; one with a slash is a file, relative to dir when not absolute.
+func runTest(ctx context.Context, x Test, dir string, env []string) (bool, error) {
+	runner := x.Run[0]
+	if !strings.Contains(runner, "/") {
+		found, err := lookPath(runner, env)
+		if err != nil {
+			return false, errors.New("its runner is not installed")
+		}
+		runner = found
+	} else if !filepath.IsAbs(runner) {
+		runner = filepath.Join(dir, runner)
+	}
+	if info, err := os.Stat(runner); err != nil || info.IsDir() {
 		return false, errors.New("its runner is not installed")
 	}
 	tctx, cancel := context.WithTimeout(ctx, time.Duration(x.Limit())*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(tctx, runner, x.Run[1:]...)
 	cmd.Dir = dir
-	cmd.Env = testEnv()
+	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = waitDelay
-	err = cmd.Run()
+	err := cmd.Run()
 	if cmd.Process != nil {
 		// Whatever the test left running in its group goes with it.
 		_ = killGroup(cmd.Process.Pid)
@@ -159,6 +202,26 @@ func runTest(ctx context.Context, x Test, dir string) (bool, error) {
 	return false, fmt.Errorf("running it: %w", err)
 }
 
+// lookPath finds the executable name on the PATH env gives.
+func lookPath(name string, env []string) (string, error) {
+	for _, kv := range env {
+		path, ok := strings.CutPrefix(kv, "PATH=")
+		if !ok {
+			continue
+		}
+		for _, dir := range filepath.SplitList(path) {
+			if !filepath.IsAbs(dir) {
+				continue
+			}
+			p := filepath.Join(dir, name)
+			if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0 {
+				return p, nil
+			}
+		}
+	}
+	return "", exec.ErrNotFound
+}
+
 // killGroup kills the process group pid leads.
 func killGroup(pid int) error {
 	err := syscall.Kill(-pid, syscall.SIGKILL)
@@ -168,19 +231,43 @@ func killGroup(pid int) error {
 	return err
 }
 
-// testEnv is the environment a test runs in: the caller's, with Go kept
-// off the network and to the toolchain installed, and pip off its index.
-func testEnv() []string {
-	drop := []string{"GOFLAGS", "GOPROXY", "GOTOOLCHAIN", "GOSUMDB", "GOWORK", "GONOPROXY", "GONOSUMDB", "GOPRIVATE", "GOINSECURE"}
-	var env []string
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if !slices.Contains(drop, name) {
-			env = append(env, kv)
-		}
+// testEnv is the whole environment a test runs in, built from nothing:
+// the caller's PATH, a home and a temporary folder of the grading's own,
+// Go's build cache where the caller's is, Go kept off the network, to the
+// toolchain installed and out of any workspace file, and pip off its
+// index. No other variable of the caller's reaches it.
+func testEnv(home, tmp string) []string {
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + home,
+		"TMPDIR=" + tmp,
+		"LC_ALL=C",
+		"GOPROXY=off",
+		"GOSUMDB=off",
+		"GOTOOLCHAIN=local",
+		"GOWORK=off",
+		"GOFLAGS=",
+		"PIP_NO_INDEX=1",
+		"PYTHONDONTWRITEBYTECODE=1",
 	}
-	return append(env, "GOPROXY=off", "GOTOOLCHAIN=local", "GOSUMDB=off", "GOWORK=off", "GOFLAGS=", "PIP_NO_INDEX=1", "PYTHONDONTWRITEBYTECODE=1")
+	if cache := goCache(); cache != "" {
+		env = append(env, "GOCACHE="+cache)
+	}
+	return env
 }
+
+// goCache is the caller's Go build cache: GOCACHE when set, else what Go
+// says it is, else "" when there is no Go.
+var goCache = sync.OnceValue(func() string {
+	if c := os.Getenv("GOCACHE"); c != "" {
+		return c
+	}
+	out, err := exec.Command("go", "env", "GOCACHE").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+})
 
 // Check checks the task offline in scratch, which must not exist or be an
 // empty folder: on the start state at least one test fails; with the

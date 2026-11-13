@@ -175,21 +175,30 @@ func TestGradeRunnerNotInstalled(t *testing.T) {
 	}
 }
 
-func TestGradeRunsOffTheNetwork(t *testing.T) {
+func TestGradeRunsInAnEnvironmentOfItsOwn(t *testing.T) {
 	x, ws := stubTask(t, 0, stubPass)
 	write(t, ws, "go.mod", "module example.com/ledgerkit\n\ngo 1.22\n")
 	write(t, ws, "env_test.go", `package ledgerkit
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestEnv(t *testing.T) {
-	for k, want := range map[string]string{"GOPROXY": "off", "GOTOOLCHAIN": "local", "GOWORK": "off", "GOFLAGS": ""} {
+	for k, want := range map[string]string{"GOPROXY": "off", "GOTOOLCHAIN": "local", "GOWORK": "off", "GOFLAGS": "", "EVA_TASK_SECRET": ""} {
 		if got := os.Getenv(k); got != want {
 			t.Errorf("%s = %q, want %q", k, got, want)
 		}
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Dir(wd)
+	if filepath.Base(wd) != "workspace" || os.Getenv("HOME") != filepath.Join(scratch, "home") || os.Getenv("TMPDIR") != filepath.Join(scratch, "tmp") {
+		t.Errorf("ran in %s with HOME %s and TMPDIR %s", wd, os.Getenv("HOME"), os.Getenv("TMPDIR"))
 	}
 }
 `)
@@ -197,12 +206,43 @@ func TestEnv(t *testing.T) {
 	t.Setenv("GOPROXY", "https://proxy.example.invalid")
 	t.Setenv("GOFLAGS", "-mod=vendor")
 	t.Setenv("GOTOOLCHAIN", "go1.99.0")
+	t.Setenv("EVA_TASK_SECRET", "made-up-secret")
 	g, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !g.Solved() {
-		t.Fatalf("the test saw the caller's Go settings: %+v", g)
+		t.Fatalf("the test saw the caller's environment: %+v", g)
+	}
+
+	var names []string
+	for _, kv := range testEnv("/h", "/t") {
+		name, _, _ := strings.Cut(kv, "=")
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	want := []string{"GOCACHE", "GOFLAGS", "GOPROXY", "GOSUMDB", "GOTOOLCHAIN", "GOWORK", "HOME", "LC_ALL", "PATH", "PIP_NO_INDEX", "PYTHONDONTWRITEBYTECODE", "TMPDIR"}
+	if !slices.Equal(names, want) {
+		t.Fatalf("a test's environment holds %v, want %v", names, want)
+	}
+}
+
+func TestGradeRunnerByPath(t *testing.T) {
+	x, ws := stubTask(t, 0, stubPass)
+	if err := os.MkdirAll(filepath.Join(ws, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(os.Args[0], filepath.Join(ws, "bin", "stub")); err != nil {
+		t.Fatal(err)
+	}
+	x.Tests[0].Run = []string{"bin/stub", stubPass}
+	g, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade"))
+	if err != nil || !g.Solved() {
+		t.Fatalf("a runner relative to the repository: %+v, %v", g, err)
+	}
+	x.Tests[0].Run = []string{"bin/none", stubPass}
+	if _, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade")); err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("a missing runner by path: %v", err)
 	}
 }
 
@@ -252,7 +292,11 @@ func TestGradeNeverWritesThroughALink(t *testing.T) {
 func TestGradeRefusesOverlap(t *testing.T) {
 	x, ws := prepared(t, "control-max", "")
 	before := snapshot(t, ws)
-	for _, scratch := range []string{ws, filepath.Join(ws, "grade"), filepath.Dir(ws)} {
+	link := filepath.Join(tempDir(t), "link")
+	if err := os.Symlink(ws, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, scratch := range []string{ws, filepath.Join(ws, "grade"), filepath.Dir(ws), link, filepath.Join(link, "grade")} {
 		if _, err := Grade(context.Background(), x, x.Dir, ws, scratch); err == nil || !strings.Contains(err.Error(), "overlap") {
 			t.Fatalf("Grade in %s = %v, want an error saying the folders overlap", scratch, err)
 		}

@@ -125,7 +125,12 @@ func TestValidateFaults(t *testing.T) {
 		{"an unknown speaker", func(x *Task) { x.History[0].By = "system" }, "user or agent"},
 		{"a test in another repository", func(x *Task) { x.Tests[0].Repo = "tallybook" }, "not the task's"},
 		{"a test with no argv", func(x *Task) { x.Tests[0].Run = nil }, "not an argv"},
-		{"a negative limit", func(x *Task) { x.Tests[0].LimitS = -1 }, "negative"},
+		{"a test with no runner", func(x *Task) { x.Tests[0].Run = []string{"", "test"} }, "not an argv"},
+		{"a negative limit", func(x *Task) { x.Tests[0].LimitS = -1 }, "limit_s"},
+		{"a limit over an hour", func(x *Task) { x.Tests[0].LimitS = MaxLimit + 1 }, "limit_s"},
+		{"a hidden-decision task with no fact", func(x *Task) {
+			x.Facts, x.Tests[1].Facts, x.History[2].Plants = nil, nil, nil
+		}, "hides no fact"},
 		{"two tests with one id", func(x *Task) { x.Tests[1].ID = x.Tests[0].ID }, "given twice"},
 		{"no test", func(x *Task) { x.Tests = nil }, "no test"},
 		{"max_rounds 0", func(x *Task) { x.MaxRounds = 0 }, "max_rounds"},
