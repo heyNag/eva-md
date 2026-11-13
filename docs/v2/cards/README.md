@@ -48,7 +48,7 @@ Rules every card carries, so they are said once here:
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
-| [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | built, on a branch; in review since 2026-11-12 (redaction), and merges when its reviewers and a verifier pass it |
+| [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records, and a card is owed for a hook test that depends on speed |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | ready |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |

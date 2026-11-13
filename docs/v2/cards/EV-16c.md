@@ -4,7 +4,7 @@
 
 ## Why
 
-CI's Linux job failed once on a commit that changed only a card: the plain benchmark's padded-inbox scenario saw the hooks start the stand-in 61 times, not 62. v1's hook is built to do that: a capture that misses its time limit delivers nothing, the background job it asked for included, and the next trigger asks again (`internal/hook/hook.go`, "A capture that misses the deadline delivers nothing, its spawns included"). One stall of a third of a second on a shared runner is enough. The scenario asks for an exact count, so one slow hook, which the p95 figures are built to absorb, turns the whole job red, and the message does not say which start was missing or why.
+CI's Linux job failed once on a commit that changed only a card: the plain benchmark's padded-inbox scenario saw the hooks start the stand-in 61 times, not 62. v1's hook is built to do that: a capture that misses its time limit delivers nothing, the background job it asked for included, and the next trigger asks again (`internal/hook/hook.go`, "A capture that misses the deadline delivers nothing, its spawns included"). One stall of a third of a second on a shared runner is enough. The scenario asks for an exact count, so one slow hook, which the p95 figures are built to absorb, turns the whole job red, and the message does not say which start was missing or why. It has happened since: run 122's Linux job saw 60 starts, not 62, and run 125's stopped on a pointer prompt's empty output (point 4 below), each on a commit whose tests were green and each green when the job was run again.
 
 ## What to build
 
