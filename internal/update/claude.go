@@ -19,6 +19,9 @@ func runClaude(ctx context.Context, r Request, t try) (attempt, error) {
 	if err != nil {
 		return attempt{}, err
 	}
+	if r.Tap != nil && !c.missing {
+		r.Tap(bytes.Clone(out.Bytes()), bytes.Clone(c.stderr))
+	}
 	return claudeResult(c, out, t.effort), nil
 }
 
