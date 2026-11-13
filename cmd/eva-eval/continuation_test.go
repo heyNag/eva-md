@@ -181,8 +181,13 @@ func TestContinuationRunUnjudged(t *testing.T) {
 	if code != 1 || errOut != "" || !strings.Contains(out, "unjudged sign_in 2,") {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
 	}
-	if _, err := os.Stat(filepath.Join(r.base, "out")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(r.base, "out", results.FileName)); !os.IsNotExist(err) {
 		t.Fatal("an unjudged run wrote rows")
+	}
+	// It wrote its record, which counts both.
+	records, err := drive.LoadRuns(filepath.Join(r.base, "out"))
+	if err != nil || len(records) != 1 || records[0].Unjudged[drive.CodeSignIn] != 2 || records[0].Ended != drive.EndedDone {
+		t.Fatalf("records %+v: %v", records, err)
 	}
 }
 

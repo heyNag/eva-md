@@ -107,6 +107,7 @@ type Options struct {
 	EvaMD          string        // an eva-md binary, linked into each trial's bin/ as eva-md
 	Repo           string        // the repository the rows' commit is read from
 	Spend          bool          // --spend-model-quota: without it nothing starts
+	KeepTrials     bool          // --keep-trials: the trials' folders are kept
 
 	// Delivered says whether the chat of a trial was given a fact, by id,
 	// before the round that supplied it. Nil: not measured, and no
@@ -548,31 +549,53 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 		return s, err
 	}
 	fmt.Fprintf(out, "run %s\n", s.Run)
+	versions, err := p.trials(ctx, &s, commit, dirty, out)
+	var unjudged []string
+	for _, c := range Codes {
+		unjudged = append(unjudged, fmt.Sprintf("%s %d", c, s.Unjudged[c]))
+	}
+	fmt.Fprintf(out, "run %s: planned %d, judged %d, no model %d, not run %d, unjudged %s; tokens %d, rows %d\n",
+		s.Run, s.Planned, s.Judged, s.NoModel, s.NotRun, strings.Join(unjudged, ", "), s.Tokens, s.Rows)
+	if rerr := appendRecord(o.Out, p.record(s, commit, dirty, versions, err), p.forbid); rerr != nil {
+		err = errors.Join(err, fmt.Errorf("the run's record: %w", rerr))
+	}
+	return s, err
+}
+
+// trials runs the plan's trials in the run s, counting what each gave in
+// s, and returns the versions of the host's CLI they read. It stops at the
+// first error, or at a trial left unjudged with a code of stopCodes, which
+// gives a *Stopped; the trials after the one it stops at are counted not
+// run.
+func (p *plan) trials(ctx context.Context, s *Summary, commit string, dirty bool, out io.Writer) ([]string, error) {
+	o := p.opts
 	store := results.Store{Dir: o.Out, Forbid: p.forbid}
+	var versions []string
 	done := 0
-	var stopped error
-trials:
 	for _, t := range p.tasks {
 		for n := 1; n <= o.Trials; n++ {
 			if s.Tokens >= o.MaxTokens {
 				// The rest are counted, in one line, not listed.
 				s.NotRun = s.Planned - done
 				fmt.Fprintf(out, "trial %s.t%d and the %d after it: not run, --max-tokens reached\n", t.ID, n, s.NotRun-1)
-				break trials
+				return versions, nil
 			}
 			done++
 			r, err := p.trial(ctx, s.Run, t, n)
 			s.Tokens += r.tokens
+			if r.version != "" && !slices.Contains(versions, r.version) {
+				versions = append(versions, r.version)
+			}
 			if err != nil {
-				return s, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
+				s.NotRun = s.Planned - done
+				return versions, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
 			}
 			if r.unjudged != "" {
 				s.Unjudged[r.unjudged]++
 				fmt.Fprintf(out, "trial %s.t%d: unjudged, %s\n", t.ID, n, r.unjudged)
 				if slices.Contains(stopCodes, r.unjudged) {
 					s.NotRun = s.Planned - done
-					stopped = &Stopped{Code: r.unjudged}
-					break trials
+					return versions, &Stopped{Code: r.unjudged}
 				}
 				continue
 			}
@@ -582,7 +605,8 @@ trials:
 				err = store.Append(rows...)
 			}
 			if err != nil {
-				return s, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
+				s.NotRun = s.Planned - done
+				return versions, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
 			}
 			s.Judged++
 			if r.model == "" {
@@ -593,13 +617,32 @@ trials:
 				t.ID, n, b2i(r.outcome.Solved), b2i(r.outcome.FirstTry), r.outcome.Corrections, r.outcome.Rounds)
 		}
 	}
-	var unjudged []string
-	for _, c := range Codes {
-		unjudged = append(unjudged, fmt.Sprintf("%s %d", c, s.Unjudged[c]))
+	return versions, nil
+}
+
+// record is the Record of the run s, which ended with err.
+func (p *plan) record(s Summary, commit string, dirty bool, versions []string, err error) Record {
+	r := Record{V: recordVersion, Run: s.Run, Instrument: task.Instrument, Host: string(p.host.ID), HostVersions: slices.Sorted(slices.Values(versions)),
+		Condition: string(p.opts.Condition), Model: p.opts.Model, Commit: commit, Dirty: dirty, Tasks: []string{}, Trials: p.opts.Trials,
+		Planned: s.Planned, Judged: s.Judged, NotRun: s.NotRun, Unjudged: map[string]int{}, NoModel: s.NoModel, Tokens: s.Tokens, Rows: s.Rows,
+		Kept: p.opts.KeepTrials, Ended: EndedDone}
+	if r.HostVersions == nil {
+		r.HostVersions = []string{}
 	}
-	fmt.Fprintf(out, "run %s: planned %d, judged %d, no model %d, not run %d, unjudged %s; tokens %d, rows %d\n",
-		s.Run, s.Planned, s.Judged, s.NoModel, s.NotRun, strings.Join(unjudged, ", "), s.Tokens, s.Rows)
-	return s, stopped
+	for _, t := range p.tasks {
+		r.Tasks = append(r.Tasks, t.ID)
+	}
+	for _, c := range Codes {
+		r.Unjudged[c] = s.Unjudged[c]
+	}
+	var stopped *Stopped
+	switch {
+	case errors.As(err, &stopped):
+		r.Ended = stopped.Code
+	case err != nil:
+		r.Ended = EndedError
+	}
+	return r
 }
 
 func b2i(b bool) int {
