@@ -55,7 +55,7 @@ Rules every card carries, so they are said once here:
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | building since 2026-11-13 |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
-| [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | building since 2026-11-13 |
+| [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | ready |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | ready |
@@ -63,7 +63,7 @@ Rules every card carries, so they are said once here:
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
-| [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | ready |
+| [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | building since 2026-11-13 |
 | [DV-11b](DV-11b.md) | The runner's Codex backend | after DV-11a and HO-14; beside DV-11c |
 | [DV-11c](DV-11c.md) | The runner's Claude Code backend | after DV-11a; beside DV-11b |
 | [HO-13a](HO-13a.md) | The signed release manifest, and its check in Go | not before the Stage 0 readout (decision 9); open then: one approval of a cut or two, and whether the manifest's first format carries the day it was published |
@@ -83,10 +83,10 @@ Rules every card carries, so they are said once here:
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
 | [EV-14c](EV-14c.md) | Six new families, half held out | ready |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
-| [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | ready |
+| [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | building since 2026-11-13 |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | after EV-17a |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
-| [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | building since 2026-11-13 |
+| [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; owed, on a card that owns the release workflow: a check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03) |
 | [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | ready, since the counters release is cut (2026.11.13) |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |

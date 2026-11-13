@@ -42,7 +42,7 @@ internal/derive/modelrun/imports_test.go
 
 ## Must not touch
 
-`internal/update/**`, `internal/host/adapter/**` (its literal baseline too), `internal/hostfake/**`, `cmd/**`. No host name as a literal outside tests: use `adapter.ByID`.
+`internal/update/**`, `internal/host/adapter/**` (its literal baseline too), `internal/host/hostfake/**`, `cmd/**`. No host name as a literal outside tests: use `adapter.ByID`.
 
 ## Accepted when
 
