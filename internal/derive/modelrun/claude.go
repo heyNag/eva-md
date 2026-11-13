@@ -331,7 +331,8 @@ func claudeEnvelope(out *capped) (env claudeEnv, found bool) {
 		env.usage, env.usageSeen = fromUsage, true
 	}
 	if env.tooMany {
-		env.odd, env.unnamed, env.answered = true, true, ""
+		// Odd, so no model is said to have answered.
+		env.odd, env.unnamed = true, true
 	}
 	if s, ok := exact["subtype"]; ok && json.Unmarshal(s, &env.subtype) != nil {
 		env.odd = true

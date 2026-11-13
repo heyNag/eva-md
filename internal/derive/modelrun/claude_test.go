@@ -274,8 +274,12 @@ func TestClaudeEnvelopes(t *testing.T) {
 		// beside it is read.
 		{name: "type in another case beside a denial", stdout: `{"Type":"result","subtype":"success","is_error":false,"structured_output":{"summary":"done"},"permission_denials":[{}]}`, class: ClassToolUsed},
 		// Error text is kept to 64 KiB: a sign-in line after that much
-		// filler names nothing.
-		{name: "a sign-in line past the text kept", stderr: strings.Repeat("filler line\n", 8000) + "Not logged in\n", exit: 1, class: ClassHost},
+		// filler names nothing. (The core keeps 64 KiB of stderr, so the
+		// filler is in the envelope.)
+		{name: "a sign-in line past the text kept", stdout: `{"type":"result","subtype":"success","is_error":true,"result":"` +
+			strings.Repeat(`filler line\n`, 8000) + `Not logged in"}`, exit: 1, class: ClassHost},
+		{name: "a sign-in line within the text kept", stdout: `{"type":"result","subtype":"success","is_error":true,"result":"` +
+			strings.Repeat(`filler line\n`, 4000) + `Not logged in"}`, exit: 1, class: ClassAuth},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
