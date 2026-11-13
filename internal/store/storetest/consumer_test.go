@@ -158,16 +158,18 @@ func TestPlanReturnsApplysOutcomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	it := item(t, f, first.Outcomes[0].ID)
-	// A pass of every outcome: a revision applied, a revision against a
-	// stale base refused, one of no change a noop, a create, and an
-	// operation that requires a refused one.
+	// A pass of every outcome: a change of nothing a noop, a revision
+	// applied, a revision against a stale base refused, a create, an
+	// operation that requires a refused one refused, and an operation on
+	// an unknown id refused.
 	txn := store.Txn{Pass: passID(start, 2), Kind: store.KindFast, Actor: "codex/model-b", Session: session,
 		Covers: []store.Range{{From: 3, To: 5, Outcome: "done", Contract: "1"}},
 		Ops: []store.Op{
+			{Type: store.OpItemState, ID: it.ID, Base: it.Base, Authority: store.AuthorityModel, Fields: map[string]any{"state": "active"}},
 			{Type: store.OpItemRevise, ID: it.ID, Base: it.Base, Authority: store.AuthorityModel, Fields: map[string]any{"statement": "the cache moved"}},
 			{Type: store.OpItemRevise, ID: it.ID, Base: "stale", Authority: store.AuthorityModel, Fields: map[string]any{"statement": "lost"}},
 			{Type: store.OpItemCreate, Authority: store.AuthorityUser, Fields: map[string]any{"kind": "rule", "title": "the hook", "statement": "the hook stays fast"}},
-			{Type: store.OpSessionAppend, Authority: store.AuthorityModel, Fields: map[string]any{"text": "after a refusal"}, Requires: []int{1}},
+			{Type: store.OpSessionAppend, Authority: store.AuthorityModel, Fields: map[string]any{"text": "after a refusal"}, Requires: []int{2}},
 			{Type: store.OpItemRevise, ID: "inothere000000", Base: "x", Authority: store.AuthorityModel, Fields: map[string]any{"statement": "none"}},
 		}}
 	files, history := f.Files(), f.History()
@@ -185,13 +187,16 @@ func TestPlanReturnsApplysOutcomes(t *testing.T) {
 	if !slices.Equal(plan, res.Outcomes) {
 		t.Fatalf("Plan gave %+v, Apply %+v", plan, res.Outcomes)
 	}
-	want := []string{store.ResultApplied, store.ResultRefused, store.ResultApplied, store.ResultRefused, store.ResultRefused}
+	want := []string{store.ResultNoop, store.ResultApplied, store.ResultRefused, store.ResultApplied, store.ResultRefused, store.ResultRefused}
+	if len(res.Outcomes) != len(want) {
+		t.Fatalf("%d outcomes for %d operations", len(res.Outcomes), len(want))
+	}
 	for i, o := range res.Outcomes {
 		if o.Result != want[i] {
 			t.Errorf("operation %d gave %+v, want %s", i, o, want[i])
 		}
 	}
-	if r := res.Outcomes; r[1].Reason != store.ReasonConflict || r[3].Reason != store.ReasonRequires || r[4].Reason != store.ReasonUnknownID {
+	if r := res.Outcomes; r[2].Reason != store.ReasonConflict || r[4].Reason != store.ReasonRequires || r[5].Reason != store.ReasonUnknownID {
 		t.Errorf("reasons %+v", r)
 	}
 	// Plan after the pass gives its recorded outcomes too.

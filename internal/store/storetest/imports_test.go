@@ -1,6 +1,7 @@
 package storetest_test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -120,17 +121,17 @@ func TestTheFakesOwnFiles(t *testing.T) {
 	if len(files) < 4 {
 		t.Fatalf("only %d files: %v", len(files), files)
 	}
-	banned := []string{"time." + "Now(", "time." + "Since(", "time." + "Until(", "time." + "Sleep(", "time." + "After(", "time." + "Tick(", "time." + "NewTimer(",
-		"os/" + "exec", "os." + "WriteFile(", "os." + "Create(", "os." + "OpenFile(", "os." + "Mkdir", "os." + "Remove", "os." + "Rename("}
 	for _, name := range files {
 		src, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, w := range banned {
-			if strings.Contains(string(src), w) {
-				t.Errorf("%s calls %s", name, w)
-			}
+		uses, err := bannedUses(name, src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, u := range uses {
+			t.Errorf("%s uses %s", name, u)
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), name, src, parser.ImportsOnly)
 		if err != nil {
@@ -147,6 +148,93 @@ func TestTheFakesOwnFiles(t *testing.T) {
 			if name == "consumer_test.go" && strings.Contains(first, ".") && ip != module+"/internal/store" && ip != module+"/"+self {
 				t.Errorf("%s imports %s; a consumer needs only the store and the fake", name, ip)
 			}
+		}
+	}
+}
+
+// banned holds, by package, what a file of the fake may not name: what
+// sleeps or reads the wall clock, and what writes a file. A name counts
+// whether it is called or passed as a value, as New(time.Now) passes it.
+var banned = map[string][]string{
+	"time": {"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer"},
+	"os": {"WriteFile", "Create", "CreateTemp", "OpenFile", "Mkdir", "MkdirAll", "MkdirTemp",
+		"Remove", "RemoveAll", "Rename", "Symlink", "Link", "Chmod", "Chtimes", "Truncate"},
+}
+
+// bannedUses lists what of banned a Go file names, under whatever name it
+// imports the package, and the imports that run or write outside the
+// fake: os/exec, syscall, and a dot import of a package banned watches,
+// whose names the check could then not see.
+func bannedUses(name string, src []byte) ([]string, error) {
+	f, err := parser.ParseFile(token.NewFileSet(), name, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	local := map[string]string{} // the name a file uses for a watched package
+	for _, spec := range f.Imports {
+		ip, _ := strconv.Unquote(spec.Path.Value)
+		if ip == "os/exec" || ip == "syscall" {
+			out = append(out, "the import "+ip)
+			continue
+		}
+		if _, ok := banned[ip]; !ok {
+			continue
+		}
+		as := ip
+		if spec.Name != nil {
+			as = spec.Name.Name
+		}
+		switch as {
+		case "_":
+		case ".":
+			out = append(out, "a dot import of "+ip)
+		default:
+			local[as] = ip
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if id, ok := sel.X.(*ast.Ident); ok {
+			if ip, ok := local[id.Name]; ok && slices.Contains(banned[ip], sel.Sel.Name) {
+				out = append(out, ip+"."+sel.Sel.Name)
+			}
+		}
+		return true
+	})
+	return out, nil
+}
+
+// The check of the fake's own files finds the wall clock and a write
+// however a file names them, called or passed as a value, and passes what
+// reads neither.
+func TestTheClockCheckCanFail(t *testing.T) {
+	for _, c := range []struct {
+		src  string
+		want []string
+	}{
+		{"import \"time\"\n\nvar _ = New(time.Now)", []string{"time.Now"}},
+		{"import \"time\"\n\nfunc f() { time.NewTicker(time.Second); time.AfterFunc(0, nil); _ = time.Tick(1) }",
+			[]string{"time.NewTicker", "time.AfterFunc", "time.Tick"}},
+		{"import \"time\"\n\nfunc f() { time.Sleep(1); <-time.After(1); _ = time.Since(time.Time{}) }",
+			[]string{"time.Sleep", "time.After", "time.Since"}},
+		{"import clock \"time\"\n\nvar _ = clock.Now()", []string{"time.Now"}},
+		{"import . \"time\"\n\nvar _ = Now()", []string{"a dot import of time"}},
+		{"import \"os/exec\"\n\nvar _ = exec.Command", []string{"the import os/exec"}},
+		{"import \"os\"\n\nfunc f() { os.WriteFile(\"x\", nil, 0); os.MkdirAll(\"x\", 0); os.RemoveAll(\"x\") }",
+			[]string{"os.WriteFile", "os.MkdirAll", "os.RemoveAll"}},
+		{"import (\n\t\"os\"\n\t\"time\"\n)\n\n// time.Now() in a comment\nvar _ = \"time.Now() in a string\"\n\n" +
+			"func f(t interface{ TempDir() string }) {\n\t_ = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Minute)\n\t_ = t.TempDir()\n\tos.ReadFile(\"x\")\n}", nil},
+	} {
+		got, err := bannedUses("x.go", []byte("package x\n\n"+c.src+"\n"))
+		if err != nil {
+			t.Fatalf("%q: %v", c.src, err)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%q: the check found %v, want %v", c.src, got, c.want)
 		}
 	}
 }
