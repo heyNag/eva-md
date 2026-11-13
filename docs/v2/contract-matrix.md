@@ -112,8 +112,8 @@ Each track's interface is written by its first package, and IF-01 adds a fake of
 | Interface | Go name | Provider | Fake |
 | --- | --- | --- | --- |
 | The reader | `ledger.Reader` | LG-10 | `waits: IF-01b` |
-| The store | `store.Store` in `internal/store/api.go` | ST-01, ST-02 | `waits: IF-01c` |
-| The retrieval core | `retrieval.System` | DL-04 | `waits: IF-01c` |
+| The store | `store.Store` in `internal/store/api.go` | ST-01, ST-02 | `internal/store/storetest` |
+| The retrieval core | `retrieval.System` | DL-04 | `internal/eval/retrieval/retrievaltest` |
 | The runner | named by DV-11 | DV-11 | `waits: DV-11` |
 | ST-05, the store core | `store.Store` | ST-05 | `waits: IF-01c` |
 | LG-22, project identity | `internal/ledger/registry` (LG-22a, Stage 1): `ProjectID(key)`, the id of store-format.md section 3 from a key (v1's resolver key; `general` for the general area), the registry's types and a listing of projects with their kind; its fake `registrytest` holds one project per key and joins none | LG-22 | `waits: LG-22` |
