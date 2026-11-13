@@ -75,7 +75,7 @@ type Script struct {
 // Call is one recorded call.
 type Call struct {
 	Host    adapter.ID        `json:"host"`
-	Mode    string            `json:"mode"` // "version", "start" or "continue"
+	Mode    string            `json:"mode"` // "version", "start", "continue", or "other" for a call that is none
 	Args    []string          `json:"args"`
 	Env     []string          `json:"env"`   // every variable's name, sorted
 	Fixed   map[string]string `json:"fixed"` // HOME, PATH, TMPDIR, GIT_CONFIG_NOSYSTEM
@@ -139,7 +139,14 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		fmt.Fprintf(out, "%s (fake)\n", v)
 		return 0
 	}
-	parse(host.ID, &c)
+	if !parse(host.ID, &c) {
+		// Not a headless chat: recorded, and refused.
+		c.Mode = "other"
+		if err := record(s, c); err != nil {
+			return 3
+		}
+		return 2
+	}
 	calls, err := Read(s.Dir)
 	if err != nil {
 		return 3
@@ -191,8 +198,9 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 }
 
 // parse reads the prompt, the session continued and the model asked for
-// from the arguments, as the driver's host table writes them.
-func parse(id adapter.ID, c *Call) {
+// from the arguments, as the driver's host table writes them, and reports
+// whether they are a headless chat in that shape.
+func parse(id adapter.ID, c *Call) bool {
 	args := c.Args
 	value := func(flag string) string {
 		if i := slices.Index(args, flag); i >= 0 && i+1 < len(args) {
@@ -205,12 +213,16 @@ func parse(id adapter.ID, c *Call) {
 	case adapter.ClaudeCode:
 		c.Prompt = value("-p")
 		c.Session = value("--resume")
+		return slices.Contains(args, "-p")
 	case adapter.Codex:
-		if len(args) > 0 {
-			c.Prompt = args[len(args)-1]
+		if len(args) < 2 || args[0] != "exec" {
+			return false
 		}
+		c.Prompt = args[len(args)-1]
 		c.Session = value("resume")
+		return true
 	}
+	return false
 }
 
 func count(calls []Call, f func(Call) bool) int {
