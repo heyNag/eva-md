@@ -189,6 +189,23 @@ func TestCorrectionKeepsTheNewValue(t *testing.T) {
 				}
 			}
 		}
+		// The cost of the references, recorded: a store that keeps the
+		// corrected value in force but drops its reference has not kept the
+		// correction in full, as a dropped codename in v1's scenarios. Alone,
+		// the value scores value_dropped; beside the old value named as its
+		// history it scores stale_in_force, since only an item that holds
+		// the correction in full may name the old value while active. Read
+		// this family's numbers with both in mind.
+		if r := history(fixed.Slots[0].Value, fixedAt); r.Metrics.FactHolds == 1 || r.Metrics.WrongWrite != 1 || r.Metrics.StaleInForce != 0 ||
+			factResult(r, fixed.ID).Outcome != score.ValueDropped || r.Items[1].Outcome != score.ValueDropped {
+			t.Errorf("%s: the corrected value alone, without its reference, scores %+v, fact %s, item %s; the rule recorded is value_dropped",
+				sc.ID, r.Metrics, factResult(r, fixed.ID).Outcome, r.Items[1].Outcome)
+		}
+		if r := history(fixed.Slots[0].Value+", corrected from "+old.Slots[0].Value, oldAt, fixedAt); r.Metrics.FactHolds == 1 || r.Metrics.StaleInForce != 1 ||
+			r.Items[1].Outcome != score.StaleInForce {
+			t.Errorf("%s: the corrected value without its reference, naming the old one, scores %+v, item %s; the rule recorded is stale_in_force",
+				sc.ID, r.Metrics, r.Items[1].Outcome)
+		}
 		// The scorer's rule, recorded: an item that cites the agent's echo
 		// and holds the old value keeps the echo in force, though it holds
 		// the correction in full, since the echo ends at a line that plants
