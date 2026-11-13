@@ -71,4 +71,5 @@ var supportFiles = []struct{ file, holds string }{
 	{"setup_repo.go", "how setup creates the wiki's repo with gh or glab, checks that it is private and finds it to clone again"},
 	{"timelimits.go", "the time limits tests raise"},
 	{"timelimits_raised.go", "the tests' release stand-in, a build with the evamd_testlimits tag: it raises the time limits and sets hostOS to darwin"},
+	{"evalbuild.go", "the evaluation build, a build with the evamd_eval tag that no release carries: it sets hostOS to darwin and, in a hook with EVA_MD_EVAL_ACTOR=person, takes a Claude Code chat for a person's"},
 }
