@@ -62,7 +62,7 @@ The lead's rulings of 2026-11-13:
 3. **Codex's managed hooks are written inside the trial's home** until the pilot settles F-163. It is no trust record, and nothing outside the trial is written.
 4. The floor of 8 for a passed value, and the two refused variables, stand.
 
-A short second round on this card's files builds rulings 1 and 2, and with them: a test of a CLI that a signal killed after it had printed an answer; the check of a passed value against what a row will hold, made before the first trial and not at its rows; a relative path in a passed value resolved as the work folder's is; and tests that pass whatever `TMPDIR` is, since `go test ./cmd/eva-eval` with a `TMPDIR` under `/tmp` refuses its own work folder today.
+A second round on this card's files, merged the same day from `pkg/ev-17b-r2` after a verification that accepted it, built rulings 1 and 2 (so item 8's closed list now ends with `host_failed`), and with them: a test of a CLI that a signal killed after it had printed an answer; the check of a passed value against what a row will hold, made before the first trial and not at its rows; a relative path in a passed value resolved as the work folder's is; and tests that pass whatever `TMPDIR` is, since `go test ./cmd/eva-eval` with a `TMPDIR` under `/tmp` refuses its own work folder today.
 
 Every entry of the host table is the fake's own shape until the pilot (EV-03) records the real one: the flags of a headless chat and of its continuation, `--` before the prompt, what counts as an answer, how a sign-in failure and a rate limit read, the two configuration variables, and whether Codex reports a model.
 
@@ -70,3 +70,5 @@ Owed elsewhere:
 
 - **Grading can leak a hidden test** (EV-17a's `Grade`): it runs the chat's code beside the hidden files, at a known path inside the trial, so that code can copy them into the workspace before the next prompt, and it uses the invoking build cache. Before a real run, grading moves under another user or into the container, or the workspace is checked for hidden files before each prompt. The tasks folder is kept out of the container's reach. EV-17e's card takes this.
 - **For EV-17c:** the fake host answers `--version` and headless chats only; a setup step that runs the CLI's plugin commands needs more, from HO-14's fake or an addition under `drive/**`.
+
+**The pilot runs on this driver** (the lead's ruling of 2026-11-13, in the cards' index): the pilot's ten tasks are exported to this format (EV-03b), the driver gets its guards for a live run (EV-17g), and the v1 condition is EV-17c. So the pilot's sessions are this host table's first real ones, and what they show changes `hosts.go` alone.

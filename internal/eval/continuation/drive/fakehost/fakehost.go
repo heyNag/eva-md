@@ -17,8 +17,10 @@
 // appeared in a prompt of the session, and its solution/ overlay after. A
 // script can make it stall until it is killed, with a child holding its
 // output; leave such a child behind an answer; fail its sign-in, a rate
-// limit or with another status; exit having printed nothing; kill itself;
-// answer with no session, or at the turn bound; or name another model.
+// limit or with another status; exit having printed nothing; kill itself,
+// before an answer or after a whole one; answer with no session, or at the
+// turn bound; name another model, or none. Its failures can be kept to one
+// session and to the rounds of a session from one on.
 //
 // Only tests import it.
 package fakehost
@@ -83,14 +85,22 @@ type Script struct {
 	RateLimited bool `json:"rate_limited"`
 	Status      int  `json:"status"`
 	// Empty makes a call exit 1 having printed nothing; Killed makes it
-	// kill itself with SIGKILL.
-	Empty  bool `json:"empty"`
-	Killed bool `json:"killed"`
-	// From is the first round of a session the failures above (SignIn to
-	// Killed) apply to; 0 is the first.
+	// kill itself with SIGKILL; KilledAfter makes it print a whole answer,
+	// as usual, and then kill itself so.
+	Empty       bool `json:"empty"`
+	Killed      bool `json:"killed"`
+	KilledAfter bool `json:"killed_after"`
+	// From is the first round of a session the failures (SignIn to
+	// KilledAfter, and NoSession) apply to; 0 is the first.
 	From int `json:"from"`
+	// Session, when set, is the one session, by the number the fake gives
+	// it (1 for the first started), the failures apply to; the others
+	// answer as usual.
+	Session int `json:"session"`
 	// NoSession makes an answer name no session.
 	NoSession bool `json:"no_session"`
+	// NoModel makes an answer name no model anywhere.
+	NoModel bool `json:"no_model"`
 	// TurnBound makes an answer end at the turn bound, as the host says it,
 	// exiting 1 (Claude Code's shape; Codex's exec has no turn bound, and
 	// answers as usual).
@@ -218,7 +228,8 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 			prompts = append(prompts, x.Prompt)
 		}
 	}
-	if round := len(prompts); round >= s.From {
+	failing := len(prompts) >= s.From && (s.Session == 0 || c.Session == "fake-session-"+strconv.Itoa(s.Session))
+	if failing {
 		switch {
 		case s.Killed:
 			_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
@@ -238,13 +249,20 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		return 3
 	}
 	session := c.Session
-	if s.NoSession {
+	if s.NoSession && failing {
 		session = ""
+	}
+	if s.NoModel {
+		model = ""
 	}
 	if s.Leave && spawn("") != nil {
 		return 3
 	}
 	answer(host.ID, s, session, model, out)
+	if s.KilledAfter && failing {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+		block()
+	}
 	if s.TurnBound && host.ID == adapter.ClaudeCode {
 		return 1
 	}
@@ -452,24 +470,35 @@ func emit(out io.Writer, v any) {
 	fmt.Fprintf(out, "%s\n", line)
 }
 
-// answer writes an answer in the host's shape.
+// answer writes an answer in the host's shape. A model of "" is named
+// nowhere: Claude Code's result then gives its tokens by usage alone.
 func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
+	// withModel adds the model to an event under key, when there is one.
+	withModel := func(e map[string]any, key string) map[string]any {
+		if model != "" {
+			e[key] = model
+		}
+		return e
+	}
 	switch id {
 	case adapter.ClaudeCode:
-		emit(out, map[string]any{"type": "system", "subtype": "init", "session_id": session, "model": model})
+		emit(out, withModel(map[string]any{"type": "system", "subtype": "init", "session_id": session}, "model"))
 		for range s.Events {
 			emit(out, map[string]any{"type": "assistant", "session_id": session,
-				"message": map[string]any{"model": model, "content": []any{map[string]any{"type": "tool_use", "name": "Edit"}}}})
+				"message": withModel(map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "Edit"}}}, "model")})
 		}
 		emit(out, map[string]any{"type": "assistant", "session_id": session,
-			"message": map[string]any{"model": model, "content": []any{map[string]any{"type": "text", "text": "Done."}}}})
+			"message": withModel(map[string]any{"content": []any{map[string]any{"type": "text", "text": "Done."}}}, "model")})
 		subtype := "success"
 		if s.TurnBound {
 			subtype = "error_max_turns"
 		}
-		emit(out, map[string]any{"type": "result", "subtype": subtype, "is_error": s.TurnBound, "session_id": session,
-			"usage":      map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output},
-			"modelUsage": map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}})
+		result := map[string]any{"type": "result", "subtype": subtype, "is_error": s.TurnBound, "session_id": session,
+			"usage": map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output}}
+		if model != "" {
+			result["modelUsage"] = map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}
+		}
+		emit(out, result)
 	case adapter.Codex:
 		emit(out, map[string]any{"type": "thread.started", "thread_id": session})
 		emit(out, map[string]any{"type": "turn.started"})
@@ -477,8 +506,8 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 			emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution"}})
 		}
 		emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "Done."}})
-		emit(out, map[string]any{"type": "turn.completed", "model": model,
-			"usage": map[string]any{"input_tokens": s.Prompt, "cached_input_tokens": s.Cached, "output_tokens": s.Output}})
+		emit(out, withModel(map[string]any{"type": "turn.completed",
+			"usage": map[string]any{"input_tokens": s.Prompt, "cached_input_tokens": s.Cached, "output_tokens": s.Output}}, "model"))
 	}
 }
 
