@@ -51,3 +51,16 @@ DV-11a's files (the rig is used unchanged; a gap in it goes in the report), DV-1
 ## Read first, added by the lead on 2026-11-13
 
 DV-11a's page, under "As merged", holds four rules for this package that its builder could not have known when this page was written. Read them before the code.
+
+## As merged
+
+Merged from `pkg/dv-11b-r1` on 2026-11-13, after two reviews, one fix round and a verification that accepted it. Both reviews found the same major fault: the scan of a line, which the builder added beyond the card, walked its JSON by recursion with no limit, so one line of brackets from the host could end the whole process and leave the run's private folder behind. The scan now stops at 10,000 levels, the limit of Go's own JSON reader, and such a line is `host`.
+
+Accepted as built, beyond the card: the reader is stricter than v1's. A tool item's type at any depth of a line, in any letter case, is `tool_used`. These are `host`: a line of JSON that is not an object, a key given twice, a second value on a line, a `type` key anywhere but on the event and its item or in another letter case, and a key only a tool item carries outside one. `SPEC.md`, section 7, lists them with the backend's two signals.
+
+The lead's rulings of 2026-11-13, on the two points the builder, a reviewer each and the verifier left open:
+
+1. **An `error` event with a clean exit and no answer is named from its text**, and is `host` when no term matches, never `answer_invalid`. A host's limit is not the chat's fault, and the card's "else, a failed turn, an error event or a non-zero exit" could not be reached any other way. An error item, such as a reconnect notice, does not count as one.
+2. **A run in which the reader saw no known event is never `ok`.** With a clean exit it is `host`, whatever its answer, and with no answer too, where it was `answer_invalid`: the chat is not blamed for a stream nobody could read. A failed exit is still named from its error text as before, since a CLI that fails before its first event, as when it is not signed in or refuses a flag, prints none. As merged, a run with no event was `ok` when the CLI exited 0 with a valid answer, its only trace the signal for a skipped line: that is v1's rule, but a reader that saw nothing can vouch for nothing, and a host that stopped printing events would pass every tool unseen. A real run that ends well always prints one. A second round on this card's two files built it the same day, from `pkg/dv-11b-r2`, with the one test the verifier found missing (a key given twice does not stop the scan, so a tool later on the line is still a tool used); its commit carries this card's line too, and a verifier took the rule out, saw five tests fail, and found no run with no known event that still comes out `ok`.
+
+For whoever reads the design paper: `derive.md` 8.1 said an unknown Codex event is ignored unless it is an item. The card and the code make it `host`, and the paper's line now says so.

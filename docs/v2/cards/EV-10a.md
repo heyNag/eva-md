@@ -18,12 +18,28 @@
    - Item 2's limits hold for `docs/spec/`, `docs/decisions/` and the three indexes.
    - Each index names every heading of its old file against a file that holds it; `INDEX.md` and `docs/decisions.md` list exactly the files present; every path they name exists.
    - Every record's name, fields and date agree. Every relative link outside code resolves.
-7. **Prose tests replaced** (decision 15). Delete `TestVerificationCountsTheKeptLines` and `TestVerificationBulletsNameTheirPackages` from `cmd/eva-md/docs_test.go` (EV-10b brings back a cited-test check). `TestDesignsPassKeyExamples` (`internal/redact/passwords_test.go`) holds the keys it reads from design.md today and opens no file. `TestInstallScriptVersionPinThroughThePipe` (`cmd/eva-md/release_test.go`) drops its design.md check. `TestThePublicRepoUsesNeutralWording` (`cmd/eva-md/wording_test.go`) reads every `.md` under `docs/` at any depth, not only `docs/*.md`; `docs/v2` passes today.
+7. **Prose tests replaced** (decision 15). Delete `TestVerificationCountsTheKeptLines` and `TestVerificationBulletsNameTheirPackages` from `cmd/eva-md/docs_test.go` (EV-10b brings back a cited-test check). `TestDesignsPassKeyExamples` (`internal/redact/passwords_test.go`) holds the keys it reads from design.md today and opens no file. `TestInstallScriptVersionPinThroughThePipe` (`cmd/eva-md/release_test.go`) drops its design.md check. `TestThePublicRepoUsesNeutralWording` (`cmd/eva-md/wording_test.go`) reads every `.md` under `docs/` at any depth, not only `docs/*.md`; `docs/v2` passes today. `TestLowestRowIsTheLowestVersionRecorded` (`internal/host/adapter/spec_test.go`) reads `docs/*.md` for the host versions eva-md was checked on: it reads `docs/spec/*.md` too, so no version it sees today leaves its sight.
 8. **Pointers.** In `AGENTS.md`: the three "Read first" lines on design, decisions and verification, the phrase "docs/design.md still says what v1 does", and the rule "If a change alters behaviour, update docs/design.md ..." now name the specs, `## Since the split` and dated records. In `README.md`: the same three lines under "Documentation" and the `verification.md#live-accuracy-run` link.
 
 ## Owns and may touch
 
-`docs/spec/**` (new files only), `docs/decisions/**` (new), `docs/design.md`, `docs/verification.md`, `docs/decisions.md`, `internal/spec/**` (new), `cmd/eva-md/docs_test.go`, `cmd/eva-md/wording_test.go`, the one check in `cmd/eva-md/release_test.go`, `TestDesignsPassKeyExamples`, and the lines of `AGENTS.md` and `README.md` named in item 8.
+`docs/spec/**` (new files only), `docs/decisions/**` (new), `docs/design.md`, `docs/verification.md`, `docs/decisions.md`, `internal/spec/**` (new), `cmd/eva-md/docs_test.go`, `cmd/eva-md/wording_test.go`, the one check in `cmd/eva-md/release_test.go`, `TestDesignsPassKeyExamples`, `TestLowestRowIsTheLowestVersionRecorded`, and the lines of `AGENTS.md` and `README.md` named in item 8. `AGENTS.md` stays within 24,576 bytes.
+
+```paths
+docs/spec/**
+docs/decisions/**
+docs/design.md
+docs/verification.md
+docs/decisions.md
+internal/spec/**
+cmd/eva-md/docs_test.go
+cmd/eva-md/wording_test.go
+cmd/eva-md/release_test.go
+internal/redact/passwords_test.go
+internal/host/adapter/spec_test.go
+AGENTS.md
+README.md
+```
 
 ## Must not touch
 

@@ -18,6 +18,12 @@ What stays exactly as it is: every row's name, status, detail and fix, in the sa
 
 The non-test Go files of `internal/health`, changed only where a host is spelt; new test files in `internal/health`; in `cmd/eva-md/commands.go`, only the lines that spell a host; `internal/host/adapter/**` (the added fields and the count).
 
+```paths
+internal/health/**
+cmd/eva-md/commands.go
+internal/host/adapter/**
+```
+
 ## Must not touch
 
 Existing test files of `internal/health` and `cmd/eva-md`, which pass unchanged. `internal/hook/**`, `internal/update/**`, `internal/mcp/**`, `internal/install/**`, `internal/catchup/**`, and every other file of `cmd/eva-md`.
