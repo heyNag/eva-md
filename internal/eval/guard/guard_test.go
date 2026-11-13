@@ -212,7 +212,7 @@ func (h *history) commit(message string, files map[string]string) string {
 		write(h.t, path, content)
 		gitIn(h.t, h.repo, "add", "--", name)
 	}
-	gitIn(h.t, h.repo, "commit", "--quiet", "--allow-empty", "-m", message)
+	gitIn(h.t, h.repo, "commit", "--quiet", "--allow-empty", "--cleanup=verbatim", "-m", message)
 	return gitIn(h.t, h.repo, "rev-parse", "HEAD")
 }
 
@@ -283,11 +283,17 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 		"e/x.go":                "package e\n",
 	})
 	lead := h.commit("the lead's, anywhere", map[string]string{"anywhere/x.go": "package x\n", "keep.go": ""})
-	notTrailer := h.commit("Card: AA-1\n\nA line that is not a trailer, since the message goes on.\n\nMore.", map[string]string{"zz.go": "package zz\n"})
+	// A commit that lands a package carries its Card: line straight after
+	// the subject, where git does not read it as a trailer, and the
+	// session's lines in its last paragraph.
+	landed := h.commit("Lands a package\n\nCard: AA-1\n\nWhat changed, and why, over\ntwo lines.\n\nA second paragraph.\n\nCo-Authored-By: A Fixture <fixture@example.invalid>\nSession: https://example.invalid/s/1", map[string]string{"zz.go": "package zz\n"})
+	landedInside := h.commit("Lands inside\n\nCard: AA-1\r\n\nWhat changed.\n\nCo-Authored-By: A Fixture <fixture@example.invalid>", map[string]string{"a/landed.go": "package a\n"})
+	// No line that names a card in another form is read as one.
+	notCard := h.commit("Card AA-1: a subject that only starts with the word\n\nCard: AA-1 and AA-2\n  Card: AA-1\nThe Card: AA-1 line\nCard:\n\nCards: AA-1", map[string]string{"zz.go": "package zz\n\nvar Z int\n"})
 
-	got := h.judge(base, notTrailer)
-	if len(got) != 13 {
-		t.Fatalf("judged %d commits, want 13", len(got))
+	got := h.judge(base, notCard)
+	if len(got) != 15 {
+		t.Fatalf("judged %d commits, want 15", len(got))
 	}
 	if _, ok := got[base]; ok {
 		t.Error("the range's first commit is judged")
@@ -308,21 +314,29 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 	}
 	expectFaults(t, "missing", got[missing], "AA-9: the card docs/v2/cards/AA-9.md does not exist")
 	expectFaults(t, "no block", got[noBlock], "AA-3: the card docs/v2/cards/AA-3.md has no paths block")
-	expectFaults(t, "not an id", got[notAnID], "../AA-1: the trailer names no card")
+	expectFaults(t, "not an id", got[notAnID], "../AA-1: the Card: line names no card")
 	expectFaults(t, "widens", got[widens], "AA-1: the commit widens its card's paths block with d/**", "AA-1: the commit widens its card's paths block with docs/v2/cards/AA-1.md")
 	expectFaults(t, "narrows", got[narrows], "AA-2: the commit widens its card's paths block with docs/v2/cards/AA-2.md")
 	expectFaults(t, "new card", got[newCard])
 	if j := got[lead]; !j.Lead() || len(j.Faults) != 0 || j.Paths != 2 {
 		t.Errorf("the lead's commit: %+v", j)
 	}
-	if j := got[notTrailer]; !j.Lead() {
-		t.Errorf("a Card: line that is no trailer is read: %+v", j)
+	expectFaults(t, "landed", got[landed], "AA-1: zz.go is outside the card's paths")
+	if j := got[landed]; !slices.Equal(j.Cards, []string{"AA-1"}) {
+		t.Errorf("landed: cards %q", j.Cards)
+	}
+	expectFaults(t, "landed inside", got[landedInside])
+	if j := got[landedInside]; !slices.Equal(j.Cards, []string{"AA-1"}) || j.Paths != 1 {
+		t.Errorf("landed inside: %+v", j)
+	}
+	if j := got[notCard]; !j.Lead() {
+		t.Errorf("a line in another form is read as a Card: line: %+v", j)
 	}
 
 	// The card is read from the commit's own tree: at the commit that
 	// widened it, AA-1 owned d/**, and later d/x.go is still its own.
 	later := h.commit("inside the widened card\n\nCard: AA-1", map[string]string{"d/x.go": "package d\n\nvar D int\n"})
-	expectFaults(t, "later", h.judge(notTrailer, later)[later])
+	expectFaults(t, "later", h.judge(notCard, later)[later])
 }
 
 // A merge is judged on its diff against its first parent; the commits it

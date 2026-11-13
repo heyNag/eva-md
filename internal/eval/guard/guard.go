@@ -24,8 +24,11 @@
 // leading "/" or "./", no "." or ".." name, and "**" only as the last name
 // of a folder entry.
 //
-// A commit names its cards with "Card: <ID>" trailers, one card a trailer.
-// The card index, docs/v2/cards/README.md, gives each card's state in the
+// A commit names its cards with lines that read "Card: <ID>", one card a
+// line, each alone on its line wherever it stands in the message: a
+// commit that lands a package carries it straight after the subject,
+// which git's own reading of trailers does not find. A commit with no
+// such line is the lead's, listed and not judged. The card index, docs/v2/cards/README.md, gives each card's state in the
 // last column of its table; a card whose state begins with "merged" is
 // merged.
 package guard

@@ -33,7 +33,7 @@ func TestPathsCommand(t *testing.T) {
 
 	code, out, errOut := cmd("paths", "--repo", repo, base, lead)
 	want := inside[:12] + " AA-1: its 1 paths are inside its card's paths\n" +
-		lead[:12] + " has no Card: trailer: the lead's, not judged (1 paths)\n" +
+		lead[:12] + " has no Card: line: the lead's, not judged (1 paths)\n" +
 		"2 commits: 1 judged, 1 the lead's; 0 faults.\n"
 	if code != 0 || out != want || errOut != "" {
 		t.Fatalf("%d\n%s\nwant\n%s%s", code, out, want, errOut)

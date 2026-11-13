@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -13,19 +14,19 @@ import (
 // A Judgement is what the ownership check found of one commit.
 type Judgement struct {
 	Commit string   // the commit's id
-	Cards  []string // the cards its Card: trailers name; none for the lead's
+	Cards  []string // the cards its Card: lines name; none for the lead's
 	Paths  int      // the paths its diff touches, a rename counted as two
 	Faults []string // one line for each fault, naming its card and path
 }
 
 // Lead reports whether the commit is the lead's: one with no Card:
-// trailer, which is listed and not judged.
+// line, which is listed and not judged.
 func (j Judgement) Lead() bool { return len(j.Cards) == 0 }
 
 // Ownership judges each first-parent commit in from..to, oldest first, on
 // its diff against its first parent: every path it adds, changes or
 // deletes, a rename as the two paths, must be inside the union of the
-// paths blocks of the cards its Card: trailers name, each card read from
+// paths blocks of the cards its Card: lines name, each card read from
 // the commit's own tree. A card that does not exist, a card with no paths
 // block, and a commit that widens the paths block its card had in the
 // first parent are faults too. The commits a merge brings in by its second
@@ -38,7 +39,7 @@ func Ownership(ctx context.Context, repo, from, to string) ([]Judgement, error) 
 		}
 	}
 	log, err := git(ctx, repo, "log", "--no-show-signature", "--first-parent", "--reverse",
-		"--format=%H%x1f%P%x1f%(trailers:key=Card,valueonly,unfold,separator=%x1e)%x00", from+".."+to)
+		"--format=%H%x1f%P%x1f%B%x00", from+".."+to)
 	if err != nil {
 		return nil, fmt.Errorf("guard: cannot read the commits: %w", err)
 	}
@@ -48,7 +49,7 @@ func Ownership(ctx context.Context, repo, from, to string) ([]Judgement, error) 
 		if record == "" {
 			continue
 		}
-		fields := strings.Split(record, "\x1f")
+		fields := strings.SplitN(record, "\x1f", 3)
 		if len(fields) != 3 {
 			return nil, errors.New("guard: git printed a commit in a form it does not know")
 		}
@@ -62,12 +63,21 @@ func Ownership(ctx context.Context, repo, from, to string) ([]Judgement, error) 
 	return out, nil
 }
 
-// cardsOf splits the trailers' values, dropping repeats.
-func cardsOf(values string) []string {
+// cardLine is a line of a commit's message that names a card: "Card:" and
+// one word, alone on its line.
+var cardLine = regexp.MustCompile(`^Card:[ \t]*(\S+)[ \t]*$`)
+
+// cardsOf returns the cards a commit's message names, in its order and
+// without repeats: the word of each Card: line, wherever the line stands.
+// A commit that lands a package carries its line straight after the
+// subject, where git does not read it as a trailer; a line in the last
+// paragraph, as a trailer, is read too.
+func cardsOf(message string) []string {
 	var cards []string
-	for _, v := range strings.Split(values, "\x1e") {
-		if v = strings.TrimSpace(v); v != "" && !slices.Contains(cards, v) {
-			cards = append(cards, v)
+	for _, line := range strings.Split(message, "\n") {
+		m := cardLine.FindStringSubmatch(strings.TrimRight(line, "\r"))
+		if m != nil && !slices.Contains(cards, m[1]) {
+			cards = append(cards, m[1])
 		}
 	}
 	return cards
@@ -133,7 +143,7 @@ func judge(ctx context.Context, repo, commit, parent string, cards []string) (Ju
 func cardPaths(ctx context.Context, repo, commit, card string) ([]Pattern, string) {
 	file := CardFile(card)
 	if file == "" {
-		return nil, "the trailer names no card: a card's id is like EV-11"
+		return nil, "the Card: line names no card: a card's id is like EV-11"
 	}
 	text, err := git(ctx, repo, "cat-file", "blob", commit+":"+file)
 	if err != nil {

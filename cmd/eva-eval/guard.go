@@ -14,8 +14,8 @@ import (
 // paths its cards own, and eva-eval size that the Go built into eva-md,
 // net of v1 lines scheduled for deletion, is within v1's size. Both exit
 // 0 when the check holds, 1 when it fails, and 2 for a usage error or a
-// repository they cannot read. The blocks a card carries and the trailer a
-// commit carries are in the guard package's doc comment.
+// repository they cannot read. The blocks a card carries and the Card: line
+// a commit carries are in the guard package's doc comment.
 func init() {
 	register(instrument{
 		name:     "paths",
@@ -49,7 +49,7 @@ func pathsCommand(ctx context.Context, args []string, out, errOut io.Writer) int
 		switch {
 		case j.Lead():
 			lead++
-			fmt.Fprintf(out, "%s has no Card: trailer: the lead's, not judged (%d paths)\n", id, j.Paths)
+			fmt.Fprintf(out, "%s has no Card: line: the lead's, not judged (%d paths)\n", id, j.Paths)
 		case len(j.Faults) == 0:
 			fmt.Fprintf(out, "%s %s: its %d paths are inside its card's paths\n", id, strings.Join(j.Cards, ", "), j.Paths)
 		}
