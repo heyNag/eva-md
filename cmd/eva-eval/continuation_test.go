@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -92,8 +96,52 @@ func TestContinuationIsRegistered(t *testing.T) {
 	if code != 2 || !strings.Contains(errOut, "eva-eval continuation run --tasks DIR") || !strings.Contains(errOut, "eva-eval continuation check --tasks DIR --repos DIR") {
 		t.Fatalf("exit %d\n%s", code, errOut)
 	}
-	if code, _, errOut := cmd("nothing"); code != 2 || !strings.Contains(errOut, "eva-eval continuation run") {
+	if code, _, errOut := cmd("nothing"); code != 2 || !strings.Contains(errOut, "eva-eval continuation <command> ...") {
 		t.Fatalf("eva-eval's usage: %d\n%s", code, errOut)
+	}
+}
+
+// A command another file adds to the continuation's map runs as a
+// subcommand, with the arguments after its name, and its usage line is
+// listed; a name taken, or not of lower-case letters and dashes, or a
+// command with no usage line, is refused.
+func TestContinuationCommandsAreAMap(t *testing.T) {
+	var got []string
+	addContinuation("made-up", continuationCommand{synopsis: "made-up --flag N", run: func(_ context.Context, args []string, out, _ io.Writer) int {
+		got = args
+		fmt.Fprintln(out, "made-up ran")
+		return 7
+	}})
+	t.Cleanup(func() { delete(continuationCommands, "made-up") })
+	code, out, _ := cmd("continuation", "made-up", "--flag", "3")
+	if code != 7 || out != "made-up ran\n" || !slices.Equal(got, []string{"--flag", "3"}) {
+		t.Fatalf("exit %d, args %v\n%s", code, got, out)
+	}
+	if code, _, errOut := cmd("continuation"); code != 2 || !strings.Contains(errOut, "\n  eva-eval continuation made-up --flag N\n") ||
+		!strings.Contains(errOut, "\n  eva-eval continuation check --tasks DIR") {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	for name, c := range map[string]struct {
+		name string
+		cmd  continuationCommand
+	}{
+		"taken":           {"run", continuationCommand{synopsis: "run", run: continuationRun}},
+		"not a name":      {"Made_Up", continuationCommand{synopsis: "Made_Up", run: continuationRun}},
+		"no usage line":   {"other", continuationCommand{run: continuationRun}},
+		"nothing to run":  {"other", continuationCommand{synopsis: "other"}},
+		"two usage lines": {"other", continuationCommand{synopsis: "other\nmore", run: continuationRun}},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: added", name)
+				}
+			}()
+			addContinuation(c.name, c.cmd)
+		}()
+	}
+	if _, ok := continuationCommands["other"]; ok {
+		t.Fatal("a refused command was added")
 	}
 }
 

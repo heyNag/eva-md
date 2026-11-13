@@ -6,44 +6,82 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/heyNag/eva-md/internal/eval/continuation/drive"
 	"github.com/heyNag/eva-md/internal/eval/continuation/task"
 )
 
-// eva-eval continuation runs the continuation instrument (EV-17): run
-// drives a condition's trials on a host's CLI and writes their rows, and
-// check checks tasks offline. Their output holds ids and figures only.
+// eva-eval continuation holds the continuation instrument's commands
+// (EV-17), each "eva-eval continuation <name> ...": this file adds run,
+// which drives a condition's trials on a host's CLI and writes their rows,
+// and check, which checks tasks offline. Another file adds its own command
+// to continuationCommands with addContinuation, from its init, so no
+// command's file edits this one. Their output holds ids and figures only.
 func init() {
 	register(instrument{
 		name:     "continuation",
-		synopsis: "continuation run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--spend-model-quota] | check --tasks DIR --repos DIR",
+		synopsis: "continuation <command> ...: the continuation instrument's commands, which eva-eval continuation lists",
 		run:      continuation,
+	})
+	addContinuation("run", continuationCommand{
+		synopsis: "run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--spend-model-quota]",
+		run:      continuationRun,
+	})
+	addContinuation("check", continuationCommand{
+		synopsis: "check --tasks DIR --repos DIR   (its scratch copies go in TMPDIR)",
+		run:      continuationCheck,
 	})
 }
 
-const continuationUsage = `usage:
-  eva-eval continuation run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--spend-model-quota]
-  eva-eval continuation check --tasks DIR --repos DIR   (its scratch copies go in TMPDIR)`
+// continuationCommand is a command of eva-eval continuation.
+type continuationCommand struct {
+	synopsis string // its usage line, after "eva-eval continuation "
+	run      func(ctx context.Context, args []string, out, errOut io.Writer) int
+}
 
+// continuationCommands holds the continuation's commands, by name.
+var continuationCommands = map[string]continuationCommand{}
+
+// addContinuation adds a command of eva-eval continuation. It panics on a
+// name that is taken or not lower-case letters and dashes, or on a command
+// with no usage line or nothing to run: each is a mistake in the program.
+func addContinuation(name string, c continuationCommand) {
+	_, taken := continuationCommands[name]
+	switch {
+	case taken:
+		panic("eva-eval: the continuation command " + name + " is added twice")
+	case name == "" || strings.Trim(name, "abcdefghijklmnopqrstuvwxyz-") != "":
+		panic("eva-eval: a continuation command's name is lower-case letters and dashes, not " + fmt.Sprintf("%q", name))
+	case !strings.HasPrefix(c.synopsis, name) || strings.Contains(c.synopsis, "\n") || c.run == nil:
+		panic("eva-eval: the continuation command " + name + " needs a usage line that starts with its name, and something to run")
+	}
+	continuationCommands[name] = c
+}
+
+// continuationFail reports a usage error with the continuation's
+// commands, by name, and returns 2.
 func continuationFail(w io.Writer, msg string) int {
-	fmt.Fprintln(w, "eva-eval: "+msg+"\n"+continuationUsage)
+	text := "eva-eval: " + msg + "\nusage:"
+	for _, name := range slices.Sorted(maps.Keys(continuationCommands)) {
+		text += "\n  eva-eval continuation " + continuationCommands[name].synopsis
+	}
+	fmt.Fprintln(w, text)
 	return 2
 }
 
 func continuation(ctx context.Context, args []string, out, errOut io.Writer) int {
 	if len(args) == 0 {
-		return continuationFail(errOut, "continuation needs run or check")
+		return continuationFail(errOut, "continuation needs a command")
 	}
-	switch args[0] {
-	case "run":
-		return continuationRun(ctx, args[1:], out, errOut)
-	case "check":
-		return continuationCheck(ctx, args[1:], out, errOut)
+	c, ok := continuationCommands[args[0]]
+	if !ok {
+		return continuationFail(errOut, "there is no continuation command "+args[0])
 	}
-	return continuationFail(errOut, "there is no continuation command "+args[0])
+	return c.run(ctx, args[1:], out, errOut)
 }
 
 // names is a flag that may be given more than once.
