@@ -160,10 +160,19 @@ The second round's rule (EV-16b) is the gate's from the commit that merged it, a
 | 129 | c62f93b | not judged |
 | 130 | 0de4141 | not judged |
 | 131 | e38176b | not judged |
+| 132 | 06f0cf7 | not judged |
+| 133 | d63a644 | not judged |
+| 134 | 3593796 | not judged |
+| 135 | 4faf7c6 | not judged |
+| 136 | 33ece1c | not judged |
+| 137 | 63dfbfa | not judged |
+| 138 | f5c0d69 | not judged |
+| 139 | d07758a | pass |
+| 140 | f1de822 | not judged |
 
 Run 110 is the second rule's first: every figure but one was too noisy to judge. The job had waited its five minutes, and the load was still 8.9 on 3 CPUs, down from 40 when the machine started.
 
-Of these twenty-two runs the rule judged one, run 120, whose job began timing at a load of 2.9. Where the lead read the others (runs 119 to 131), most began at loads of 4.6 to 17 after the same wait, and runs 128 and 129 began at 2.6 and were still too noisy to judge. So on CI's runner the second rule seldom gives a verdict, and the count stands at 0: run 120's push changed files under `internal/`, though none the binary is built from, so by the rule above it counts neither way. Three of these runs changed what a hook runs: 119 (install and setup ask the host adapter), 121 (the hook's handler list) and 126 (redaction can run the current rules alone, behind a switch that is off). None was judged. What stands in for a verdict there is each run's `latency` artifact, which holds the new binary's own figures on macOS: every figure was inside its target in runs 119 to 124, and the ratios of new to old lay on both sides of 1. In run 125 one figure was outside its target: the prompt with pointers read 52.8 ms against 50, at a load of 13.8, on a commit that changed no package the binary holds, where the run before had read 35.0 ms. In runs 126 and 127 every figure was inside its target again, and for run 126's change the gate on a quiet Linux machine judged all 19 figures and passed. Runs 128 to 131 were of commits that changed documents only: in runs 129 and 130 one and two prompt figures read 51 to 54 ms against 50, as in run 125, and in runs 128 and 131 none did. The third round (EV-16d) takes up a rule that can judge on this runner.
+Of these thirty-one runs the rule judged two: run 120, whose job began timing at a load of 2.9, and run 139, which began at 10.9 and passed. Where the lead read the others (runs 119 to 140), they began at loads of 2.6 to 17 after the same wait and were too noisy to judge. So on CI's runner the second rule seldom gives a verdict. The count stands at 1: run 139's push changed documents only, so it counts, and run 120's changed files under `internal/`, though none the binary is built from, so by the rule above it counts neither way. Four of these runs changed what a hook runs: 119 (install and setup ask the host adapter), 121 (the hook's handler list), 126 (redaction can run the current rules alone, behind a switch that is off) and 137 (the words of an identity error, and one line of the command's table). None of the hook changes was judged on CI. What stands in for a verdict there is each run's `latency` artifact, which holds the new binary's own figures on macOS, and the gate on a quiet Linux machine, which judged all 19 figures and passed for run 126's change and for run 137's. In the runs the lead read, every figure was inside its target on macOS but in four, each on a busy runner and on a commit that changed no package the binary holds: run 125 (the prompt with pointers, 52.8 ms against 50), runs 129 and 130 (one and two prompt figures at 51 to 54 ms) and run 132 (one figure). The third round (EV-16d) takes up a rule that can judge on this runner.
 
 ## What the counters cost
 

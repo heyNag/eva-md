@@ -43,14 +43,14 @@ Rules every card carries, so they are said once here:
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | after DV-03a |
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
-| [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | ready |
+| [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | building since 2026-11-13 |
 | [EV-03b](EV-03b.md) | The pilot's driver | after EV-03a; the live run waits for the owner's leave, a ceiling and decision 28's keys |
 | [EV-03c](EV-03c.md) | The pilot's report and its README | after EV-03a; beside EV-03b |
 | [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | ready; merges before DV-13 |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
-| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | building since 2026-11-13; a first builder was cut off part way and left nothing |
+| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | merged; open for the host sittings: whether Codex keeps a plugin's approvals when it is removed |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records, and a card is owed for a hook test that depends on speed |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | building since 2026-11-13 |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
