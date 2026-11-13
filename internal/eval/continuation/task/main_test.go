@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -116,10 +117,31 @@ func run(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	if err := telemetryOff(home); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	os.Setenv("HOME", home)
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	os.Setenv("GIT_CONFIG_GLOBAL", config)
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	return m.Run()
+}
+
+// telemetryOff turns Go's telemetry off in home, where Go keeps its mode
+// (os.UserConfigDir's folder): a go command run with that home otherwise
+// leaves a process behind that writes into it after the command ends, while
+// the tests remove it.
+func telemetryOff(home string) error {
+	config := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		config = filepath.Join(home, "Library", "Application Support")
+	}
+	dir := filepath.Join(config, "go", "telemetry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "mode"), []byte("off\n"), 0o600)
 }
 
 // fixtures is the folder of the package's tasks, and repos its
