@@ -103,7 +103,8 @@ func TestSchemasAreStrict(t *testing.T) {
 	}
 }
 
-// TestSchemaTakesTheTable: the schema's bounds and enums are the
+// TestSchemaTakesTheTable: the bounds and enums of the schema and of the
+// repair schema, the operation inside its anyOf included, are the
 // contract's table.
 func TestSchemaTakesTheTable(t *testing.T) {
 	enum := func(v any) []string {
@@ -115,10 +116,8 @@ func TestSchemaTakesTheTable(t *testing.T) {
 		}
 		return out
 	}
-	for _, f := range Forms {
-		s := parseSchema(t, Schema(f))["properties"].(map[string]any)
-		ops := s["ops"].(map[string]any)
-		op := ops["items"].(map[string]any)["properties"].(map[string]any)
+	checkOp := func(where string, opNode any) {
+		op := opNode.(map[string]any)["properties"].(map[string]any)
 		ev := op["ev"].(map[string]any)
 		span := ev["items"].(map[string]any)["properties"].(map[string]any)
 		for _, c := range []struct {
@@ -129,18 +128,223 @@ func TestSchemaTakesTheTable(t *testing.T) {
 			{"kind", enum(op["kind"]), append(slices.Clone(itemKinds), noteKinds...)},
 			{"admit", enum(op["admit"]), admits},
 			{"as", enum(span["as"]), roles},
-			{"nothing", enum(s["nothing"]), nothings},
 		} {
 			if !slices.Equal(c.got, c.want) {
-				t.Errorf("%s: %s takes %v, want %v", f, c.name, c.got, c.want)
+				t.Errorf("%s: %s takes %v, want %v", where, c.name, c.got, c.want)
 			}
 		}
-		if ops["maxItems"] != float64(MaxOps) || ev["minItems"] != float64(MinSpans) || ev["maxItems"] != float64(MaxSpans) {
-			t.Errorf("%s: bounds %v, %v and %v", f, ops["maxItems"], ev["minItems"], ev["maxItems"])
+		if ev["minItems"] != float64(MinSpans) || ev["maxItems"] != float64(MaxSpans) {
+			t.Errorf("%s: ev bounds %v and %v", where, ev["minItems"], ev["maxItems"])
 		}
-		if len(itemKinds) != 5 || len(admits) != 7 || len(noteKinds) != 4 || len(opNames) != 8 {
-			t.Error("the table's enums are not the card's")
+	}
+	for _, f := range Forms {
+		s := parseSchema(t, Schema(f))["properties"].(map[string]any)
+		ops := s["ops"].(map[string]any)
+		checkOp(string(f)+" schema", ops["items"])
+		if got := enum(s["nothing"]); !slices.Equal(got, nothings) {
+			t.Errorf("%s: nothing takes %v, want %v", f, got, nothings)
 		}
+		if ops["maxItems"] != float64(MaxOps) {
+			t.Errorf("%s: ops bound %v", f, ops["maxItems"])
+		}
+		fixes := parseSchema(t, RepairSchema(f))["properties"].(map[string]any)["fixes"].(map[string]any)
+		if fixes["maxItems"] != float64(MaxOps) {
+			t.Errorf("%s: fixes bound %v", f, fixes["maxItems"])
+		}
+		anyOf := fixes["items"].(map[string]any)["properties"].(map[string]any)["op"].(map[string]any)["anyOf"].([]any)
+		if len(anyOf) != 2 {
+			t.Fatalf("%s: a fix's op is any of %d", f, len(anyOf))
+		}
+		checkOp(string(f)+" repair schema", anyOf[0])
+	}
+	if len(itemKinds) != 5 || len(admits) != 7 || len(noteKinds) != 4 || len(opNames) != 8 {
+		t.Error("the table's enums are not the card's")
+	}
+}
+
+// propertyOrders reads a schema token by token and gives, for each object
+// under a "properties" key, its keys in the order they are written, and for
+// each "required" list its names, by path.
+func propertyOrders(t *testing.T, data []byte) map[string][]string {
+	t.Helper()
+	out := map[string][]string{}
+	d := json.NewDecoder(strings.NewReader(string(data)))
+	var walk func(at string) []string
+	walk = func(at string) []string {
+		tok, err := d.Token()
+		if err != nil {
+			t.Fatalf("%s: %v", at, err)
+		}
+		delim, ok := tok.(json.Delim)
+		if !ok {
+			if s, ok := tok.(string); ok {
+				return []string{s}
+			}
+			return nil
+		}
+		var keys, strs []string
+		for i := 0; d.More(); i++ {
+			if delim == '[' {
+				strs = append(strs, walk(fmt.Sprintf("%s[%d]", at, i))...)
+				continue
+			}
+			kt, err := d.Token()
+			if err != nil {
+				t.Fatalf("%s: %v", at, err)
+			}
+			k := kt.(string)
+			keys = append(keys, k)
+			got := walk(at + "." + k)
+			if k == "required" {
+				out[at+".required"] = got
+			}
+		}
+		if _, err := d.Token(); err != nil {
+			t.Fatalf("%s: %v", at, err)
+		}
+		if delim == '{' && strings.HasSuffix(at, ".properties") {
+			out[at] = keys
+		}
+		return strs
+	}
+	walk("")
+	return out
+}
+
+// TestSchemaKeysInTheCardsOrder: every object of both schemas lists its
+// properties, and requires them, in the card's order, since a strict mode
+// writes an answer's keys in that order: ops then nothing; op, id, kind,
+// text, admit and ev; e, q or s, and as; index then op.
+func TestSchemaKeysInTheCardsOrder(t *testing.T) {
+	op := []string{"op", "id", "kind", "text", "admit", "ev"}
+	for _, f := range Forms {
+		span := []string{"e", "q", "as"}
+		if f == FormSegments {
+			span = []string{"e", "s", "as"}
+		}
+		for name, c := range map[string]struct {
+			data []byte
+			want map[string][]string
+		}{
+			"schema": {Schema(f), map[string][]string{
+				".properties":                      {"ops", "nothing"},
+				".properties.ops.items.properties": op,
+				".properties.ops.items.properties.ev.items.properties": span,
+			}},
+			"repair schema": {RepairSchema(f), map[string][]string{
+				".properties":                        {"fixes"},
+				".properties.fixes.items.properties": {"index", "op"},
+				".properties.fixes.items.properties.op.anyOf[0].properties":                     op,
+				".properties.fixes.items.properties.op.anyOf[0].properties.ev.items.properties": span,
+			}},
+		} {
+			got := propertyOrders(t, c.data)
+			for at, want := range c.want {
+				if !slices.Equal(got[at], want) {
+					t.Errorf("%s %s: %s lists %v, want %v", f, name, at, got[at], want)
+				}
+				if req := got[strings.TrimSuffix(at, ".properties")+".required"]; !slices.Equal(req, want) {
+					t.Errorf("%s %s: %s requires %v, want %v", f, name, at, req, want)
+				}
+			}
+			n := 0
+			for at := range got {
+				if strings.HasSuffix(at, ".properties") {
+					n++
+				}
+			}
+			if n != len(c.want) {
+				t.Errorf("%s %s: %d objects, want %d", f, name, n, len(c.want))
+			}
+		}
+	}
+	// The reader sees the order a map would lose.
+	if got := propertyOrders(t, []byte(`{"properties":{"b":{},"a":{}},"required":["b","a"]}`)); !slices.Equal(got[".properties"], []string{"b", "a"}) ||
+		!slices.Equal(got[".required"], []string{"b", "a"}) {
+		t.Errorf("the order reader gives %v", got)
+	}
+}
+
+// nullability gives, for each property of a schema by its path of property
+// names, whether it takes null, and lists a property that takes null only
+// in part: a nullable type whose enum lacks null, or the reverse.
+func nullability(node map[string]any, at string, out map[string]bool) []string {
+	var problems []string
+	props, _ := node["properties"].(map[string]any)
+	for k, v := range props {
+		child := v.(map[string]any)
+		path := strings.TrimPrefix(at+"/"+k, "/")
+		typeNull := false
+		switch ty := child["type"].(type) {
+		case string:
+			typeNull = ty == "null"
+		case []any:
+			typeNull = slices.Contains(ty, any("null"))
+		}
+		if enum, ok := child["enum"].([]any); ok && slices.Contains(enum, nil) != typeNull {
+			problems = append(problems, path+": its type and its enum disagree on null")
+		}
+		var alternatives []any
+		if anyOf, ok := child["anyOf"].([]any); ok {
+			for _, alt := range anyOf {
+				if alt.(map[string]any)["type"] == "null" {
+					typeNull = true
+				} else {
+					alternatives = append(alternatives, alt)
+				}
+			}
+		}
+		out[path] = typeNull
+		if items, ok := child["items"].(map[string]any); ok {
+			alternatives = append(alternatives, items)
+		}
+		alternatives = append(alternatives, child)
+		for _, alt := range alternatives {
+			problems = append(problems, nullability(alt.(map[string]any), path, out)...)
+		}
+	}
+	return problems
+}
+
+// TestSchemaNullability: in both schemas exactly id, kind, text, admit,
+// nothing and a fix's op take null, a nullable enum lists null, and op, ev,
+// e, q or s, as, ops, fixes and index never do, as SPEC.md says.
+func TestSchemaNullability(t *testing.T) {
+	op := func(prefix string, evidence string) map[string]bool {
+		m := map[string]bool{}
+		for k, null := range map[string]bool{"op": false, "id": true, "kind": true, "text": true, "admit": true, "ev": false,
+			"ev/e": false, "ev/" + evidence: false, "ev/as": false} {
+			m[prefix+k] = null
+		}
+		return m
+	}
+	for _, f := range Forms {
+		evidence := "q"
+		if f == FormSegments {
+			evidence = "s"
+		}
+		schema := op("ops/", evidence)
+		schema["ops"], schema["nothing"] = false, true
+		repair := op("fixes/op/", evidence)
+		repair["fixes"], repair["fixes/index"], repair["fixes/op"] = false, false, true
+		for name, c := range map[string]struct {
+			data []byte
+			want map[string]bool
+		}{"schema": {Schema(f), schema}, "repair schema": {RepairSchema(f), repair}} {
+			got := map[string]bool{}
+			for _, p := range nullability(parseSchema(t, c.data), "", got) {
+				t.Errorf("%s %s: %s", f, name, p)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(c.want) {
+				t.Errorf("%s %s: nullable %v, want %v", f, name, got, c.want)
+			}
+		}
+	}
+	// The check sees an enum that has lost its null, and a null type with no
+	// null in its enum.
+	bad := `{"properties":{"a":{"type":["string","null"],"enum":["x"]},"b":{"type":"string","enum":["x",null]}}}`
+	if got := nullability(parseSchema(t, []byte(bad)), "", map[string]bool{}); len(got) != 2 {
+		t.Errorf("the nullability check finds %q", got)
 	}
 }
 
@@ -229,6 +433,40 @@ func TestPromptWritesEveryCode(t *testing.T) {
 		extra := append(slices.Clone(Codes), Code{ID: "read_only_target", Sentence: "Its target may not be changed."})
 		if m := missingCodes(Prompt(f), extra); !slices.Equal(m, []string{"read_only_target"}) {
 			t.Errorf("%s: the check misses a code with no sentence: %v", f, m)
+		}
+	}
+}
+
+var number = regexp.MustCompile(`[0-9]+`)
+
+// TestPromptLimitsAreTheTables: the code lines of each prompt state the
+// table's limits, and no number that is not one of them.
+func TestPromptLimitsAreTheTables(t *testing.T) {
+	table := []string{fmt.Sprint(MinSpans), fmt.Sprint(MaxSpans), fmt.Sprint(MinQuote), fmt.Sprint(MaxQuote), fmt.Sprint(MaxOps)}
+	for _, f := range Forms {
+		lines := map[string]string{}
+		for _, l := range strings.Split(Prompt(f), "\n") {
+			for _, c := range Codes {
+				if strings.HasPrefix(l, "- "+c.ID+": ") {
+					lines[c.ID] = l
+				}
+			}
+		}
+		if len(lines) != len(Codes) {
+			t.Fatalf("%s: %d code lines, want %d", f, len(lines), len(Codes))
+		}
+		for id, l := range lines {
+			for _, n := range number.FindAllString(l, -1) {
+				if !slices.Contains(table, n) {
+					t.Errorf("%s: %s states %s, which is not in the table", f, id, n)
+				}
+			}
+		}
+		if !strings.Contains(lines["bad_shape"], fmt.Sprintf("or more than %d.", MaxSpans)) {
+			t.Errorf("%s: bad_shape does not state %d spans: %s", f, MaxSpans, lines["bad_shape"])
+		}
+		if !strings.Contains(lines["quote_not_found"], fmt.Sprintf("shorter than %d or longer than %d characters", MinQuote, MaxQuote)) {
+			t.Errorf("%s: quote_not_found does not state %d to %d: %s", f, MinQuote, MaxQuote, lines["quote_not_found"])
 		}
 	}
 }

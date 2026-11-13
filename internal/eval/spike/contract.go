@@ -70,16 +70,16 @@ type Code struct {
 }
 
 // Codes is the refusal table, in the checker's order. Prompt writes every
-// sentence.
+// sentence, and a sentence that states a limit takes it from the table.
 var Codes = []Code{
 	{ID: "bad_shape", Repairable: true,
-		Sentence: "The operation breaks its shape: an id where none belongs or none where one does, a kind or an admit that does not fit its op, or no span, or more than 3."},
+		Sentence: fmt.Sprintf("The operation breaks its shape: an id where none belongs or none where one does, a kind or an admit that does not fit its op, or no span, or more than %d.", MaxSpans)},
 	{ID: "unknown_target", Repairable: true,
 		Sentence: "Its id is not the handle of an item, next step or question shown under the items in force."},
 	{ID: "bad_entry", Repairable: true,
 		Sentence: "A span names an entry number that is not shown."},
 	{ID: "quote_not_found", Repairable: true,
-		Sentence: "A span's words are not in its entry exactly as shown, or are shorter than 8 or longer than 240 characters without being the entry's whole text."},
+		Sentence: fmt.Sprintf("A span's words are not in its entry exactly as shown, or are shorter than %d or longer than %d characters without being the entry's whole text.", MinQuote, MaxQuote)},
 	{ID: "bad_segment", Repairable: true,
 		Sentence: "A span names a segment its entry does not have."},
 	{ID: "ungrounded", Repairable: true,
@@ -349,81 +349,102 @@ func array(raw json.RawMessage, key string) ([]json.RawMessage, error) {
 // required, a key nullable where a value may be absent, no object taking
 // another key, and no maxLength, as both hosts' strict modes want. The
 // bounds of a text stand in its description; the checker enforces them.
+// Each object lists its properties in the card's order, ops before
+// nothing, op, id, kind, text, admit and ev, and e, q or s, and as, since
+// a strict mode writes an answer's keys in the schema's order: the model
+// names the op and writes the text before it says why and cites evidence.
 func Schema(f Form) []byte {
-	return mustJSON(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"ops":     map[string]any{"type": "array", "maxItems": MaxOps, "items": opSchema(f)},
-			"nothing": nullableEnum(nothings, "Why there is no operation; null when there is one."),
-		},
-		"required":             []string{"nothing", "ops"},
-		"additionalProperties": false,
-	})
+	return mustJSON(strictObject(
+		field{"ops", fields{{"type", "array"}, {"maxItems", MaxOps}, {"items", opSchema(f)}}},
+		field{"nothing", nullableEnum(nothings, "Why there is no operation; null when there is one.")},
+	))
 }
 
 // RepairSchema is the strict output schema of a repair answer in form f:
 // for each refused operation sent, its index and a whole new operation, or
 // null to skip it.
 func RepairSchema(f Form) []byte {
-	return mustJSON(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"fixes": map[string]any{"type": "array", "maxItems": MaxOps, "items": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"index": map[string]any{"type": "integer", "description": "The index the refusal line gave."},
-					"op":    map[string]any{"anyOf": []any{opSchema(f), map[string]any{"type": "null"}}},
-				},
-				"required":             []string{"index", "op"},
-				"additionalProperties": false,
-			}},
-		},
-		"required":             []string{"fixes"},
-		"additionalProperties": false,
-	})
+	fix := strictObject(
+		field{"index", fields{{"type", "integer"}, {"description", "The index the refusal line gave."}}},
+		field{"op", fields{{"anyOf", []any{opSchema(f), fields{{"type", "null"}}}}}},
+	)
+	return mustJSON(strictObject(
+		field{"fixes", fields{{"type", "array"}, {"maxItems", MaxOps}, {"items", fix}}},
+	))
 }
 
 // opSchema is an operation's schema in form f.
-func opSchema(f Form) map[string]any {
-	span := map[string]any{
-		"e":  map[string]any{"type": "integer", "description": "The entry's number."},
-		"as": map[string]any{"type": "string", "enum": roles},
-	}
-	required := []string{"as", "e"}
+func opSchema(f Form) fields {
+	evidence := field{"q", fields{{"type", "string"}, {"description", fmt.Sprintf("The entry's exact words, %d to %d characters, or its whole text.", MinQuote, MaxQuote)}}}
 	if f == FormSegments {
-		span["s"] = map[string]any{"type": "integer", "description": "The segment's number k within its entry."}
-		required = append(required, "s")
-	} else {
-		span["q"] = map[string]any{"type": "string", "description": fmt.Sprintf("The entry's exact words, %d to %d characters, or its whole text.", MinQuote, MaxQuote)}
-		required = append(required, "q")
+		evidence = field{"s", fields{{"type", "integer"}, {"description", "The segment's number k within its entry."}}}
 	}
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"op":    map[string]any{"type": "string", "enum": opNames},
-			"id":    map[string]any{"type": []string{"string", "null"}, "description": "The handle of the item, next step or question it changes; null for an add or a note."},
-			"kind":  nullableEnum(append(slices.Clone(itemKinds), noteKinds...), "An item's kind for item.add and item.supersede, a note's kind for note, else null."),
-			"text":  map[string]any{"type": []string{"string", "null"}, "description": "One plain sentence."},
-			"admit": nullableEnum(admits, "Why an item.add is worth keeping; null for any other op."),
-			"ev": map[string]any{"type": "array", "minItems": MinSpans, "maxItems": MaxSpans, "items": map[string]any{
-				"type":                 "object",
-				"properties":           span,
-				"required":             required,
-				"additionalProperties": false,
-			}},
-		},
-		"required":             []string{"admit", "ev", "id", "kind", "op", "text"},
-		"additionalProperties": false,
+	span := strictObject(
+		field{"e", fields{{"type", "integer"}, {"description", "The entry's number."}}},
+		evidence,
+		field{"as", fields{{"type", "string"}, {"enum", roles}}},
+	)
+	return strictObject(
+		field{"op", fields{{"type", "string"}, {"enum", opNames}}},
+		field{"id", fields{{"type", []string{"string", "null"}}, {"description", "The handle of the item, next step or question it changes; null for an add or a note."}}},
+		field{"kind", nullableEnum(append(slices.Clone(itemKinds), noteKinds...), "An item's kind for item.add and item.supersede, a note's kind for note, else null.")},
+		field{"text", fields{{"type", []string{"string", "null"}}, {"description", "One plain sentence."}}},
+		field{"admit", nullableEnum(admits, "Why an item.add is worth keeping; null for any other op.")},
+		field{"ev", fields{{"type", "array"}, {"minItems", MinSpans}, {"maxItems", MaxSpans}, {"items", span}}},
+	)
+}
+
+// strictObject is the schema of an object of exactly props, in their order,
+// every one required, and no other key.
+func strictObject(props ...field) fields {
+	required := make([]string, 0, len(props))
+	for _, p := range props {
+		required = append(required, p.key)
 	}
+	return fields{{"type", "object"}, {"properties", fields(props)}, {"required", required}, {"additionalProperties", false}}
 }
 
 // nullableEnum is a string enum of values that may also be null.
-func nullableEnum(values []string, description string) map[string]any {
+func nullableEnum(values []string, description string) fields {
 	enum := make([]any, 0, len(values)+1)
 	for _, v := range values {
 		enum = append(enum, v)
 	}
-	return map[string]any{"type": []string{"string", "null"}, "enum": append(enum, nil), "description": description}
+	return fields{{"type", []string{"string", "null"}}, {"enum", append(enum, nil)}, {"description", description}}
+}
+
+// field is one key of a JSON object and its value.
+type field struct {
+	key   string
+	value any
+}
+
+// fields is a JSON object that keeps its keys in the order given, as a Go
+// map does not.
+type fields []field
+
+// MarshalJSON writes the object with its keys in their order.
+func (o fields) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, f := range o {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, err := json.Marshal(f.key)
+		if err != nil {
+			return nil, err
+		}
+		v, err := json.Marshal(f.value)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(k)
+		b.WriteByte(':')
+		b.Write(v)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
 }
 
 func mustJSON(v any) []byte {
