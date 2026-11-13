@@ -51,3 +51,15 @@ Two verifications running stopped at the same two points, and neither can be men
 
 Owed, on a card for EV-14b's scorer, before any figure of these two families is put in a gate: the scorer tells `accepted` from `stated`, and a fact may ask a slot of some kinds only. When it merges, this package's two tests fail by design and the families take the card's first wording back.
 
+## As merged
+
+Merged from `pkg/ev-14c-r3b` on 2026-11-13, after a review that found three major faults, three fix rounds and a verification that found nothing left to mend. The first fix answered the review's first fault and half of its second. The next two rounds stopped at the two points the rulings above settle, and the last made the package say what the rulings say: each has a test of its own, named for what it holds until the scorer changes.
+
+Also accepted as built: a standing instruction of `moment` may be filed as a rule or as a constraint, so that a move between two permitted kinds has something to apply to, as the last acceptance item asks of every family.
+
+To know when reading these families' figures:
+
+- `correction` needs a store to keep each line's reference, as v1's scenarios need their codenames. A store that keeps the corrected value without its reference scores `value_dropped`, and `stale_in_force` when it also names the old value.
+- An item that keeps the corrected value, names the old one and cites the agent's echo of it still scores `stale_in_force`: that is the scorer's rule, and the card for the scorer takes it up with the two rulings.
+
+Every fix round's check failed in the benchmark alone, on a machine at ten times its CPUs or more; nothing a hook runs imports the package.

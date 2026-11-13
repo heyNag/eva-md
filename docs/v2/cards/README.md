@@ -46,7 +46,7 @@ Rules every card carries, so they are said once here:
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
 | [EV-03b](EV-03b.md) | The pilot's driver | ready to build, since EV-03a is merged; the live run waits for the owner's leave, a ceiling and decision 28's keys |
 | [EV-03c](EV-03c.md) | The pilot's report and its README | ready, since EV-03a is merged; beside EV-03b |
-| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | building since 2026-11-13; merges before DV-13 |
+| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | merged, ahead of DV-13; two small tests are owed by the package that next changes `cmd/live-accuracy` |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
@@ -64,13 +64,13 @@ Rules every card carries, so they are said once here:
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
 | [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | merged |
-| [DV-11b](DV-11b.md) | The runner's Codex backend | building since 2026-11-13; beside DV-11c |
-| [DV-11c](DV-11c.md) | The runner's Claude Code backend | ready, since DV-11a is merged; beside DV-11b |
+| [DV-11b](DV-11b.md) | The runner's Codex backend | merged; a second round on its two files, running since 2026-11-13, keeps a run with no known event from being `ok` (the lead's ruling, in its notes) |
+| [DV-11c](DV-11c.md) | The runner's Claude Code backend | building since 2026-11-13 |
 | [HO-13a](HO-13a.md) | The signed release manifest, and its check in Go | not before the Stage 0 readout (decision 9); open then: one approval of a cut or two, and whether the manifest's first format carries the day it was published |
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: `paths` blocks for the cards whose words name no exact paths, and a ledger of what leaves the binary and when |
+| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: DV-13's `paths` block, once DV-12b is merged, and a ledger of what leaves the binary and when |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
 | [IF-01b](IF-01b.md) | The reader's fake | merged |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | merged; owed: the fake gains `ItemsCiting`, and keeps words and `Evidence`, once ST-05 puts them in the store's interface and the model |
@@ -81,10 +81,10 @@ Rules every card carries, so they are said once here:
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
-| [EV-14c](EV-14c.md) | Six new families, half held out | building since 2026-11-13 |
+| [EV-14c](EV-14c.md) | Six new families, half held out | merged; owed before its figures are put in a gate: a card for the scorer, which reads an agreement as a statement and cannot ask a hedge of one kind of filing alone |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | merged |
-| [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | ready, since EV-17a is merged |
+| [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | building since 2026-11-13 |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; owed, on a card that owns the release workflow: a check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03) |

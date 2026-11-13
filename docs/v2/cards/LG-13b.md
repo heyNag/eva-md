@@ -14,6 +14,7 @@ LG-13a rests on v1's lists and on a reading of Codex's source. The sittings reco
 4. **Voice.** The Part 1 call decodes as the run-book scripted it: two hand-overs, one made while the agent works, whose events carry that turn's id (F-145); the spoken correction, the spoken yes and the spoken pause phrase, each a line by `spoken`; the request by the author F-142 found; a task voice starts by itself, whose first prompt is a hand-over (F-144). No fixture hand-over yields `typed`.
 5. **Pastes.** If group D's fixtures carry the mark (F-017), a prompt that is wholly a host-marked paste is `pasted` and a mixed one stays `typed`; until then this stays waiting, and the spec says so.
 6. **The spec.** `SPEC.md`'s entries that wait for the sitting are replaced by each fact's Result and the test that holds it.
+7. **Linear, before LG-20 puts it in a hook.** The hand-over decoder counts line breaks from the transcript's start for each place the request begins a line (LG-13a's notes): it counts once. The test holds that by what the decoder gives for a made-up payload in which the request begins many lines, and by a count of the work, never by a time.
 
 ## Owns and may touch
 

@@ -30,6 +30,11 @@ v1's health asks whether a job recorded a failure, never whether the work happen
 
 `internal/health/**` but `work.go` (DV-12b's); in `cmd/eva-md/commands.go`, only the printing of the verdict.
 
+```paths
+internal/health/**
+cmd/eva-md/commands.go
+```
+
 ## Must not touch
 
 `internal/hook`, `internal/update`, `internal/ledger`, `internal/work`, `internal/mcp`, `QuickNotice`, and the rows with the switch off.
