@@ -260,11 +260,13 @@ class Decide(unittest.TestCase):
         self.assertEqual(sorted({f.split(":")[0] for f in d["failures"]}), ["capture"])
         # Alone, the unsettled figure leaves the gate not judged. (Alone,
         # its quickest runs are 1.116 times as quick as the median of its
-        # others, past QUICK, so a gap above that isolates the figure.)
-        d = decide(prompt, {"prompt": 100}, quick=1.2)
+        # others, and its slower half as slow as its quicker one, past QUICK
+        # and UNEVEN, so gaps above that isolate the figure.)
+        d = decide(prompt, {"prompt": 100}, quick=1.2, uneven=1.2)
         self.assertEqual((d["verdict"], d["exit"], d["failures"], d["machine_too_noisy"]), ("not judged", 0, [], False))
         self.assertEqual([u.split(":")[0] for u in d["unsettled"]], ["prompt"])
-        self.assertEqual(decide(prompt, {"prompt": 100})["one_quick_run"], ["new"])
+        d = decide(prompt, {"prompt": 100})
+        self.assertEqual((d["one_quick_run"], d["uneven_load"]), (["new"], ["new"]))
 
     def test_one_figure_too_noisy_stops_nothing_and_two_stop_the_verdict(self):
         # Load slowed one run of each binary's startup: the gate's
@@ -786,9 +788,10 @@ class ThreeRounds(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "the samples of old do not add up to its runs' counts"):
             core.redecide(first)
         # One this rule wrote is worked out by what it recorded.
-        d = core.decide(s, {"capture": None}, {}, 2, quick=1.5, median_threshold=1.05)
+        d = core.decide(s, {"capture": None}, {}, 2, quick=1.5, median_threshold=1.05, uneven=1.5)
         again = core.redecide(dict(old, decision=d))
         self.assertEqual(again, d)
+        self.assertEqual((again["uneven"], again["uneven_load"]), (1.5, []))
         self.assertEqual((again["verdict"], core.decide(s, {"capture": None}, {}, 2)["verdict"]), ("fail", "not judged"))
 
 
@@ -869,6 +872,63 @@ class Controls(unittest.TestCase):
         self.assertFalse(core.one_quick_run([1.0, 2.0]))
         # A figure a run of which gave nothing counts for no run.
         self.assertEqual(core.run_levels([[[10.0], [], [10.0], [10.0]]]), None)
+
+    def test_uneven_load(self):
+        # The slower half's lower median against the quicker half's upper
+        # median: the second slowest of six runs against the second
+        # quickest, on its own and against the other binary's runs beside
+        # it. Three of six runs loaded, each by its own share: the quickest
+        # run is not quick against the median of the others (1.08), but the
+        # slower half is uneven.
+        each = [1.0, 1.0, 1.02, 1.08, 1.13, 1.26]
+        self.assertFalse(core.one_quick_run(each))
+        self.assertTrue(core.uneven_load(each, [1.0]*6))
+        self.assertTrue(core.uneven_load([1.13, 1.0, 1.26, 1.02, 1.0, 1.08], [1.0]*6))
+        # The other binary's runs beside them as slow, as a round both ran
+        # under load: it cancels out.
+        self.assertFalse(core.uneven_load(each, each))
+        self.assertFalse(core.uneven_load(each, [1.0, 1.0, 1.0, 1.08, 1.13, 1.26]))
+        self.assertTrue(core.uneven_load(each, [1.26, 1.13, 1.08, 1.0, 1.0, 1.0]))
+        # The other binary's slow runs beside the quicker half, and this
+        # one's own runs level: not this one's.
+        self.assertFalse(core.uneven_load([1.0]*6, [1.0, 1.0, 1.02, 1.08, 1.13, 1.26]))
+        # One slow run alone does not count; two of six, as one of new and
+        # one of new_again loaded, do.
+        self.assertFalse(core.uneven_load([1.0, 1.0, 1.0, 1.0, 1.0, 1.5], [1.0]*6))
+        self.assertTrue(core.uneven_load([1.0, 1.0, 1.0, 1.0, 1.5, 1.5], [1.0]*6))
+        # The gap is UNEVEN, 1.10, and 1.10 is not more than 1.10.
+        self.assertEqual(core.UNEVEN, 1.10)
+        self.assertFalse(core.uneven_load([1.0, 1.0, 1.0, 1.1, 1.1, 1.1], [1.0]*6))
+        self.assertTrue(core.uneven_load([1.0, 1.0, 1.0, 1.101, 1.101, 1.101], [1.0]*6))
+        self.assertFalse(core.uneven_load(each, [1.0]*6, 1.13))
+        self.assertTrue(core.uneven_load(each, [1.0]*6, 1.12))
+        # At two rounds, the slower pair's lower run against the quicker
+        # pair's upper one.
+        self.assertTrue(core.uneven_load([1.0, 1.0, 1.2, 1.3], [1.0]*4))
+        self.assertFalse(core.uneven_load([1.0, 1.1, 1.2, 1.3], [1.0]*4))
+        self.assertFalse(core.uneven_load([1.0, 1.0, 1.0, 1.3], [1.0]*4))
+        # Fewer than three runs, or runs of the other binary missing.
+        self.assertFalse(core.uneven_load([1.0, 2.0], [1.0, 1.0]))
+        self.assertFalse(core.uneven_load(each, None))
+        self.assertFalse(core.uneven_load(each, [1.0]*5))
+
+    def test_uneven_load_stops_the_verdict(self):
+        # Two figures, three of the new binary's runs slower by their own
+        # shares: no quick run, but uneven load. The p95s are too noisy to
+        # judge, so the figures that call the machine too noisy are given
+        # as 9, to show the uneven load alone stops the verdict.
+        levels = (1.0, 1.0, 1.0, 1.04, 1.2, 1.3)
+        parts = merge(runs3("capture", {"new": levels}, spread=0.05), runs3("prompt", {"new": levels}, spread=0.05, centre=30, seed=40))
+        d = core.decide(parts, {"capture": None, "prompt": None}, noisy_figures=9)
+        self.assertEqual((d["verdict"], d["one_quick_run"], d["uneven_load"], d["machine_too_noisy"]), ("not judged", [], ["new"], True))
+        d = core.decide(parts, {"capture": None, "prompt": None}, noisy_figures=9, uneven=1.5)
+        self.assertEqual((d["uneven_load"], d["machine_too_noisy"], d["uneven"]), ([], False, 1.5))
+        # The same load on the old binary's runs beside them, as a round
+        # both binaries ran under load, cancels out.
+        both = merge(runs3("capture", {"new": levels, "old": levels}, spread=0.05),
+                     runs3("prompt", {"new": levels, "old": levels}, spread=0.05, centre=30, seed=40))
+        d = core.decide(both, {"capture": None, "prompt": None}, noisy_figures=9)
+        self.assertEqual((d["uneven_load"], d["machine_too_noisy"]), ([], False))
 
     def test_load_on_three_runs_of_the_new_binary_is_not_judged(self):
         # Three of the new binary's runs loaded by 1.4, and none of the old
@@ -1500,9 +1560,9 @@ class Compare(unittest.TestCase):
         self.scenario(slow, place=200, name="startup")
         code, out, report = self.gate(rounds=2)
         self.assertEqual((code, report["verdict"], report["decision"]["machine_too_noisy"]), (0, "not judged", True), out)
-        self.assertTrue(out.endswith("latency gate: not judged (runs differed by more than 1.15 in the p95 of 2 figures or more, or one "
-                                     "run was more than 1.10 times as quick as the median of the binary's other runs: the machine was "
-                                     "too noisy to judge)\n"), out)
+        self.assertTrue(out.endswith("latency gate: not judged (runs differed by more than 1.15 in the p95 of 2 figures or more, one "
+                                     "run was more than 1.10 times as quick as the median of the binary's other runs, or half its runs "
+                                     "more than 1.10 times as slow as the other half: the machine was too noisy to judge)\n"), out)
 
     def test_one_quick_run_is_printed_with_its_gap(self):
         # The new binary's runs 2 to 6 are 20% slower than its first, in
@@ -1514,6 +1574,26 @@ class Compare(unittest.TestCase):
         self.assertEqual((code, report["verdict"], report["decision"]["one_quick_run"]), (0, "not judged", ["new"]), out)
         self.assertIn("not judged: one run of the new binary was more than 1.10 times as quick as the median of its other runs, over "
                       "the figures judged: load on its other runs looks like a change\n", out)
+
+    def test_uneven_load_is_printed_with_its_gap(self):
+        # Three of the new binary's six runs slower, each by its own share
+        # (4%, 20% and 30%), in both figures, and none of the old one's: no
+        # run is quick by more than 1.10 against the median of the others,
+        # but the slower half is, against the quicker half and the old
+        # binary's runs beside them.
+        # Each binary's run index is k counted over both scenarios.
+        share = {4: 1.04, 5: 1.2, 6: 1.3}
+        slow = lambda which, k: samples(k % 2, 100, 20*(share.get((k+1)//2, 1) if which == "new" else 1), 0.05)
+        self.scenario(slow)
+        self.scenario(slow, place=200, name="startup")
+        code, out, report = self.gate()
+        d = report["decision"]
+        self.assertEqual((code, report["verdict"], d["one_quick_run"], d["uneven_load"], d["uneven"]),
+                         (0, "not judged", [], ["new"], 1.10), out)
+        self.assertIn("not judged: the slower half of the new binary's runs was more than 1.10 times as slow as its quicker half, on its "
+                      "own and against the old binary's runs beside them, over the figures judged: load on those runs alone looks like a "
+                      "change\n", out)
+        self.assertEqual(core.redecide(report), d)
 
     def test_the_figures_scenarios_decide_and_are_worked_out_again(self):
         # capture, from the scenario fake, is missing from every run of the

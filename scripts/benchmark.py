@@ -637,10 +637,14 @@ def compare(core, a):
     for binary in verdict["one_quick_run"]:
         print("not judged: one run of the %s binary was more than %.2f times as quick as the median of its other runs, over the "
               "figures judged: load on its other runs looks like a change" % (binary, verdict["quick"]))
+    for binary in verdict["uneven_load"]:
+        print("not judged: the slower half of the %s binary's runs was more than %.2f times as slow as its quicker half, on its own "
+              "and against the %s binary's runs beside them, over the figures judged: load on those runs alone looks like a change" % (
+                  binary, verdict["uneven"], "new" if binary == "old" else "old"))
     if verdict["machine_too_noisy"]:
-        why = (" (runs differed by more than %.2f in the p95 of %d figures or more, or one run was more than %.2f times as quick as "
-               "the median of the binary's other runs: the machine was too noisy to judge)" % (
-                   verdict["threshold"], verdict["noisy_figures"], verdict["quick"]))
+        why = (" (runs differed by more than %.2f in the p95 of %d figures or more, one run was more than %.2f times as quick as "
+               "the median of the binary's other runs, or half its runs more than %.2f times as slow as the other half: the machine "
+               "was too noisy to judge)" % (verdict["threshold"], verdict["noisy_figures"], verdict["quick"], verdict["uneven"]))
     elif verdict["lost"]:
         why = " (a scenario may have been lost to load: run the gate again)"
     elif verdict["too_noisy_to_judge"]:

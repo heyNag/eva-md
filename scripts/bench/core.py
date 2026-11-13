@@ -325,8 +325,12 @@ def context(output):
 # times as quick as the median of its other runs, over all the judged
 # figures (run_levels): load on all of a binary's runs but one, or on half
 # of them, is what no control can tell from a change, since every split has
-# loaded runs on each side. Only the runs themselves call the machine
-# noisy. Otherwise each figure is judged on its p95 when that is not too
+# loaded runs on each side. So it does when the slower half of a binary's
+# runs was more than UNEVEN times as slow as its quicker half, on its own
+# and against the other binary's runs beside them (uneven_load): load on
+# half of one binary's runs, each run by its own factor, which leaves no
+# one run quick, while a round both binaries ran under load cancels out.
+# Only the runs themselves call the machine noisy. Otherwise each figure is judged on its p95 when that is not too
 # noisy, and on its median when that is not: it fails when a lower bound is
 # above its threshold (THRESHOLD for the p95, MEDIAN_THRESHOLD for the
 # median) times its noise, or when the lower bound of the interval of the
@@ -372,6 +376,13 @@ NOISY_FIGURES = 2  # the figures whose p95 is too noisy that call the machine to
 # often it trips there, and what 1.08 and 1.09 cost instead, are in
 # docs/v2/baselines/README.md.
 QUICK = 1.10
+# The slower half of a binary's runs more than UNEVEN times as slow as its
+# quicker half, on their own and against the other binary's runs beside
+# them, calls the machine too noisy (uneven_load). Mild load on three of
+# the new binary's six runs, each run by its own factor between 1.1 and
+# 1.3, failed an unchanged binary about once in 70 without it; what it
+# costs is in docs/v2/baselines/README.md.
+UNEVEN = 1.10
 # A scenario the new binary failed in at least BROKEN of its runs more than
 # the old one fails the gate; in at least LOST of them, the verdict is "not
 # judged" and the gate is to be run again.
@@ -578,6 +589,31 @@ def one_quick_run(levels, threshold=QUICK):
     return nearest_rank(ordered_levels[1:], 0.5) > threshold*ordered_levels[0]
 
 
+def uneven_load(levels, other, threshold=UNEVEN):
+    """Whether the slower half of a binary's runs, by run_levels, was more
+    than threshold times as slow as its quicker half, both on its own and
+    against the other binary's runs beside them: each of its runs over the
+    other binary's run of the same number, which ran next to it in the same
+    round (schedule). A half's run is the lower median of the slower half
+    and the upper median of the quicker one, the second slowest and the
+    second quickest of six, so one slow run alone does not count. Load on
+    half of one binary's runs and not on the other's is what the pooled
+    samples can read as a change while no control sees it, and when each
+    run took its own share of it, no one run is quick; load on a whole
+    round fell on both binaries' runs, and cancels out against the runs
+    beside them."""
+    if not levels or not other or len(levels) < 3 or len(other) != len(levels):
+        return False
+    half = len(levels)//2
+    order = sorted(range(len(levels)), key=levels.__getitem__)
+    paired = [mine/theirs for mine, theirs in zip(levels, other)]
+
+    def gap(values):
+        slower, quicker = sorted(values[i] for i in order[-half:]), sorted(values[i] for i in order[:half])
+        return slower[(half-1)//2] > threshold*quicker[half//2]
+    return gap(levels) and gap(paired)
+
+
 def control_bounds(o_runs, n_runs, controls, seed=SEED, draws=DRAWS, q=P95):
     """The controls' lower bounds, both ways: for each split, the bound of
     its other side's p95 (or q quantile) over its first side's, and of the
@@ -615,15 +651,16 @@ def judge(low, noise, threshold, what):
 
 def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD, seed=SEED, draws=DRAWS,
            whole=WHOLE, quantile=NOISE_QUANTILE, noisy_figures=NOISY_FIGURES, sources=None, quick=QUICK,
-           median_threshold=MEDIAN_THRESHOLD):
+           median_threshold=MEDIAN_THRESHOLD, uneven=UNEVEN):
     """The gate's verdict. samples maps each role (ROLES) to its runs, in
     order, each a map of each figure to its samples from that run; ceilings
     maps each gated figure to its ceiling in milliseconds, or None;
     failures holds the scenarios that failed, as scenarios() takes them;
     sources maps a figure to the scenario that gives it, when known; quick
     is the gap between a binary's quickest run and the median of its others
-    that calls the machine too noisy; median_threshold is the median's own
-    bound. Each role ran rounds times. The rule is the one above ROLES.
+    that calls the machine too noisy, and uneven that between the slower
+    and the quicker half of its runs (uneven_load); median_threshold is the
+    median's own bound. Each role ran rounds times. The rule is the one above ROLES.
 
     A figure the old binary gave no samples, as one added with the change,
     is listed as not compared. One the new binary gave none fails, unless
@@ -635,8 +672,10 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     2, when a scenario failed in every run of both binaries; "fail", exit 1,
     when the new binary broke a scenario or gave a figure no samples; "not
     judged", exit 0, when noisy_figures or more figures were too noisy to
-    judge, or one of a binary's runs was more than quick times as quick as
-    the median of its others; "fail", exit 1, when a figure failed; "not
+    judge, one of a binary's runs was more than quick times as quick as the
+    median of its others, or the slower half of its runs was more than
+    uneven times as slow as the quicker half, on its own and against the
+    other binary's runs; "fail", exit 1, when a figure failed; "not
     judged", exit 0, when a figure was too noisy to judge or unsettled, a
     scenario was lost, or a figure was short because a scenario failed in
     some runs; otherwise "pass", exit 0."""
@@ -728,7 +767,8 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     lost += ["%s has too few samples because a scenario failed in some runs: run the gate again" % name for name in short]
     levels = {b: run_levels(f) for b, f in judged_runs.items()}
     quick_runs = [b for b in ("old", "new") if one_quick_run(levels[b], quick)]
-    machine = len(noisy) >= noisy_figures or bool(quick_runs)
+    uneven_runs = [b for b in ("old", "new") if uneven_load(levels[b], levels["new" if b == "old" else "old"], uneven)]
+    machine = len(noisy) >= noisy_figures or bool(quick_runs) or bool(uneven_runs)
     if found["unrunnable"]:
         verdict, code = "could not run", 2
     elif hard:
@@ -743,9 +783,9 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
         verdict, code = "pass", 0
     return {"verdict": verdict, "exit": code, "rule": RULE, "rounds": rounds, "threshold": threshold,
             "median_threshold": median_threshold, "seed": seed, "draws": draws,
-            "whole": whole, "noise_quantile": quantile, "noisy_figures": noisy_figures, "quick": quick,
+            "whole": whole, "noise_quantile": quantile, "noisy_figures": noisy_figures, "quick": quick, "uneven": uneven,
             "controls": len(controls), "machine_too_noisy": machine, "too_noisy": noisy, "too_noisy_to_judge": unjudged,
-            "one_quick_run": quick_runs,
+            "one_quick_run": quick_runs, "uneven_load": uneven_runs,
             "run_levels": {b: [round(x, 3) for x in v] if v else None for b, v in levels.items()}, "unsettled": unsettled_all, "lost": lost,
             "failures": hard+failed, "too_few_samples": too_few, "short_by_failures": short, "scenarios": found,
             "not_compared": skipped, "metrics": metrics}
@@ -799,6 +839,6 @@ def redecide(gate):
                       sources=gate.get("figure_scenarios"))
     return decide(gate["samples"], gate["ceilings"], gate["scenario_failures"], gate["rounds"], d["threshold"],
                   d["seed"], d["draws"], d["whole"], d["noise_quantile"], d["noisy_figures"], gate.get("figure_scenarios"),
-                  d["quick"], d["median_threshold"])
+                  d["quick"], d["median_threshold"], d["uneven"])
 
 
