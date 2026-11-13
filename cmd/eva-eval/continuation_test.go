@@ -10,14 +10,21 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/eval/continuation/drive"
 	"github.com/heyNag/eva-md/internal/eval/continuation/drive/fakehost"
 	"github.com/heyNag/eva-md/internal/eval/results"
 )
 
-// The fake host runs this test binary again under a host CLI's name.
-func init() { fakehost.Main() }
+// The fake host runs this test binary again under a host CLI's name. The
+// driver's limits are raised once, so that the fake's version and a killed
+// call's output are waited for long enough on a slow machine.
+func init() {
+	fakehost.Main()
+	drive.VersionTimeout = 10 * time.Minute
+	drive.WaitDelay = 10 * time.Minute
+}
 
 // contRig is a made-up world for eva-eval continuation: a home, the fake
 // host's fixture task, a repository the rows' commit is read from, and

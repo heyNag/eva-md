@@ -22,8 +22,8 @@ func TestMain(m *testing.M) {
 	testgitenv.Clear()
 	// The production limits, raised once: the fake's --version and a
 	// killed call's output are waited for long enough on a slow machine.
-	versionTimeout = 10 * time.Minute
-	waitDelay = 10 * time.Minute
+	VersionTimeout = 10 * time.Minute
+	WaitDelay = 10 * time.Minute
 	os.Exit(m.Run())
 }
 

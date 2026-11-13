@@ -1158,7 +1158,7 @@ func TestAnswersThatAreGraded(t *testing.T) {
 // the fake's child, which holds the call's output, goes with it, so the
 // trial ends at once as timeout, with no row. The limit ends at an exact
 // point, once the child runs; were the child left alive, the wait for the
-// output would last the raised waitDelay, past the guard.
+// output would last the raised WaitDelay, past the guard.
 func TestStalledSessionsGroupIsKilled(t *testing.T) {
 	for _, h := range adapter.All() {
 		t.Run(string(h.ID), func(t *testing.T) {

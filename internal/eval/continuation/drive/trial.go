@@ -20,11 +20,13 @@ import (
 )
 
 // Time limits of the processes a trial starts besides its chats: reading
-// the CLI's version, and the wait for a killed process's output. Tests
-// raise them.
+// the CLI's version, and the wait for a killed process's output. They are
+// exported so that the tests of this package and of the packages that use
+// it, such as a condition's, can raise them once; nothing else changes
+// them.
 var (
-	versionTimeout = 30 * time.Second
-	waitDelay      = 10 * time.Second
+	VersionTimeout = 30 * time.Second
+	WaitDelay      = 10 * time.Second
 )
 
 // outputLimit is the most of what one call prints on stdout that is kept.
@@ -111,9 +113,9 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 			return link, nil
 		},
 		// The probe's own limit, 5 seconds, is not used: the version is read
-		// within versionTimeout, in the trial's environment.
+		// within VersionTimeout, in the trial's environment.
 		Run: func(_ context.Context, cli string, args ...string) ([]byte, error) {
-			vctx, cancel := context.WithTimeout(ctx, versionTimeout)
+			vctx, cancel := context.WithTimeout(ctx, VersionTimeout)
 			defer cancel()
 			out, over, err := runGroup(vctx, cli, args, tr.Env, tr.Dirs.Home, 64<<10)
 			if err != nil || over {
@@ -468,7 +470,7 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 // stdout, and whether it printed more. Its stderr is dropped. Its stdout
 // is a pipe of runGroup's own, so that the wait ends when cli exits, not
 // when the last process holding the pipe does; one that left the group and
-// still holds it after waitDelay is an error.
+// still holds it after WaitDelay is an error.
 func runGroup(ctx context.Context, cli string, args, env []string, dir string, limit int) ([]byte, bool, error) {
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -480,7 +482,7 @@ func runGroup(ctx context.Context, cli string, args, env []string, dir string, l
 	cmd.Stdout = w
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
-	cmd.WaitDelay = waitDelay
+	cmd.WaitDelay = WaitDelay
 	out := &cappedBuffer{limit: limit}
 	copied := make(chan struct{})
 	go func() {
@@ -493,7 +495,7 @@ func runGroup(ctx context.Context, cli string, args, env []string, dir string, l
 		err = cmd.Wait()
 		_ = killGroup(cmd.Process.Pid)
 	}
-	held := time.NewTimer(waitDelay)
+	held := time.NewTimer(WaitDelay)
 	defer held.Stop()
 	select {
 	case <-copied:
