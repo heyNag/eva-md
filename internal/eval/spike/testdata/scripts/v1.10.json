@@ -1,0 +1,144 @@
+{
+  "scenario": {
+    "id": "v1.10",
+    "family": "v1",
+    "name": "the replace question and its exit",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "000010e3-2222-4000-8000-000000000000",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-13T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Ansible playbooks own provisioning, GANNET-2.",
+            "plants": [
+              "f1"
+            ]
+          }
+        ]
+      },
+      {
+        "host": "claude-code",
+        "session": "000010e4-2222-4000-8000-000000000001",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-14T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Nix flakes handle everything now, TERN-7.",
+            "plants": [
+              "f2"
+            ]
+          }
+        ]
+      },
+      {
+        "host": "claude-code",
+        "session": "000010e5-2222-4000-8000-000000000002",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-15T10:01:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Do the Nix flakes replace the Ansible playbooks entirely?"
+          },
+          {
+            "at": "2026-01-15T10:02:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Yes, drop Ansible.",
+            "plants": [
+              "f3"
+            ]
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "decision",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "GANNET-2"
+          },
+          {
+            "class": "phrase",
+            "value": "Ansible playbooks"
+          }
+        ],
+        "until": {
+          "session": "000010e5-2222-4000-8000-000000000002",
+          "seq": 2
+        },
+        "must": "store"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "decision",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "TERN-7"
+          },
+          {
+            "class": "phrase",
+            "value": "Nix flakes"
+          }
+        ],
+        "until": {
+          "session": "000010e5-2222-4000-8000-000000000002",
+          "seq": 2
+        },
+        "must": "store"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "decision",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "TERN-7"
+          },
+          {
+            "class": "phrase",
+            "value": "Nix flakes"
+          }
+        ],
+        "supersedes": "f1",
+        "must": "store"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      },
+      {
+        "session": 1
+      },
+      {
+        "session": 2
+      }
+    ]
+  }
+}

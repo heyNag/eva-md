@@ -1,0 +1,79 @@
+{
+  "v": 1,
+  "id": "d01",
+  "family": "hidden",
+  "lang": "go",
+  "repos": [
+    "harrowgate"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "We're about to add logging to harrowgate. Before anything else: the log shipper on the servers keeps only lines tagged [pelmora] and drops the rest, so every line the scheduler logs has to start with [pelmora] and a space. It isn't written down anywhere yet.",
+      "plants": [
+        "f1"
+      ]
+    },
+    {
+      "by": "agent",
+      "text": "Understood: every scheduler log line starts with the tag and a space, or the shipper drops it. I added a Logf field to Scheduler, a printf-style function that is nil by default, so callers choose where lines go; nothing logs through it yet. The existing test that a job never runs twice at once still passes.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "Good, that's all for today. We'll add the actual lines next time, starting with skipped jobs.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Fine. When we do, Run is the place: it returns false without running when Begin finds the job running already, and that is where a skip line would go, through Logf when it is set. I'll leave the scheduler as it is until then.",
+      "plants": []
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "Every line the scheduler logs starts with the tag [pelmora] and a space; the log shipper drops any other line.",
+      "values": [
+        "pelmora"
+      ],
+      "name": false
+    }
+  ],
+  "prompt": "When the harrowgate scheduler skips a job because it is still running, it should log one line through Logf saying which job it skipped. Please add that.",
+  "note": "Hand-over for harrowgate. Convention: every line the scheduler logs starts with \"[pelmora] \" (tag and a space); the log shipper drops other lines. Logf exists on Scheduler and is nil by default; the skip line belongs in Run, where Begin refuses a job that is running.",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "harrowgate",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenSkipIsLogged$",
+        "."
+      ],
+      "facts": []
+    },
+    {
+      "id": "t2",
+      "repo": "harrowgate",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenSkipLineTag$",
+        "."
+      ],
+      "facts": [
+        "f1"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}

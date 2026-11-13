@@ -38,8 +38,11 @@ func TestResolveNamesTheSignalThatEndedGit(t *testing.T) {
 		// No signal here is one macOS writes a crash report for, as it does
 		// for SEGV whoever sent it: that report would land in the real
 		// user's Library, whatever HOME is, and a test never writes there.
+		// Nor is one a signal a test run is commonly started ignoring, as
+		// HUP is under nohup and INT in a shell's background: the fake git
+		// would inherit that, and a shell cannot take it back.
 		{"KILL", syscall.SIGKILL},
-		{"HUP", syscall.SIGHUP},
+		{"USR1", syscall.SIGUSR1},
 		{"TERM", syscall.SIGTERM},
 	} {
 		t.Run(c.name, func(t *testing.T) {

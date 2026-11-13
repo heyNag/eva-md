@@ -1,0 +1,79 @@
+{
+  "scenario": {
+    "id": "v1.02",
+    "family": "v1",
+    "name": "a weakened event date",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "00000abf-2222-4000-8000-000000000000",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-13T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "We cut release candidate HERON-3 yesterday. The freeze is on 3 March 2026, FROST-9.",
+            "plants": [
+              "f1",
+              "f2"
+            ]
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "log"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "HERON-3"
+          },
+          {
+            "class": "date",
+            "value": "yesterday",
+            "forms": [
+              "2026-01-12"
+            ]
+          }
+        ],
+        "log_date": "2026-01-13",
+        "must": "store"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "decision",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "FROST-9"
+          },
+          {
+            "class": "date",
+            "value": "3 March 2026",
+            "forms": [
+              "2026-03-03"
+            ]
+          }
+        ],
+        "must": "store"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  }
+}

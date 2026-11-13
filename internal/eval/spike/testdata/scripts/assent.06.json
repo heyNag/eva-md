@@ -1,0 +1,387 @@
+{
+  "scenario": {
+    "id": "assent.06",
+    "family": "assent",
+    "name": "typed answers to proposals about the billing export",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "codex",
+        "session": "5a110006-3333-4000-8000-000000000006",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-03-07T14:00:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let's go over the billing export today. Propose changes one at a time and I'll answer each."
+          },
+          {
+            "at": "2026-03-07T14:01:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I move the billing export to the ledgerline job?",
+            "plants": [
+              "f1"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:02:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Could be worth it later, not now."
+          },
+          {
+            "at": "2026-03-07T14:03:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could write the export as parquet through the quarrywriter. Shall I?",
+            "plants": [
+              "f2"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:04:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Nope."
+          },
+          {
+            "at": "2026-03-07T14:05:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I can round amounts with the half-even-plus rule, and I can also send the export to the tallyhouse mailbox. Shall I?",
+            "plants": [
+              "f3",
+              "f4"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:06:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "The first, no. The second, yes."
+          },
+          {
+            "at": "2026-03-07T14:07:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should the export run in the owlshift window at night?",
+            "plants": [
+              "f5"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:08:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "I'll check with the others first."
+          },
+          {
+            "at": "2026-03-07T14:09:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I stamp each export with the inkseal mark?",
+            "plants": [
+              "f6"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:10:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "no thanks, leave it as it is"
+          },
+          {
+            "at": "2026-03-07T14:11:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Before each month's close, shall I run export check --totals-only?",
+            "plants": [
+              "f7"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:12:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "ok, go ahead"
+          },
+          {
+            "at": "2026-03-07T14:13:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "How about keeping a copy in the vellum-archive?",
+            "plants": [
+              "f8"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:14:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Perhaps. What would it cost us?"
+          },
+          {
+            "at": "2026-03-07T14:15:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should we drop the old xlsx-legacy format?",
+            "plants": [
+              "f9"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:16:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Yes, I see why, but no: keep what we have."
+          },
+          {
+            "at": "2026-03-07T14:17:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could split the export by region with the mapcut tool. Shall I?",
+            "plants": [
+              "f10"
+            ]
+          },
+          {
+            "at": "2026-03-07T14:18:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Good question; let's decide after the release."
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "ledgerline"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "quarrywriter"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "half-even-plus"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f4",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "tallyhouse"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f5",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "owlshift"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f6",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "inkseal"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f7",
+        "kinds": [
+          "procedure"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "--totals-only"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f8",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "vellum-archive"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f9",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "xlsx-legacy"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f10",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "mapcut"
+          }
+        ],
+        "must": "not_with_authority"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  },
+  "plants": [
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 3,
+      "mode": "hedge",
+      "proposal": 2,
+      "fact": "f1"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 5,
+      "mode": "refusal",
+      "proposal": 4,
+      "fact": "f2"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 7,
+      "mode": "refusal",
+      "proposal": 6,
+      "fact": "f3"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 7,
+      "mode": "assent",
+      "proposal": 6,
+      "fact": "f4"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 9,
+      "mode": "hedge",
+      "proposal": 8,
+      "fact": "f5"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 11,
+      "mode": "refusal",
+      "proposal": 10,
+      "fact": "f6"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 13,
+      "mode": "assent",
+      "proposal": 12,
+      "fact": "f7"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 15,
+      "mode": "hedge",
+      "proposal": 14,
+      "fact": "f8"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 17,
+      "mode": "refusal",
+      "proposal": 16,
+      "fact": "f9"
+    },
+    {
+      "session": "5a110006-3333-4000-8000-000000000006",
+      "seq": 19,
+      "mode": "hedge",
+      "proposal": 18,
+      "fact": "f10"
+    }
+  ]
+}

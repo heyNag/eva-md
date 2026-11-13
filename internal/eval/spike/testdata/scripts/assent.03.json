@@ -1,0 +1,387 @@
+{
+  "scenario": {
+    "id": "assent.03",
+    "family": "assent",
+    "name": "typed answers to proposals about the search index",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "5a110003-3333-4000-8000-000000000003",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-03-04T14:00:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let's go over the search index today. Propose changes one at a time and I'll answer each."
+          },
+          {
+            "at": "2026-03-04T14:01:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I rebuild the search index with the burrowtrie layout?",
+            "plants": [
+              "f1"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:02:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "maybe"
+          },
+          {
+            "at": "2026-03-04T14:03:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could store index segments under the lichen-segs folder. Shall I?",
+            "plants": [
+              "f2"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:04:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Not this one, we tried something like it before and reverted it."
+          },
+          {
+            "at": "2026-03-04T14:05:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I can raise the merge fan-in with the fanmerge-lite policy, and I can also drop stop words with the hushlist filter. Which should I do?",
+            "plants": [
+              "f3",
+              "f4"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:06:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Do the second, not the first."
+          },
+          {
+            "at": "2026-03-04T14:07:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should queries fall back to slowpath-scan when the index is stale?",
+            "plants": [
+              "f5"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:08:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let me think about it."
+          },
+          {
+            "at": "2026-03-04T14:09:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I compress posting lists with the zigpack codec?",
+            "plants": [
+              "f6"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:10:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "no"
+          },
+          {
+            "at": "2026-03-04T14:11:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I run index fsck --deep-walk after every crash?",
+            "plants": [
+              "f7"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:12:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sounds good, please do"
+          },
+          {
+            "at": "2026-03-04T14:13:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "How about warming the index from the hotkeys-ring at startup?",
+            "plants": [
+              "f8"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:14:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "not sure yet, ask me again tomorrow"
+          },
+          {
+            "at": "2026-03-04T14:15:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should we rank results with the mossrank scorer?",
+            "plants": [
+              "f9"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:16:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Nope."
+          },
+          {
+            "at": "2026-03-04T14:17:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could shard the index by project with the parcel-split scheme. Shall I?",
+            "plants": [
+              "f10"
+            ]
+          },
+          {
+            "at": "2026-03-04T14:18:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Hmm, possibly. Park it for now."
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "burrowtrie"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "lichen-segs"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "fanmerge-lite"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f4",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "hushlist"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f5",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "slowpath-scan"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f6",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "zigpack"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f7",
+        "kinds": [
+          "procedure"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "--deep-walk"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f8",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "hotkeys-ring"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f9",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "mossrank"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f10",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "parcel-split"
+          }
+        ],
+        "must": "not_with_authority"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  },
+  "plants": [
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 3,
+      "mode": "hedge",
+      "proposal": 2,
+      "fact": "f1"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 5,
+      "mode": "refusal",
+      "proposal": 4,
+      "fact": "f2"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 7,
+      "mode": "refusal",
+      "proposal": 6,
+      "fact": "f3"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 7,
+      "mode": "assent",
+      "proposal": 6,
+      "fact": "f4"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 9,
+      "mode": "hedge",
+      "proposal": 8,
+      "fact": "f5"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 11,
+      "mode": "refusal",
+      "proposal": 10,
+      "fact": "f6"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 13,
+      "mode": "assent",
+      "proposal": 12,
+      "fact": "f7"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 15,
+      "mode": "hedge",
+      "proposal": 14,
+      "fact": "f8"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 17,
+      "mode": "refusal",
+      "proposal": 16,
+      "fact": "f9"
+    },
+    {
+      "session": "5a110003-3333-4000-8000-000000000003",
+      "seq": 19,
+      "mode": "hedge",
+      "proposal": 18,
+      "fact": "f10"
+    }
+  ]
+}
