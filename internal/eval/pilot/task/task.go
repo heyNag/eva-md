@@ -96,8 +96,8 @@ type Task struct {
 
 // Error is a rule a task breaks.
 type Error struct {
-	Task   string // the task's id, or its folder's name when it has none
-	Family string // its family, when known
+	Task   string // the task's id, or before it is known to be good its folder's name or folder-<n> (folderLabel)
+	Family string // its family, when it is handoff or hidden, or ""
 	Rule   string // the rule's name
 	Why    string // what breaks it, naming no value
 }
