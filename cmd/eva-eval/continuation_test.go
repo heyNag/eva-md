@@ -111,7 +111,7 @@ func TestContinuationRun(t *testing.T) {
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 	if len(lines) != 5 || lines[0] != "plan: condition off, host codex, tasks 1, trials 2 each, sessions 2; ceilings: sessions 2, tokens 100000" ||
 		lines[2] != "trial hidden-banner.t1: solved 1, first try 0, corrections 1, rounds 2" ||
-		!strings.HasSuffix(lines[4], ": planned 2, judged 2, no model 0, not run 0, unjudged sign_in 0, rate_limited 0, timeout 0, other_model 0, setup_failed 0, update_failed 0, host_failed 0; tokens 3720, rows 18") {
+		!strings.HasSuffix(lines[4], ": planned 2, judged 2, no model 0, not run 0, unjudged sign_in 0, rate_limited 0, timeout 0, other_model 0, setup_failed 0, update_failed 0, host_failed 0, no_usage 0, memory_off 0, hidden_found 0; tokens 3720, rows 18") {
 		t.Fatalf("output:\n%s", out)
 	}
 	if strings.Contains(out, secret) || strings.Contains(out, r.base) || strings.Contains(out, fakehost.FixtureColor) || strings.Contains(out, fakehost.FixtureRepo) {
@@ -194,7 +194,7 @@ func TestContinuationRunGoesOnPastAHostFailure(t *testing.T) {
 	r.setScript(t, fakehost.Script{Status: 529, Session: 1, NoModel: true})
 	code, out, errOut := cmd(r.args("--spend-model-quota", "--model", "made-up-model-3")...)
 	if code != 1 || errOut != "" || !strings.Contains(out, "trial hidden-banner.t1: unjudged, host_failed\n") ||
-		!strings.Contains(out, ": planned 2, judged 1, no model 1, not run 0, ") || !strings.Contains(out, ", host_failed 1; ") {
+		!strings.Contains(out, ": planned 2, judged 1, no model 1, not run 0, ") || !strings.Contains(out, ", host_failed 1, ") {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
 	}
 	rows, err := results.Load(filepath.Join(r.base, "out"))
@@ -205,6 +205,24 @@ func TestContinuationRunGoesOnPastAHostFailure(t *testing.T) {
 		if row.Scenario != "hidden-banner.t2" || row.Model != "" {
 			t.Fatalf("row %+v", row)
 		}
+	}
+}
+
+// A call that answers without its usage stops the run: no row, the rest
+// not run, the summary printed, and exit 2.
+func TestContinuationRunStopsOnNoUsage(t *testing.T) {
+	r := newContRig(t)
+	r.setScript(t, fakehost.Script{NoUsage: true})
+	code, out, errOut := cmd(r.args("--spend-model-quota")...)
+	if code != 2 || !strings.Contains(errOut, "the run stopped") || !strings.Contains(out, "trial hidden-banner.t1: unjudged, no_usage\n") ||
+		!strings.Contains(out, ": planned 2, judged 0, no model 0, not run 1, ") {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(r.base, "out", results.FileName)); !os.IsNotExist(err) {
+		t.Fatal("a run with no usage wrote rows")
+	}
+	if starts := len(r.calls(t)); starts != 2 {
+		t.Fatalf("%d calls, want the version and one chat", starts)
 	}
 }
 

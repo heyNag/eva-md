@@ -950,7 +950,7 @@ func TestCallsWithNoAnswerAreHostFailed(t *testing.T) {
 				}
 				if !strings.Contains(out, "trial hidden-banner.t1: unjudged, host_failed\n") ||
 					!strings.Contains(out, "trial hidden-banner.t2: solved 1, first try 0, corrections 1, rounds 2\n") ||
-					!strings.Contains(out, ", host_failed 1;") {
+					!strings.Contains(out, ", host_failed 1, ") {
 					t.Fatalf("output:\n%s", out)
 				}
 				want := task.Outcome{Solved: true, Corrections: 1, Rounds: 2, AgentEvents: 4, PromptTokens: 2000, CachedTokens: 1200, OutputTokens: 100, WallMs: 2000}

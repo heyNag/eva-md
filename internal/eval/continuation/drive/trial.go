@@ -98,8 +98,8 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 		Run: func(_ context.Context, cli string, args ...string) ([]byte, error) {
 			vctx, cancel := context.WithTimeout(ctx, versionTimeout)
 			defer cancel()
-			out, err := runGroup(vctx, cli, args, tr.Env, tr.Dirs.Home, 64<<10)
-			if err != nil {
+			out, over, err := runGroup(vctx, cli, args, tr.Env, tr.Dirs.Home, 64<<10)
+			if err != nil || over {
 				return nil, errors.New("the host's version is unavailable")
 			}
 			return out, nil
@@ -342,10 +342,13 @@ func followUp(failing []string, facts []task.Fact) string {
 // so, and CodeHostFailed for any other, a CLI a signal ended among them,
 // even one that had printed an answer, since its work may be cut short,
 // or an output that holds no answer (a failure of the host's service, an
-// exit that printed nothing, an output with no final event). The tokens
-// the output names are kept, for the ceiling. A call that exits other
-// than 0 with an answer, as at the turn bound, is graded as it stands. An
-// error is the driver's own failure to run the CLI, which stops the run.
+// exit that printed nothing, an output with no final event). An answer
+// without its usage, or with 0 prompt and output tokens, and an output
+// past its limit, which may hide the usage, are CodeNoUsage: what the call
+// spent no ceiling can count. The tokens the output names are kept, for
+// the ceiling. A call that exits other than 0 with an answer, as at the
+// turn bound, is graded as it stands. An error is the driver's own failure
+// to run the CLI, which stops the run.
 func (s *session) call(ctx context.Context, c chat) (report, error) {
 	left := s.p.opts.SessionTimeout - s.spent
 	if left <= 0 {
@@ -358,7 +361,11 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 	cctx, cancel := limit(ctx, left)
 	defer cancel()
 	start, began := s.p.opts.Clock(), time.Now()
-	out, err := runGroup(cctx, s.tr.CLI, s.p.entry.Argv(c), s.env, s.tr.Dirs.Workspace, outputLimit)
+	most := s.p.opts.outputLimit
+	if most <= 0 {
+		most = outputLimit
+	}
+	out, over, err := runGroup(cctx, s.tr.CLI, s.p.entry.Argv(c), s.env, s.tr.Dirs.Workspace, most)
 	s.spent += time.Since(began)
 	s.outcome.WallMs += s.p.opts.Clock().Sub(start).Milliseconds()
 	switch {
@@ -372,6 +379,10 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 		return report{}, fmt.Errorf("the host's CLI: %w", pathless(err))
 	}
 	r := s.p.entry.Read(out)
+	if over {
+		r.Fail = CodeNoUsage
+		return r, nil
+	}
 	if r.Fail != "" {
 		return r, nil
 	}
@@ -381,22 +392,28 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 			return r, nil
 		}
 	}
-	if !r.Answered {
+	switch {
+	case !r.Answered:
 		r.Fail = CodeHostFailed
+	case !r.Usage || r.PromptTokens+r.OutputTokens == 0:
+		r.Fail = CodeNoUsage
 	}
 	return r, nil
 }
 
-// cappedBuffer keeps the first limit bytes written to it.
+// cappedBuffer keeps the first limit bytes written to it, and says
+// whether more came.
 type cappedBuffer struct {
 	buffer bytes.Buffer
 	limit  int
+	over   bool
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	n := len(p)
 	if room := b.limit - b.buffer.Len(); n > room {
 		p = p[:max(room, 0)]
+		b.over = true
 	}
 	_, _ = b.buffer.Write(p)
 	return n, nil
@@ -406,14 +423,14 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 // group of its own that is killed when ctx ends and as soon as cli has
 // exited, so that nothing it left running goes on editing the workspace
 // while it is graded, and gives the first limit bytes the group printed on
-// stdout. Its stderr is dropped. Its stdout is a pipe of runGroup's own,
-// so that the wait ends when cli exits, not when the last process holding
-// the pipe does; one that left the group and still holds it after
-// waitDelay is an error.
-func runGroup(ctx context.Context, cli string, args, env []string, dir string, limit int) ([]byte, error) {
+// stdout, and whether it printed more. Its stderr is dropped. Its stdout
+// is a pipe of runGroup's own, so that the wait ends when cli exits, not
+// when the last process holding the pipe does; one that left the group and
+// still holds it after waitDelay is an error.
+func runGroup(ctx context.Context, cli string, args, env []string, dir string, limit int) ([]byte, bool, error) {
 	r, w, err := os.Pipe()
 	if err != nil {
-		return nil, pathless(err)
+		return nil, false, pathless(err)
 	}
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Dir = dir
@@ -446,7 +463,7 @@ func runGroup(ctx context.Context, cli string, args, env []string, dir string, l
 		}
 	}
 	_ = r.Close()
-	return out.buffer.Bytes(), err
+	return out.buffer.Bytes(), out.over, err
 }
 
 // killGroup kills the process group pid leads.

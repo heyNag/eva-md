@@ -55,6 +55,10 @@ type report struct {
 	// never graded, since what the workspace holds then says nothing of the
 	// chat.
 	Answered bool
+	// Usage says the host gave its usage: each final event the reader
+	// counts the tokens of carries it, and there is one. A call answered
+	// without it spent what no ceiling can count.
+	Usage bool
 }
 
 // pluginLoad is how a chat loads eva-md's plugin: flags, and files written
@@ -246,7 +250,8 @@ func tomlString(s string) string {
 	return b.String()
 }
 
-// lines calls f with each line of out that is a JSON object.
+// lines calls f with each line of out that is a JSON object. A line may be
+// as long as out, which runGroup keeps within the output's limit.
 func lines(out []byte, f func(map[string]json.RawMessage)) {
 	s := bufio.NewScanner(bytes.NewReader(out))
 	s.Buffer(make([]byte, 0, 64<<10), len(out)+1)
@@ -274,17 +279,19 @@ func num(raw json.RawMessage) int64 {
 
 // readStreamJSON reads Claude Code's stream-json: the session id from any
 // event; a tool call for each tool_use block of an assistant message; and
-// from the result event the tokens, by modelUsage when it names models
-// (every model call of the run) else by usage, and whether it failed for
+// from the result event the tokens, by modelUsage (every model call of the
+// run) or by usage, whichever names more, and whether it failed for
 // sign-in (401 or 403) or a rate limit (429). The model that answered is
 // the one modelUsage credits with the most output tokens, else the last
 // assistant message's. The call answered when a result event is no error,
 // or is the end of a run at its turn bound (subtype error_max_turns),
 // which leaves the chat's work as it stands; any other error, such as one
-// of the host's service (a 5xx), is no answer.
+// of the host's service (a 5xx), is no answer. The usage was given when
+// each result event has a usage object or a modelUsage naming a model.
 func readStreamJSON(out []byte) report {
 	var r report
 	broken := false
+	finals, counted := 0, 0
 	lines(out, func(e map[string]json.RawMessage) {
 		if id := str(e["session_id"]); id != "" {
 			r.Session = id
@@ -307,27 +314,38 @@ func readStreamJSON(out []byte) report {
 				r.Model = m.Model
 			}
 		case "result":
+			finals++
 			var models map[string]map[string]json.RawMessage
-			if json.Unmarshal(e["modelUsage"], &models) == nil && len(models) > 0 {
-				best, most := "", int64(-1)
-				for name, u := range models {
-					cached := num(u["cacheReadInputTokens"])
-					r.PromptTokens += num(u["inputTokens"]) + num(u["cacheCreationInputTokens"]) + cached
-					r.CachedTokens += cached
-					n := num(u["outputTokens"])
-					r.OutputTokens += n
-					if n > most || n == most && name < best {
-						best, most = name, n
-					}
+			named := json.Unmarshal(e["modelUsage"], &models) == nil && len(models) > 0
+			var by, mu tokens
+			best, most := "", int64(-1)
+			for name, u := range models {
+				cached := num(u["cacheReadInputTokens"])
+				n := num(u["outputTokens"])
+				mu.add(tokens{num(u["inputTokens"]) + num(u["cacheCreationInputTokens"]) + cached, cached, n})
+				if n > most || n == most && name < best {
+					best, most = name, n
 				}
-				r.Model = best
-			} else {
-				var u map[string]json.RawMessage
-				_ = json.Unmarshal(e["usage"], &u)
+			}
+			var u map[string]json.RawMessage
+			given := json.Unmarshal(e["usage"], &u) == nil && u != nil
+			if given {
 				cached := num(u["cache_read_input_tokens"])
-				r.PromptTokens += num(u["input_tokens"]) + num(u["cache_creation_input_tokens"]) + cached
-				r.CachedTokens += cached
-				r.OutputTokens += num(u["output_tokens"])
+				by = tokens{num(u["input_tokens"]) + num(u["cache_creation_input_tokens"]) + cached, cached, num(u["output_tokens"])}
+			}
+			if named || given {
+				counted++
+			}
+			// The place that names more tokens is counted, modelUsage on a
+			// tie, so that what one place leaves out the ceiling still counts.
+			if named && mu.prompt+mu.output >= by.prompt+by.output {
+				by = mu
+			}
+			r.PromptTokens += by.prompt
+			r.CachedTokens += by.cached
+			r.OutputTokens += by.output
+			if named {
+				r.Model = best
 			}
 			var failed bool
 			_ = json.Unmarshal(e["is_error"], &failed)
@@ -347,7 +365,18 @@ func readStreamJSON(out []byte) report {
 		}
 	})
 	r.Answered = r.Answered && !broken
+	r.Usage = finals > 0 && counted == finals
 	return r
+}
+
+// tokens are a final event's prompt (cached included), cached and output
+// tokens.
+type tokens struct{ prompt, cached, output int64 }
+
+func (t *tokens) add(u tokens) {
+	t.prompt += u.prompt
+	t.cached += u.cached
+	t.output += u.output
 }
 
 // readExecJSON reads Codex's exec --json: the session id from
@@ -357,10 +386,12 @@ func readStreamJSON(out []byte) report {
 // turn names; and from turn.failed or error whether it failed for sign-in
 // (401 or 403) or a rate limit (429). The call answered when a turn
 // completed and none failed: exec has no turn bound, so a turn.failed or
-// an error event is no answer.
+// an error event is no answer. The usage was given when each
+// turn.completed has a usage object.
 func readExecJSON(out []byte) report {
 	var r report
 	broken := false
+	finals, counted := 0, 0
 	lines(out, func(e map[string]json.RawMessage) {
 		switch str(e["type"]) {
 		case "thread.started":
@@ -376,8 +407,11 @@ func readExecJSON(out []byte) report {
 				r.AgentEvents++
 			}
 		case "turn.completed":
+			finals++
 			var u map[string]json.RawMessage
-			_ = json.Unmarshal(e["usage"], &u)
+			if json.Unmarshal(e["usage"], &u) == nil && u != nil {
+				counted++
+			}
 			r.PromptTokens += num(u["input_tokens"])
 			r.CachedTokens += num(u["cached_input_tokens"])
 			r.OutputTokens += num(u["output_tokens"])
@@ -406,5 +440,6 @@ func readExecJSON(out []byte) report {
 		}
 	})
 	r.Answered = r.Answered && !broken
+	r.Usage = finals > 0 && counted == finals
 	return r
 }

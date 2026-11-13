@@ -9,7 +9,9 @@
 // folder and bin folder, and only the variables the run names. Nothing it
 // starts runs outside its folder, and it never writes a host's trust
 // record or settings. A trial a host failure leaves unjudged writes no row,
-// and the run goes on to the next.
+// and the run goes on to the next. A trial unjudged for a fault of the
+// set-up, a call that gave no usage among them, stops the run: every
+// further trial would spend a session to learn nothing.
 package drive
 
 import (
@@ -47,10 +49,33 @@ const (
 	// answer), or an answer that names no session when the trial needs a
 	// follow-up.
 	CodeHostFailed = "host_failed"
+	// CodeNoUsage is a call that answered without its usage, or with 0
+	// prompt and output tokens, or whose output ran past its limit: what it
+	// spent no ceiling can count.
+	CodeNoUsage = "no_usage"
+	// CodeMemoryOff is a condition that found the host's own memory on
+	// where it must be off. Only an Arm gives it.
+	CodeMemoryOff = "memory_off"
+	// CodeHiddenFound is a hidden test, or its bytes, found within a
+	// chat's reach.
+	CodeHiddenFound = "hidden_found"
 )
 
 // Codes lists every code of an unjudged trial, in a fixed order.
-var Codes = []string{CodeSignIn, CodeRateLimited, CodeTimeout, CodeOtherModel, CodeSetupFailed, CodeUpdateFailed, CodeHostFailed}
+var Codes = []string{CodeSignIn, CodeRateLimited, CodeTimeout, CodeOtherModel, CodeSetupFailed, CodeUpdateFailed, CodeHostFailed,
+	CodeNoUsage, CodeMemoryOff, CodeHiddenFound}
+
+// stopCodes are the codes that stop the run: each says the set-up is
+// wrong, so every further trial would spend a session to learn nothing.
+var stopCodes = []string{CodeNoUsage, CodeMemoryOff, CodeHiddenFound}
+
+// Stopped is Run's error when a trial left unjudged with one of the codes
+// that stop a run ended it: the trials after it were not run.
+type Stopped struct {
+	Code string
+}
+
+func (e *Stopped) Error() string { return "the run stopped: a trial is unjudged, " + e.Code }
 
 // Unjudged is the error that leaves a trial unjudged: a host or a
 // condition failed in a way that says nothing of the answer.
@@ -94,6 +119,9 @@ type Options struct {
 	// the session's time limit, d, has passed; nil is context.WithTimeout.
 	// A test ends it at an exact point instead.
 	sessionLimit func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
+	// outputLimit is the most a call may print on stdout; 0 is
+	// outputLimit's. A test gives a small one.
+	outputLimit int
 }
 
 // Dirs are a trial's folders.
@@ -458,7 +486,8 @@ func executable(p string) (string, error) {
 // Run checks the options, prints the plan to out, and, given leave to
 // spend model quota, runs every trial within the ceilings and appends the
 // rows of each judged one to the results folder. A *UsageError, or
-// ErrNoQuota, says nothing started. out gets ids and figures only.
+// ErrNoQuota, says nothing started; a *Stopped says a trial's code stopped
+// the run, after its summary was printed. out gets ids and figures only.
 func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	if o.Clock == nil {
 		o.Clock = time.Now
@@ -509,6 +538,7 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	fmt.Fprintf(out, "run %s\n", s.Run)
 	store := results.Store{Dir: o.Out, Forbid: p.forbid}
 	done := 0
+	var stopped error
 trials:
 	for _, t := range p.tasks {
 		for n := 1; n <= o.Trials; n++ {
@@ -527,6 +557,11 @@ trials:
 			if r.unjudged != "" {
 				s.Unjudged[r.unjudged]++
 				fmt.Fprintf(out, "trial %s.t%d: unjudged, %s\n", t.ID, n, r.unjudged)
+				if slices.Contains(stopCodes, r.unjudged) {
+					s.NotRun = s.Planned - done
+					stopped = &Stopped{Code: r.unjudged}
+					break trials
+				}
 				continue
 			}
 			base := results.Row{Commit: commit, Dirty: dirty, Host: string(p.host.ID), HostVersion: r.version, Model: r.model, Time: o.Clock()}
@@ -552,7 +587,7 @@ trials:
 	}
 	fmt.Fprintf(out, "run %s: planned %d, judged %d, no model %d, not run %d, unjudged %s; tokens %d, rows %d\n",
 		s.Run, s.Planned, s.Judged, s.NoModel, s.NotRun, strings.Join(unjudged, ", "), s.Tokens, s.Rows)
-	return s, nil
+	return s, stopped
 }
 
 func b2i(b bool) int {

@@ -18,9 +18,10 @@
 // script can make it stall until it is killed, with a child holding its
 // output; leave such a child behind an answer; fail its sign-in, a rate
 // limit or with another status; exit having printed nothing; kill itself,
-// before an answer or after a whole one; answer with no session, or at the
-// turn bound; name another model, or none. Its failures can be kept to one
-// session and to the rounds of a session from one on.
+// before an answer or after a whole one; answer with no session, with no
+// usage, or at the turn bound; name another model, or none; pad its output.
+// Its failures can be kept to one session and to the rounds of a session
+// from one on.
 //
 // Only tests import it.
 package fakehost
@@ -105,6 +106,13 @@ type Script struct {
 	// exiting 1 (Claude Code's shape; Codex's exec has no turn bound, and
 	// answers as usual).
 	TurnBound bool `json:"turn_bound"`
+	// NoUsage makes an answer give no usage: Claude Code's result event has
+	// neither usage nor modelUsage, and Codex's turn.completed no usage. It
+	// is one of the failures From and Session keep to some calls.
+	NoUsage bool `json:"no_usage"`
+	// Pad is the size of a line of padding, an event no reader knows, the
+	// fake prints before its answer.
+	Pad int `json:"pad"`
 }
 
 // ChildVar is the variable that makes the test binary a fake's child: it
@@ -258,6 +266,10 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	if s.Leave && spawn("") != nil {
 		return 3
 	}
+	if s.Pad > 0 {
+		emit(out, map[string]any{"type": "padding", "text": strings.Repeat("p", s.Pad)})
+	}
+	s.NoUsage = s.NoUsage && failing
 	answer(host.ID, s, session, model, out)
 	if s.KilledAfter && failing {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
@@ -493,10 +505,12 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 		if s.TurnBound {
 			subtype = "error_max_turns"
 		}
-		result := map[string]any{"type": "result", "subtype": subtype, "is_error": s.TurnBound, "session_id": session,
-			"usage": map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output}}
-		if model != "" {
-			result["modelUsage"] = map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}
+		result := map[string]any{"type": "result", "subtype": subtype, "is_error": s.TurnBound, "session_id": session}
+		if !s.NoUsage {
+			result["usage"] = map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output}
+			if model != "" {
+				result["modelUsage"] = map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}
+			}
 		}
 		emit(out, result)
 	case adapter.Codex:
@@ -506,8 +520,11 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 			emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution"}})
 		}
 		emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "Done."}})
-		emit(out, withModel(map[string]any{"type": "turn.completed",
-			"usage": map[string]any{"input_tokens": s.Prompt, "cached_input_tokens": s.Cached, "output_tokens": s.Output}}, "model"))
+		done := map[string]any{"type": "turn.completed"}
+		if !s.NoUsage {
+			done["usage"] = map[string]any{"input_tokens": s.Prompt, "cached_input_tokens": s.Cached, "output_tokens": s.Output}
+		}
+		emit(out, withModel(done, "model"))
 	}
 }
 
