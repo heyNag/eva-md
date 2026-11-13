@@ -158,6 +158,39 @@ func TestInstancesKeepTheModel(t *testing.T) {
 	}
 }
 
+// TestFillersKeepToTheirSplit: the turns of a held-out instance come from
+// no template of the tuning fillers, and those of a tuning instance from
+// none of the held-out fillers; each instance holds a filler of its own
+// split.
+func TestFillersKeepToTheirSplit(t *testing.T) {
+	all := func(roles map[string][]string) []string {
+		var out []string
+		for _, list := range roles {
+			out = append(out, list...)
+		}
+		return out
+	}
+	tuning, heldout := all(fillerTexts), all(heldoutFillerTexts)
+	for _, scs := range instances(t) {
+		for _, sc := range scs {
+			own, other := tuning, heldout
+			if sc.Split == scenario.SplitHeldout {
+				own, other = heldout, tuning
+			}
+			ownSeen := false
+			for n, tr := range sc.Sessions[0].Turns {
+				if slices.Contains(other, tr.Text) {
+					t.Errorf("%s#%d is a filler of the other split: %q", sc.ID, n+1, tr.Text)
+				}
+				ownSeen = ownSeen || slices.Contains(own, tr.Text)
+			}
+			if !ownSeen {
+				t.Errorf("%s holds no filler of its own split", sc.ID)
+			}
+		}
+	}
+}
+
 // plantsSlot reports whether turn tr plants a fact with slot sl.
 func plantsSlot(sc scenario.Scenario, tr scenario.Turn, sl scenario.Slot) bool {
 	for _, f := range sc.Facts {
