@@ -21,16 +21,24 @@
 // other pattern.
 //
 // Entries are paths from the repository's root, with forward slashes: no
-// leading "/" or "./", no "." or ".." name, and "**" only as the last name
-// of a folder entry.
+// leading "/" or "./", no "." or ".." name, no space or backtick, so no
+// list mark or note beside an entry, and "**" only as the last name of a
+// folder entry.
 //
 // A commit names its cards with lines that read "Card: <ID>", one card a
 // line, each alone on its line wherever it stands in the message: a
 // commit that lands a package carries it straight after the subject,
-// which git's own reading of trailers does not find. A commit with no
-// such line is the lead's, listed and not judged. The card index, docs/v2/cards/README.md, gives each card's state in the
-// last column of its table; a card whose state begins with "merged" is
-// merged.
+// which git's own reading of trailers does not find. Any other line that
+// starts, in any case and after any space, with "Card:" or "Cards:", such
+// as "Card: AA-1, AA-2" or an indented "Card: AA-1", is a fault rather than
+// a line that names no card. A commit with neither is the lead's, listed
+// and not judged. A commit may not widen the paths block its card had in
+// its first parent, and a card the first parent did not have had no
+// paths: the lead writes each card before a commit names it.
+//
+// The card index, docs/v2/cards/README.md, gives each card's state in the
+// last column of its table, a row that starts and ends with "|"; a card
+// whose state begins with "merged" is merged.
 package guard
 
 import (
@@ -39,6 +47,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // CardsDir is the folder of the cards, from the repository's root.
@@ -92,6 +101,11 @@ func ParsePattern(s string, glob bool) (Pattern, error) {
 	folder := name != s
 	bad := func(why string) (Pattern, error) { return "", fmt.Errorf("the entry %q %s", s, why) }
 	switch {
+	case strings.ContainsFunc(s, unicode.IsSpace) || strings.Contains(s, "`"):
+		// "c/x.go (new)", "- a/**" or "`a.go`" would be read as a file that
+		// never matches; rejecting them makes a slip show when the block is
+		// written, not on the commit that lands the package.
+		return bad("holds a space or a backtick, which no path of the repository has")
 	case name == "" || strings.HasPrefix(name, "/") || strings.Contains(name, `\`):
 		return bad("is not a path from the repository's root")
 	case path.Clean(name) != name || name == "." || name == ".." || strings.HasPrefix(name, "../"):

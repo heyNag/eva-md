@@ -2,6 +2,7 @@ package guard
 
 import (
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +48,8 @@ func TestAFolderEntryMatchesOnlyWhatIsUnderIt(t *testing.T) {
 }
 
 func TestAnEntryIsAPathFromTheRoot(t *testing.T) {
-	for _, s := range []string{"", "/a", "./a", "a/", "a//b", "a/../b", "../a", "..", ".", "**", "/**", "a/**/b", "a/**b", "a/b**", `a\b`, "a/[b"} {
+	for _, s := range []string{"", "/a", "./a", "a/", "a//b", "a/../b", "../a", "..", ".", "**", "/**", "a/**/b", "a/**b", "a/b**", `a\b`, "a/[b",
+		"c/x.go (new)", "- a/**", "* a/**", "`a.go`", "a/`b`.go", "a b.go", "a.go\t", "a/** "} {
 		if _, err := ParsePattern(s, true); err == nil {
 			t.Errorf("the entry %q is accepted", s)
 		}
@@ -101,7 +103,8 @@ func TestTheIndexGivesTheMergedCards(t *testing.T) {
 		"| [AA-2](AA-2.md) | Two | merged; advisory in CI |\n" +
 		"| [AA-3](AA-3.md) | Three, once merged | building since today |\n" +
 		"| [AA-4](AA-4.md) | Four | after AA-1, merged when ready |\n" +
-		"[AA-5](AA-5.md) merged\n"
+		"[AA-5](AA-5.md) merged\n" +
+		"| [AA-6](AA-6.md) | A row with no closing bar | merged\n"
 	if got := Merged(index); !slices.Equal(got, []string{"AA-1", "AA-2"}) {
 		t.Fatalf("merged %q", got)
 	}
@@ -252,6 +255,7 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 		"docs/v2/cards/AA-1.md": card("a/**", "b.go"),
 		"docs/v2/cards/AA-2.md": card("c/**"),
 		"docs/v2/cards/AA-3.md": "# A card with no block\n",
+		"docs/v2/cards/AA-5.md": card("f/**", "h/?.go", "docs/v2/cards/AA-5.md"),
 		"a/x.go":                "package a\n",
 		"a/y.go":                "package a\n",
 		"c/old.go":              "package c\n",
@@ -288,12 +292,25 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 	// session's lines in its last paragraph.
 	landed := h.commit("Lands a package\n\nCard: AA-1\n\nWhat changed, and why, over\ntwo lines.\n\nA second paragraph.\n\nCo-Authored-By: A Fixture <fixture@example.invalid>\nSession: https://example.invalid/s/1", map[string]string{"zz.go": "package zz\n"})
 	landedInside := h.commit("Lands inside\n\nCard: AA-1\r\n\nWhat changed.\n\nCo-Authored-By: A Fixture <fixture@example.invalid>", map[string]string{"a/landed.go": "package a\n"})
-	// No line that names a card in another form is read as one.
-	notCard := h.commit("Card AA-1: a subject that only starts with the word\n\nCard: AA-1 and AA-2\n  Card: AA-1\nThe Card: AA-1 line\nCard:\n\nCards: AA-1", map[string]string{"zz.go": "package zz\n\nvar Z int\n"})
+	// A line that only mentions a card is not read as one.
+	notCard := h.commit("Card AA-1: a subject that only starts with the word\n\nThe Card: AA-1 line\nA card: AA-1", map[string]string{"zz.go": "package zz\n\nvar Z int\n"})
+	// A line that sets out to name cards in another form is a fault, and
+	// the commit is not the lead's, even beside a line that names one.
+	badCard := h.commit("Lands two cards\n\nCard: AA-1, AA-2", map[string]string{"zz.go": "package zz\n\nvar Y int\n"})
+	badBeside := h.commit("Lands a package\n\nCard: AA-1\n    Card: AA-2", map[string]string{"a/x.go": "package a\n\nvar W int\n"})
+	// A folder entry covers only what is under it, not a sibling whose
+	// name it starts, and a pattern of one name covers no wider pattern.
+	widensSibling := h.commit("widens f/** to its sibling fg\n\nCard: AA-5", map[string]string{
+		"docs/v2/cards/AA-5.md": card("f/**", "fg/x.go", "h/?.go", "docs/v2/cards/AA-5.md"),
+		"fg/x.go":               "package fg\n",
+	})
+	widensGlob := h.commit("widens one name's pattern\n\nCard: AA-5", map[string]string{
+		"docs/v2/cards/AA-5.md": card("f/**", "fg/x.go", "h/*.go", "docs/v2/cards/AA-5.md"),
+	})
 
-	got := h.judge(base, notCard)
-	if len(got) != 15 {
-		t.Fatalf("judged %d commits, want 15", len(got))
+	got := h.judge(base, widensGlob)
+	if len(got) != 19 {
+		t.Fatalf("judged %d commits, want 19", len(got))
 	}
 	if _, ok := got[base]; ok {
 		t.Error("the range's first commit is judged")
@@ -317,7 +334,7 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 	expectFaults(t, "not an id", got[notAnID], "../AA-1: the Card: line names no card")
 	expectFaults(t, "widens", got[widens], "AA-1: the commit widens its card's paths block with d/**", "AA-1: the commit widens its card's paths block with docs/v2/cards/AA-1.md")
 	expectFaults(t, "narrows", got[narrows], "AA-2: the commit widens its card's paths block with docs/v2/cards/AA-2.md")
-	expectFaults(t, "new card", got[newCard])
+	expectFaults(t, "new card", got[newCard], "AA-4: the commit widens its card's paths block with e/**", "AA-4: the commit widens its card's paths block with docs/v2/cards/AA-4.md")
 	if j := got[lead]; !j.Lead() || len(j.Faults) != 0 || j.Paths != 2 {
 		t.Errorf("the lead's commit: %+v", j)
 	}
@@ -329,14 +346,55 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 	if j := got[landedInside]; !slices.Equal(j.Cards, []string{"AA-1"}) || j.Paths != 1 {
 		t.Errorf("landed inside: %+v", j)
 	}
-	if j := got[notCard]; !j.Lead() {
-		t.Errorf("a line in another form is read as a Card: line: %+v", j)
+	if j := got[notCard]; !j.Lead() || j.Paths != 1 {
+		t.Errorf("a line that only mentions a card is read as a Card: line: %+v", j)
 	}
+	expectFaults(t, "bad card", got[badCard], `the line "Card: AA-1, AA-2" does not name one card`)
+	if j := got[badCard]; j.Lead() || len(j.Cards) != 0 {
+		t.Errorf("a commit whose only Card: line is malformed: %+v", j)
+	}
+	expectFaults(t, "bad beside", got[badBeside], `the line "Card: AA-2" does not name one card`)
+	expectFaults(t, "widens sibling", got[widensSibling], "AA-5: the commit widens its card's paths block with fg/x.go")
+	expectFaults(t, "widens glob", got[widensGlob], "AA-5: the commit widens its card's paths block with h/*.go")
 
 	// The card is read from the commit's own tree: at the commit that
 	// widened it, AA-1 owned d/**, and later d/x.go is still its own.
 	later := h.commit("inside the widened card\n\nCard: AA-1", map[string]string{"d/x.go": "package d\n\nvar D int\n"})
-	expectFaults(t, "later", h.judge(notCard, later)[later])
+	expectFaults(t, "later", h.judge(widensGlob, later)[later])
+}
+
+// A line that sets out to name cards is read only in the one form, and in
+// any other it is a fault; a line that only mentions a card is not read.
+func TestOnlyALineOfOneCardNamesACard(t *testing.T) {
+	cases := []struct {
+		message string
+		cards   []string
+		bad     int
+	}{
+		{"Subject\n\nCard: AA-1\n\nBody.", []string{"AA-1"}, 0},
+		{"Subject\n\nCard: AA-1\r\nCard:AA-2 \nCard: AA-1", []string{"AA-1", "AA-2"}, 0},
+		{"Subject\n\nBody.\n\nCard: AA-1", []string{"AA-1"}, 0},
+		{"Card AA-1: a subject\n\nThe Card: AA-1 line\nA card: AA-1\nDiscard: AA-1", nil, 0},
+		{"Subject\n\nCard: AA-1 (part 2)", nil, 1},
+		{"Subject\n\ncard: AA-1", nil, 1},
+		{"Subject\n\nCARD: AA-1", nil, 1},
+		{"Subject\n\nCard: AA-1, AA-2", nil, 1},
+		{"Subject\n\nCard: AA-1 AA-2", nil, 1},
+		{"Subject\n\nCard: AA-1 and AA-2", nil, 1},
+		{"Subject\n\nCards: AA-1", nil, 1},
+		{"Subject\n\nCard :AA-1", nil, 1},
+		{"Subject\n\nCard:", nil, 1},
+		// git's message for a squash indents each commit's lines.
+		{"Squashed commit of the following:\n\n    Lands it\n\n    Card: AA-1", nil, 1},
+		{"Subject\n\n\tCard: AA-1", nil, 1},
+		{"Subject\n\nCard: AA-1\nCard: AA-2, AA-3", []string{"AA-1"}, 1},
+	}
+	for _, c := range cases {
+		cards, bad := cardsOf(c.message)
+		if !slices.Equal(cards, c.cards) || len(bad) != c.bad {
+			t.Errorf("%q: cards %q, bad %q; want %q and %d bad", c.message, cards, bad, c.cards, c.bad)
+		}
+	}
 }
 
 // A merge is judged on its diff against its first parent; the commits it
@@ -382,8 +440,9 @@ func TestARangeGitCannotReadIsAnError(t *testing.T) {
 
 // goEnv points the go command at a temporary home, offline and on the
 // installed toolchain, with Go's own caches, which go test itself uses. It
-// also sets what Built must override: another system, and a build tag.
-func goEnv(t *testing.T) {
+// also sets what Built must override, in the environment or, with
+// envFile, in a go env file: another system, cgo, and a build tag.
+func goEnv(t *testing.T, envFile bool) {
 	t.Helper()
 	out, err := exec.Command("go", "env", "GOCACHE", "GOMODCACHE").Output()
 	if err != nil {
@@ -399,10 +458,23 @@ func goEnv(t *testing.T) {
 		config = filepath.Join(home, "Library", "Application Support")
 	}
 	write(t, filepath.Join(config, "go", "telemetry", "mode"), "off\n")
-	for k, v := range map[string]string{
-		"XDG_CONFIG_HOME": filepath.Join(home, ".config"), "GOENV": "off", "GOCACHE": caches[0], "GOMODCACHE": caches[1],
-		"GOTOOLCHAIN": "local", "GOPROXY": "off", "GOOS": "linux", "GOARCH": "amd64", "CGO_ENABLED": "1", "GOFLAGS": "-tags=extra",
-	} {
+	env := map[string]string{
+		"XDG_CONFIG_HOME": filepath.Join(home, ".config"), "GOCACHE": caches[0], "GOMODCACHE": caches[1],
+		"GOTOOLCHAIN": "local", "GOPROXY": "off",
+	}
+	wrong := map[string]string{"GOOS": "linux", "GOARCH": "amd64", "CGO_ENABLED": "1", "GOFLAGS": "-tags=extra"}
+	if envFile {
+		// A go env file a developer wrote with go env -w; GOFLAGS there
+		// applies only while the environment's is empty.
+		file := filepath.Join(home, "goenv")
+		write(t, file, "GOFLAGS=-tags=extra\nCGO_ENABLED=1\nGOOS=linux\n")
+		env["GOENV"] = file
+		env["GOFLAGS"] = ""
+	} else {
+		env["GOENV"] = "off"
+		maps.Copy(env, wrong)
+	}
+	for k, v := range env {
 		t.Setenv(k, v)
 	}
 }
@@ -414,21 +486,22 @@ func fixtureModule(t *testing.T) (string, map[string]int) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "module")
 	files := map[string]string{
-		"go.mod":                 "module example.com/app\n\ngo 1.22\n\nrequire example.com/lib v0.0.0\n\nreplace example.com/lib => ./lib\n",
-		"cmd/eva-md/main.go":     "package main\n\nimport (\n\t\"example.com/app/internal/a\"\n\t\"example.com/lib\"\n)\n\nfunc main() { a.F(); lib.F() }\n",
-		"cmd/eva-md/m_test.go":   "package main\n\nimport \"testing\"\n\nfunc TestM(t *testing.T) {}\n",
-		"internal/a/a.go":        "package a\n\nfunc F() {}\n",
-		"internal/a/a_darwin.go": "package a\n\n// macOS only.\nvar Darwin = 1\n",
-		"internal/a/a_arm64.go":  "package a\n\nvar Arch = 1\n",
-		"internal/a/a_amd64.go":  "package a\n\nvar Arch = 2\n\n\n",
-		"internal/a/a_linux.go":  "package a\n\nvar Linux = 1\n",
-		"internal/a/a_extra.go":  "//go:build extra\n\npackage a\n\nvar Extra = 1\n",
-		"internal/a/a_cgo.go":    "package a\n\nimport \"C\"\n\nvar Cgo = 1\n",
-		"internal/a/a_test.go":   "package a\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) {}\n",
-		"internal/a/doc.txt":     "not Go\n",
-		"internal/unused/u.go":   "package unused\n\nvar U = 1\n",
-		"lib/go.mod":             "module example.com/lib\n\ngo 1.22\n",
-		"lib/lib.go":             "package lib\n\nfunc F() {}\n",
+		"go.mod":                  "module example.com/app\n\ngo 1.22\n\nrequire example.com/lib v0.0.0\n\nreplace example.com/lib => ./lib\n",
+		"cmd/eva-md/main.go":      "package main\n\nimport (\n\t\"example.com/app/internal/a\"\n\t\"example.com/lib\"\n)\n\nfunc main() { a.F(); lib.F() }\n",
+		"cmd/eva-md/m_test.go":    "package main\n\nimport \"testing\"\n\nfunc TestM(t *testing.T) {}\n",
+		"internal/a/a.go":         "package a\n\nfunc F() {}\n",
+		"internal/a/a_darwin.go":  "package a\n\n// macOS only.\nvar Darwin = 1\n",
+		"internal/a/a_arm64.go":   "package a\n\nvar Arch = 1\n",
+		"internal/a/a_amd64.go":   "package a\n\nvar Arch = 2\n\n\n",
+		"internal/a/a_linux.go":   "package a\n\nvar Linux = 1\n",
+		"internal/a/a_extra.go":   "//go:build extra\n\npackage a\n\nvar Extra = 1\n",
+		"internal/a/a_cgo.go":     "package a\n\nimport \"C\"\n\nvar Cgo = 1\n",
+		"internal/a/a_tag_cgo.go": "//go:build cgo\n\npackage a\n\nvar TagCgo = 1\n",
+		"internal/a/a_test.go":    "package a\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) {}\n",
+		"internal/a/doc.txt":      "not Go\n",
+		"internal/unused/u.go":    "package unused\n\nvar U = 1\n",
+		"lib/go.mod":              "module example.com/lib\n\ngo 1.22\n",
+		"lib/lib.go":              "package lib\n\nfunc F() {}\n",
 	}
 	for name, content := range files {
 		write(t, filepath.Join(root, filepath.FromSlash(name)), content)
@@ -442,27 +515,33 @@ func fixtureModule(t *testing.T) (string, map[string]int) {
 	}
 }
 
+// What the environment or a go env file sets, another system, cgo or a
+// build tag, changes nothing of the count.
 func TestBuiltCountsWhatAMacOSReleaseBuilds(t *testing.T) {
-	goEnv(t)
-	root, want := fixtureModule(t)
-	got, err := Built(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != len(want) {
-		t.Errorf("counted %v, want %v", got, want)
-	}
-	for f, n := range want {
-		if got[f] != n {
-			t.Errorf("%s: %d lines, want %d", f, got[f], n)
-		}
-	}
-	s, err := Count(root, got, Ceiling, nil)
-	if err != nil || s.Built != 23 || s.Net() != 23 || !s.Holds() {
-		t.Errorf("count %+v, %v", s, err)
-	}
-	if _, err := Built(context.Background(), t.TempDir()); err == nil {
-		t.Error("a folder with no module is counted")
+	for _, envFile := range []bool{false, true} {
+		t.Run(map[bool]string{false: "environment", true: "go env file"}[envFile], func(t *testing.T) {
+			goEnv(t, envFile)
+			root, want := fixtureModule(t)
+			got, err := Built(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(want) {
+				t.Errorf("counted %v, want %v", got, want)
+			}
+			for f, n := range want {
+				if got[f] != n {
+					t.Errorf("%s: %d lines, want %d", f, got[f], n)
+				}
+			}
+			s, err := Count(root, got, Ceiling, nil)
+			if err != nil || s.Built != 23 || s.Net() != 23 || !s.Holds() {
+				t.Errorf("count %+v, %v", s, err)
+			}
+			if _, err := Built(context.Background(), t.TempDir()); err == nil {
+				t.Error("a folder with no module is counted")
+			}
+		})
 	}
 }
 

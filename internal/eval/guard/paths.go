@@ -19,9 +19,9 @@ type Judgement struct {
 	Faults []string // one line for each fault, naming its card and path
 }
 
-// Lead reports whether the commit is the lead's: one with no Card:
-// line, which is listed and not judged.
-func (j Judgement) Lead() bool { return len(j.Cards) == 0 }
+// Lead reports whether the commit is the lead's: one with no line that
+// sets out to name a card, in any form, which is listed and not judged.
+func (j Judgement) Lead() bool { return len(j.Cards) == 0 && len(j.Faults) == 0 }
 
 // Ownership judges each first-parent commit in from..to, oldest first, on
 // its diff against its first parent: every path it adds, changes or
@@ -54,7 +54,8 @@ func Ownership(ctx context.Context, repo, from, to string) ([]Judgement, error) 
 			return nil, errors.New("guard: git printed a commit in a form it does not know")
 		}
 		parent, _, _ := strings.Cut(fields[1], " ")
-		j, err := judge(ctx, repo, fields[0], parent, cardsOf(fields[2]))
+		cards, bad := cardsOf(fields[2])
+		j, err := judge(ctx, repo, fields[0], parent, cards, bad)
 		if err != nil {
 			return nil, err
 		}
@@ -64,27 +65,42 @@ func Ownership(ctx context.Context, repo, from, to string) ([]Judgement, error) 
 }
 
 // cardLine is a line of a commit's message that names a card: "Card:" and
-// one word, alone on its line.
-var cardLine = regexp.MustCompile(`^Card:[ \t]*(\S+)[ \t]*$`)
+// one word, alone on its line. aCardLine is any line that sets out to name
+// cards, in any case or spacing: one that is not a cardLine is a fault, so
+// that a slip of the pen fails the commit instead of making it the lead's.
+var (
+	cardLine  = regexp.MustCompile(`^Card:[ \t]*(\S+)[ \t]*$`)
+	aCardLine = regexp.MustCompile(`(?i)^\s*cards?\s*:`)
+)
 
 // cardsOf returns the cards a commit's message names, in its order and
 // without repeats: the word of each Card: line, wherever the line stands.
 // A commit that lands a package carries its line straight after the
 // subject, where git does not read it as a trailer; a line in the last
-// paragraph, as a trailer, is read too.
-func cardsOf(message string) []string {
-	var cards []string
+// paragraph, as a trailer, is read too. bad holds each line that sets out
+// to name cards in another form, such as "Card: AA-1, AA-2", "card: AA-1"
+// or an indented "Card: AA-1".
+func cardsOf(message string) (cards, bad []string) {
 	for _, line := range strings.Split(message, "\n") {
-		m := cardLine.FindStringSubmatch(strings.TrimRight(line, "\r"))
-		if m != nil && !slices.Contains(cards, m[1]) {
-			cards = append(cards, m[1])
+		line = strings.TrimRight(line, "\r")
+		m := cardLine.FindStringSubmatch(line)
+		switch {
+		case m != nil:
+			if !slices.Contains(cards, m[1]) {
+				cards = append(cards, m[1])
+			}
+		case aCardLine.MatchString(line):
+			bad = append(bad, line)
 		}
 	}
-	return cards
+	return cards, bad
 }
 
-func judge(ctx context.Context, repo, commit, parent string, cards []string) (Judgement, error) {
+func judge(ctx context.Context, repo, commit, parent string, cards, bad []string) (Judgement, error) {
 	j := Judgement{Commit: commit, Cards: cards}
+	for _, line := range bad {
+		j.Faults = append(j.Faults, fmt.Sprintf("the line %q does not name one card: a card is named by a line that reads \"Card: <ID>\", one card a line", strings.TrimSpace(line)))
+	}
 	args := []string{"diff-tree", "-r", "-z", "--no-renames", "--name-only", "--no-commit-id"}
 	if parent == "" {
 		args = append(args, "--root", commit)
@@ -102,7 +118,7 @@ func judge(ctx context.Context, repo, commit, parent string, cards []string) (Ju
 		}
 	}
 	j.Paths = len(paths)
-	if j.Lead() {
+	if len(cards) == 0 {
 		return j, nil
 	}
 	var owned []Pattern
@@ -113,14 +129,10 @@ func judge(ctx context.Context, repo, commit, parent string, cards []string) (Ju
 			continue
 		}
 		owned = append(owned, ps...)
-		if parent == "" {
-			continue
-		}
-		if was, ok := previousPaths(ctx, repo, parent, card); ok {
-			for _, p := range ps {
-				if !slices.ContainsFunc(was, func(w Pattern) bool { return w.covers(p) }) {
-					j.Faults = append(j.Faults, fmt.Sprintf("%s: the commit widens its card's paths block with %s", card, p))
-				}
+		was := previousPaths(ctx, repo, parent, card)
+		for _, p := range ps {
+			if !slices.ContainsFunc(was, func(w Pattern) bool { return w.covers(p) }) {
+				j.Faults = append(j.Faults, fmt.Sprintf("%s: the commit widens its card's paths block with %s", card, p))
 			}
 		}
 	}
@@ -160,18 +172,23 @@ func cardPaths(ctx context.Context, repo, commit, card string) ([]Pattern, strin
 }
 
 // previousPaths reads the card's paths block in the commit's first
-// parent; ok is false when the card did not exist there, so the commit
-// adds it and can widen nothing. A card that had no block had no paths.
-func previousPaths(ctx context.Context, repo, parent, card string) ([]Pattern, bool) {
+// parent. A card that had no block there, or one that cannot be read, had
+// no paths; so had a card the parent did not have, and every card of a
+// commit with no parent: a commit that adds the card it names widens it by
+// every entry, since the lead writes each card before a commit names it.
+func previousPaths(ctx context.Context, repo, parent, card string) []Pattern {
+	if parent == "" {
+		return nil
+	}
 	text, err := git(ctx, repo, "cat-file", "blob", parent+":"+CardFile(card))
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	ps, _, err := Patterns(text, "paths")
 	if err != nil {
-		return nil, true
+		return nil
 	}
-	return ps, true
+	return ps
 }
 
 // git runs git in repo and returns its output. Its error says how git

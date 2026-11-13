@@ -43,7 +43,10 @@ func Built(ctx context.Context, repo string) (map[string]int, error) {
 	for _, arch := range Arches {
 		cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-f", listFormat, "./cmd/eva-md")
 		cmd.Dir = repo
-		cmd.Env = append(os.Environ(), "GOOS=darwin", "GOARCH="+arch, "CGO_ENABLED=0", "GOFLAGS=", "GOWORK=off")
+		// GOENV=off keeps the flags, tags and settings of a go env file
+		// out, as the release stand-in does: an empty GOFLAGS would not
+		// override one written there.
+		cmd.Env = append(os.Environ(), "GOOS=darwin", "GOARCH="+arch, "CGO_ENABLED=0", "GOFLAGS=", "GOWORK=off", "GOENV=off")
 		var out, errOut bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &errOut
 		if err := cmd.Run(); err != nil {
