@@ -1,11 +1,13 @@
 package drive
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/heyNag/eva-md/internal/eval/continuation/task"
 	"github.com/heyNag/eva-md/internal/host/adapter"
 )
 
@@ -54,6 +56,38 @@ func TestNoUsageStopsTheRun(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// An Arm that finds the host's own memory on, before the chat or after it,
+// leaves the trial unjudged, memory_off: no row, counted, and the run
+// stops, the rest not run.
+func TestMemoryOffStopsTheRun(t *testing.T) {
+	for name, arm := range map[string]Arm{
+		"prepare": {Prepare: func(context.Context, Trial) (Launch, error) { return Launch{}, &Unjudged{Code: CodeMemoryOff} }},
+		"after":   {After: func(context.Context, Trial) (Cost, error) { return Cost{Tokens: 5}, &Unjudged{Code: CodeMemoryOff} }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Condition, r.opts.Trials = task.Eva, 3
+			useArm(t, arm)
+			s, out, err := r.run()
+			var stopped *Stopped
+			if !errors.As(err, &stopped) || stopped.Code != CodeMemoryOff || s.Judged != 0 || s.Unjudged[CodeMemoryOff] != 1 || s.NotRun != 2 ||
+				!strings.Contains(out, "trial hidden-banner.t1: unjudged, memory_off\n") || !strings.Contains(out, ", memory_off 1, ") {
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
+			}
+			if rows := r.rows(); rows != nil {
+				t.Fatalf("rows: %+v", rows)
+			}
+			want := 0
+			if name == "after" {
+				want = 1
+			}
+			if starts := countMode(r.calls(), "start"); starts != want {
+				t.Fatalf("%d sessions started", starts)
+			}
+		})
 	}
 }
 
