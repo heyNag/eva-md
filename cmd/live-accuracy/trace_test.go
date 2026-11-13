@@ -581,8 +581,8 @@ func TestTimeoutRefused(t *testing.T) {
 
 // A --trace that names a folder holding a file, a file, or a link to
 // nothing is refused before anything is made or called, and so is one
-// with --replay, which calls nothing, or one that is or holds the pages
-// folder or the recording.
+// with --replay, which calls nothing, or one that is, holds or lies in the
+// pages folder, or holds the recording.
 func TestTraceRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name string
