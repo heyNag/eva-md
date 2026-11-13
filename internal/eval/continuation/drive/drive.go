@@ -212,11 +212,26 @@ func redirects(name string) bool {
 	return false
 }
 
-// reachesHome reports whether value holds a path, or a list of paths, one
-// of which is in the folder home, holds it, or starts with "~": a value
-// that would point a chat back at the invoking home. home is absolute and
-// its links resolved.
-func reachesHome(value, home string) bool {
+// reachesHome reports whether value would point a chat back at the
+// invoking home: when it holds one of homes (the home as given and with
+// its links resolved) whole, as a path or the start of one, wherever it
+// is in the value, so that a home whose name holds a space or a comma is
+// found too; or when a part of it, split at the separators of lists and
+// options, is a path in the home or one that holds it, or starts with "~".
+func reachesHome(value string, homes []string) bool {
+	for _, home := range homes {
+		for rest := value; ; {
+			i := strings.Index(rest, home)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(home):]
+			if rest == "" || !isNameByte(rest[0]) {
+				return true
+			}
+		}
+	}
+	home := homes[len(homes)-1]
 	parts := strings.FieldsFunc(value, func(r rune) bool {
 		return r == filepath.ListSeparator || r == '=' || r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
 	})
@@ -233,6 +248,13 @@ func reachesHome(value, home string) bool {
 		}
 	}
 	return false
+}
+
+// isNameByte reports whether b can go on a file's name past its end, so
+// that "/home/a" in "/home/ab" is no match: a letter, a digit, or one of
+// "-", "_" and ".".
+func isNameByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '-' || b == '_' || b == '.'
 }
 
 // forbidMinimum is the fewest letters and digits a passed value has for
@@ -306,7 +328,7 @@ func prepare(o Options) (*plan, error) {
 			return nil, usagef("--eva-md: %v", err)
 		}
 	}
-	home, err := invokingHome()
+	homes, err := invokingHomes()
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +347,7 @@ func prepare(o Options) (*plan, error) {
 		if !set {
 			return nil, usagef("--pass-env %s is not set", name)
 		}
-		if reachesHome(value, home) {
+		if reachesHome(value, homes) {
 			return nil, usagef("--pass-env %s holds a path that reaches the invoking home", name)
 		}
 		if lettersAndDigits(value) >= forbidMinimum {
@@ -344,16 +366,18 @@ func prepare(o Options) (*plan, error) {
 	return p, nil
 }
 
-// invokingHome is the invoking home, absolute and with its links resolved.
-func invokingHome() (string, error) {
+// invokingHomes are the invoking home as given, cleaned, and then with
+// its links resolved, the last.
+func invokingHomes() ([]string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil || !filepath.IsAbs(home) {
-		return "", usagef("the invoking home is not known, so the trials cannot be shown to be outside it")
+		return nil, usagef("the invoking home is not known, so the trials cannot be shown to be outside it")
 	}
-	if home, err = resolve(home); err != nil {
-		return "", usagef("the invoking home cannot be read")
+	real, err := resolve(home)
+	if err != nil {
+		return nil, usagef("the invoking home cannot be read")
 	}
-	return home, nil
+	return []string{filepath.Clean(home), real}, nil
 }
 
 // idPattern is a results id.

@@ -797,6 +797,31 @@ func TestPassEnvThatReachesOutIsRefused(t *testing.T) {
 	}
 }
 
+// A value reaches the home wherever the home's path is in it whole, even a
+// home whose name holds a space, a comma or an "=", which the parts a
+// value splits into would cut; a sibling of the home whose name starts as
+// the home's does not.
+func TestReachesHome(t *testing.T) {
+	for _, home := range []string{"/made-up/the home", "/made-up/a,b=c", "/made-up/plain"} {
+		for value, want := range map[string]bool{
+			home:                           true,
+			home + "/.config":              true,
+			"--config=" + home + "/x.toml": true,
+			"/usr/bin:" + home + "/bin":    true,
+			"'" + home + "'":               true,
+			home + "-other/x":              false,
+			home + "s":                     false,
+			"/made-up/elsewhere":           false,
+			"/made-up":                     true,
+			"plain words":                  false,
+		} {
+			if got := reachesHome(value, []string{home}); got != want {
+				t.Errorf("home %q, value %q: %v", home, value, got)
+			}
+		}
+	}
+}
+
 // A passed value the host names as its model reaches no row: the rows are
 // refused and the run stops.
 func TestAPassedValueAsTheModelWritesNoRow(t *testing.T) {

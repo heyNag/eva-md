@@ -26,7 +26,7 @@ func init() {
 
 const continuationUsage = `usage:
   eva-eval continuation run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--spend-model-quota]
-  eva-eval continuation check --tasks DIR --repos DIR`
+  eva-eval continuation check --tasks DIR --repos DIR   (its scratch copies go in TMPDIR)`
 
 func continuationFail(w io.Writer, msg string) int {
 	fmt.Fprintln(w, "eva-eval: "+msg+"\n"+continuationUsage)
@@ -106,7 +106,9 @@ func continuationRun(ctx context.Context, args []string, out, errOut io.Writer) 
 }
 
 // continuationCheck checks each task offline, a line a task, and exits 1
-// when one fails.
+// when one fails. It starts no chat. Its scratch folder, which holds
+// copies of the repositories and the hidden tests it runs, is made in the
+// invoking TMPDIR and removed when it ends.
 func continuationCheck(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet("eva-eval continuation check", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
