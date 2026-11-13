@@ -76,6 +76,17 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	if err := task.Prepare(ctx, t, p.opts.Repos, tr.Dirs.Workspace); err != nil {
 		return trialResult{}, err
 	}
+	// A hidden file's bytes in the trial's folder before any chat is the
+	// task's fault, and stops the run.
+	hidden, err := loadHidden(t, tr.Dirs.Workspace)
+	if err != nil {
+		return trialResult{}, err
+	}
+	if in, err := hidden.found(root, tr.Dirs.Grade); err != nil {
+		return trialResult{}, err
+	} else if in {
+		return trialResult{unjudged: CodeHiddenFound}, nil
+	}
 	tr.Env = []string{
 		"HOME=" + tr.Dirs.Home,
 		"PATH=" + tr.Dirs.Bin + string(filepath.ListSeparator) + os.Getenv("PATH"),
@@ -143,7 +154,7 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	}
 	extra = append(extra, launch.Args...)
 
-	s := session{p: p, tr: tr, env: env, extra: extra}
+	s := session{p: p, tr: tr, env: env, extra: extra, hidden: hidden}
 	code, err := s.run(ctx)
 	res.tokens = s.outcome.PromptTokens + s.outcome.OutputTokens
 	res.outcome, res.model = s.outcome, s.model
@@ -209,6 +220,15 @@ type session struct {
 	// spent is the time the session's calls took, which --session-timeout
 	// bounds; grading is not counted.
 	spent time.Duration
+	// hidden are the task's hidden files, which the session looks for in
+	// the trial's folder after each call and each grading a prompt follows.
+	hidden *hidden
+}
+
+// reached reports whether a hidden file is within the chat's reach: in the
+// trial's folder, but the grading's.
+func (s *session) reached() (bool, error) {
+	return s.hidden.found(s.tr.Dirs.Root, s.tr.Dirs.Grade)
 }
 
 // errTimeout is a call's error when the session's time limit ended it.
@@ -229,6 +249,19 @@ func (s *session) run(ctx context.Context) (string, error) {
 	id := ""
 	for round := 1; ; round++ {
 		r, err := s.call(ctx, chat{Prompt: prompt, Turns: t.MaxTurns, Model: s.p.opts.Model, Resume: id, Extra: s.extra})
+		s.outcome.AgentEvents += r.AgentEvents
+		s.outcome.PromptTokens += r.PromptTokens
+		s.outcome.CachedTokens += r.CachedTokens
+		s.outcome.OutputTokens += r.OutputTokens
+		// Whatever the call gave, a hidden file it left within the chat's
+		// reach is a fault of the set-up.
+		if ctx.Err() == nil {
+			if in, err := s.reached(); err != nil {
+				return "", err
+			} else if in {
+				return CodeHiddenFound, nil
+			}
+		}
 		if errors.Is(err, errTimeout) {
 			return CodeTimeout, nil
 		}
@@ -236,10 +269,6 @@ func (s *session) run(ctx context.Context) (string, error) {
 			return "", err
 		}
 		s.outcome.Rounds = round
-		s.outcome.AgentEvents += r.AgentEvents
-		s.outcome.PromptTokens += r.PromptTokens
-		s.outcome.CachedTokens += r.CachedTokens
-		s.outcome.OutputTokens += r.OutputTokens
 		switch {
 		case r.Fail != "":
 			return r.Fail, nil
@@ -259,8 +288,8 @@ func (s *session) run(ctx context.Context) (string, error) {
 		// the trial's folder, so it is removed before any next prompt.
 		scratch := filepath.Join(s.tr.Dirs.Grade, "r"+strconv.Itoa(round))
 		g, err := task.Grade(ctx, t, t.Dir, s.tr.Dirs.Workspace, scratch)
-		if rerr := os.RemoveAll(scratch); err == nil && rerr != nil {
-			err = fmt.Errorf("removing the grading's copy: %w", pathless(rerr))
+		if rerr := s.p.remove(ctx, scratch); err == nil && rerr != nil {
+			err = fmt.Errorf("removing the grading's copy: %w", rerr)
 		}
 		if err != nil {
 			return "", err
@@ -277,6 +306,13 @@ func (s *session) run(ctx context.Context) (string, error) {
 			// The follow-up the card gives this trial cannot be sent to the
 			// same session: the trial is no measure of the condition.
 			return CodeHostFailed, nil
+		}
+		// The code the grading ran may have left a hidden file within the
+		// reach of the prompt that follows.
+		if in, err := s.reached(); err != nil {
+			return "", err
+		} else if in {
+			return CodeHiddenFound, nil
 		}
 		var failing []string
 		var facts []task.Fact

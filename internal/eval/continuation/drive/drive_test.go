@@ -68,6 +68,8 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 			t.Run(string(h.ID)+"/"+string(c), func(t *testing.T) {
 				r := newRig(t, 1)
 				r.opts.Host, r.opts.Condition, r.opts.Model = string(h.ID), c, "made-up-model-7"
+				// The trial's folder is read after the run.
+				r.opts.KeepTrials = true
 				s, out, err := r.run()
 				if err != nil {
 					t.Fatalf("run: %v\n%s", err, out)
@@ -587,6 +589,7 @@ func TestArmPrepareAndAfter(t *testing.T) {
 		r := newRig(t, 1)
 		r.opts.Condition = task.Eva
 		r.opts.EvaMD = filepath.Join(r.base, "made-up-eva-md")
+		r.opts.KeepTrials = true // its bin is read after the run
 		write(t, r.opts.EvaMD, "#!/bin/sh\nexit 0\n")
 		if err := os.Chmod(r.opts.EvaMD, 0o755); err != nil {
 			t.Fatal(err)
@@ -674,6 +677,8 @@ func TestPluginLaunch(t *testing.T) {
 		t.Run(string(h.ID), func(t *testing.T) {
 			r := newRig(t, 1)
 			r.opts.Host, r.opts.Condition = string(h.ID), task.Eva
+			// The trial's home is read after the run.
+			r.opts.KeepTrials = true
 			install := false
 			useArm(t, Arm{Prepare: func(_ context.Context, tr Trial) (Launch, error) {
 				if install {

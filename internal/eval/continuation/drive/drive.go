@@ -124,6 +124,12 @@ type Options struct {
 	// outputLimit is the most a call may print on stdout; 0 is
 	// outputLimit's. A test gives a small one.
 	outputLimit int
+	// removeLimit gives the context that bounds the tries at removing a
+	// folder, d being removeTimeout; nil is context.WithTimeout. removeAll
+	// removes one; nil is os.RemoveAll. A test fails it and ends the limit
+	// at an exact point instead.
+	removeLimit func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
+	removeAll   func(path string) error
 }
 
 // Dirs are a trial's folders.
@@ -589,8 +595,12 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 		s.Planned = len(p.tasks) * o.Trials
 		sessions = strconv.Itoa(s.Planned)
 	}
-	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %s; ceilings: sessions %d, tokens %d\n",
-		o.Condition, p.host.ID, len(p.tasks), o.Trials, sessions, o.MaxSessions, o.MaxTokens)
+	folders := "removed"
+	if o.KeepTrials {
+		folders = "kept"
+	}
+	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %s; ceilings: sessions %d, tokens %d; trial folders %s\n",
+		o.Condition, p.host.ID, len(p.tasks), o.Trials, sessions, o.MaxSessions, o.MaxTokens, folders)
 	if !countable || int64(s.Planned) > o.MaxSessions {
 		return s, usagef("the plan's %s sessions are over --max-sessions %d", sessions, o.MaxSessions)
 	}
@@ -618,6 +628,9 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	}
 	fmt.Fprintf(out, "run %s\n", s.Run)
 	versions, err := p.trials(ctx, &s, commit, dirty, out)
+	if !o.KeepTrials {
+		p.removeRun(s.Run)
+	}
 	var unjudged []string
 	for _, c := range Codes {
 		unjudged = append(unjudged, fmt.Sprintf("%s %d", c, s.Unjudged[c]))
@@ -654,38 +667,53 @@ func (p *plan) trials(ctx context.Context, s *Summary, commit string, dirty bool
 			if r.version != "" && !slices.Contains(versions, r.version) {
 				versions = append(versions, r.version)
 			}
-			if err != nil {
-				s.NotRun = s.Planned - done
-				return versions, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
-			}
-			if r.unjudged != "" {
+			switch {
+			case err != nil:
+			case r.unjudged != "":
 				s.Unjudged[r.unjudged]++
 				fmt.Fprintf(out, "trial %s.t%d: unjudged, %s\n", t.ID, n, r.unjudged)
-				if slices.Contains(stopCodes, r.unjudged) {
-					s.NotRun = s.Planned - done
-					return versions, &Stopped{Code: r.unjudged}
+			default:
+				err = p.write(s, store, t, n, r, commit, dirty, out)
+			}
+			// Once its rows are written, it is unjudged, or the run stops in
+			// it, the trial's folder goes, unless the run keeps it.
+			if !o.KeepTrials {
+				if rerr := p.remove(ctx, trialRoot(p.work, s.Run, t.ID, o.Condition, n)); rerr != nil {
+					err = errors.Join(err, fmt.Errorf("removing its folder: %w", rerr))
 				}
-				continue
 			}
-			base := results.Row{Commit: commit, Dirty: dirty, Host: string(p.host.ID), HostVersion: r.version, Model: r.model, Time: o.Clock()}
-			rows, err := task.Rows(t, o.Condition, n, r.outcome, base)
-			if err == nil {
-				err = store.Append(rows...)
-			}
-			if err != nil {
+			switch {
+			case err != nil:
 				s.NotRun = s.Planned - done
 				return versions, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
+			case slices.Contains(stopCodes, r.unjudged):
+				s.NotRun = s.Planned - done
+				return versions, &Stopped{Code: r.unjudged}
 			}
-			s.Judged++
-			if r.model == "" {
-				s.NoModel++
-			}
-			s.Rows += len(rows)
-			fmt.Fprintf(out, "trial %s.t%d: solved %d, first try %d, corrections %d, rounds %d\n",
-				t.ID, n, b2i(r.outcome.Solved), b2i(r.outcome.FirstTry), r.outcome.Corrections, r.outcome.Rounds)
 		}
 	}
 	return versions, nil
+}
+
+// write appends the rows of the judged trial n of task t, and counts them
+// in s.
+func (p *plan) write(s *Summary, store results.Store, t task.Task, n int, r trialResult, commit string, dirty bool, out io.Writer) error {
+	base := results.Row{Commit: commit, Dirty: dirty, Host: string(p.host.ID), HostVersion: r.version, Model: r.model, Time: p.opts.Clock()}
+	rows, err := task.Rows(t, p.opts.Condition, n, r.outcome, base)
+	if err == nil {
+		err = store.Append(rows...)
+	}
+	if err != nil {
+		return err
+	}
+	s.Judged++
+	if r.model == "" {
+		s.NoModel++
+	}
+	s.Rows += len(rows)
+	fmt.Fprintf(out, "trial %s.t%d: solved %d, first try %d, corrections %d, rounds %d\n",
+		t.ID, n, b2i(r.outcome.Solved), b2i(r.outcome.FirstTry), r.outcome.Corrections, r.outcome.Rounds)
+	return nil
 }
 
 // record is the Record of the run s, which ended with err.
