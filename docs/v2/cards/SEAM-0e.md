@@ -21,6 +21,7 @@ This card makes a repeat explain itself. It changes no outcome: the test fails a
 internal/identity/identity.go
 internal/identity/identity_test.go
 internal/identity/cache_test.go
+internal/identity/signal_test.go
 internal/host/adapter/probe_test.go
 ```
 
