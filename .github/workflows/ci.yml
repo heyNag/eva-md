@@ -121,10 +121,10 @@ jobs:
           fi
           echo "Judging $BASE..$SHA"
           go run ./cmd/eva-eval paths "$BASE" "$SHA"
-      # Advisory for now: it shows its figure in every run and never fails
-      # the job, so that a count not yet settled blocks no release. No card
-      # carries a deletes block yet; the lead writes them, and then makes
-      # this step blocking by removing continue-on-error.
+      # Advisory until the cut-over: it shows its figure in every run and
+      # never fails the job. The ceiling binds at CUT-4 (docs/v2/plan.md,
+      # section 7, "Where the decisions stand"); the lead then makes this
+      # step blocking by removing continue-on-error.
       - name: Size (advisory)
         if: ${{ !cancelled() }}
         continue-on-error: true

@@ -53,3 +53,14 @@ Everything else. The rest of `internal/ledger`, `internal/inbox` and `docs/v2/co
 - Changing a returned event does not change the next `Read`. `FailRead`, `FailSessions` and a cancelled context each return their error.
 - A test fails if a non-test file outside the package imports it, and `go list -deps ./cmd/eva-md` does not list it.
 - `ledger.TestOnlyEvasNameAndNoNewModule` passes over the new files.
+
+## As merged
+
+Merged from `pkg/if-01b-r1` on 2026-11-13, after a review, a fix round and a verification that found nothing left to mend. A first builder had been cut off part way; the second kept its fake and its fixture reader, mended the fixture, which had never decoded, and wrote the check.
+
+- **The lead's ruling: the resolve clause is held by sampling.** The card asked that `Resolve` of every event give that event. Resolving every event through the reader reads a session once for each of its events, and v1's backend then took minutes over its 200 generated inboxes. `Check` resolves every event of a session of up to eight through the reader, and the first, the last and six between of a longer one; every event is still held by a second listing and a second read that must equal the first.
+- **Where the card was narrower than the code, the check follows the code** and section 9 of the SPEC: `Resolve` also gives `ErrAmbiguous` for an id of eight characters or fewer that begins another listed id, and for an id of more than 128 bytes.
+- `New` refuses more than the card lists, so that whatever it accepts passes `Check`.
+
+To watch: v1's backend under the check took about 30 seconds here and about 150 under the race detector on a busy machine. If CI's macOS race run comes near go test's ten minutes for that package, it draws fewer inboxes under the race detector, as redaction's corpus does.
+

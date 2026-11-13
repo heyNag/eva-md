@@ -70,9 +70,9 @@ Rules every card carries, so they are said once here:
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | building since 2026-11-13, from the three commits a first builder left when it was cut off ([leading-the-build.md](../leading-the-build.md), "Where the build stands") |
+| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: `paths` blocks for the cards whose words name no exact paths, and a ledger of what leaves the binary and when |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
-| [IF-01b](IF-01b.md) | The reader's fake | building since 2026-11-13, from the unchecked work a first builder left when it was cut off ([leading-the-build.md](../leading-the-build.md), "Where the build stands") |
+| [IF-01b](IF-01b.md) | The reader's fake | merged |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | merged; owed: the fake gains `ItemsCiting`, and keeps words and `Evidence`, once ST-05 puts them in the store's interface and the model |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | merged; owed: a property that a pass keeps what a session file holds, and, before ST-05 is held to the harness, a crash property that fails when no armed crash fired (IF-01c's notes) |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |

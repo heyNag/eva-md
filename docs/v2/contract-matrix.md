@@ -111,7 +111,7 @@ Each track's interface is written by its first package, and IF-01 adds a fake of
 
 | Interface | Go name | Provider | Fake |
 | --- | --- | --- | --- |
-| The reader | `ledger.Reader` | LG-10 | `waits: IF-01b` |
+| The reader | `ledger.Reader` | LG-10 | `internal/ledger/ledgertest` |
 | The store | `store.Store` in `internal/store/api.go` | ST-01, ST-02 | `internal/store/storetest` |
 | The retrieval core | `retrieval.System` | DL-04 | `internal/eval/retrieval/retrievaltest` |
 | The runner | named by DV-11 | DV-11 | `waits: DV-11` |
