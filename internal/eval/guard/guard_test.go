@@ -256,6 +256,7 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 		"docs/v2/cards/AA-2.md": card("c/**"),
 		"docs/v2/cards/AA-3.md": "# A card with no block\n",
 		"docs/v2/cards/AA-5.md": card("f/**", "h/?.go", "docs/v2/cards/AA-5.md"),
+		"docs/v2/cards/AA-6.md": card("g/**", "g/x.go (new)", "docs/v2/cards/AA-6.md"),
 		"a/x.go":                "package a\n",
 		"a/y.go":                "package a\n",
 		"c/old.go":              "package c\n",
@@ -308,10 +309,17 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 		"docs/v2/cards/AA-5.md": card("f/**", "fg/x.go", "h/*.go", "docs/v2/cards/AA-5.md"),
 	})
 
-	got := h.judge(base, widensGlob)
-	if len(got) != 19 {
-		t.Fatalf("judged %d commits, want 19", len(got))
+	// A block the first parent cannot read held no paths: the commit that
+	// mends it widens it by every entry.
+	mends := h.commit("mends its card's block\n\nCard: AA-6", map[string]string{
+		"docs/v2/cards/AA-6.md": card("g/**", "docs/v2/cards/AA-6.md"),
+	})
+
+	got := h.judge(base, mends)
+	if len(got) != 20 {
+		t.Fatalf("judged %d commits, want 20", len(got))
 	}
+	expectFaults(t, "mends", got[mends], "AA-6: the commit widens its card's paths block with g/**", "AA-6: the commit widens its card's paths block with docs/v2/cards/AA-6.md")
 	if _, ok := got[base]; ok {
 		t.Error("the range's first commit is judged")
 	}
@@ -360,7 +368,7 @@ func TestEachCommitStaysInsideItsCardsPaths(t *testing.T) {
 	// The card is read from the commit's own tree: at the commit that
 	// widened it, AA-1 owned d/**, and later d/x.go is still its own.
 	later := h.commit("inside the widened card\n\nCard: AA-1", map[string]string{"d/x.go": "package d\n\nvar D int\n"})
-	expectFaults(t, "later", h.judge(widensGlob, later)[later])
+	expectFaults(t, "later", h.judge(mends, later)[later])
 }
 
 // A line that sets out to name cards is read only in the one form, and in
