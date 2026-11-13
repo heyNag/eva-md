@@ -53,6 +53,7 @@ type LedgerRow struct {
 	ScheduledOn string  // (a): the card whose deletes block names the path, or "none"
 	Frozen      bool    // (a): scheduled on a merged card, so its figure may not move
 	Leaves      bool    // (b): its fate is to leave at the cut-over
+	Gone        bool    // the path is not in the repository
 	cells       []string
 }
 
@@ -137,8 +138,8 @@ func CheckLedger(repo, text string, built map[string]int, ceiling int, v1 func()
 				}
 			}
 		}
-		if !exists(repo, r.Path) {
-			l.fault("row %s: the path does not exist", r.Path)
+		if r.Gone = !exists(repo, r.Path); r.Gone {
+			l.fault("%s", GoneFault(r.Path))
 		}
 		if had != nil && r.Table != "c" {
 			v1s := 0
@@ -234,6 +235,9 @@ func CheckLedger(repo, text string, built map[string]int, ceiling int, v1 func()
 	}
 	return l, nil
 }
+
+// GoneFault is the fault of a row whose path is not in the repository.
+func GoneFault(p Pattern) string { return fmt.Sprintf("row %s: the path does not exist", p) }
 
 func (l *Ledger) fault(format string, args ...any) {
 	l.Faults = append(l.Faults, fmt.Sprintf(format, args...))

@@ -334,8 +334,10 @@ func TestALedgerWithNoV1SkipsItsFaults(t *testing.T) {
 // The repository's ledger is well formed, its sums add up and its frozen
 // rows give today's figures. A figure that is merely not today's is not
 // this test's to fail: other packages move the count, and the lead writes
-// the figures at each merge with eva-eval size --ledger. The lines to
-// write are logged.
+// the figures at each merge with eva-eval size --ledger. Nor is the path
+// of a row no deletes block has frozen that a package has since moved: no
+// builder's check may fail on the ledger (EV-11b, the lead's rulings of
+// 2026-11-13), and the command fails on it. The lines to write are logged.
 func TestTheSizeLedgerHoldsForThisRepository(t *testing.T) {
 	goEnv(t, false)
 	repo := filepath.Join("..", "..", "..")
@@ -351,8 +353,18 @@ func TestTheSizeLedgerHoldsForThisRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	moved := map[string]bool{}
+	for _, r := range l.Rows {
+		if r.Gone && !r.Frozen {
+			moved[GoneFault(r.Path)] = true
+		}
+	}
 	for _, f := range l.Faults {
-		t.Errorf("Fault: %s", f)
+		if moved[f] {
+			t.Logf("Fault, for eva-eval size --ledger to fail on: %s", f)
+		} else {
+			t.Errorf("Fault: %s", f)
+		}
 	}
 	for _, d := range l.Differences {
 		t.Logf("Difference: %s\n  Write: %s", d.Text, d.Write)
@@ -363,5 +375,29 @@ func TestTheSizeLedgerHoldsForThisRepository(t *testing.T) {
 	}
 	if tables["a"] < 12 || tables["b"] < 5 || tables["c"] < 8 || len(l.Keys) != len(ledgerKeys)-1 {
 		t.Errorf("the ledger has rows %v and keys %v", tables, l.Keys)
+	}
+}
+
+// A row whose path is gone says so, and says whether it was frozen: the
+// test on the repository fails on a frozen row's, and only logs another's.
+func TestARowWhosePathIsGone(t *testing.T) {
+	repo := ledgerRepo(t)
+	for _, f := range []string{"v1.go", "old/a.go"} {
+		if err := os.Remove(filepath.Join(repo, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := checkLedger(t, repo, ledgerBase, ledgerBuilt(), ledgerV1())
+	gone := map[Pattern]bool{}
+	for _, r := range l.Rows {
+		if r.Gone {
+			gone[r.Path] = r.Frozen
+		}
+	}
+	if len(gone) != 2 || gone["v1.go"] || !gone["old/a.go"] {
+		t.Fatalf("gone %v:\n%s", gone, l.Report())
+	}
+	if len(l.Faults) != 2 || !containsFault(l.Faults, GoneFault("v1.go")) || !containsFault(l.Faults, GoneFault("old/a.go")) {
+		t.Fatalf("faults:\n%s", l.Report())
 	}
 }
