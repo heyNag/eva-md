@@ -369,6 +369,20 @@ func TestLimitSurvives(t *testing.T) {
 				t.Errorf("%s: the finding with %q, as %s, scores %+v", sc.ID, bound.Value, kind, r.Metrics)
 			}
 		}
+		if form == "hypothesis" {
+			// The scorer cannot require a slot in some kinds only, so a
+			// hypothesis keeps its hedge in every filing, an open question
+			// included: one asked with no hedge word drops the limit. This
+			// records that rule. If the card comes to let an open question
+			// drop the hedge, and the scorer to require a slot by kind, this
+			// row is to hold instead.
+			asked := score.Export{Items: []score.Item{itemOf(t, sc, scenario.KindOpen, score.TagSuggested,
+				"Does the "+f.Slots[0].Value+" cache cause the slow start?", f.ID)}}
+			if r := score.Score(sc, asked); r.Metrics != (score.Metrics{WrongWrite: 1}) || r.Facts[0].Outcome != score.LimitDropped {
+				t.Errorf("%s: the hypothesis asked as an open question with no hedge scores %+v, fact %s; the rule recorded is limit_dropped",
+					sc.ID, r.Metrics, r.Facts[0].Outcome)
+			}
+		}
 	}
 	if len(forms) != len(limitForms) {
 		t.Errorf("the draw holds the forms %v, want all of %v", forms, limitForms)
