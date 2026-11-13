@@ -1,0 +1,90 @@
+{
+  "v": 1,
+  "id": "h02",
+  "family": "handoff",
+  "lang": "go",
+  "repos": [
+    "stockwell"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "stockwell needs everything its README lists. Do New, Add, Remove and Total first. Remove must never take a count below zero.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Done. Shelf keeps a map of counts; Remove returns ErrShort and changes nothing when the shelf holds fewer units than asked for, and a SKU that falls to 0 stays in the map. There are tests for adding, removing and totalling, and for a Remove that asks for too many. go test ./... passes.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "Nice. I'm stopping here, tell me what we still owe the README.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Two methods of the README are left. ReorderBelow(limit) returns the SKUs whose count is below the limit, sorted, with SKUs at 0 included; that is why Remove keeps a SKU at 0 instead of deleting it. MergeShelf(other) adds every count of the other shelf and leaves the other shelf as it was. Neither exists yet, and nothing else in the README is missing.",
+      "plants": [
+        "f1",
+        "f2"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "Still to do: ReorderBelow(limit), the sorted SKUs whose count is below limit, SKUs at 0 included.",
+      "values": [
+        "ReorderBelow"
+      ],
+      "name": false
+    },
+    {
+      "id": "f2",
+      "statement": "Still to do: MergeShelf(other), which adds every count of other and leaves other unchanged.",
+      "values": [
+        "MergeShelf"
+      ],
+      "name": false
+    }
+  ],
+  "prompt": "Carry on with the stockwell shelf from where we left off.",
+  "note": "Hand-over for stockwell. Done: New, Add, Remove (ErrShort, keeps a SKU at 0) and Total, with tests. Left from the README: ReorderBelow(limit), sorted SKUs below limit including those at 0, and MergeShelf(other), adding other's counts without changing other.",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "stockwell",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenReorderBelow$",
+        "."
+      ],
+      "facts": [
+        "f1"
+      ]
+    },
+    {
+      "id": "t2",
+      "repo": "stockwell",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenMergeShelf$",
+        "."
+      ],
+      "facts": [
+        "f2"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}

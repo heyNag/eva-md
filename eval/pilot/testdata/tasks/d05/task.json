@@ -1,0 +1,77 @@
+{
+  "v": 1,
+  "id": "d05",
+  "family": "hidden",
+  "lang": "python",
+  "repos": [
+    "drovershaw"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "The drovershaw importer silently drops rows it can't parse, and the people who feed it never learn which. We need to keep them. Where should they go?",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Printing them to stderr is the simplest, or a rejected.txt beside accepted.txt in the output folder. A file is easier to hand back to whoever sent the data. Either way import_rows should say how many it rejected as well as how many it accepted.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "A file, but its name is fixed: the pickup job that mails rejects back only looks for quarnel_rejects.txt in the output folder. Each rejected row goes there as its line number, a colon, and the row as it was read. Never stderr.",
+      "plants": [
+        "f1"
+      ]
+    },
+    {
+      "by": "agent",
+      "text": "Agreed: rejected rows go to quarnel_rejects.txt in the output folder, one a line as number:row with lines counted from 1, so the pickup job finds them; nothing goes to stderr. I haven't changed the importer yet.",
+      "plants": [
+        "f1"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "Rejected rows go to quarnel_rejects.txt in the output folder, each as its line number (from 1), a colon and the row as read; never to stderr. The pickup job looks only for that file.",
+      "values": [
+        "quarnel_rejects"
+      ],
+      "name": false
+    }
+  ],
+  "prompt": "Make the drovershaw importer keep the rows it rejects instead of dropping them, and have import_rows return both counts, accepted then rejected.",
+  "note": "Hand-over for drovershaw. Decided: rejected rows are written to quarnel_rejects.txt in the output folder (the pickup job reads only that name), one a line as <line number from 1>:<row as read>; never to stderr.",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "drovershaw",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_counts"
+      ],
+      "facts": []
+    },
+    {
+      "id": "t2",
+      "repo": "drovershaw",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_rejects_file"
+      ],
+      "facts": [
+        "f1"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}

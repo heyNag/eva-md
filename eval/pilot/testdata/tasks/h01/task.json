@@ -1,0 +1,106 @@
+{
+  "v": 1,
+  "id": "h01",
+  "family": "handoff",
+  "lang": "go",
+  "repos": [
+    "quillmark"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "Let's build the report that quillmark's NOTES.md describes. Start with the two tallies, wordtally and linetally, with tests, and we'll see how far we get today.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "I read NOTES.md. Summarize now counts words with strings.Fields and counts lines, a last line without a newline included, and Render prints wordtally and then linetally. I added TestSummarize for an empty text, a text that ends with a newline and one that doesn't, and a test that the report starts with the two tallies. go test ./... passes.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "Good, that's enough for today. What's left for next time?",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Two lines of NOTES.md are left, both after linetally and in this order: widestword, the longest word, where the first one wins a tie and an empty text gives a dash; then uniqtally, the number of distinct words with upper and lower case taken as one. Summary needs a field for each, and Render prints them last. Nothing else is open.",
+      "plants": [
+        "f1",
+        "f2"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "Still to do: Render's widestword line, right after linetally: the longest word, the first one on a tie, a dash for an empty text.",
+      "values": [
+        "widestword"
+      ],
+      "name": false
+    },
+    {
+      "id": "f2",
+      "statement": "Still to do: Render's uniqtally line, last: the number of distinct words, upper and lower case taken as one.",
+      "values": [
+        "uniqtally"
+      ],
+      "name": false
+    }
+  ],
+  "prompt": "Let's pick up the quillmark report where we stopped and finish it.",
+  "note": "Hand-over for quillmark. Done: Summarize counts words and lines; Render prints wordtally and linetally; tests pass. Left, in NOTES.md's order after linetally: the widestword line (longest word, the first on a tie, a dash for an empty text), then the uniqtally line (distinct words, case folded).",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "quillmark",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenWidestWord$",
+        "."
+      ],
+      "facts": [
+        "f1"
+      ]
+    },
+    {
+      "id": "t2",
+      "repo": "quillmark",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenUniqTally$",
+        "."
+      ],
+      "facts": [
+        "f2"
+      ]
+    },
+    {
+      "id": "t3",
+      "repo": "quillmark",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenWholeReport$",
+        "."
+      ],
+      "facts": [
+        "f1",
+        "f2"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}

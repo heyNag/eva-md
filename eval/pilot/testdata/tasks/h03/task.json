@@ -1,0 +1,90 @@
+{
+  "v": 1,
+  "id": "h03",
+  "family": "handoff",
+  "lang": "go",
+  "repos": [
+    "ferncastle"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "ferncastle's Parse should do everything the README says. Start with plain settings and comments, and make every failure name its line.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Parse now reads key = value lines with the white space around both dropped, skips comments and blank lines, and returns a *LineError wrapping ErrNoEquals for any other line, with the line counted from 1. Tests cover a text with comments and blank lines and a line without an equals sign. go test ./... passes.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "Let's leave it there for now. Write down what is left so we don't lose it.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Left from the README: a line [name] opens a stanza, and every key after it, up to the next stanza, is stored as name.key; today such a line fails with ErrNoEquals. And setting a key twice in the same stanza must fail with a new ErrTwiceSet, wrapped in a LineError for the second line; the same key in two different stanzas is fine, since the stanza prefix keeps them apart.",
+      "plants": [
+        "f1",
+        "f2"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "Still to do: a [name] line opens a stanza, and keys after it are stored as name.key.",
+      "values": [
+        "stanza"
+      ],
+      "name": false
+    },
+    {
+      "id": "f2",
+      "statement": "Still to do: a key set twice in one stanza fails with a new ErrTwiceSet in a LineError for the second line; the same key in two stanzas is fine.",
+      "values": [
+        "ErrTwiceSet"
+      ],
+      "name": false
+    }
+  ],
+  "prompt": "Let's get back to the ferncastle parser and finish what the README asks for.",
+  "note": "Hand-over for ferncastle. Done: settings, comments, blank lines, and LineError with ErrNoEquals. Left: stanza headers [name], whose keys are stored as name.key; and ErrTwiceSet for a key set twice in one stanza, as a LineError on the second line (one key in two stanzas is fine).",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "ferncastle",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenStanzas$",
+        "."
+      ],
+      "facts": [
+        "f1"
+      ]
+    },
+    {
+      "id": "t2",
+      "repo": "ferncastle",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenTwiceSet$",
+        "."
+      ],
+      "facts": [
+        "f2"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}
