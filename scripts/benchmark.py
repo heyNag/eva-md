@@ -206,17 +206,34 @@ def to_read(name, event, results):
     if empty and 20*sum(late) > len(results):
         raise RuntimeError("%s: %d of %d hooks passed their limit, more than one in twenty, and %d gave no output" % (
             name, sum(late), len(results), len(empty)))
-    say_late(name, event, sum(late), len(results))
+    say_late(name, event, [ms for _, ms in results])
     return [i for i, (output, _) in enumerate(results) if output]
 
 
-def say_late(name, event, late, n):
-    """Prints, beside the report, how many of a loop's n hooks passed their
-    limit, when any did."""
+def say_late(name, event, times):
+    """Prints, beside the report, how many of a loop's hooks of event, timed
+    at times milliseconds, passed their limit (evabench's past_limit), when
+    any did. Every timed loop of the padded inbox says it, as soon as it
+    ends, so that a check that fails later has it beside its message."""
+    from evabench import DEFAULT_LIMIT_MS, EVENT_LIMIT_MS, LIMIT_MARGIN_MS, past_limit
+    late = sum(1 for ms in times if past_limit(event, ms))
     if late:
-        from evabench import DEFAULT_LIMIT_MS, EVENT_LIMIT_MS, LIMIT_MARGIN_MS
         print("benchmark: %s: %d of %d hooks passed their limit, %d ms less %d" % (
-            name, late, n, EVENT_LIMIT_MS.get(event, DEFAULT_LIMIT_MS), LIMIT_MARGIN_MS), file=sys.stderr, flush=True)
+            name, late, len(times), EVENT_LIMIT_MS.get(event, DEFAULT_LIMIT_MS), LIMIT_MARGIN_MS), file=sys.stderr, flush=True)
+
+
+def no_sweep(ms):
+    """The message when the day's first chat start, timed at ms
+    milliseconds, did not ask for the day's sweep once. Later steps need the
+    sweep's day, so it fails whatever the time, but it gives the time, and
+    says when the chat start passed a limit and so may have asked for
+    nothing by design: its own, or the shorter one in which every hook must
+    read its input, before it knows its event (budget("") in
+    internal/hook/hook.go, evabench's limit for an event it does not name)."""
+    from evabench import past_limit
+    why = ("past its limit" if past_limit("SessionStart", ms) else
+           "past the limit in which a hook reads its input" if past_limit("", ms) else "inside its limits")
+    return "the day's first chat start did not ask for the day's sweep once; that chat start took %d ms, %s" % (ms, why)
 
 
 def padded_inbox(run, evabench):
@@ -259,6 +276,7 @@ def padded_inbox(run, evabench):
             if "MARIGOLD" not in context or "eva-memory" not in context or len(context)>7000:
                 raise RuntimeError("cross-host startup failed")
             startup.append(elapsed)
+        say_late("startup","SessionStart",startup)
         # Each chat start leaves its chat's file, and a brief reads the 64
         # newest besides the chats a program ran: the gate's runs remove
         # those of their extra chat starts, so that the chat starts below
@@ -292,6 +310,7 @@ def padded_inbox(run, evabench):
             if "MARIGOLD" not in context:
                 raise RuntimeError("the chats a program ran pushed the person's chat out of the brief")
             startup_programs.append(elapsed)
+        say_late("startup_with_programs","SessionStart",startup_programs)
         for path in programs:
             path.unlink()
         # Search with no window over every project: first as a search finds
@@ -326,6 +345,7 @@ def padded_inbox(run, evabench):
             with transcript.open("a") as f:f.write(json.dumps(row)+"\n")
             _,elapsed=hook("claude-code","Stop","m1-transcript",transcript_path=str(transcript),last_assistant_message=message)
             recovery.append(elapsed)
+        say_late("transcript_capture","Stop",recovery)
         # Every prompt after a brief checks the thread's Now for a refresh. The
         # wiki holds 200 other projects' now pages and none of this one's, which
         # that check must not read.
@@ -381,21 +401,26 @@ def padded_inbox(run, evabench):
                     time.sleep(0.05)
                 if len(sweeps)!=1:
                     # Later steps need the sweep's day, so a chat start that
-                    # passed its limit, and so asked for nothing, still fails.
-                    raise RuntimeError("the day's first chat start did not ask for the day's sweep once"+(
-                        ", and that chat start took %d ms, past its limit"%elapsed if evabench.past_limit("SessionStart",elapsed) else ""))
+                    # passed a limit, and so asked for nothing, still fails.
+                    raise RuntimeError(no_sweep(elapsed))
                 (state/"updates"/"sweep").write_text(sweeps[0][len("--sweep="):])
+        say_late("startup_with_records","SessionStart",startup_records)
         # With a wiki set up, updates are on: each Stop also checks the
         # session's backlog, one stat, which here never reaches 60 KB.
-        capture=[]
+        # A Codex Stop past its limit may print nothing (evabench's Home.hook
+        # lets that through), so its loop passes it over and counts it.
+        capture,stops=[],[]
         for i in range(100):
-            _, elapsed=hook("codex", "Stop", "m1-capture", turn_id=str(i), last_assistant_message="Synthetic timing reply.")
+            output,elapsed=hook("codex", "Stop", "m1-capture", turn_id=str(i), last_assistant_message="Synthetic timing reply.")
+            stops.append((output,elapsed))
             capture.append(elapsed)
+        to_read("capture","Stop",stops)
         hook("codex","SessionStart","m1-prompts",source="startup")
         prompts=[]
         for i in range(100):
             _,elapsed=hook("codex","UserPromptSubmit","m1-prompts",turn_id=str(i),prompt="Synthetic timing prompt "+str(i))
             prompts.append(elapsed)
+        say_late("prompt_after_brief","UserPromptSubmit",prompts)
         # Pointers: 400 system pages on the map and a full names index, 2,000
         # names near its 128 KB bound. Each chat starts untimed and gets four
         # prompts, each naming three systems it has not been pointed at, by a
@@ -433,14 +458,17 @@ def padded_inbox(run, evabench):
         # event did for maintain.
         pad=json.dumps(dict(sample,host="codex",session="m1-spawn")).encode()+b"\n"
         (files[0].parent/"codex-m1-spawn.jsonl").write_bytes(pad*((61<<10)//len(pad)+1))
-        stop_spawn=[]
+        stop_spawn,spawn_stops=[],[]
         for i in range(run.loops(30)):
-            _,elapsed=hook("codex","Stop","m1-spawn",turn_id=str(i),last_assistant_message="Synthetic timing reply.")
+            output,elapsed=hook("codex","Stop","m1-spawn",turn_id=str(i),last_assistant_message="Synthetic timing reply.")
+            spawn_stops.append((output,elapsed))
             stop_spawn.append(elapsed)
+        to_read("capture_with_spawn","Stop",spawn_stops)
         ends=[]
         for i in range(run.loops(30)):
             _,elapsed=hook("claude-code","SessionEnd","m1-end-"+str(i))
             ends.append(elapsed)
+        say_late("session_end","SessionEnd",ends)
         # The first chat start's sweep came alone, a job of its own. A hook
         # that passed its limit delivered nothing, its start included, by
         # design, so each start of a Stop or SessionEnd may be missing for
@@ -452,8 +480,6 @@ def padded_inbox(run, evabench):
             time.sleep(0.05)
         started=spawned.read_text().splitlines()[1:]
         check_starts(started,start_groups(stop_spawn,ends))
-        say_late("capture_with_spawn","Stop",sum(evabench.past_limit("Stop",ms) for ms in stop_spawn),len(stop_spawn))
-        say_late("session_end","SessionEnd",sum(evabench.past_limit("SessionEnd",ms) for ms in ends),len(ends))
         # The MCP server, started in the project as Claude Code starts it,
         # with the padded inbox, the wiki and the records above in place.
         mcp_starts,mcp_exits,mcp_searches,mcp_shows,mcp_statuses=mcp_timings(binary,env,cwd)
@@ -717,6 +743,7 @@ def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10, prompts_timed=2
             if len(lines)!=3:
                 raise RuntimeError("a startup brief did not say how far the code of 3 systems moved")
             briefs.append(elapsed)
+        say_late("code_brief","SessionStart",briefs)
     commit="4e2bf4c0a1b2"
     pages=[]
     for i in range(400):

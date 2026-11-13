@@ -238,8 +238,14 @@ class Home:
         elapsed = (time.perf_counter()-began)*1000
         if code or err:
             raise RuntimeError("hook failed or wrote diagnostics")
+        # A Codex Stop prints {}, but one past its limit prints nothing, by
+        # design: Run in internal/hook/hook.go writes its output only by the
+        # deadline. So an empty output is let through from a Codex Stop timed
+        # past its limit (past_limit) alone, for its loop to pass over and
+        # count (to_read in benchmark.py); from one in time it is a fault.
         if event == "Stop" and out != ("{}" if host == "codex" else ""):
-            raise RuntimeError("invalid Stop output")
+            if not (host == "codex" and out == "" and past_limit(event, elapsed)):
+                raise RuntimeError("invalid Stop output")
         return out, elapsed
 
     def runs(self):
