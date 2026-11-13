@@ -49,3 +49,13 @@ Everything else. If a script needs what `scenario` lacks, stop and report.
 - Both schemas parse; each object requires all its keys, allows no other and holds no `maxLength`; the quotes schema has no `s`, the segment one no `q`: by test. Each prompt's example answer parses with `ParseAnswer`.
 - A test fails when a code has no sentence in a prompt, or a prompt holds a host's name from `adapter.All()`.
 - `imports_test.go` fails if a package outside `internal/eval/spike/**` and `cmd/eva-eval` imports this one, or a non-test file here imports an eva-md package beyond the three named.
+
+## As merged
+
+Merged from `pkg/dv-03a-r1` on 2026-11-13, after a review that found three major faults, a fix round and a verification that accepted it. The lead's rulings:
+
+- **"Required and nullable" means required everywhere, and nullable only where a value may be absent**: `id`, `kind`, `text`, `admit`, `nothing` and a repair's `op`. The rest never take null. The package's SPEC says so and a test holds the exact set.
+- **The schemas keep the card's key order.** They were first built from maps, which wrote their keys in alphabetical order, and a host's strict mode fills keys in the schema's order: a model would have had to give its evidence before it named the operation. They are written in order now, and a test reads the bytes.
+- **`bounds.01` invites more operations than the contract allows; it cannot force them.** Its 26 settings now stand one to a prompt, so an answer that gives each its own operation needs 26 against the 24 allowed. An operation may cite three entries, so 9 grounded operations can still keep them all. That is what the finding it comes from asks for, and DV-03b's measures say which a model did.
+
+The golden renders are constants in the test file, since the paths hold no folder for them, and every new script is in the tuning split: the card names no held-out one.

@@ -30,7 +30,7 @@ Rules every card carries, so they are said once here:
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 passes with no fail on macOS |
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | merged; the gate stays advisory, since this rule cannot yet block a merge (EV-16d) |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | merged |
-| [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | ready, since EV-16c is merged |
+| [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | building since 2026-11-13 |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
@@ -39,8 +39,8 @@ Rules every card carries, so they are said once here:
 | [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 merged: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; its allowlist and vocabulary are approved; Part 2 may come later |
 | [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | merged |
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged |
-| [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | building since 2026-11-13 |
-| [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | after DV-03a |
+| [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | merged |
+| [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | ready, since DV-03a is merged |
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | building since 2026-11-13 |
