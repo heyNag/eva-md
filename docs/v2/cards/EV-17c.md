@@ -1,43 +1,68 @@
 # EV-17c: the v1 condition: memory built from the earlier chat, as v1 builds it
 
-**Plan:** section 6.6 (the continuation instrument, "with eva-md"); section 8, the Stage 1 row EV-17 ("v1's row recorded"); section 7, the lead's choice of an evaluation-only build tag that lets a scripted session count as a person's chat. **Design:** `docs/v2/working-papers/design/evaluate.md` sections 4.4 (the replay driver and the one evaluation seam) and 4.5 (the `eva` arm); [host-facts.md](../host-facts.md) F-115 and F-163 (settled by EV-03) and F-018 (by the host sittings). **Size:** M. **Reviewers:** one. **Depends on:** [EV-17b](EV-17b.md); [EV-17d](EV-17d.md) for real runs, not for its tests.
+**Plan:** section 6.6; section 8, rows EV-17 ("v1's row recorded") and EV-03, whose v1 arm this is (the lead's ruling of 2026-11-13); section 7's evaluation build tag. **Design:** `working-papers/design/evaluate.md` 4.4, 4.5; [host-facts.md](../host-facts.md) F-115, F-163 (recorded by the pilot, which runs this arm), F-018. **Size:** M, as before. **Reviewers:** one, as before (made-up chats). **Depends on:** [EV-17b](EV-17b.md), [EV-17d](EV-17d.md), [EV-17g](EV-17g.md) (`drive.CodeMemoryOff`, `--keep-trials`).
 
 ## Why
 
-Memory off and the ideal record need no eva-md. The third condition is what a person gets: eva-md set up as a first run sets it up, the earlier chat captured by eva-md's own hooks, v1's update run on it, and the new chat started with eva-md's plugin loaded. This part adds that condition to the driver, so that v1's row can be recorded once a live run is allowed. Nothing in eva-md changes, so there is no switch.
+The third condition is what a person gets: eva-md set up, the earlier chat captured by its hooks, v1's update, the new chat with its plugin. A trial whose hooks never fired is unjudged, not read as v1. eva-md is unchanged: no switch, no line added to `./cmd/eva-md`. Elsewhere: task export (EV-03b), live-run guards (EV-17g), the report and the pilot's README (EV-03c); the run-book is the lead's.
 
 ## What to build
 
-A package `internal/eval/continuation/v1arm` that registers the condition `eva` with `drive.Register`, and `cmd/eva-eval/continuation_eva.go`, which imports it for its effect only. Neither spells a host's name: `TestHostLiteralCount` passes unchanged.
+`internal/eval/continuation/v1arm` registers `task.Eva` with `drive.Register`; `cmd/eva-eval/continuation_eva.go` imports it for effect. eva-md runs as `<Bin>/eva-md`, in `Trial.Env`.
 
-1. **The binary.** The driver's `--eva-md PATH` names the eva-md to measure; it is linked into the trial's `bin/` as `eva-md`. The `Arm`'s `Check` refuses, before any trial, one whose build information (`debug/buildinfo`) has no `evamd_eval` among the tags of its `-tags` setting (EV-17d), since a release build refuses setup off macOS and takes a headless chat for a program's. An option of the condition lets a test skip that check; the command never sets it.
-2. **Set up as a first run.** In the trial's home, with the host's CLI on PATH: a bare repository `<trial>/remote.git` made with `git init --bare`, then `eva-md setup --dir <home>/wiki --remote <trial>/remote.git --no-push --yes --host <the adapter's InstallName>` (setup run with no terminal stops without both `--dir` and `--remote`). Setup runs before any hook, since v1 sets aside chats captured before its install (`Baseline`, `internal/update/baseline.go`). A failure stops the trial unjudged, `setup_failed`.
-3. **The earlier chat, through the hooks.** The task's `history` is fed to `eva-md hook --host <id>`, one payload a call on stdin, in order: `SessionStart` with `source` `startup`, then for each user turn `UserPromptSubmit` with `prompt`, for each agent turn `Stop` with `last_assistant_message`, then `SessionEnd`. Each payload's `cwd` is the folder the new chat runs in. Field names are those of `payload` in `internal/hook/hook.go`. The session id is made up for each trial; no transcript is named; and `CLAUDE_CODE_ENTRYPOINT` is not in the hooks' environment, so v1 takes the chat for a person's.
-4. **Memory brought up to date.** Then `eva-md update --session <host id>:<session id> --foreground` runs until its line (`update: ...`, `Summary.Line` in `internal/update/job.go`) does not say `stopped: busy`, which it says while an update the hooks queued holds the update lock. Only then does the new chat start. An exit other than 0, or a line that says `waiting`, stops the trial unjudged, `update_failed`.
-5. **The new chat** is started with `Launch.Plugin` true, so the driver loads eva-md's plugin as setup installed it, with the host's own memory off (EV-17b, item 4). `Launch.Env` adds `EVA_MD_EVAL_ACTOR=person`, the seam of EV-17d, so the evaluation build takes the headless chat for a person's, as it would take the same chat typed.
-6. **What memory cost.** The condition's `After` waits, as item 4 does, for any update the new chat's hooks started, then reads the run log of the trial's home (the records `internal/update/runlog.go` writes under the state folder's `updates/`: tokens and duration) and returns their sums: the update of item 4 and every later one.
-7. **Nothing of the history in a row.** The history's text, statements and values reach eva-md and the host only; rows and the command's output hold ids and figures.
+1. **Check** refuses no `--eva-md`, one whose `debug/buildinfo` `-tags` lacks `evamd_eval` (EV-17d), and a `--pass-env` naming `CLAUDE_CODE_ENTRYPOINT` or `EVA_MD_EVAL_ACTOR`. A test-only variable skips the tag check.
+2. **Setup:** `git init --bare <Root>/remote.git`; `eva-md setup --dir <Home>/wiki --remote <Root>/remote.git --no-push --yes --host <InstallName>`, before any hook (v1's `Baseline`); then `drive.PluginReady` (item 10). Failure: `setup_failed`.
+3. **The earlier chat**, fed to `eva-md hook --host <id>` in the new chat's folder, one `payload` (`internal/hook/hook.go`) a call: `SessionStart` (`source` `startup`), `UserPromptSubmit` (`prompt`) per user turn, `Stop` (`last_assistant_message`) per agent turn, `SessionEnd`; `cwd` that folder, no transcript, no `CLAUDE_CODE_ENTRYPOINT`. Its session id, from the trial alone, passes `safeID`.
+4. **The update.** `eva-md update --session <id>:<session> --foreground`, again while its line (`Summary.Line`) says `stopped: busy`. Then `update.Days` must hold a record of that host and session with outcome `ok` or `no_change`, a detached job's too (a `backoff` stop exits 0). Else, or on exit other than 0: `update_failed`.
+5. **Detached jobs.** The hooks start maintain, a catch-up with the sweep, and at `SessionEnd` an update, each in a session of its own (`internal/hook/spawn.go`). Before the chat and before `After` sums, the arm waits while `update.lock` or `maintain.lock` in `<Home>/.local/state/eva-md/locks` is held.
+6. **The new chat:** `Launch.Plugin` true, `Launch.Env` `EVA_MD_EVAL_ACTOR=person`.
+7. **Memory on.** `After` lists `<Home>/.local/state/eva-md/inbox` with `inboxv1.Backend` and reads every session but the replayed one (same host and id). `drive.CodeMemoryOff` when none holds an event; on `adapter.ClaudeCode`, whose hook reads an entrypoint, also when none holds one of `event.KindPrompt` by `event.AuthorV1User`: `host_prompt` alone is the seam failing. A file over 64 MiB is not read; an unreadable inbox shows nothing.
+8. **Cost.** `After` sums `TokensIn` + `TokensOut` and `DurationMS` of `update.Days` on `<Home>/.local/state/eva-md` (today, yesterday), returned with `memory_off` too, for the ceiling.
+9. **Bounded.** Each command runs in its own process group, killed past a limit tests raise: `setup_failed` for setup and hooks, `update_failed` for the update and item 5. At most 64 KiB of a stdout is kept.
+10. **`drive.PluginReady(home string, h adapter.Host) error`**, new in `drive/plugin.go`: the host table's `Plugin` entry on `home`, writing nothing.
 
 ## Owns and may touch
 
-All new: the package with its test data, the one import file and its test. The package's `TestMain` calls `testgitenv.Clear()`.
+All new. `v1arm`'s `TestMain` calls `testgitenv.Clear()`, `fakehost.Main()`, `hostfake.Main()`, and raises the limits, the driver's (`versionTimeout`, `waitDelay`) too, or stops and reports.
 
 ```paths
 internal/eval/continuation/v1arm/**
+internal/eval/continuation/drive/plugin.go
+internal/eval/continuation/drive/plugin_test.go
 cmd/eva-eval/continuation_eva.go
 cmd/eva-eval/continuation_eva_test.go
 ```
 
 ## Must not touch
 
-Everything else: eva-md's own code (`cmd/eva-md`, `internal/hook`, `internal/update`, `internal/install`), `internal/eval/continuation/task`, the driver, and `cmd/eva-eval/continuation.go`. If the driver lacks a seam the condition needs, stop and report it.
+Everything else: eva-md's code, `task`, the driver's other files, `fakehost`, `hostfake`. A seam missing: stop and report.
 
 ## Accepted when
 
-- `scripts/linux-check.sh` passes, and `go list -deps ./cmd/eva-md` names no `internal/eval` package.
-- With a fake eva-md (the test binary re-run, recording its arguments, the names of its variables, its folder and its stdin) and the driver's fake host, for each host: the steps run in the order bare repository, setup, the hooks, the update, the new chat; setup's arguments are exact; the payloads equal a golden file; the hooks' environment holds no `CLAUDE_CODE_ENTRYPOINT`; the chat's holds `EVA_MD_EVAL_ACTOR=person`.
-- While the fake eva-md answers `stopped: busy`, the new chat does not start; once the test lets it answer otherwise, it does.
-- A failing setup, a failing update and an update line that says `waiting` each leave the trial unjudged with their code and write no row.
-- `eva-eval continuation run --condition eva` refuses an eva-md built without the tag (the test binary, or any Go binary without it, serves), and nothing runs.
-- A hand-written run log of two records in the trial's home gives the trial `memory_tokens` and `memory_ms` equal to their sums, and they count toward `--max-tokens`: by test.
-- No word of the history is in a row or the output, by a test with a planted word in every turn.
+- `scripts/linux-check.sh` passes; `go list -deps ./cmd/eva-md` names no `internal/eval`; `TestHostLiteralCount` unchanged.
+- Per host, a fake eva-md (the test binary, recording what it gets) and the driver's fake host: bare repository, setup, hooks, update, chat, in order; setup's arguments exact; payloads equal a golden file; hooks lack `CLAUDE_CODE_ENTRYPOINT`, the chat has `EVA_MD_EVAL_ACTOR=person`; no `asked_again` row.
+- No chat starts while the fake says `stopped: busy` or a process it left holds either lock; released, it does. A failing setup or update, exit 0 with no `ok` record, a command stalled past a limit the test gives: its code, no row. A detached job's `ok`, then `nothing pending`: judged.
+- `continuation run --condition eva --spend-model-quota` refuses an untagged eva-md and each refused `--pass-env`; nothing runs.
+- Two hand-written run-log records give `memory_tokens` and `memory_ms` as their sums, counted toward `--max-tokens`, under `memory_off` too.
+- Planted inboxes: the replayed session alone, `memory_off`; another with a person's prompt, judged; on Claude Code, only `host_prompt`, `memory_off`; on Codex, only `session_start`, judged.
+- End to end, per host: eva-md built from the checkout with `-tags evamd_eval,evamd_testlimits` (as `standInEnv`, `cmd/eva-md/release_test.go`: own home, `GOENV=off`, telemetry `off`), HO-14's `(*hostfake.Fake).WriteCLIs` in `bin/`: setup runs the plugin commands (`Calls`); `PluginReady` passes; `eva-md brief --cwd <folder> --host <id>` prints a word of the history; item 4 gives `update_failed` (no model); the test ends once both locks are free. It needs a `TMPDIR` outside `/tmp`.
+- A word planted in every turn is in no row, output or error.
+- Mutations (no `PluginReady`, the replayed session counted, `host_prompt` as a person's, no lock wait) each fail a test.
+
+## For the smoke run
+
+- Claude Code: is the plugin loaded twice (setup's registration, `--plugin-dir`)? In a trial kept by `--keep-trials`, each prompt is stored once.
+- Codex: are managed hooks read from `<home>/.codex/requirements.toml` (F-163)? If not, every Codex trial is `memory_off`; the lead rules before Codex's v1 row.
+
+## The lead's rulings of 2026-11-13
+
+The card's checker left these to the lead.
+
+- **A job that has started and not yet taken its lock** is not seen by item 5's wait. The wait stands as carded; what closes the gap at a trial's end is EV-17g's removal, which tries again before it stops a run.
+- **The lock probe may make a job of the trial leave as busy**: accepted for `maintain.lock` as for `update.lock`. A day's commit skipped in a trial's wiki changes no measure.
+- **Item 4's rule stands**: the update counts when the run log holds a record of the replayed session with outcome `ok` or `no_change`; a pass v1 marks skipped is `update_failed`.
+- **On Codex any event of another session counts as memory on**, a chat start alone included, until the smoke run shows which hooks a headless Codex chat fires.
+- **`memory_off` stops the run** (EV-17g's rulings).
+- The end-to-end test needs a `TMPDIR` outside `/tmp`, as eva-md's hook tests do, and the checks' script gives it one.
+- EV-17g exports the driver's two limits for this package's tests (its item 9).
+- If the card proves too large for one run, the end-to-end test becomes a follow-up of its own, and the builder says so.
