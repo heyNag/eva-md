@@ -31,6 +31,7 @@ Rules every card carries, so they are said once here:
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | merged; the gate stays advisory, since this rule cannot yet block a merge (EV-16d) |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | merged |
 | [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | building since 2026-11-13 |
+| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | after EV-16d, which changes the same files |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
@@ -46,16 +47,18 @@ Rules every card carries, so they are said once here:
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
 | [EV-03b](EV-03b.md) | The pilot's driver | ready to build, since EV-03a is merged; the live run waits for the owner's leave, a ceiling and decision 28's keys |
 | [EV-03c](EV-03c.md) | The pilot's report and its README | ready, since EV-03a is merged; beside EV-03b |
-| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | merged, ahead of DV-13; two small tests are owed by the package that next changes `cmd/live-accuracy` |
-| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
+| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | merged, ahead of DV-13; ST-04b carries one of the two small things its notes owe, and the other waits for a card that changes `trace.go` |
+| [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; ST-04b adds the figure for false additions over all negatives of a half |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | merged; open for the host sittings: whether Codex keeps a plugin's approvals when it is removed |
-| [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records, and a card is owed for a hook test that depends on speed |
+| [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records; SEAM-0f mends the hook test that depends on speed |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | merged; owed before LG-20: the hand-over decoder counts line breaks once, not once for each line |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
+| [LG-22a](LG-22a.md) | The project registry's types, the project id as a function of a key, and its fake | ready; LG-22's first part, with no caller |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
+| [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | ready; first of the follow-ups, since these tests fail builders' checks on a busy machine |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | ready |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | ready |
@@ -70,24 +73,30 @@ Rules every card carries, so they are said once here:
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: DV-13's `paths` block, once DV-12b is merged, and a ledger of what leaves the binary and when |
+| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: DV-13's `paths` block, once DV-12b is merged; EV-11b is the ledger of what leaves the binary and when |
+| [EV-11b](EV-11b.md) | The size ledger: what leaves the binary, and when | ready; the lead brings it to each stage's readout |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
 | [IF-01b](IF-01b.md) | The reader's fake | merged |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | merged; owed: the fake gains `ItemsCiting`, and keeps words and `Evidence`, once ST-05 puts them in the store's interface and the model |
-| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | merged; owed: a property that a pass keeps what a session file holds, and, before ST-05 is held to the harness, a crash property that fails when no armed crash fired (IF-01c's notes) |
+| [ST-02](ST-02.md) | The storage properties, as tests against a reference model | merged; ST-02b carries what its notes and IF-01c's owe |
+| [ST-02b](ST-02b.md) | The store's properties catch a store that never crashed, and a pass that loses a session's notes | ready; before ST-05 is held to the harness |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
-| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | merged; a card is owed for ST-03a's reading of a lock or a verified mark behind Unicode white space |
+| [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | merged; ST-03c mends ST-03a's reading of a lock or a verified mark behind Unicode white space |
+| [ST-03c](ST-03c.md) | The codec's protection reads a lock as v1 read it, behind white space, quotes and escapes | ready; before ST-05 reads a page through the codec |
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
+| [ST-04b](ST-04b.md) | Four tests and a figure that merged packages owe | ready; not beside ST-03c, which changes one of its files |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
-| [EV-14c](EV-14c.md) | Six new families, half held out | merged; owed before its figures are put in a gate: a card for the scorer, which reads an agreement as a statement and cannot ask a hedge of one kind of filing alone |
+| [EV-14c](EV-14c.md) | Six new families, half held out | merged; EV-14e mends the scorer before these figures are put in a gate |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
+| [EV-14e](EV-14e.md) | The scorer tells an agreement from a statement, and asks a slot of some kinds only | ready; two reviewers; before the families' figures are put in a gate |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | merged |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | building since 2026-11-13 |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
-| [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; owed, on a card that owns the release workflow: a check of each published binary for a build tag |
+| [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; EV-17f adds the check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03) |
+| [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | ready; two reviewers; its first run on a real release is the owner's next cut |
 | [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | ready, since the counters release is cut (2026.11.13) |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
 
