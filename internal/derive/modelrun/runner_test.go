@@ -577,6 +577,7 @@ func TestCallsThatCannotRunAreRefused(t *testing.T) {
 		"schema not an object":           func(c *Call) { c.Schema = []byte(`[1]`) },
 		"schema not JSON":                func(c *Call) { c.Schema = []byte(`{"type":`) },
 		"no schema":                      func(c *Call) { c.Schema = nil },
+		"schema with a key given twice":  func(c *Call) { c.Schema = []byte(`{"type":"object","type":"array"}`) },
 		"negative deadline":              func(c *Call) { c.Deadline = -time.Second },
 	}
 	r, calls := puppetRunner(t, adapter.Codex, Options{})
@@ -722,6 +723,191 @@ func TestOKNeedsOneJSONObject(t *testing.T) {
 			t.Fatalf("an answer in UTF-8: %+v", out)
 		}
 	})
+	// A key given twice, at any depth, is answer_invalid: a reader that
+	// keeps the first value and one that keeps the last would take two
+	// answers from one outcome.
+	t.Run("a key given twice", func(t *testing.T) {
+		if out := runPuppet(t, map[string]string{"output": `{"summary":"a","summary":"b"}`}); out.Class != ClassAnswerInvalid || out.Answer != nil {
+			t.Fatalf("a key given twice: outcome %+v, want answer_invalid", out)
+		}
+	})
+}
+
+// An answer in which an object, at any depth, gives a key twice is no
+// answer; the same key in two objects, or two keys that differ in letter
+// case, are fine.
+func TestAnAnswerGivesEachKeyOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name, answer string
+		ok           bool
+	}{
+		{"at the top", `{"summary":"a","summary":"b"}`, false},
+		{"at the top, the same value", `{"summary":"a","summary":"a"}`, false},
+		{"at the top, apart", `{"summary":"a","n":1,"x":[{}],"summary":"b"}`, false},
+		{"at the top, escaped", `{"summary":"a","\u0073ummary":"b"}`, false},
+		{"nested in an object", `{"summary":"a","facts":{"k":1,"j":{},"k":2}}`, false},
+		{"deeper in objects", `{"a":{"b":{"c":{"d":1,"d":1}}}}`, false},
+		{"inside a list of objects", `{"facts":[{"k":1},{"k":2,"j":3,"k":4}]}`, false},
+		{"in a list in a list", `{"facts":[[1,{"k":[],"k":null}]]}`, false},
+		{"after a nested object closes", `{"a":{"b":1},"a":2}`, false},
+		{"the same key in sibling objects", `{"facts":[{"k":1},{"k":2}],"more":{"k":3},"k":{"k":{"k":4}}}`, true},
+		{"keys that differ in letter case", `{"summary":"a","Summary":"b","SUMMARY":"c"}`, true},
+		{"a key that is a value elsewhere", `{"k":"k","j":["k","k"],"m":{"k":"k"}}`, true},
+		{"an empty key once", `{"":1,"a":{"":2}}`, true},
+		{"an empty key twice", `{"":1,"":2}`, false},
+		{"a number no float holds", `{"n":1e999,"m":-1e-999}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, ok := object([]byte(tc.answer)); ok != tc.ok {
+				t.Fatalf("object(%s) ok %v, want %v", tc.answer, ok, tc.ok)
+			}
+			want := ClassAnswerInvalid
+			if tc.ok {
+				want = ClassOK
+			}
+			if out := runPuppet(t, map[string]string{"output": tc.answer}); out.Class != want || (out.Answer != nil) != tc.ok {
+				t.Fatalf("answer %s: outcome %+v, want %s", tc.answer, out, want)
+			}
+		})
+	}
+}
+
+// nested is an answer of depth levels: objects inside one another, the
+// deepest holding inner.
+func nested(depth int, inner string) []byte {
+	var b bytes.Buffer
+	for range depth - 1 {
+		b.WriteString(`{"k":`)
+	}
+	b.WriteString("{" + inner + "}")
+	for range depth - 1 {
+		b.WriteByte('}')
+	}
+	return b.Bytes()
+}
+
+// An answer is read to encoding/json's own depth of 10,000 levels and no
+// further, with no recursion of the core's own, so no answer can exhaust
+// the stack: at the limit a key given twice is still found, and past it the
+// answer is refused.
+func TestADeepAnswerIsReadToTheLimit(t *testing.T) {
+	if _, ok := object(nested(maxAnswerDepth, `"a":1`)); !ok {
+		t.Fatalf("an answer of %d levels was refused", maxAnswerDepth)
+	}
+	if _, ok := object(nested(maxAnswerDepth, `"a":1,"a":2`)); ok {
+		t.Fatalf("an answer of %d levels hid a key given twice at its bottom", maxAnswerDepth)
+	}
+	if _, ok := object(nested(maxAnswerDepth+1, `"a":1`)); ok {
+		t.Fatalf("an answer of %d levels was taken", maxAnswerDepth+1)
+	}
+	// A list at the bottom, past the limit, and far past it.
+	if _, ok := object([]byte(strings.Repeat(`{"k":[`, 6000) + strings.Repeat(`]}`, 6000))); ok {
+		t.Fatal("an answer of 12,000 levels was taken")
+	}
+	if _, ok := object([]byte(strings.Repeat(`{"k":`, 1<<20) + "1" + strings.Repeat(`}`, 1<<20))); ok {
+		t.Fatal("an answer of a million levels was taken")
+	}
+	// keysOnce, given what json.Valid would refuse, holds the limit itself.
+	if ok, _ := keysOnce([]byte(strings.Repeat("[", maxAnswerDepth+1) + strings.Repeat("]", maxAnswerDepth+1))); ok {
+		t.Fatal("keysOnce read past the limit")
+	}
+	if ok, _ := keysOnce([]byte(strings.Repeat("[", maxAnswerDepth) + strings.Repeat("]", maxAnswerDepth))); !ok {
+		t.Fatal("keysOnce refused a list at the limit")
+	}
+	// Through Run, as the puppet's answer.
+	if out := runPuppet(t, map[string]string{"output": string(nested(maxAnswerDepth+1, ""))}); out.Class != ClassAnswerInvalid {
+		t.Fatalf("an answer past the limit through Run: %s", out.Class)
+	}
+}
+
+// A flat answer is read once: the reader takes each byte of it once and
+// gives each token once, so the work grows with the answer's size alone,
+// and one set of keys per object makes each key's check one lookup.
+func TestALargeAnswerIsReadInLinearWork(t *testing.T) {
+	flat := func(n int) []byte {
+		var b bytes.Buffer
+		b.WriteByte('{')
+		for i := range n {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, `"key-%d":%d`, i, i)
+		}
+		b.WriteByte('}')
+		return b.Bytes()
+	}
+	for _, n := range []int{1000, 64000} {
+		data := flat(n)
+		ok, w := keysOnce(data)
+		// 2n tokens for the pairs, 2 for the braces, and every byte once.
+		if !ok || w.tokens != 2*n+2 || w.bytes != len(data) {
+			t.Fatalf("%d keys: ok %v, work %+v, want %d tokens and %d bytes", n, ok, w, 2*n+2, len(data))
+		}
+		// The last key given again is found at its own token: the opening
+		// brace, n pairs, then the key.
+		dup := append(bytes.TrimSuffix(data, []byte("}")), fmt.Sprintf(`,"key-%d":0}`, n-1)...)
+		if ok, w := keysOnce(dup); ok || w.tokens != 2*n+2 {
+			t.Fatalf("%d keys and one again: ok %v, work %+v", n, ok, w)
+		}
+	}
+	// Many sibling objects, each with the same keys.
+	list := []byte("[" + strings.TrimSuffix(strings.Repeat(`{"a":1,"b":[2]},`, 50000), ",") + "]")
+	if ok, w := keysOnce(list); !ok || w.tokens != 2+50000*8 || w.bytes != len(list) {
+		t.Fatalf("a list of objects: ok %v, work %+v", ok, w)
+	}
+}
+
+// Each host's backend, on a clean run, gives an answer that gives a key
+// twice as answer_invalid, as it does any answer that is not one JSON
+// object, and the same answer with each key once as ok.
+func TestEachBackendRefusesAnAnswerThatGivesAKeyTwice(t *testing.T) {
+	const (
+		once  = `{"summary":"a","facts":[{"k":1},{"k":2}]}`
+		twice = `{"summary":"a","facts":[{"k":1},{"k":2,"k":3}]}`
+		// A clean Codex stream, made up in the shape of its --json events;
+		// Codex writes the answer to the file after -o.
+		stream = `{"type":"thread.started","thread_id":"0199a000-0000-7000-8000-00000000aa01"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}
+{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":5}}
+`
+	)
+	// A clean Claude Code envelope, made up, its answer in structured_output.
+	envelope := func(answer string) string {
+		return `{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":50,"output_tokens":5},"permission_denials":[],"structured_output":` + answer + `}`
+	}
+	for _, tc := range []struct {
+		id    adapter.ID
+		files func(answer string) map[string]string
+	}{
+		{adapter.Codex, func(answer string) map[string]string { return map[string]string{"stdout": stream, "output": answer} }},
+		{adapter.ClaudeCode, func(answer string) map[string]string { return map[string]string{"stdout": envelope(answer)} }},
+	} {
+		for _, answer := range []string{once, twice} {
+			t.Run(string(tc.id)+" "+answer, func(t *testing.T) {
+				isolate(t)
+				dump := fakeCLI(t, "")
+				for name, content := range tc.files(answer) {
+					put(t, dump, name, content)
+				}
+				_, env := testEnv()
+				r, err := New(tc.id, Options{Env: env})
+				if err != nil {
+					t.Fatal(err)
+				}
+				out, err := r.Run(context.Background(), call(t, tc.id))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if answer == once && (out.Class != ClassOK || string(out.Answer) != once) {
+					t.Fatalf("each key once: outcome %+v, want ok", out)
+				}
+				if answer == twice && (out.Class != ClassAnswerInvalid || out.Answer != nil) {
+					t.Fatalf("a key given twice: outcome %+v, want answer_invalid", out)
+				}
+			})
+		}
+	}
 }
 
 // An answer is kept only on ok, whatever the backend kept.
@@ -964,6 +1150,98 @@ func TestSettle(t *testing.T) {
 	if tl.usage != (Usage{In: 2, CachedIn: 2 * maxTokens, Out: 6}) {
 		t.Fatalf("usage %+v", tl.usage)
 	}
+}
+
+// checkModels holds an outcome's models to section 4's invariants: sorted,
+// each once, each of a model name's shape, at most maxModelsSeen, and the
+// model that answered among them.
+func checkModels(t *testing.T, out Outcome) {
+	t.Helper()
+	if !slices.IsSorted(out.ModelsSeen) || len(slices.Compact(slices.Clone(out.ModelsSeen))) != len(out.ModelsSeen) || len(out.ModelsSeen) > maxModelsSeen {
+		t.Fatalf("models seen %q: not sorted, a name twice, or past %d", out.ModelsSeen, maxModelsSeen)
+	}
+	for _, m := range out.ModelsSeen {
+		if !modelName.MatchString(m) {
+			t.Fatalf("models seen %q hold %q", out.ModelsSeen, m)
+		}
+	}
+	if out.ModelAnswered != "" && !slices.Contains(out.ModelsSeen, out.ModelAnswered) {
+		t.Fatalf("the model that answered, %q, is not among those seen, %q", out.ModelAnswered, out.ModelsSeen)
+	}
+}
+
+// settle keeps each model once, however often a backend names it, and at
+// most maxModelsSeen of them: the one that answered, then the others in the
+// order first given.
+func TestSettleKeepsEachModelOnceAndBoundsThem(t *testing.T) {
+	base := Outcome{CLI: "/x/cli", Billing: BillingPlan}
+	t.Run("many repeats", func(t *testing.T) {
+		var names []string
+		for i := range 200000 {
+			names = append(names, fmt.Sprintf("model-%d", i%10))
+			if i%1000 == 0 {
+				names = append(names, "not a model", "--flag", "")
+			}
+		}
+		var tl tally
+		tl.attempts = 2
+		tl.add(result{models: names[:len(names)/2]})
+		res := result{class: ClassOK, answer: []byte(answer), models: names[len(names)/2:], answered: "model-3"}
+		tl.add(res)
+		out := settle(base, res, tl, nil)
+		checkModels(t, out)
+		want := []string{"model-0", "model-1", "model-2", "model-3", "model-4", "model-5", "model-6", "model-7", "model-8", "model-9"}
+		if !slices.Equal(out.ModelsSeen, want) || out.ModelAnswered != "model-3" {
+			t.Fatalf("models seen %d, answered %q, want %q and model-3", len(out.ModelsSeen), out.ModelAnswered, want)
+		}
+	})
+	t.Run("past the bound", func(t *testing.T) {
+		// 200 names, the highest first, each three times over, then the one
+		// that answered, last of all.
+		var names []string
+		for range 3 {
+			for i := 199; i >= 0; i-- {
+				names = append(names, fmt.Sprintf("model-%03d", i))
+			}
+		}
+		res := result{class: ClassOK, answer: []byte(answer), models: names, answered: "model-answered"}
+		var tl tally
+		tl.attempts = 1
+		tl.add(res)
+		out := settle(base, res, tl, nil)
+		checkModels(t, out)
+		var want []string
+		for i := 199; i > 199-(maxModelsSeen-1); i-- {
+			want = append(want, fmt.Sprintf("model-%03d", i))
+		}
+		want = append(want, "model-answered")
+		slices.Sort(want)
+		if !slices.Equal(out.ModelsSeen, want) || out.ModelAnswered != "model-answered" {
+			t.Fatalf("models seen %q, answered %q, want %q", out.ModelsSeen, out.ModelAnswered, want)
+		}
+	})
+	t.Run("names that are no model take no place", func(t *testing.T) {
+		names := []string{}
+		for i := range 2 * maxModelsSeen {
+			names = append(names, fmt.Sprintf("not a model %d", i), fmt.Sprintf("-flag-%d", i))
+		}
+		names = append(names, "model-a", "model-b", "model-a")
+		res := result{class: ClassHost, models: names, answered: "not a model"}
+		var tl tally
+		tl.attempts = 1
+		tl.add(res)
+		out := settle(base, res, tl, nil)
+		checkModels(t, out)
+		if !slices.Equal(out.ModelsSeen, []string{"model-a", "model-b"}) || out.ModelAnswered != "" {
+			t.Fatalf("models seen %q, answered %q", out.ModelsSeen, out.ModelAnswered)
+		}
+	})
+	t.Run("none named", func(t *testing.T) {
+		out := settle(base, result{class: ClassOK, answer: []byte(answer)}, tally{attempts: 1}, nil)
+		if out.ModelsSeen != nil || out.ModelAnswered != "" {
+			t.Fatalf("no model named: %q %q", out.ModelsSeen, out.ModelAnswered)
+		}
+	})
 }
 
 // puppetDoing is the puppet with attempt in place of its own.

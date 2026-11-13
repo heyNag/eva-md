@@ -70,6 +70,6 @@ The lead's rulings of 2026-11-13:
 
 Owed, in a short second round on this card's two files, running since the merge: when `modelUsage` names an entry none of whose counts can be read, the usage beside it in `usage` is kept, not replaced by zero, since a spend reported as zero is the unsafe way for DV-13's budget; and a test each for the cap on a summed count and for text past 8 MiB never being read as error text.
 
-Owed on DV-11a's `runner.go`, in the same round under that card's line: `settle` removes repeated models by a search for each, which grows with the square of their number (out of reach while a backend keeps 64, but the core should not lean on that); and `object` takes an answer that gives a key twice, which two readers may read two ways.
+Found here and built on DV-11a's `runner.go` the same day, under that card's line (its notes say how): `settle` removes repeated models by a search for each, which grows with the square of their number (out of reach while a backend keeps 64, but the core should not lean on that); and `object` takes an answer that gives a key twice, which two readers may read two ways.
 
 For DV-02's recordings: the server tool counts come from the host's published result types and are not yet a host fact; they are recorded and checked there. A tool call the host runs with permission stays unseen on Claude Code until the stream reader is built (F-113).
