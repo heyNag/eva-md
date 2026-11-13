@@ -114,7 +114,7 @@ Each track's interface is written by its first package, and IF-01 adds a fake of
 | The reader | `ledger.Reader` | LG-10 | `internal/ledger/ledgertest` |
 | The store | `store.Store` in `internal/store/api.go` | ST-01, ST-02 | `internal/store/storetest` |
 | The retrieval core | `retrieval.System` | DL-04 | `internal/eval/retrieval/retrievaltest` |
-| The runner | named by DV-11 | DV-11 | `waits: DV-11` |
+| The runner | `modelrun.Runner` in `internal/derive/modelrun`, with `modelrun.Fake` beside it | DV-11 | `internal/derive/modelrun` |
 | ST-05, the store core | `store.Store` | ST-05 | `internal/store/storetest` |
 | LG-22, project identity | `internal/ledger/registry` (LG-22a, Stage 1): `ProjectID(key)`, the id of store-format.md section 3 from a key (v1's resolver key; `general` for the general area), the registry's types and a listing of projects with their kind; its fake `registrytest` holds one project per key and joins none | LG-22 | `waits: LG-22a` |
 | LG-21, the session catalog | `ledger.Catalog` and its entry type in `internal/ledger` | LG-21 | `waits: LG-21` |
