@@ -1,0 +1,1265 @@
+{
+  "v": 1,
+  "metrics": [
+    {
+      "name": "continuation.handoff.off.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.off.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.eva.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.handoff.oracle.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.off.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.eva.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.hidden.oracle.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.off.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.eva.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation",
+        "cmd/eva-md",
+        "internal/hook",
+        "internal/resume",
+        "internal/update",
+        "internal/threadpage",
+        "internal/freetext",
+        "internal/knowledgepage",
+        "internal/install"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.solved",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.first_try",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.corrections",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.rounds",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.agent_events",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.prompt_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.cached_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.output_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.wall_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.asked_again",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.memory_tokens",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    },
+    {
+      "name": "continuation.control.oracle.memory_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "paths": [
+        "eval/continuation/testdata",
+        "internal/eval/continuation"
+      ]
+    }
+  ]
+}

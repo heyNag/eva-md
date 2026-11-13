@@ -1,0 +1,51 @@
+{
+  "id": "handoff-split",
+  "family": "handoff",
+  "repos": ["ledgerkit"],
+  "workdir": "outside",
+  "history": [
+    {
+      "by": "user",
+      "text": "Let's add Split(total, parts int) ([]int, error) to ledgerkit, so a bill kept in cents can be shared out. The parts must differ by at most one cent, with the extra cents on the first parts.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Understood. I'll put it in a new file, split.go, beside Sum and Format, and keep it to the standard library like the rest of the package."
+    },
+    {
+      "by": "user",
+      "text": "One more thing before you start: when parts is zero, Split must return an error whose text starts with splinterbox: so that the billing service's alerts pick it up. Don't panic on it.",
+      "plants": ["f-zero"]
+    },
+    {
+      "by": "agent",
+      "text": "I've added split.go with a first version of Split that gives every part total / parts. It does not spread the remainder yet, and it does not check for zero parts; I'll do both next and then add tests for them."
+    }
+  ],
+  "facts": [
+    {
+      "id": "f-zero",
+      "statement": "When parts is zero, Split returns an error whose text starts with splinterbox:",
+      "values": ["splinterbox"]
+    }
+  ],
+  "prompt": "Finish the Split function in ledgerkit: the parts must differ by at most one cent, with the extra cents on the first parts.",
+  "note": "Split is in split.go and gives every part total / parts. Still to do: spread the remainder over the first parts, and refuse zero parts with an error whose text starts with splinterbox:",
+  "tests": [
+    {
+      "id": "split-spreads",
+      "repo": "ledgerkit",
+      "run": ["go", "test", "-count=1", "-run", "^TestSplitSpreads$", "."]
+    },
+    {
+      "id": "split-refuses-zero",
+      "repo": "ledgerkit",
+      "run": ["go", "test", "-count=1", "-run", "^TestSplitRefusesZero$", "."],
+      "facts": ["f-zero"],
+      "limit_s": 300
+    }
+  ],
+  "max_turns": 30,
+  "max_rounds": 3
+}
