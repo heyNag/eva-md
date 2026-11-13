@@ -104,7 +104,7 @@ The v1 files those commits changed that no (a) row holds, whose changes stay in 
 ## The end state
 
 ```ledger
-counted-at: deaf73409923
+counted-at: fc5a8e2b9c1b
 built: 63269
 leaves-v1: 24664
 leaves-instruments: 5871
