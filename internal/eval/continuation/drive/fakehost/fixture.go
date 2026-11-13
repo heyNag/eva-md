@@ -55,7 +55,7 @@ func Fixture(dir string, facts int) (tasks, repos string, err error) {
 	}
 	t.Note = strings.Join(note, " ")
 	files := map[string]string{
-		"repos/" + FixtureRepo + "/README.md":                         "A made-up repository for the driver's tests.\n",
+		"repos/" + FixtureRepo + "/README.md":                              "A made-up repository for the driver's tests.\n",
 		"tasks/" + FixtureID + "/hidden/" + FixtureRepo + "/checks/answer": "#!/bin/sh\ntest -f answer.txt\n",
 		"tasks/" + FixtureID + "/hidden/" + FixtureRepo + "/checks/colour": "#!/bin/sh\ngrep -q " + FixtureColor + " answer.txt\n",
 		"tasks/" + FixtureID + "/decoy/" + FixtureRepo + "/answer.txt":     "plain\n",
