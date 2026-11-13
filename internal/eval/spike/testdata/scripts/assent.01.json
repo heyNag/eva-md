@@ -1,0 +1,401 @@
+{
+  "scenario": {
+    "id": "assent.01",
+    "family": "assent",
+    "name": "typed answers to proposals about the importer",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "5a110001-3333-4000-8000-000000000001",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-03-02T14:00:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let's go over the importer today. Propose changes one at a time and I'll answer each."
+          },
+          {
+            "at": "2026-03-02T14:01:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could move the importer to the quillstream parser. Shall I?",
+            "plants": [
+              "f1"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:02:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "no"
+          },
+          {
+            "at": "2026-03-02T14:03:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should the importer write its checkpoints to the marrow_ckpt table instead of files?",
+            "plants": [
+              "f2"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:04:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "maybe"
+          },
+          {
+            "at": "2026-03-02T14:05:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I add a dry run, importer verify --strict-rows, before every import?",
+            "plants": [
+              "f3"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:06:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "yes"
+          },
+          {
+            "at": "2026-03-02T14:07:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I suggest we rename the importer's queue to harvest-intake. OK?",
+            "plants": [
+              "f4"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:08:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let me think about it."
+          },
+          {
+            "at": "2026-03-02T14:09:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "We could throttle the importer with the slowtide profile. Want that?",
+            "plants": [
+              "f5"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:10:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Nope."
+          },
+          {
+            "at": "2026-03-02T14:11:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should the importer skip the rows the orphan-sweep check flags?",
+            "plants": [
+              "f6"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:12:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "not sure yet, ask me again tomorrow"
+          },
+          {
+            "at": "2026-03-02T14:13:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I run make vendor-snap before each importer release?",
+            "plants": [
+              "f7"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:14:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "no thanks, leave it as it is"
+          },
+          {
+            "at": "2026-03-02T14:15:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "How about logging every rejected row to rejects.jsonl in the run folder?",
+            "plants": [
+              "f8"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:16:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Yes, do that."
+          },
+          {
+            "at": "2026-03-02T14:17:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could switch the importer's date parsing to lenient-iso mode. Shall I?",
+            "plants": [
+              "f9"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:18:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Hmm, possibly. Park it for now."
+          },
+          {
+            "at": "2026-03-02T14:19:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should we drop the old csvmux reader from the importer?",
+            "plants": [
+              "f10"
+            ]
+          },
+          {
+            "at": "2026-03-02T14:20:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Yes, I see why, but no: keep what we have."
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "quillstream"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "marrow_ckpt"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "procedure"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "--strict-rows"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f4",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "harvest-intake"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f5",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "slowtide"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f6",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "orphan-sweep"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f7",
+        "kinds": [
+          "open",
+          "procedure"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "vendor-snap"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f8",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "rejects.jsonl"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f9",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "lenient-iso"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f10",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "csvmux"
+          }
+        ],
+        "must": "not_with_authority"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  },
+  "plants": [
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 3,
+      "mode": "refusal",
+      "proposal": 2,
+      "fact": "f1"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 5,
+      "mode": "hedge",
+      "proposal": 4,
+      "fact": "f2"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 7,
+      "mode": "assent",
+      "proposal": 6,
+      "fact": "f3"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 9,
+      "mode": "hedge",
+      "proposal": 8,
+      "fact": "f4"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 11,
+      "mode": "refusal",
+      "proposal": 10,
+      "fact": "f5"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 13,
+      "mode": "hedge",
+      "proposal": 12,
+      "fact": "f6"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 15,
+      "mode": "refusal",
+      "proposal": 14,
+      "fact": "f7"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 17,
+      "mode": "assent",
+      "proposal": 16,
+      "fact": "f8"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 19,
+      "mode": "hedge",
+      "proposal": 18,
+      "fact": "f9"
+    },
+    {
+      "session": "5a110001-3333-4000-8000-000000000001",
+      "seq": 21,
+      "mode": "refusal",
+      "proposal": 20,
+      "fact": "f10"
+    }
+  ]
+}

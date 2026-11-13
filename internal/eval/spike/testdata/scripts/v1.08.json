@@ -1,0 +1,206 @@
+{
+  "scenario": {
+    "id": "v1.08",
+    "family": "v1",
+    "name": "item accounting across two passes",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "000010e3-2222-4000-8000-000000000000",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-13T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Next write the parser, MARTIN-1, then the renderer, MARTIN-2. Should pages hold hidden ids, MARTIN-3? We use Go 1.26, MARTIN-4.",
+            "plants": [
+              "f1",
+              "f2",
+              "f3",
+              "f4"
+            ]
+          }
+        ]
+      },
+      {
+        "host": "claude-code",
+        "session": "000010e4-2222-4000-8000-000000000001",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-14T10:01:00+01:00",
+            "author": "tool",
+            "kind": "tool",
+            "text": "Bash go test ./internal/parser/... (exit 0)",
+            "plants": [
+              "f5"
+            ]
+          },
+          {
+            "at": "2026-01-14T10:02:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "The parser is finished and its tests pass.",
+            "plants": [
+              "f6"
+            ]
+          },
+          {
+            "at": "2026-01-14T10:03:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Yes, pages hold hidden ids.",
+            "plants": [
+              "f7"
+            ]
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "next"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "MARTIN-1"
+          },
+          {
+            "class": "phrase",
+            "value": "parser"
+          }
+        ],
+        "until": {
+          "session": "000010e4-2222-4000-8000-000000000001",
+          "seq": 2
+        },
+        "must": "store"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "next"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "MARTIN-2"
+          },
+          {
+            "class": "phrase",
+            "value": "renderer"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "open"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "MARTIN-3"
+          },
+          {
+            "class": "phrase",
+            "value": "hidden ids"
+          }
+        ],
+        "until": {
+          "session": "000010e4-2222-4000-8000-000000000001",
+          "seq": 3
+        },
+        "must": "store"
+      },
+      {
+        "id": "f4",
+        "kinds": [
+          "decision",
+          "fact",
+          "constraint"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "MARTIN-4"
+          },
+          {
+            "class": "version",
+            "value": "Go 1.26",
+            "forms": [
+              "1.26"
+            ]
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f5",
+        "kinds": [
+          "log"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "phrase",
+            "value": "parser"
+          }
+        ],
+        "log_date": "2026-01-14",
+        "must": "store"
+      },
+      {
+        "id": "f6",
+        "kinds": [
+          "log",
+          "fact"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "phrase",
+            "value": "parser"
+          }
+        ],
+        "log_date": "2026-01-14",
+        "must": "store"
+      },
+      {
+        "id": "f7",
+        "kinds": [
+          "decision",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "phrase",
+            "value": "hidden ids"
+          }
+        ],
+        "supersedes": "f3",
+        "must": "store"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      },
+      {
+        "session": 1
+      }
+    ]
+  }
+}

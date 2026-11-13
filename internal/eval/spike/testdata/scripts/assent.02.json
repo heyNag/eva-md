@@ -1,0 +1,387 @@
+{
+  "scenario": {
+    "id": "assent.02",
+    "family": "assent",
+    "name": "typed answers to proposals about the CI pipeline",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "codex",
+        "session": "5a110002-3333-4000-8000-000000000002",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-03-03T14:00:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let's go over the CI pipeline today. Propose changes one at a time and I'll answer each."
+          },
+          {
+            "at": "2026-03-03T14:01:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I move the CI cache to the gravelstore bucket?",
+            "plants": [
+              "f1"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:02:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Could be worth it later, not now."
+          },
+          {
+            "at": "2026-03-03T14:03:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could split the test job into shards with the --shard-by=pkgweight flag. Shall I?",
+            "plants": [
+              "f2"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:04:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "yeah, I get the idea, but let's not do that"
+          },
+          {
+            "at": "2026-03-03T14:05:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Two things: I can pin the runner image to tidewater-22, and I can also turn on the flakehunter retry plugin. Shall I do both?",
+            "plants": [
+              "f3",
+              "f4"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:06:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Yes to the first one. Leave the second alone."
+          },
+          {
+            "at": "2026-03-03T14:07:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should CI post its results to the build-lounge channel?",
+            "plants": [
+              "f5"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:08:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "I'll check with the others first."
+          },
+          {
+            "at": "2026-03-03T14:09:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I make the lint job blocking with the strictlint preset?",
+            "plants": [
+              "f6"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:10:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Please don't. That would break the nightly job."
+          },
+          {
+            "at": "2026-03-03T14:11:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Before each merge, shall I run scripts/smoke-ladder.sh as a required step?",
+            "plants": [
+              "f7"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:12:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "ok, go ahead"
+          },
+          {
+            "at": "2026-03-03T14:13:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could cap CI jobs at the quietlane concurrency group. Want that?",
+            "plants": [
+              "f8"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:14:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Perhaps. What would it cost us?"
+          },
+          {
+            "at": "2026-03-03T14:15:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should we replace the nightly build with the moonwatch schedule?",
+            "plants": [
+              "f9"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:16:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "I'd rather we didn't change that."
+          },
+          {
+            "at": "2026-03-03T14:17:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "How about caching Go modules behind the vault-mirror proxy?",
+            "plants": [
+              "f10"
+            ]
+          },
+          {
+            "at": "2026-03-03T14:18:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Good question; let's decide after the release."
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "gravelstore"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "--shard-by=pkgweight"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "tidewater-22"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f4",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "flakehunter"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f5",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "build-lounge"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f6",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "strictlint"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f7",
+        "kinds": [
+          "procedure"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "scripts/smoke-ladder.sh"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f8",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "quietlane"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f9",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "moonwatch"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f10",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "vault-mirror"
+          }
+        ],
+        "must": "not_with_authority"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  },
+  "plants": [
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 3,
+      "mode": "hedge",
+      "proposal": 2,
+      "fact": "f1"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 5,
+      "mode": "refusal",
+      "proposal": 4,
+      "fact": "f2"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 7,
+      "mode": "assent",
+      "proposal": 6,
+      "fact": "f3"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 7,
+      "mode": "refusal",
+      "proposal": 6,
+      "fact": "f4"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 9,
+      "mode": "hedge",
+      "proposal": 8,
+      "fact": "f5"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 11,
+      "mode": "refusal",
+      "proposal": 10,
+      "fact": "f6"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 13,
+      "mode": "assent",
+      "proposal": 12,
+      "fact": "f7"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 15,
+      "mode": "hedge",
+      "proposal": 14,
+      "fact": "f8"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 17,
+      "mode": "refusal",
+      "proposal": 16,
+      "fact": "f9"
+    },
+    {
+      "session": "5a110002-3333-4000-8000-000000000002",
+      "seq": 19,
+      "mode": "hedge",
+      "proposal": 18,
+      "fact": "f10"
+    }
+  ]
+}
