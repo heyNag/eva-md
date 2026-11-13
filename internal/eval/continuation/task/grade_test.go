@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -497,5 +498,53 @@ func TestGradeRefusesOverlap(t *testing.T) {
 	}
 	if after := snapshot(t, ws); !slices.Equal(before, after) {
 		t.Fatal("a refused grading changed the workspace")
+	}
+}
+
+// telemetryDir is Go's telemetry folder in the home folder home, as
+// os.UserConfigDir names it on this system with no XDG_CONFIG_HOME.
+func telemetryDir(home string) string {
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", "go", "telemetry")
+	}
+	return filepath.Join(home, ".config", "go", "telemetry")
+}
+
+// GoTelemetryOff writes off to the mode file Go reads in a home, making
+// its folders.
+func TestGoTelemetryOff(t *testing.T) {
+	home := tempDir(t)
+	if err := GoTelemetryOff(home); err != nil {
+		t.Fatal(err)
+	}
+	mode, err := os.ReadFile(filepath.Join(telemetryDir(home), "mode"))
+	if err != nil || strings.TrimSpace(string(mode)) != "off" {
+		t.Fatalf("the mode file: %q %v", mode, err)
+	}
+}
+
+// A test runs with Go's telemetry off in its home: a stub that fails
+// unless the mode file there says off passes.
+func TestGradeTurnsGoTelemetryOff(t *testing.T) {
+	x, ws := stubTask(t, stubTelemetry)
+	g, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade"))
+	if err != nil || !reflect.DeepEqual(g, Grading{Pass: []string{stubTelemetry}}) {
+		t.Fatalf("Grade = %+v, %v", g, err)
+	}
+}
+
+// After a grading whose tests run go, the telemetry folder of the
+// grading's home holds the mode file alone: go kept no counters there,
+// which is what leaves a process writing into it.
+func TestGradeLeavesNoTelemetry(t *testing.T) {
+	x, ws := prepared(t, "control-max", OverlaySolution)
+	scratch := filepath.Join(tempDir(t), "grade")
+	g, err := Grade(context.Background(), x, x.Dir, ws, scratch)
+	if err != nil || !g.Solved() {
+		t.Fatalf("Grade = %+v, %v", g, err)
+	}
+	entries, err := os.ReadDir(telemetryDir(filepath.Join(scratch, "home")))
+	if err != nil || len(entries) != 1 || entries[0].Name() != "mode" {
+		t.Fatalf("the telemetry folder holds %v: %v", entries, err)
 	}
 }

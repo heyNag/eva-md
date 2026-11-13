@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -63,6 +64,9 @@ func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Gra
 			return Grading{}, fmt.Errorf("task %s: %w", t.ID, err)
 		}
 	}
+	if err := GoTelemetryOff(home); err != nil {
+		return Grading{}, fmt.Errorf("task %s: %w", t.ID, pathless(err))
+	}
 	if err := copyTree(workspace, cp); err != nil {
 		return Grading{}, fmt.Errorf("task %s: copying the workspace: %w", t.ID, pathless(err))
 	}
@@ -87,6 +91,24 @@ func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Gra
 		}
 	}
 	return g, nil
+}
+
+// GoTelemetryOff turns Go's telemetry off for a go command run with the
+// home folder home: it writes off to the mode file Go reads in the
+// configuration folder there (os.UserConfigDir's: .config, or on macOS
+// Library/Application Support), making its folders. Otherwise a go command
+// keeps counters in that folder and may leave a process behind, outside
+// its process group, that writes into it after the command has ended.
+func GoTelemetryOff(home string) error {
+	config := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		config = filepath.Join(home, "Library", "Application Support")
+	}
+	dir := filepath.Join(config, "go", "telemetry")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "mode"), []byte("off\n"), 0o644)
 }
 
 // apart returns the workspace ws made absolute with its links resolved, or

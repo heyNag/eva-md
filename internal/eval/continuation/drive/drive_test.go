@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -149,9 +150,16 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 							t.Fatalf("the trial's folder held %s at a prompt", f)
 						}
 					}
+					// Its home has Go's telemetry off at each prompt.
+					if !slices.Contains(call.Around, "home/"+telemetryMode) {
+						t.Fatalf("the trial's home lacked Go's telemetry mode at a prompt: %v", call.Around)
+					}
 				}
-				if want := []string{".gitconfig"}; !slices.Equal(list(t, filepath.Join(dir, "home")), want) {
+				if want := slices.Sorted(slices.Values([]string{".gitconfig", telemetryMode})); !slices.Equal(files(t, filepath.Join(dir, "home")), want) {
 					t.Fatalf("the home holds %v", list(t, filepath.Join(dir, "home")))
+				}
+				if mode, err := os.ReadFile(filepath.Join(dir, "home", filepath.FromSlash(telemetryMode))); err != nil || strings.TrimSpace(string(mode)) != "off" {
+					t.Fatalf("Go's telemetry mode: %q %v", mode, err)
 				}
 				gc, _ := os.ReadFile(filepath.Join(dir, "home", ".gitconfig"))
 				if string(gc) != gitconfig || !strings.Contains(gitconfig, "gpgsign = false") || !strings.Contains(gitconfig, "auto = false") {
@@ -170,6 +178,28 @@ func holdsRun(args, want []string) bool {
 		}
 	}
 	return false
+}
+
+// telemetryMode is the slash path, in a home, of the mode file of Go's
+// telemetry, as os.UserConfigDir names it on this system.
+var telemetryMode = map[bool]string{false: ".config/go/telemetry/mode", true: "Library/Application Support/go/telemetry/mode"}[runtime.GOOS == "darwin"]
+
+// files lists the files under dir, as slash paths, folders left out.
+func files(t *testing.T, dir string) []string {
+	t.Helper()
+	var names []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		names = append(names, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return names
 }
 
 // list lists the names under dir, as slash paths.

@@ -65,6 +65,11 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	if err := os.WriteFile(filepath.Join(tr.Dirs.Home, ".gitconfig"), []byte(gitconfig), 0o644); err != nil {
 		return trialResult{}, pathless(err)
 	}
+	// A go command the chat runs keeps no counters in its home, and leaves
+	// no process writing there once the trial's folder is to be removed.
+	if err := task.GoTelemetryOff(tr.Dirs.Home); err != nil {
+		return trialResult{}, pathless(err)
+	}
 	if err := os.Symlink(p.cli, filepath.Join(tr.Dirs.Bin, p.host.Names.CLI)); err != nil {
 		return trialResult{}, pathless(err)
 	}
