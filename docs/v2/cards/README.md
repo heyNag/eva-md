@@ -85,7 +85,7 @@ Rules every card carries, so they are said once here:
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | ready |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03) |
-| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | after the counters release |
+| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | ready, since the counters release is cut (2026.11.13) |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
 
 SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner. A fifth part, e, was added after one run of CI failed in a way its log could not explain: it makes the death of a git child by a signal say which signal.
