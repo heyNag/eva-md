@@ -81,7 +81,7 @@ Rules every card carries, so they are said once here:
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
-| [EV-14c](EV-14c.md) | Six new families, half held out | building since 2026-11-13 |
+| [EV-14c](EV-14c.md) | Six new families, half held out | merged; owed before its figures are put in a gate: a card for the scorer, which reads an agreement as a statement and cannot ask a hedge of one kind of filing alone |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | merged |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | ready, since EV-17a is merged |
