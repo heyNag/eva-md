@@ -611,7 +611,7 @@ Changed:
 | --- | --- |
 | Classes come from structured fields first. Unrecognized output is `host`, not `invalid_output` | UPM-03 |
 | On Claude the run reads the event stream and checks the opening message: an empty tool list, the model, the key source. Any tool-use block rejects the run. The answering model is recorded | UPM-14 |
-| On Codex an event type the reader does not know is ignored unless it is an item; an unknown item type is `host`; a known tool item is `tool_used`. The feature list is read once per CLI version, not before every attempt | UPM-03, UPM-09 |
+| On Codex an event type the reader does not know is `host` (this line first said it was ignored unless it was an item; the plan's row DV-11 and its card rule); an unknown item type is `host`; a known tool item is `tool_used`. The feature list is read once per CLI version, not before every attempt | UPM-03, UPM-09 |
 | Flags and effort levels come from the probe, not from a daily ladder of refusals | UPM-09 |
 | A killed run reports what usage it saw | UPM-07 |
 
