@@ -1,0 +1,390 @@
+// Package fakehost is a fake host CLI for the continuation driver's tests,
+// one executable for every host the adapter knows. It is the test binary
+// run again under the name of a host's CLI (adapter's Names.CLI), as the
+// driver links the CLI it is given; a test package calls Main first in its
+// TestMain, or in an init function of a test file, and Main takes over
+// only when ScriptVar names a script, which the driver passes only when a
+// test names it with --pass-env.
+//
+// It answers --version, and starts and continues headless sessions in the
+// shapes of the driver's host table (drive/hosts.go), which are its own
+// until the pilot (EV-03) records the real ones. Each call is recorded as
+// a line of Calls in the script's folder: its arguments, the names of its
+// variables (and the values of the four the driver builds), its folder,
+// its prompt, its session and the files of its folder before it changed
+// any. Then it lays the task's decoy/ overlay over the folder until every
+// one of the script's facts has appeared in a prompt of the session, and
+// its solution/ overlay after. A script can make it stall until it is
+// killed, fail its sign-in or a rate limit, or name another model.
+//
+// Only tests import it.
+package fakehost
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+
+	"github.com/heyNag/eva-md/internal/eval/continuation/task"
+	"github.com/heyNag/eva-md/internal/host/adapter"
+)
+
+// ScriptVar is the variable that names a script's file.
+const ScriptVar = "EVA_FAKEHOST_SCRIPT"
+
+// Calls is the record's file in the script's folder.
+const Calls = "calls.jsonl"
+
+// Script is what the fake does.
+type Script struct {
+	// Dir is the folder the fake records in.
+	Dir string `json:"dir"`
+	// Task is the task's folder, whose decoy/ and solution/ it lays.
+	Task string `json:"task"`
+	// Facts are words: once each has appeared in a prompt of a session,
+	// the solution is laid.
+	Facts []string `json:"facts"`
+	// Version is what --version gives; "1.2.3" when empty.
+	Version string `json:"version"`
+	// Model is the model the fake says answered; when empty, the one asked
+	// for, or "fake-model-1".
+	Model string `json:"model"`
+	// Events are the tool calls of each answer.
+	Events int `json:"events"`
+	// Usage is each answer's tokens: prompt (cached included), cached and
+	// output.
+	Prompt int64 `json:"prompt"`
+	Cached int64 `json:"cached"`
+	Output int64 `json:"output"`
+	// Stall makes a call block until it is killed, SignIn and RateLimited
+	// make it fail as the host does.
+	Stall       bool `json:"stall"`
+	SignIn      bool `json:"sign_in"`
+	RateLimited bool `json:"rate_limited"`
+}
+
+// Call is one recorded call.
+type Call struct {
+	Host    adapter.ID        `json:"host"`
+	Mode    string            `json:"mode"` // "version", "start" or "continue"
+	Args    []string          `json:"args"`
+	Env     []string          `json:"env"`   // every variable's name, sorted
+	Fixed   map[string]string `json:"fixed"` // HOME, PATH, TMPDIR, GIT_CONFIG_NOSYSTEM
+	Dir     string            `json:"dir"`
+	Session string            `json:"session,omitempty"`
+	Prompt  string            `json:"prompt,omitempty"`
+	Model   string            `json:"model,omitempty"` // the model asked for
+	Files   []string          `json:"files,omitempty"` // the folder's files, slash paths, .git left out
+}
+
+// Main runs the fake and exits when the process is a host's CLI with a
+// script; otherwise it returns at once.
+func Main() {
+	file := os.Getenv(ScriptVar)
+	if file == "" {
+		return
+	}
+	var host adapter.Host
+	for _, h := range adapter.All() {
+		if filepath.Base(os.Args[0]) == h.Names.CLI {
+			host = h
+		}
+	}
+	if host.ID == "" {
+		return
+	}
+	os.Exit(serve(host, file, os.Args[1:], os.Stdout))
+}
+
+func serve(host adapter.Host, file string, args []string, out io.Writer) int {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return 3
+	}
+	var s Script
+	if err := json.Unmarshal(data, &s); err != nil {
+		return 3
+	}
+	dir, _ := os.Getwd()
+	c := Call{Host: host.ID, Args: args, Dir: dir, Fixed: map[string]string{}}
+	for _, kv := range os.Environ() {
+		name, value, _ := strings.Cut(kv, "=")
+		c.Env = append(c.Env, name)
+		if name == "HOME" || name == "PATH" || name == "TMPDIR" || name == "GIT_CONFIG_NOSYSTEM" {
+			c.Fixed[name] = value
+		}
+	}
+	slices.Sort(c.Env)
+	if slices.Equal(args, []string{"--version"}) {
+		c.Mode = "version"
+		if err := record(s, c); err != nil {
+			return 3
+		}
+		v := s.Version
+		if v == "" {
+			v = "1.2.3"
+		}
+		fmt.Fprintf(out, "%s (fake)\n", v)
+		return 0
+	}
+	parse(host.ID, &c)
+	calls, err := Read(s.Dir)
+	if err != nil {
+		return 3
+	}
+	if c.Session == "" {
+		c.Mode = "start"
+		c.Session = "fake-session-" + strconv.Itoa(1+count(calls, func(x Call) bool { return x.Mode == "start" }))
+	} else {
+		c.Mode = "continue"
+	}
+	if c.Files, err = files(dir); err != nil {
+		return 3
+	}
+	if err := record(s, c); err != nil {
+		return 3
+	}
+	if s.Stall {
+		block()
+	}
+	model := s.Model
+	if model == "" {
+		model = c.Model
+	}
+	if model == "" {
+		model = "fake-model-1"
+	}
+	if s.SignIn || s.RateLimited {
+		fail(host.ID, s, c.Session, out)
+		return 1
+	}
+	prompts := []string{c.Prompt}
+	for _, x := range calls {
+		if x.Session == c.Session && x.Mode != "version" {
+			prompts = append(prompts, x.Prompt)
+		}
+	}
+	overlay := task.OverlayDecoy
+	if allIn(s.Facts, prompts) {
+		overlay = task.OverlaySolution
+	}
+	if err := lay(s.Task, overlay, dir); err != nil {
+		return 3
+	}
+	answer(host.ID, s, c.Session, model, out)
+	return 0
+}
+
+// parse reads the prompt, the session continued and the model asked for
+// from the arguments, as the driver's host table writes them.
+func parse(id adapter.ID, c *Call) {
+	args := c.Args
+	value := func(flag string) string {
+		if i := slices.Index(args, flag); i >= 0 && i+1 < len(args) {
+			return args[i+1]
+		}
+		return ""
+	}
+	c.Model = value("--model")
+	switch id {
+	case adapter.ClaudeCode:
+		c.Prompt = value("-p")
+		c.Session = value("--resume")
+	case adapter.Codex:
+		if len(args) > 0 {
+			c.Prompt = args[len(args)-1]
+		}
+		c.Session = value("resume")
+	}
+}
+
+func count(calls []Call, f func(Call) bool) int {
+	n := 0
+	for _, c := range calls {
+		if f(c) {
+			n++
+		}
+	}
+	return n
+}
+
+// allIn reports whether every word is in one of the prompts.
+func allIn(words, prompts []string) bool {
+	for _, w := range words {
+		if !slices.ContainsFunc(prompts, func(p string) bool { return strings.Contains(p, w) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// lay lays the task's overlay o, when it has one, over the folder dir.
+func lay(taskDir, o, dir string) error {
+	t, err := task.Load(taskDir)
+	if err != nil {
+		return err
+	}
+	for _, name := range t.Repos {
+		root := dir
+		if t.Workdir == task.WorkdirOutside {
+			root = filepath.Join(dir, name)
+		}
+		src := filepath.Join(taskDir, o, name)
+		if _, err := os.Stat(src); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, err := filepath.Rel(src, p)
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			to := filepath.Join(root, rel)
+			if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(to, data, info.Mode().Perm())
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// files lists the files under dir, as slash paths, leaving out git's own
+// folders.
+func files(dir string) ([]string, error) {
+	var list []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
+			rel, err := filepath.Rel(dir, p)
+			if err != nil {
+				return err
+			}
+			list = append(list, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	return list, err
+}
+
+// record appends c to the record, in one write.
+func record(s Script, c Call) error {
+	line, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(s.Dir, Calls), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(append(line, '\n'))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// Read reads the record in dir; none is an empty record.
+func Read(dir string) ([]Call, error) {
+	data, err := os.ReadFile(filepath.Join(dir, Calls))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var calls []Call
+	for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		var c Call
+		if err := json.Unmarshal([]byte(line), &c); err != nil {
+			return nil, err
+		}
+		calls = append(calls, c)
+	}
+	return calls, nil
+}
+
+// block blocks until the process is killed: nothing ever sends SIGUSR1.
+func block() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGUSR1)
+	<-c
+	os.Exit(3)
+}
+
+func emit(out io.Writer, v any) {
+	line, _ := json.Marshal(v)
+	fmt.Fprintf(out, "%s\n", line)
+}
+
+// answer writes an answer in the host's shape.
+func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
+	switch id {
+	case adapter.ClaudeCode:
+		emit(out, map[string]any{"type": "system", "subtype": "init", "session_id": session, "model": model})
+		for range s.Events {
+			emit(out, map[string]any{"type": "assistant", "session_id": session,
+				"message": map[string]any{"model": model, "content": []any{map[string]any{"type": "tool_use", "name": "Edit"}}}})
+		}
+		emit(out, map[string]any{"type": "assistant", "session_id": session,
+			"message": map[string]any{"model": model, "content": []any{map[string]any{"type": "text", "text": "Done."}}}})
+		emit(out, map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": session,
+			"usage":      map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output},
+			"modelUsage": map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}})
+	case adapter.Codex:
+		emit(out, map[string]any{"type": "thread.started", "thread_id": session})
+		emit(out, map[string]any{"type": "turn.started"})
+		for range s.Events {
+			emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution"}})
+		}
+		emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "Done."}})
+		emit(out, map[string]any{"type": "turn.completed", "model": model,
+			"usage": map[string]any{"input_tokens": s.Prompt, "cached_input_tokens": s.Cached, "output_tokens": s.Output}})
+	}
+}
+
+// fail writes a failed answer in the host's shape: a sign-in refused, or a
+// rate limit.
+func fail(id adapter.ID, s Script, session string, out io.Writer) {
+	status := 429
+	if s.SignIn {
+		status = 401
+	}
+	switch id {
+	case adapter.ClaudeCode:
+		emit(out, map[string]any{"type": "result", "subtype": "error", "is_error": true, "session_id": session, "api_error_status": status})
+	case adapter.Codex:
+		emit(out, map[string]any{"type": "thread.started", "thread_id": session})
+		emit(out, map[string]any{"type": "turn.failed", "error": map[string]any{"message": "unexpected status " + strconv.Itoa(status)}})
+	}
+}

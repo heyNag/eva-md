@@ -1,0 +1,375 @@
+package drive
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/heyNag/eva-md/internal/host/adapter"
+)
+
+// The host table: how the driver runs a headless chat on each host, by the
+// adapter's id. Each entry names the host facts of docs/v2/host-facts.md it
+// leans on. None of them is recorded yet: the pilot (EV-03) and the live
+// gates (DV-02) settle them, and what they find changes this file only.
+// Until then each shape below is the one the fake host (drive/fakehost)
+// answers, which follows the hosts' published documents.
+
+// chat is one headless call: the first prompt of a session, or a prompt
+// that continues one.
+type chat struct {
+	Prompt string
+	Turns  int    // the task's max_turns
+	Model  string // "" for the host's default
+	Resume string // the session continued, or "" to start one
+	// Extra are the flags of the condition: hostEntry.Off's, or those
+	// hostEntry.Plugin gives, then Launch.Args.
+	Extra []string
+}
+
+// report is what the driver reads from one call's output.
+type report struct {
+	Session     string
+	AgentEvents int
+	// PromptTokens counts every token of input, cached ones included.
+	PromptTokens int64
+	CachedTokens int64
+	OutputTokens int64
+	// Model is the model that answered, or "" when the output names none.
+	Model string
+	// Fail is a code of the closed list when the host said it could not
+	// answer for a reason that says nothing of the task: CodeSignIn or
+	// CodeRateLimited; "" otherwise.
+	Fail string
+}
+
+// pluginLoad is how a chat loads eva-md's plugin: flags, and files written
+// under the trial's home, by their path relative to it.
+type pluginLoad struct {
+	Args  []string
+	Files map[string][]byte
+}
+
+// hostEntry is one host's row of the table.
+type hostEntry struct {
+	// Argv gives the arguments after the CLI's path for one call.
+	Argv func(c chat) []string
+	// Off are the flags of a chat with the host's own memory off and no
+	// plugin loaded.
+	Off []string
+	// Plugin gives what loads eva-md's plugin as setup installed it in the
+	// trial's home, with the host's own memory still off. It never writes a
+	// trust record.
+	Plugin func(home string, h adapter.Host) (pluginLoad, error)
+	// Read reads what one call printed on stdout.
+	Read func(out []byte) report
+}
+
+// hosts is the table, by the adapter's id.
+var hosts = map[adapter.ID]hostEntry{
+	// Claude Code.
+	//   - F-068: --output-format stream-json emits an event for each tool
+	//     call; -p takes it with --verbose.
+	//   - F-069: --max-turns bounds the run, and --resume <id> continues the
+	//     session.
+	//   - F-062: the settings given by --settings turn its own memory off
+	//     for this run, writing no settings file. A trial's home is new, so
+	//     no plugin is installed there to turn off.
+	//   - F-115: --plugin-dir loads a plugin from a folder, and its hooks
+	//     fire under an API key.
+	//   - F-067: the run is headless under an API key; its permission mode
+	//     lets the chat edit files and run tests in the trial's workspace.
+	adapter.ClaudeCode: {
+		Argv: func(c chat) []string {
+			args := []string{"-p", c.Prompt, "--output-format", "stream-json", "--verbose",
+				"--max-turns", strconv.Itoa(c.Turns), "--permission-mode", "bypassPermissions"}
+			if c.Model != "" {
+				args = append(args, "--model", c.Model)
+			}
+			if c.Resume != "" {
+				args = append(args, "--resume", c.Resume)
+			}
+			return append(args, c.Extra...)
+		},
+		Off: []string{"--settings", `{"autoMemoryEnabled":false}`},
+		Plugin: func(home string, h adapter.Host) (pluginLoad, error) {
+			dir := pluginDir(home, h)
+			if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+				return pluginLoad{}, errors.New("eva-md's plugin is not installed in the trial's home")
+			}
+			return pluginLoad{Args: []string{"--settings", `{"autoMemoryEnabled":false}`, "--plugin-dir", dir}}, nil
+		},
+		Read: readStreamJSON,
+	},
+	// Codex.
+	//   - F-068: exec --json emits an item for each tool call.
+	//   - F-069: exec resume <id> continues the session. exec has no turn
+	//     bound, so the session's time limit is its only bound.
+	//   - F-169: --disable hooks --disable plugins turn hooks and plugins off
+	//     for this run, writing no settings file.
+	//   - F-170 (not EV-03's): its own memory is off by default and takes no
+	//     exec session, so nothing turns it off.
+	//   - F-163: managed hooks need no review, so eva-md's hooks are loaded
+	//     as managed hooks, from a requirements file under the trial's home,
+	//     and the plugin itself stays off. Where Codex reads that file in a
+	//     container is F-163's to record; the driver writes only inside the
+	//     trial.
+	//   - F-067: the run is headless under an API key; it may edit files and
+	//     run tests in the workspace, which need not be a repository.
+	adapter.Codex: {
+		Argv: func(c chat) []string {
+			args := []string{"exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox"}
+			if c.Model != "" {
+				args = append(args, "--model", c.Model)
+			}
+			args = append(args, c.Extra...)
+			if c.Resume != "" {
+				args = append(args, "resume", c.Resume)
+			}
+			return append(args, c.Prompt)
+		},
+		Off: []string{"--disable", "hooks", "--disable", "plugins"},
+		Plugin: func(home string, h adapter.Host) (pluginLoad, error) {
+			data, err := os.ReadFile(filepath.Join(pluginDir(home, h), "hooks", "hooks.json"))
+			if err != nil {
+				return pluginLoad{}, errors.New("eva-md's plugin is not installed in the trial's home")
+			}
+			managed, err := managedHooks(data)
+			if err != nil {
+				return pluginLoad{}, err
+			}
+			return pluginLoad{
+				Args:  []string{"--disable", "plugins"},
+				Files: map[string][]byte{filepath.Join(".codex", "requirements.toml"): managed},
+			}, nil
+		},
+		Read: readExecJSON,
+	},
+}
+
+// pluginDir is where install renders eva-md's plugin for the host in a
+// home (pluginPath in internal/install/templates.go).
+func pluginDir(home string, h adapter.Host) string {
+	return filepath.Join(home, ".local", "share", "eva-md", "marketplace", h.Names.InstallName, "plugins", "eva-md")
+}
+
+// managedHooks renders the hooks of a plugin's hooks.json as a managed
+// requirements file's hooks tables.
+func managedHooks(data []byte) ([]byte, error) {
+	var file struct {
+		Hooks map[string][]struct {
+			Matcher string           `json:"matcher"`
+			Hooks   []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil || len(file.Hooks) == 0 {
+		return nil, errors.New("eva-md's plugin declares no hooks the driver can read")
+	}
+	var b bytes.Buffer
+	for _, event := range sortedKeys(file.Hooks) {
+		for _, group := range file.Hooks[event] {
+			fmt.Fprintf(&b, "[[hooks.%s]]\n", event)
+			if group.Matcher != "" {
+				fmt.Fprintf(&b, "matcher = %s\n", tomlString(group.Matcher))
+			}
+			for _, hook := range group.Hooks {
+				fmt.Fprintf(&b, "[[hooks.%s.hooks]]\n", event)
+				for _, key := range sortedKeys(hook) {
+					switch v := hook[key].(type) {
+					case string:
+						fmt.Fprintf(&b, "%s = %s\n", key, tomlString(v))
+					case float64:
+						fmt.Fprintf(&b, "%s = %s\n", key, strconv.FormatFloat(v, 'f', -1, 64))
+					case bool:
+						fmt.Fprintf(&b, "%s = %t\n", key, v)
+					default:
+						return nil, errors.New("eva-md's plugin declares a hook the driver cannot render")
+					}
+				}
+			}
+		}
+	}
+	return b.Bytes(), nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// tomlString writes s as a TOML basic string.
+func tomlString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '"' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, "\\u%04X", r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// lines calls f with each line of out that is a JSON object.
+func lines(out []byte, f func(map[string]json.RawMessage)) {
+	s := bufio.NewScanner(bytes.NewReader(out))
+	s.Buffer(make([]byte, 0, 64<<10), len(out)+1)
+	for s.Scan() {
+		var e map[string]json.RawMessage
+		if json.Unmarshal(bytes.TrimSpace(s.Bytes()), &e) == nil {
+			f(e)
+		}
+	}
+}
+
+func str(raw json.RawMessage) string {
+	var s string
+	_ = json.Unmarshal(raw, &s)
+	return s
+}
+
+func num(raw json.RawMessage) int64 {
+	var n float64
+	if json.Unmarshal(raw, &n) != nil || n < 0 || n > 1<<53 {
+		return 0
+	}
+	return int64(n)
+}
+
+// readStreamJSON reads Claude Code's stream-json: the session id from any
+// event; a tool call for each tool_use block of an assistant message; and
+// from the result event the tokens, by modelUsage when it names models
+// (every model call of the run) else by usage, and whether it failed for
+// sign-in (401 or 403) or a rate limit (429). The model that answered is
+// the one modelUsage credits with the most output tokens, else the last
+// assistant message's.
+func readStreamJSON(out []byte) report {
+	var r report
+	lines(out, func(e map[string]json.RawMessage) {
+		if id := str(e["session_id"]); id != "" {
+			r.Session = id
+		}
+		switch str(e["type"]) {
+		case "assistant":
+			var m struct {
+				Model   string `json:"model"`
+				Content []struct {
+					Type string `json:"type"`
+				} `json:"content"`
+			}
+			_ = json.Unmarshal(e["message"], &m)
+			for _, c := range m.Content {
+				if c.Type == "tool_use" {
+					r.AgentEvents++
+				}
+			}
+			if m.Model != "" {
+				r.Model = m.Model
+			}
+		case "result":
+			var models map[string]map[string]json.RawMessage
+			if json.Unmarshal(e["modelUsage"], &models) == nil && len(models) > 0 {
+				best, most := "", int64(-1)
+				for name, u := range models {
+					cached := num(u["cacheReadInputTokens"])
+					r.PromptTokens += num(u["inputTokens"]) + num(u["cacheCreationInputTokens"]) + cached
+					r.CachedTokens += cached
+					n := num(u["outputTokens"])
+					r.OutputTokens += n
+					if n > most || n == most && name < best {
+						best, most = name, n
+					}
+				}
+				r.Model = best
+			} else {
+				var u map[string]json.RawMessage
+				_ = json.Unmarshal(e["usage"], &u)
+				cached := num(u["cache_read_input_tokens"])
+				r.PromptTokens += num(u["input_tokens"]) + num(u["cache_creation_input_tokens"]) + cached
+				r.CachedTokens += cached
+				r.OutputTokens += num(u["output_tokens"])
+			}
+			var failed bool
+			_ = json.Unmarshal(e["is_error"], &failed)
+			if failed {
+				switch num(e["api_error_status"]) {
+				case 401, 403:
+					r.Fail = CodeSignIn
+				case 429:
+					r.Fail = CodeRateLimited
+				}
+			}
+		}
+	})
+	return r
+}
+
+// readExecJSON reads Codex's exec --json: the session id from
+// thread.started; a tool call for each completed item that is not the
+// agent's message, its reasoning or an error; the tokens of each
+// turn.completed, whose input already holds the cached ones; the model a
+// turn names; and from turn.failed or error whether it failed for sign-in
+// (401 or 403) or a rate limit (429).
+func readExecJSON(out []byte) report {
+	var r report
+	lines(out, func(e map[string]json.RawMessage) {
+		switch str(e["type"]) {
+		case "thread.started":
+			r.Session = str(e["thread_id"])
+		case "item.completed":
+			var item struct {
+				Type string `json:"type"`
+			}
+			_ = json.Unmarshal(e["item"], &item)
+			switch item.Type {
+			case "agent_message", "reasoning", "error":
+			default:
+				r.AgentEvents++
+			}
+		case "turn.completed":
+			var u map[string]json.RawMessage
+			_ = json.Unmarshal(e["usage"], &u)
+			r.PromptTokens += num(u["input_tokens"])
+			r.CachedTokens += num(u["cached_input_tokens"])
+			r.OutputTokens += num(u["output_tokens"])
+			if m := str(e["model"]); m != "" {
+				r.Model = m
+			}
+		case "turn.failed", "error":
+			var msg string
+			if raw, ok := e["error"]; ok {
+				var x struct {
+					Message string `json:"message"`
+				}
+				_ = json.Unmarshal(raw, &x)
+				msg = x.Message
+			} else {
+				msg = str(e["message"])
+			}
+			switch {
+			case strings.Contains(msg, "401"), strings.Contains(msg, "403"):
+				r.Fail = CodeSignIn
+			case strings.Contains(msg, "429"):
+				r.Fail = CodeRateLimited
+			}
+		}
+	})
+	return r
+}
