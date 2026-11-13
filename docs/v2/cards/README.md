@@ -43,9 +43,9 @@ Rules every card carries, so they are said once here:
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | ready, since DV-03a is merged |
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
-| [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | building since 2026-11-13 |
-| [EV-03b](EV-03b.md) | The pilot's driver | after EV-03a; the live run waits for the owner's leave, a ceiling and decision 28's keys |
-| [EV-03c](EV-03c.md) | The pilot's report and its README | after EV-03a; beside EV-03b |
+| [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
+| [EV-03b](EV-03b.md) | The pilot's driver | ready to build, since EV-03a is merged; the live run waits for the owner's leave, a ceiling and decision 28's keys |
+| [EV-03c](EV-03c.md) | The pilot's report and its README | ready, since EV-03a is merged; beside EV-03b |
 | [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | building since 2026-11-13; merges before DV-13 |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
@@ -64,7 +64,7 @@ Rules every card carries, so they are said once here:
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
 | [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | merged |
-| [DV-11b](DV-11b.md) | The runner's Codex backend | ready, since DV-11a and HO-14 are merged; beside DV-11c |
+| [DV-11b](DV-11b.md) | The runner's Codex backend | building since 2026-11-13; beside DV-11c |
 | [DV-11c](DV-11c.md) | The runner's Claude Code backend | ready, since DV-11a is merged; beside DV-11b |
 | [HO-13a](HO-13a.md) | The signed release manifest, and its check in Go | not before the Stage 0 readout (decision 9); open then: one approval of a cut or two, and whether the manifest's first format carries the day it was published |
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
