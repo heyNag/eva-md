@@ -28,13 +28,15 @@ import (
 // and pwd.n, and copies the schema file it was given to schema.n. It copies
 // output.n to the file after -o, writes stderr.n and stdout.n, runs the
 // shell lines in extra, and exits with the code in exit.n. Each of these
-// falls back to the file without ".n". --version is not a run: it prints the
-// file version, or 0.1.0. features list is not a run either: it records its
-// arguments in features.args, runs the shell lines in features.sh, and
-// prints the file features, or exits 1 when there is none.
+// falls back to the file without ".n". --version is not a run: it runs the
+// shell lines in version.sh, then prints the file version, or 0.1.0.
+// features list is not a run either: it records its arguments in
+// features.args, runs the shell lines in features.sh, and prints the file
+// features, or exits 1 when there is none.
 const fakeScript = `#!/bin/sh
 dump=$HOME/fake
 if [ "$1" = --version ]; then
+	if [ -f "$dump/version.sh" ]; then . "$dump/version.sh"; fi
 	if [ -f "$dump/version" ]; then cat "$dump/version"; else echo "0.1.0 (fake)"; fi
 	exit 0
 fi

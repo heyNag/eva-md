@@ -55,11 +55,17 @@ func (f *Fake) Run(ctx context.Context, c Call) (Outcome, error) {
 	return cloneOutcome(f.Outcome), f.Err
 }
 
-// Calls returns the calls seen so far, oldest first.
+// Calls returns copies of the calls seen so far, oldest first, each Input
+// and Schema its own.
 func (f *Fake) Calls() []Call {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return slices.Clone(f.calls)
+	calls := slices.Clone(f.calls)
+	for i := range calls {
+		calls[i].Input = bytes.Clone(calls[i].Input)
+		calls[i].Schema = bytes.Clone(calls[i].Schema)
+	}
+	return calls
 }
 
 func cloneOutcome(o Outcome) Outcome {

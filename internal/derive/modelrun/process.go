@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -122,8 +121,9 @@ type exit struct {
 // spawn runs p in a process group of its own. When ctx is done or the
 // timeout passes, the whole group is killed; whatever is left of the group is
 // killed once the CLI exits. A zero timeout leaves the limit to ctx. The
-// error is only for a CLI that is there but could not be started; it names
-// the CLI's base name and nothing else of p.
+// error, a runError, is only for a CLI that is there but could not be
+// started, or a run folder the child could not enter; it names the CLI's
+// base name and nothing else of p.
 func spawn(ctx context.Context, p proc) (exit, error) {
 	path, err := exec.LookPath(p.cli)
 	if err != nil {
@@ -148,6 +148,13 @@ func spawn(ctx context.Context, p proc) (exit, error) {
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = p.waitDelay
 	if err := cmd.Start(); err != nil {
+		// The start names the CLI's path whatever it could not reach: the
+		// CLI, what its #! line names, or the run folder the child enters
+		// first. A folder the child can't enter is not a missing CLI: the
+		// call could not run.
+		if syscall.Access(p.dir, searchOK) != nil {
+			return exit{}, errRunDir
+		}
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
 			return exit{missing: true}, nil
 		}
@@ -157,7 +164,7 @@ func spawn(ctx context.Context, p proc) (exit, error) {
 		if tctx.Err() != nil {
 			return exit{failed: true, timedOut: errors.Is(tctx.Err(), context.DeadlineExceeded)}, nil
 		}
-		return exit{}, fmt.Errorf("modelrun: could not start %s", filepath.Base(p.cli))
+		return exit{}, runError("modelrun: could not start " + filepath.Base(p.cli))
 	}
 	// The exit status comes from ProcessState rather than Wait's error: a
 	// process that escaped the group and holds a pipe ends Wait with
@@ -172,6 +179,19 @@ func spawn(ctx context.Context, p proc) (exit, error) {
 		stderr:   stderr.Bytes(),
 	}, nil
 }
+
+// searchOK is access(2)'s X_OK: a folder that can be entered.
+const searchOK = 1
+
+// runError is an error the core made, which holds no path, argument, input
+// or text of the CLI's. Run passes on only these from an attempt.
+type runError string
+
+func (e runError) Error() string { return string(e) }
+
+// errRunDir is a run folder the child could not enter when it started, as
+// one removed after Run checked it.
+const errRunDir = runError("modelrun: the run folder can't be entered")
 
 // killGroup kills every process in the group the child leads.
 func killGroup(pid int) error {

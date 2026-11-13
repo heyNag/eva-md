@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/heyNag/eva-md/internal/host/adapter"
 )
@@ -290,22 +291,25 @@ func (r *runner) Run(ctx context.Context, c Call) (Outcome, error) {
 		res result
 	)
 	for n := 1; ; n++ {
-		timeout := deadline
-		if n > 1 {
-			// The retry gets what the first attempt left, and none is a
-			// timeout, as v1's ladder had it.
-			if timeout = time.Until(end); timeout <= 0 {
-				t.timedOut = true
-				break
-			}
+		// The retry gets what the first attempt left, and none is a
+		// timeout, as v1's ladder had it.
+		if n > 1 && time.Until(end) <= 0 {
+			t.timedOut = true
+			break
 		}
-		a := &attempt{call: c, caps: caps, n: n, run: r.starter(&t, caps.CLI, c.RunDir, timeout)}
+		a := &attempt{call: c, caps: caps, n: n, run: r.starter(&t, caps.CLI, c.RunDir, deadline, end)}
 		res, err = r.b.attempt(ctx, a)
 		if ctx.Err() != nil {
 			return Outcome{}, fmt.Errorf("modelrun: run canceled: %w", ctx.Err())
 		}
 		if err != nil {
-			return Outcome{}, err
+			// A backend's error may hold a path, an argument or the input,
+			// whatever its care: only the core's own words are passed on.
+			var own runError
+			if errors.As(err, &own) {
+				return Outcome{}, own
+			}
+			return Outcome{}, errCouldNotRun
 		}
 		t.add(res)
 		if !res.again || n >= maxAttempts || t.toolSign || t.missing || t.timedOut {
@@ -315,10 +319,23 @@ func (r *runner) Run(ctx context.Context, c Call) (Outcome, error) {
 	return settle(base, res, t, r.allowed()), nil
 }
 
-// starter is an attempt's run: the CLI in the run folder, sealed, under
-// timeout, each process it ends counted in t.
-func (r *runner) starter(t *tally, cli, dir string, timeout time.Duration) func(context.Context, []string, []byte, io.Writer) (exit, error) {
+// errCouldNotRun is what Run gives for an error of a backend's own.
+const errCouldNotRun = runError("modelrun: the call could not run")
+
+// starter is an attempt's run: the CLI in the run folder, sealed, each
+// process it ends counted in t. The call's first run gets the whole
+// deadline; every later one, in the same attempt or the next, gets what is
+// left of it until end, and none is a timeout with no process started.
+func (r *runner) starter(t *tally, cli, dir string, deadline time.Duration, end time.Time) func(context.Context, []string, []byte, io.Writer) (exit, error) {
 	return func(ctx context.Context, args []string, stdin []byte, out io.Writer) (exit, error) {
+		timeout := deadline
+		if t.runs > 0 {
+			if timeout = time.Until(end); timeout <= 0 {
+				t.timedOut = true
+				return exit{failed: true, timedOut: true}, nil
+			}
+		}
+		t.runs++
 		e, err := spawn(ctx, proc{
 			cli: cli, args: args, dir: dir, stdin: stdin, stdout: out,
 			timeout: timeout, waitDelay: r.wait(), pathDir: r.pathDir(cli),
@@ -359,6 +376,7 @@ func (r *runner) allowed() map[Signal]bool {
 
 // tally is what Run learned over the attempts, apart from the last result.
 type tally struct {
+	runs      int // calls of an attempt's run
 	attempts  int
 	missing   bool // a CLI was not there
 	timedOut  bool // the call's time ended
@@ -503,10 +521,12 @@ func checkRunDir(dir string) error {
 	return nil
 }
 
-// object returns data without surrounding space when it is one JSON object.
+// object returns data without surrounding space when it is one JSON object,
+// in UTF-8 throughout: json.Valid takes invalid UTF-8 in a string, which a
+// decoder later replaces without a word.
 func object(data []byte) ([]byte, bool) {
 	data = bytes.TrimSpace(data)
-	if len(data) == 0 || data[0] != '{' || !json.Valid(data) {
+	if len(data) == 0 || data[0] != '{' || !utf8.Valid(data) || !json.Valid(data) {
 		return nil, false
 	}
 	return data, true

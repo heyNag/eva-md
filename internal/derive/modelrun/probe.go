@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"sync"
 	"time"
@@ -38,6 +39,18 @@ var probeStepTimeout = 15 * time.Second
 // test runs, so a test can end the step's time at an exact point.
 var probeStepTimer = context.WithTimeout
 
+// probeCLI is the adapter's probe. A test replaces it to see the Env a probe
+// gives the adapter.
+var probeCLI = adapter.Probe
+
+// stepWaits is called when a probe starts to wait for a step another probe
+// is running for the same entry. A test replaces it to know a probe waits.
+var stepWaits = func() {}
+
+// featureName is the shape a feature must have to reach Caps: the host's
+// text of any other shape is dropped.
+var featureName = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
+
 // Probe finds the CLI, the one install recorded while it is an executable
 // file of the CLI's name and PATH's otherwise, reads its version through the
 // adapter, and runs the backend's probe step once per cache entry: the CLI's
@@ -46,7 +59,7 @@ func (r *runner) Probe(ctx context.Context) (Caps, error) {
 	if err := ctx.Err(); err != nil {
 		return Caps{}, err
 	}
-	p := adapter.Probe(ctx, r.host.ID, r.env())
+	p := probeCLI(ctx, r.host.ID, r.env())
 	if err := ctx.Err(); err != nil {
 		return Caps{}, err
 	}
@@ -137,6 +150,7 @@ func (r *runner) features(ctx context.Context, cli, version string) ([]string, e
 			return slices.Clone(e.features), nil
 		}
 		steps.Unlock()
+		stepWaits()
 		select {
 		case <-e.done:
 		case <-ctx.Done():
@@ -166,8 +180,20 @@ func (r *runner) fill(ctx context.Context, cli string, key stepKey, e *stepEntry
 }
 
 // step runs the backend's probe step under its own limit, through the
-// options' Env.Run when set, else as a sealed run.
+// options' Env.Run when set, else as a sealed run, and keeps of what it
+// found only names of a feature's shape.
 func (r *runner) step(ctx context.Context, cli string) ([]string, bool) {
+	features, ok := r.rawStep(ctx, cli)
+	var kept []string
+	for _, f := range features {
+		if featureName.MatchString(f) {
+			kept = append(kept, f)
+		}
+	}
+	return kept, ok
+}
+
+func (r *runner) rawStep(ctx context.Context, cli string) ([]string, bool) {
 	ctx, cancel := probeStepTimer(ctx, probeStepTimeout)
 	defer cancel()
 	envRun := r.env().Run

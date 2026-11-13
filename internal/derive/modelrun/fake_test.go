@@ -42,8 +42,9 @@ func TestFake(t *testing.T) {
 		t.Fatalf("calls %+v", calls)
 	}
 	calls[0].Task = "changed"
-	if f.Calls()[0].Task != TaskExtract {
-		t.Fatal("Calls gave the fake's own list")
+	calls[0].Input[0], calls[0].Schema[0] = 'X', 'X'
+	if again := f.Calls()[0]; again.Task != TaskExtract || string(again.Input) != "input" || string(again.Schema) != "{}" {
+		t.Fatalf("Calls gave the fake's own list or bytes: %+v", again)
 	}
 
 	f.Err = errors.New("made-up failure")

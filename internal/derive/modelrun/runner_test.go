@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -698,8 +699,9 @@ func TestAToolSignIsToolUsedBesideAnyAnswer(t *testing.T) {
 // ok needs an answer that is one JSON object; otherwise the run is
 // answer_invalid, with no answer.
 func TestOKNeedsOneJSONObject(t *testing.T) {
-	for _, bad := range []string{"", "[1]", `"done"`, `{"summary":"done"} {"summary":"again"}`, `{"summary":`, "null", `{"summary":"done"}x`} {
-		t.Run(bad, func(t *testing.T) {
+	for _, bad := range []string{"", "[1]", `"done"`, `{"summary":"done"} {"summary":"again"}`, `{"summary":`, "null", `{"summary":"done"}x`,
+		"{\"summary\":\"\xff\xfe\"}", "{\"\xc3\":\"done\"}"} {
+		t.Run(strings.ToValidUTF8(bad, "?"), func(t *testing.T) {
 			files := map[string]string{"stdout": events(`{"type":"answered","name":"m"}`)}
 			if bad != "" {
 				files["output"] = bad
@@ -712,6 +714,12 @@ func TestOKNeedsOneJSONObject(t *testing.T) {
 	t.Run("space around", func(t *testing.T) {
 		if out := runPuppet(t, map[string]string{"output": " \n" + answer + "\n"}); out.Class != ClassOK || string(out.Answer) != answer {
 			t.Fatalf("an answer with space around it: %+v", out)
+		}
+	})
+	t.Run("UTF-8", func(t *testing.T) {
+		const utf = `{"summary":"café ✓"}`
+		if out := runPuppet(t, map[string]string{"output": utf}); out.Class != ClassOK || string(out.Answer) != utf {
+			t.Fatalf("an answer in UTF-8: %+v", out)
 		}
 	})
 }
@@ -868,24 +876,52 @@ func TestUsageAndVersionSeenBeforeATimeoutAreKept(t *testing.T) {
 
 // A marker planted where a host writes text, in an event's type, an item's
 // type, an error's text, a model's name and the answer of a failed run,
-// reaches no field of the Outcome, though the puppet passes it on.
+// reaches no field of the Outcome but the two item 4 lets a model's name
+// into, though the puppet passes it on.
+//
+// The core bounds only a model name's shape. A marker with no space in it,
+// as an event or item type, an e-mail address, a path, a branch or an id
+// is, has a shape a model flag could take, so what a backend reads as a
+// model reaches ModelsSeen and ModelAnswered, whatever field of the host's
+// output it came from. The puppet reads event and item types as models, and
+// this test records that limit: that a backend takes models only from the
+// host's model fields is each backend's own guarantee, which its tests show
+// with markers of these shapes.
 func TestAPlantedMarkerReachesNoOutcomeField(t *testing.T) {
-	const marker = "planted marker 41"
-	for name, files := range map[string]map[string]string{
-		"an event type": {"output": answer, "stdout": events(`{"type":"` + marker + `"}`)},
-		"an item type":  {"output": answer, "stdout": events(`{"type":"item","item":{"type":"` + marker + `"}}`)},
-		"an error text": {"output": `{"summary":"` + marker + `"}`, "stderr": marker + "\n", "exit": "1"},
-		"every field": {"output": `{"summary":"` + marker + `"}`, "stderr": marker, "stdout": events(
-			`{"type":"class","class":"`+marker+`"}`, `{"type":"refused","what":"`+marker+`"}`,
-			`{"type":"signal","name":"`+marker+`"}`, `{"type":"model","name":"`+marker+`"}`,
-			`{"type":"answered","name":"`+marker+`"}`, marker, `{"type":"item","item":{"type":"`+marker+`"}}`)},
+	for _, marker := range []string{
+		"planted marker 41", "planted-marker-41", "planted_marker_41", "planted.marker@example.invalid",
+		"Users/planted/client-project", "feature/planted-branch", "0b1e8a3c-1111-4222-8333-444455556666",
 	} {
-		t.Run(name, func(t *testing.T) {
-			out := runPuppet(t, files)
-			if out.Attempts != 1 || strings.Contains(fmt.Sprintf("%#v", out), "marker") || strings.Contains(string(out.Answer), "marker") {
-				t.Fatalf("the marker reached the outcome: %#v", out)
-			}
-		})
+		// named: the marker has a model name's shape.
+		named := !strings.Contains(marker, " ")
+		for _, tc := range []struct {
+			place               string
+			files               map[string]string
+			asModel, asAnswered bool // the puppet reads the marker as a model, or as the one that answered
+		}{
+			{"an event type", map[string]string{"output": answer, "stdout": events(`{"type":"` + marker + `"}`)}, true, true},
+			{"an item type", map[string]string{"output": answer, "stdout": events(`{"type":"item","item":{"type":"` + marker + `"}}`)}, true, false},
+			{"an error text", map[string]string{"output": `{"summary":"` + marker + `"}`, "stderr": marker + "\n", "exit": "1"}, false, false},
+			{"every field", map[string]string{"output": `{"summary":"` + marker + `"}`, "stderr": marker, "stdout": events(
+				`{"type":"class","class":"`+marker+`"}`, `{"type":"refused","what":"`+marker+`"}`,
+				`{"type":"signal","name":"`+marker+`"}`, `{"type":"model","name":"`+marker+`"}`,
+				`{"type":"answered","name":"`+marker+`"}`, marker, `{"type":"item","item":{"type":"`+marker+`"}}`)}, true, true},
+		} {
+			t.Run(tc.place+" "+marker, func(t *testing.T) {
+				out := runPuppet(t, tc.files)
+				rest := out
+				rest.ModelsSeen, rest.ModelAnswered = nil, ""
+				if out.Attempts != 1 || strings.Contains(fmt.Sprintf("%#v", rest), marker) || strings.Contains(string(out.Answer), marker) {
+					t.Fatalf("the marker reached the outcome: %#v", out)
+				}
+				if seen := slices.Contains(out.ModelsSeen, marker); seen != (named && tc.asModel) || len(out.ModelsSeen) > 1 {
+					t.Fatalf("models seen %q: the marker, read as a model %v, of a name's shape %v", out.ModelsSeen, tc.asModel, named)
+				}
+				if answered := out.ModelAnswered == marker; answered != (named && tc.asAnswered) || (!answered && out.ModelAnswered != "") {
+					t.Fatalf("model answered %q: the marker, read as the one that answered %v, of a name's shape %v", out.ModelAnswered, tc.asAnswered, named)
+				}
+			})
+		}
 	}
 }
 
@@ -927,5 +963,118 @@ func TestSettle(t *testing.T) {
 	tl.add(result{usage: Usage{In: 2, CachedIn: 1 << 62, Out: 3}})
 	if tl.usage != (Usage{In: 2, CachedIn: 2 * maxTokens, Out: 6}) {
 		t.Fatalf("usage %+v", tl.usage)
+	}
+}
+
+// puppetDoing is the puppet with attempt in place of its own.
+func puppetDoing(t *testing.T, attempt func(ctx context.Context, a *attempt) (result, error)) *runner {
+	t.Helper()
+	b := puppet()
+	b.attempt = attempt
+	_, env := testEnv()
+	r, err := newRunner(adapter.Codex, b, Options{Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// A backend's error reaches no caller as it is: it may hold a path, an
+// argument or the input. Run gives one fixed error in its place, and passes
+// on only the core's own, without what a backend wrapped around it.
+func TestABackendsErrorIsNotPassedOn(t *testing.T) {
+	isolate(t)
+	dump := puppetHost(t)
+	const home = "/home/alice/client-project/"
+	r := puppetDoing(t, func(ctx context.Context, a *attempt) (result, error) {
+		_, err := os.Open(home + string(a.call.Input[:12]))
+		return result{}, fmt.Errorf("planted-marker-41 %s: %w", a.call.RunDir, err)
+	})
+	c := call(t, adapter.Codex)
+	_, err := r.Run(context.Background(), c)
+	if err != errCouldNotRun {
+		t.Fatalf("error %v, want %v", err, errCouldNotRun)
+	}
+	for _, leak := range []string{home, c.RunDir, string(c.Input[:12]), "planted-marker-41"} {
+		if strings.Contains(err.Error(), leak) {
+			t.Fatalf("the error holds %q: %v", leak, err)
+		}
+	}
+	// The core's own error is passed on, without the backend's wrapping: a
+	// run folder removed after Run checked it fails the start, and the CLI
+	// is not missing.
+	r = puppetDoing(t, func(ctx context.Context, a *attempt) (result, error) {
+		if err := os.Remove(a.call.RunDir); err != nil {
+			return result{}, err
+		}
+		_, err := a.run(ctx, []string{"run"}, a.call.Input, io.Discard)
+		return result{}, fmt.Errorf("planted-marker-41 %s: %w", a.call.RunDir, err)
+	})
+	c = call(t, adapter.Codex)
+	out, err := r.Run(context.Background(), c)
+	if err != errRunDir || out.Class != "" || runs(t, dump) != 0 {
+		t.Fatalf("a run folder gone at the start: %+v %v, %d runs", out, err, runs(t, dump))
+	}
+	// The puppet, which gives run's error back, ends the call with the
+	// same error, never as a missing CLI.
+	r = puppetDoing(t, func(ctx context.Context, a *attempt) (result, error) {
+		if err := os.Remove(a.call.RunDir); err != nil {
+			return result{}, err
+		}
+		return puppetAttempt(ctx, a)
+	})
+	if _, err := r.Run(context.Background(), call(t, adapter.Codex)); err != errRunDir {
+		t.Fatalf("a run folder gone under the puppet: %v", err)
+	}
+}
+
+// Every run of a call is bounded by the call's one deadline, a second run in
+// one attempt too: it gets what the first left, and once the deadline has
+// passed it doesn't start and the call is a timeout. The test holds the
+// limits, so the machine's speed decides nothing.
+func TestEveryRunGetsWhatIsLeftOfTheDeadline(t *testing.T) {
+	isolate(t)
+	dump := puppetHost(t)
+	twice := func(ctx context.Context, a *attempt) (result, error) {
+		if _, err := puppetAttempt(ctx, a); err != nil {
+			return result{}, err
+		}
+		return puppetAttempt(ctx, a)
+	}
+	r := puppetDoing(t, twice)
+	c := call(t, adapter.Codex)
+	c.Deadline = time.Minute
+	ctx, timeouts := holdTimeouts(context.Background())
+	done := launch(t, ctx, r, c)
+	if first, second := timeouts.next(t), timeouts.next(t); first != c.Deadline || second >= first {
+		t.Fatalf("the runs' limits %s then %s, want %s then less", first, second, c.Deadline)
+	}
+	out, err := await(t, done, "an attempt that runs twice")
+	if err != nil || out.Class != ClassOK || out.Attempts != 2 || runs(t, dump) != 2 {
+		t.Fatalf("outcome %+v %v after %d runs", out, err, runs(t, dump))
+	}
+	// A deadline of a nanosecond has passed by the second run, which the
+	// held limit of the first let finish: the second doesn't start.
+	r = puppetDoing(t, twice)
+	c = call(t, adapter.Codex)
+	c.Deadline = time.Nanosecond
+	ctx, _ = holdTimeouts(context.Background())
+	out, err = await(t, launch(t, ctx, r, c), "an attempt whose second run has no time")
+	if err != nil || out.Class != ClassTimeout || out.Attempts != 1 || out.Answer != nil || runs(t, dump) != 3 {
+		t.Fatalf("outcome %+v %v after %d runs, want a timeout after 3", out, err, runs(t, dump))
+	}
+}
+
+// Once a tool was seen there is no second attempt, though the first asked
+// for one: a second would make another model call for a run that is
+// tool_used whatever it does.
+func TestNoSecondAttemptOnceAToolWasSeen(t *testing.T) {
+	isolate(t)
+	dump := puppetHost(t)
+	put(t, dump, "stdout", events(`{"type":"tool"}`, `{"type":"again"}`))
+	r, _ := puppetRunner(t, adapter.Codex, Options{})
+	out, err := r.Run(context.Background(), call(t, adapter.Codex))
+	if err != nil || out.Class != ClassToolUsed || out.Attempts != 1 || runs(t, dump) != 1 {
+		t.Fatalf("outcome %+v %v after %d runs, want tool_used after 1", out, err, runs(t, dump))
 	}
 }

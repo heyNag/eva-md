@@ -238,21 +238,27 @@ func TestOverlappingProbesRunTheStepOnce(t *testing.T) {
 		err  error
 	}
 	first, second := make(chan probed, 1), make(chan probed, 1)
+	// The test learns that the second probe waits for the first's step, and
+	// only then lets the step end, so no ordering of the two can hide a
+	// probe that doesn't wait.
+	waiting := make(chan struct{})
+	var once sync.Once
+	saved := stepWaits
+	t.Cleanup(func() { stepWaits = saved })
+	stepWaits = func() { once.Do(func() { close(waiting) }) }
 	go func() { c, err := r.Probe(context.Background()); first <- probed{c, err} }()
 	if !waitFile(dump, "listing") {
 		t.Fatalf("the fake didn't list in %s", hangGuard)
 	}
-	// The second probe finds the CLI on its PATH, which tells the test it
-	// has started.
-	looked := make(chan struct{})
-	var once sync.Once
-	r2, _ := puppetRunner(t, adapter.Codex, Options{Env: adapter.Env{LookPath: func(file string) (string, error) {
-		once.Do(func() { close(looked) })
-		return cli, nil
-	}}})
+	r2, _ := puppetRunner(t, adapter.Codex, Options{CLI: cli})
 	r2.opts.Env.Run = r.opts.Env.Run
 	go func() { c, err := r2.Probe(context.Background()); second <- probed{c, err} }()
-	<-looked
+	select {
+	case <-waiting:
+	case <-time.After(hangGuard):
+		put(t, dump, "go", "")
+		t.Fatalf("the second probe didn't wait for the first's step in %s", hangGuard)
+	}
 	put(t, dump, "go", "")
 	for _, ch := range []chan probed{first, second} {
 		select {
@@ -266,6 +272,121 @@ func TestOverlappingProbesRunTheStepOnce(t *testing.T) {
 	}
 	if n := calls.count("features list"); n != 1 {
 		t.Fatalf("the step ran %d times", n)
+	}
+}
+
+// The probe cache's key holds the CLI's size and the host too: a file
+// rewritten to another size, with the same modification time and version,
+// runs the step again, and so does another host's probe of the same file.
+func TestTheProbeCacheKeysTheSizeAndTheHost(t *testing.T) {
+	isolate(t)
+	dump := puppetHost(t)
+	put(t, dump, "features", featureList)
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A file of its own, not a link to the rig's script, which it changes.
+	cli := filepath.Join(dir, cliName(t, adapter.Codex))
+	if err := os.WriteFile(cli, []byte(fakeScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r, calls := puppetRunner(t, adapter.Codex, Options{CLI: cli})
+	for range 2 {
+		if caps, err := r.Probe(context.Background()); err != nil || caps.Version != "0.1.0" || calls.count("features list") != 1 {
+			t.Fatalf("an unchanged CLI: %+v %v, %q", caps, err, calls.calls)
+		}
+	}
+	info, err := os.Stat(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cli, []byte(fakeScript+"# a longer file\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(cli, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := os.Stat(cli); err != nil || !again.ModTime().Equal(info.ModTime()) || again.Size() == info.Size() {
+		t.Fatalf("the rewritten file: %v", err)
+	}
+	if caps, err := r.Probe(context.Background()); err != nil || caps.Version != "0.1.0" || calls.count("features list") != 2 {
+		t.Fatalf("a new size: %+v %v, %q", caps, err, calls.calls)
+	}
+	// Another host's probe of the same file runs the step for its own entry.
+	r2, calls2 := puppetRunner(t, adapter.ClaudeCode, Options{Env: adapter.Env{LookPath: func(string) (string, error) { return cli, nil }}})
+	for range 2 {
+		if caps, err := r2.Probe(context.Background()); err != nil || caps.CLI != cli || calls2.count("features list") != 1 {
+			t.Fatalf("another host: %+v %v, %q", caps, err, calls2.calls)
+		}
+	}
+	if _, err := r.Probe(context.Background()); err != nil || calls.count("features list") != 2 {
+		t.Fatalf("the first host after another's: %v, %q", err, calls.calls)
+	}
+}
+
+// Of what a probe step found, only names of a feature's shape reach Caps:
+// the host's other text is dropped.
+func TestOnlyFeatureNamesReachCaps(t *testing.T) {
+	isolate(t)
+	dump := puppetHost(t)
+	put(t, dump, "features", `planted.marker@example.invalid stable true
+Users/planted/client-project stable false
+alpha stable true
+BETA stable true
+-flag stable true
+beta.two_3-x stable false
+`)
+	r, _ := puppetRunner(t, adapter.Codex, Options{CLI: ownCLI(t, adapter.Codex)})
+	if caps, err := r.Probe(context.Background()); err != nil || !slices.Equal(caps.Features, []string{"alpha", "beta.two_3-x"}) {
+		t.Fatalf("caps %+v %v", caps, err)
+	}
+}
+
+// Without Env.Run the adapter reads the version through a sealed run too:
+// the cleared environment, in a private folder that is gone afterwards. The
+// test takes the Env the probe gives the adapter and runs --version through
+// it itself, with no limit, since the adapter's own can't be raised here.
+func TestTheVersionWithNoEnvRunIsSealed(t *testing.T) {
+	isolate(t)
+	dump := puppetHost(t)
+	put(t, dump, "version.sh", `env > "$dump/version.env"; pwd -P > "$dump/version.pwd"`)
+	t.Setenv("OPENAI_API_KEY", "fake-openai-value")
+	var given adapter.Env
+	saved := probeCLI
+	t.Cleanup(func() { probeCLI = saved })
+	probeCLI = func(ctx context.Context, id adapter.ID, env adapter.Env) adapter.ProbeResult {
+		given = env
+		return adapter.ProbeResult{Host: id}
+	}
+	cli := ownCLI(t, adapter.Codex)
+	r, err := newRunner(adapter.Codex, puppet(), Options{CLI: cli})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Probe(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if given.Run == nil || given.LookPath == nil {
+		t.Fatal("the adapter was given no run or no lookup: it would start the CLI with the whole environment")
+	}
+	if found, err := given.LookPath(cliName(t, adapter.Codex)); err != nil || found != cli {
+		t.Fatalf("the adapter's lookup gave %q %v, want the recorded %q", found, err, cli)
+	}
+	out, err := given.Run(context.Background(), cli, "--version")
+	if err != nil || string(out) != "0.1.0 (fake)\n" {
+		t.Fatalf("--version gave %q %v", out, err)
+	}
+	env := read(t, dump, "version.env")
+	if !strings.Contains(env, "EVA_MD_INNER=1\n") || strings.Contains(env, "OPENAI_API_KEY") {
+		t.Fatalf("the version's environment was not cleared:\n%s", env)
+	}
+	pwd := strings.TrimSpace(read(t, dump, "version.pwd"))
+	if wd, _ := os.Getwd(); pwd == "/" || pwd == wd {
+		t.Fatalf("--version ran in %s", pwd)
+	}
+	if _, err := os.Stat(pwd); !os.IsNotExist(err) {
+		t.Fatalf("the version's folder is left: %v", err)
 	}
 }
 

@@ -102,10 +102,25 @@ func TestSpawnOfAMissingCLI(t *testing.T) {
 			t.Errorf("%s: %+v %v, want missing", cli, e, err)
 		}
 	}
-	// A run folder that is gone fails the start; the error names no path.
-	_, err := spawn(context.Background(), proc{cli: "/bin/sh", dir: filepath.Join(dir, "gone"), stdout: &capped{limit: 1}})
-	if err != nil && strings.Contains(err.Error(), dir) {
-		t.Fatalf("the error names a path: %v", err)
+	// A run folder that is gone, one the child can't enter and a file fail
+	// the start, but the CLI is there: the call could not run, with an error
+	// that names no path, and the CLI is not missing.
+	shut := filepath.Join(dir, "shut")
+	if err := os.Mkdir(shut, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shut, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) })
+	for _, runDir := range []string{filepath.Join(dir, "gone"), shut, plain} {
+		e, err := spawn(context.Background(), proc{cli: "/bin/sh", dir: runDir, stdout: &capped{limit: 1}})
+		if err != errRunDir || e.missing || e.started {
+			t.Errorf("run folder %s: %+v %v, want the run folder's error", runDir, e, err)
+		}
+		if err != nil && strings.Contains(err.Error(), dir) {
+			t.Errorf("the error names a path: %v", err)
+		}
 	}
 }
 
