@@ -24,6 +24,12 @@ ST-05, the store core, is large and on the critical path. Before it lands, DV-23
 
 `internal/store/storetest/**` (new), `internal/eval/retrieval/retrievaltest/**` (new), and those two rows of `docs/v2/contract-matrix.md`.
 
+```paths
+internal/store/storetest/**
+internal/eval/retrieval/retrievaltest/**
+docs/v2/contract-matrix.md
+```
+
 ## Must not touch
 
 Everything else. `internal/store/api.go`, `internal/store/conformance`, the rest of `internal/eval/retrieval`, `internal/cardcheck` and `internal/ledger` are read only. If a model or interface lacks what a fake needs, put the gap in the report.
@@ -41,3 +47,16 @@ Everything else. `internal/store/api.go`, `internal/store/conformance`, the rest
 - On a small set of the test's own, built with DL-04's types, two runs through DL-04's scorer give the same figures as `oracle`'s and `silent`'s: one with the fake given the `oracle`'s answers, one with the fake given none.
 - `FailOn` fails only its event. `Asked` keeps the order. Changing a returned slice does not change the fake.
 - A test fails if a non-test file outside either new package imports it. `go list -deps ./cmd/eva-md` lists neither package. Both import only the standard library and eva-md's packages. No test sleeps, reads the wall clock or writes outside `t.TempDir()`.
+
+## As merged
+
+Merged from `pkg/if-01c-r1` on 2026-11-13, after a review, a fix round and a verification that accepted it. The fix round's check failed in the benchmark alone, at a load of 29 to 45 on 4 CPUs; nothing a hook runs imports either fake.
+
+Accepted as built, beyond the card's list: the store's fake passes `Push`, `Lose` and `Restore` through to the model, so the restore and replay properties run on it; it gives the model's `Item`, `Commit` and `Edit` types and its errors names of its own, so a consumer need not import the conformance package; `New` with no clock returns `ErrNoClock`; and `FailOn(id, nil)` on the retrieval fake takes back an earlier `FailOn`.
+
+Owed:
+
+- **ST-02's harness accepts a fault that never fires.** When an armed crash does not fire, the pass goes on, so a store that dropped its fault would pass the crash properties without one crash. This fake's own tests count the faults that fired. ST-02 owes a follow-up before ST-05 is held to the harness: a crash property fails when no armed crash fired over its seeds.
+- **Rulings 1 and 2 of the matrix** expect the fake to gain `ItemsCiting` and to keep an item's words and `Evidence` as given. `store.Store` has neither yet and the model drops `Evidence`. The fake gains them once ST-05, or a follow-up to ST-02, puts them in the interface and the model.
+- The parsed check of the fakes' files bans the `os` names that write, `os/exec` and `syscall`, but not `io/ioutil.WriteFile` or `os.StartProcess`. No file uses either.
+

@@ -22,11 +22,13 @@ it, or fails a scenario clearly more often than OLD (see decide in
 scripts/bench/core.py), 0 otherwise, and 2 when it could not run.
 """
 import argparse
+import collections
 import importlib.util
 import json
 import os
 from pathlib import Path
 import platform
+import re
 import select
 import subprocess
 import sys
@@ -140,6 +142,100 @@ def mcp_timings(binary, env, cwd):
     return starts, exits, searches, shows, statuses
 
 
+def kind(line):
+    """A start of the stand-in's kind: its line with each run of digits
+    replaced, so that the thirty ends' starts, and any day, are one kind."""
+    return re.sub(r"[0-9]+", "#", line)
+
+
+def check_starts(lines, groups):
+    """Raises unless the stand-in's lines, those after its warm-up, are
+    what groups allow. Each group is a kind of start the scenario asks for:
+    its label, a test of its lines, how many are expected, and the event
+    and measured milliseconds of each timed hook that should start one,
+    none for a start that must be seen exactly once (evabench's
+    starts_allowed decides). A line no group takes is never allowed.
+    Returns how many of the timed hooks passed their limit; the message
+    says how many starts of each kind were seen."""
+    from evabench import starts_allowed
+    left, parts, late, wrong = list(lines), [], 0, False
+    for label, match, expected, times in groups:
+        mine = [line for line in left if match(line)]
+        left = [line for line in left if not match(line)]
+        ok, n = starts_allowed(expected, len(mine), times)
+        late, wrong = late+n, wrong or not ok
+        off = "" if len(mine) == expected else " (%d %s)" % (abs(expected-len(mine)), "short" if len(mine) < expected else "too many")
+        parts.append("%s %d of %d%s" % (label, len(mine), expected, off))
+    if left:
+        wrong = True
+        parts.append("%d of no kind asked for" % len(left))
+    if wrong:
+        seen = sorted(collections.Counter(kind(line) for line in lines).items())
+        raise RuntimeError("the hooks started the stand-in %d times, not %d, with %d of the hooks that start it past their limit: %s; seen: %s" % (
+            len(lines), sum(g[2] for g in groups), late, ", ".join(parts), ", ".join("%s: %d" % (k, n) for k, n in seen) or "none"))
+    return late
+
+
+def start_groups(stops, ends):
+    """The starts the padded inbox asks for, as check_starts takes them:
+    one from each Codex Stop of m1-spawn and each SessionEnd of an m1-end
+    chat, timed at stops and ends milliseconds, and maintain and the day's
+    sweep once each."""
+    return [("Stop", lambda line: "codex:m1-spawn" in line.split(), len(stops), [("Stop", ms) for ms in stops]),
+            ("SessionEnd", lambda line: any(re.fullmatch("claude-code:m1-end-[0-9]+", w) for w in line.split()), len(ends),
+             [("SessionEnd", ms) for ms in ends]),
+            ("maintain", lambda line: line == "maintain", 1, []),
+            ("the sweep", lambda line: line.startswith("update --sweep="), 1, [])]
+
+
+def to_read(name, event, results):
+    """Which of a loop's timed hooks gave an output to read: results holds
+    each hook's output and measured milliseconds, in order. An empty output
+    is passed over, and counted, only from a hook that passed its limit
+    (evabench's past_limit), which prints nothing by design. One from a hook
+    in time fails the scenario, and so does any passed over in a loop in
+    which more than one hook in twenty passed its limit: that many is no
+    stall. Returns the indexes of the outputs to read, and prints beside the
+    report how many hooks passed their limit, when any did."""
+    from evabench import past_limit
+    late = [past_limit(event, ms) for _, ms in results]
+    empty = [i for i, (output, _) in enumerate(results) if not output]
+    in_time = [i for i in empty if not late[i]]
+    if in_time:
+        raise RuntimeError("%s: %d of %d hooks gave no output inside their limit" % (name, len(in_time), len(results)))
+    if empty and 20*sum(late) > len(results):
+        raise RuntimeError("%s: %d of %d hooks passed their limit, more than one in twenty, and %d gave no output" % (
+            name, sum(late), len(results), len(empty)))
+    say_late(name, event, [ms for _, ms in results])
+    return [i for i, (output, _) in enumerate(results) if output]
+
+
+def say_late(name, event, times):
+    """Prints, beside the report, how many of a loop's hooks of event, timed
+    at times milliseconds, passed their limit (evabench's past_limit), when
+    any did. Every timed loop of the padded inbox says it, as soon as it
+    ends, so that a check that fails later has it beside its message."""
+    from evabench import DEFAULT_LIMIT_MS, EVENT_LIMIT_MS, LIMIT_MARGIN_MS, past_limit
+    late = sum(1 for ms in times if past_limit(event, ms))
+    if late:
+        print("benchmark: %s: %d of %d hooks passed their limit, %d ms less %d" % (
+            name, late, len(times), EVENT_LIMIT_MS.get(event, DEFAULT_LIMIT_MS), LIMIT_MARGIN_MS), file=sys.stderr, flush=True)
+
+
+def no_sweep(ms):
+    """The message when the day's first chat start, timed at ms
+    milliseconds, did not ask for the day's sweep once. Later steps need the
+    sweep's day, so it fails whatever the time, but it gives the time, and
+    says when the chat start passed a limit and so may have asked for
+    nothing by design: its own, or the shorter one in which every hook must
+    read its input, before it knows its event (budget("") in
+    internal/hook/hook.go, evabench's limit for an event it does not name)."""
+    from evabench import past_limit
+    why = ("past its limit" if past_limit("SessionStart", ms) else
+           "past the limit in which a hook reads its input" if past_limit("", ms) else "inside its limits")
+    return "the day's first chat start did not ask for the day's sweep once; that chat start took %d ms, %s" % (ms, why)
+
+
 def padded_inbox(run, evabench):
     """The benchmark's first scenario: a 50 MB inbox, a wiki of 400 system
     pages and a full recall index, with the records of busy days."""
@@ -180,6 +276,7 @@ def padded_inbox(run, evabench):
             if "MARIGOLD" not in context or "eva-memory" not in context or len(context)>7000:
                 raise RuntimeError("cross-host startup failed")
             startup.append(elapsed)
+        say_late("startup","SessionStart",startup)
         # Each chat start leaves its chat's file, and a brief reads the 64
         # newest besides the chats a program ran: the gate's runs remove
         # those of their extra chat starts, so that the chat starts below
@@ -213,6 +310,7 @@ def padded_inbox(run, evabench):
             if "MARIGOLD" not in context:
                 raise RuntimeError("the chats a program ran pushed the person's chat out of the brief")
             startup_programs.append(elapsed)
+        say_late("startup_with_programs","SessionStart",startup_programs)
         for path in programs:
             path.unlink()
         # Search with no window over every project: first as a search finds
@@ -247,6 +345,7 @@ def padded_inbox(run, evabench):
             with transcript.open("a") as f:f.write(json.dumps(row)+"\n")
             _,elapsed=hook("claude-code","Stop","m1-transcript",transcript_path=str(transcript),last_assistant_message=message)
             recovery.append(elapsed)
+        say_late("transcript_capture","Stop",recovery)
         # Every prompt after a brief checks the thread's Now for a refresh. The
         # wiki holds 200 other projects' now pages and none of this one's, which
         # that check must not read.
@@ -301,19 +400,27 @@ def padded_inbox(run, evabench):
                     sweeps=[a for line in spawned.read_text().splitlines() for a in line.split() if a.startswith("--sweep=")]
                     time.sleep(0.05)
                 if len(sweeps)!=1:
-                    raise RuntimeError("the day's first chat start did not ask for the day's sweep once")
+                    # Later steps need the sweep's day, so a chat start that
+                    # passed a limit, and so asked for nothing, still fails.
+                    raise RuntimeError(no_sweep(elapsed))
                 (state/"updates"/"sweep").write_text(sweeps[0][len("--sweep="):])
+        say_late("startup_with_records","SessionStart",startup_records)
         # With a wiki set up, updates are on: each Stop also checks the
         # session's backlog, one stat, which here never reaches 60 KB.
-        capture=[]
+        # A Codex Stop past its limit may print nothing (evabench's Home.hook
+        # lets that through), so its loop passes it over and counts it.
+        capture,stops=[],[]
         for i in range(100):
-            _, elapsed=hook("codex", "Stop", "m1-capture", turn_id=str(i), last_assistant_message="Synthetic timing reply.")
+            output,elapsed=hook("codex", "Stop", "m1-capture", turn_id=str(i), last_assistant_message="Synthetic timing reply.")
+            stops.append((output,elapsed))
             capture.append(elapsed)
+        to_read("capture","Stop",stops)
         hook("codex","SessionStart","m1-prompts",source="startup")
         prompts=[]
         for i in range(100):
             _,elapsed=hook("codex","UserPromptSubmit","m1-prompts",turn_id=str(i),prompt="Synthetic timing prompt "+str(i))
             prompts.append(elapsed)
+        say_late("prompt_after_brief","UserPromptSubmit",prompts)
         # Pointers: 400 system pages on the map and a full names index, 2,000
         # names near its 128 KB bound. Each chat starts untimed and gets four
         # prompts, each naming three systems it has not been pointed at, by a
@@ -334,40 +441,45 @@ def padded_inbox(run, evabench):
         if len(rows)!=2000 or not 120<<10<=len(names.encode())<=128<<10:
             raise RuntimeError("the names index is not near its bounds")
         (wiki/".eva-md/names.tsv").write_text(names)
-        pointed=[]
+        pointed,answers=[],[]
         for c in range(25):
             hook("codex","SessionStart","m1-pointers-%d"%c,source="startup")
             for k in range(4):
                 n=c*12+k*3
                 prompt="Why does LedgerSync%04d drop rows when svc-%04d-ledger retries, and does the ledger gateway zone %04d see it? Check this morning's logs first."%(n,n+1,n+2)
                 output,elapsed=hook("codex","UserPromptSubmit","m1-pointers-%d"%c,turn_id=str(k),prompt=prompt)
-                value=json.loads(output)
-                context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
-                if context.count(" show systems/svc-")!=3:
-                    raise RuntimeError("a prompt naming three systems did not get three pointers")
+                answers.append((output,elapsed))
                 pointed.append(elapsed)
+        for i in to_read("prompt_with_pointers","UserPromptSubmit",answers):
+            if evabench.context(answers[i][0]).count(" show systems/svc-")!=3:
+                raise RuntimeError("a prompt naming three systems did not get three pointers")
         # Spawning: every Stop with 60 KB or more unprocessed, and every
         # SessionEnd, starts the stand-in detached, as the day's first hook
         # event did for maintain.
         pad=json.dumps(dict(sample,host="codex",session="m1-spawn")).encode()+b"\n"
         (files[0].parent/"codex-m1-spawn.jsonl").write_bytes(pad*((61<<10)//len(pad)+1))
-        stop_spawn=[]
+        stop_spawn,spawn_stops=[],[]
         for i in range(run.loops(30)):
-            _,elapsed=hook("codex","Stop","m1-spawn",turn_id=str(i),last_assistant_message="Synthetic timing reply.")
+            output,elapsed=hook("codex","Stop","m1-spawn",turn_id=str(i),last_assistant_message="Synthetic timing reply.")
+            spawn_stops.append((output,elapsed))
             stop_spawn.append(elapsed)
+        to_read("capture_with_spawn","Stop",spawn_stops)
         ends=[]
         for i in range(run.loops(30)):
             _,elapsed=hook("claude-code","SessionEnd","m1-end-"+str(i))
             ends.append(elapsed)
-        # The first chat start's sweep came alone, a job of its own.
+        say_late("session_end","SessionEnd",ends)
+        # The first chat start's sweep came alone, a job of its own. A hook
+        # that passed its limit delivered nothing, its start included, by
+        # design, so each start of a Stop or SessionEnd may be missing for
+        # one the benchmark timed past it (check_starts).
         expected=len(stop_spawn)+len(ends)+2
         runs=lambda: len(spawned.read_text().splitlines())-1
         deadline=time.time()+10
         while runs()<expected and time.time()<deadline:
             time.sleep(0.05)
-        started=spawned.read_text().splitlines()
-        if runs()!=expected or started.count("maintain")!=1 or sum(line.startswith("update --sweep=") for line in started)!=1:
-            raise RuntimeError("the hooks started the stand-in %d times, not %d with maintain and the sweep once each"%(runs(),expected))
+        started=spawned.read_text().splitlines()[1:]
+        check_starts(started,start_groups(stop_spawn,ends))
         # The MCP server, started in the project as Claude Code starts it,
         # with the padded inbox, the wiki and the records above in place.
         mcp_starts,mcp_exits,mcp_searches,mcp_shows,mcp_statuses=mcp_timings(binary,env,cwd)
@@ -631,6 +743,7 @@ def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10, prompts_timed=2
             if len(lines)!=3:
                 raise RuntimeError("a startup brief did not say how far the code of 3 systems moved")
             briefs.append(elapsed)
+        say_late("code_brief","SessionStart",briefs)
     commit="4e2bf4c0a1b2"
     pages=[]
     for i in range(400):
@@ -644,7 +757,7 @@ def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10, prompts_timed=2
     status=state/"code-status.json"
     status.write_text(json.dumps(dict(v=1,at=datetime.now().astimezone().isoformat(timespec="seconds"),duration_ms=1800,pages=pages))+"\n")
     status.chmod(0o600)
-    prompts=[]
+    prompts,answers=[],[]
     for c in range(prompts_timed):
         hook("codex","SessionStart","m1-code-prompts-%d"%c,source="startup")
         # Systems 300 to 398, three a chat; a chat past the 33rd, as the
@@ -652,11 +765,13 @@ def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10, prompts_timed=2
         n=300+(c%33)*3
         prompt="Why does LedgerSync%04d drop rows when svc-%04d-ledger retries, and does the ledger gateway zone %04d see it?"%(n,n+1,n+2)
         output,elapsed=hook("codex","UserPromptSubmit","m1-code-prompts-%d"%c,turn_id="0",prompt=prompt)
-        value=json.loads(output)
+        answers.append((output,elapsed))
+        prompts.append(elapsed)
+    for i in to_read("code_prompt","UserPromptSubmit",answers):
+        value=json.loads(answers[i][0])
         context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
         if context.count(" (code moved 14 commits")!=3:
             raise RuntimeError("a prompt naming three systems did not get three pointers saying their code moved")
-        prompts.append(elapsed)
     return {"brief":briefs,"prompts":prompts}
 
 
@@ -689,7 +804,7 @@ def recall_scenario(hook, wiki, key):
         raise RuntimeError("the recall index is not near its bound")
     index=wiki/".eva-md/knowledge.tsv"
     index.write_text(text);index.chmod(0o600)
-    prompts=[]
+    prompts,answers=[],[]
     for c in range(25):
         hook("codex","SessionStart","m1-recall-%d"%c,source="startup")
         for k in range(4):
@@ -697,12 +812,15 @@ def recall_scenario(hook, wiki, key):
             prompt=("When do the quartz %04d, %04d and %04d settlement batches close at desks D%04d, D%04d and D%04d on routes "
                     "R%04d, R%04d and R%04d, and where do late entries go?")%tuple(numbers*3)
             output,elapsed=hook("codex","UserPromptSubmit","m1-recall-%d"%c,turn_id=str(k),prompt=prompt)
-            value=json.loads(output)
-            context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
-            if not context.startswith("eva.md knowledge: ") or "\n````eva-memory\n" not in context or len(context)>1000 or \
-               any("\nk%d · fact [observed] · github.com__example__ledger · 2026-10-28: "%m not in context for m in numbers):
-                raise RuntimeError("a prompt about three facts did not get them fenced")
+            answers.append((output,elapsed,numbers))
             prompts.append(elapsed)
+    for i in to_read("prompt_with_recall","UserPromptSubmit",[a[:2] for a in answers]):
+        output,_,numbers=answers[i]
+        value=json.loads(output)
+        context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
+        if not context.startswith("eva.md knowledge: ") or "\n````eva-memory\n" not in context or len(context)>1000 or \
+           any("\nk%d · fact [observed] · github.com__example__ledger · 2026-10-28: "%m not in context for m in numbers):
+            raise RuntimeError("a prompt about three facts did not get them fenced")
     return {"prompts":prompts,"rows":n,"bytes":len(text.encode())}
 
 
