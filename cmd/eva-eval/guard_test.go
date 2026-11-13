@@ -126,3 +126,30 @@ func TestSizeCommand(t *testing.T) {
 		}
 	}
 }
+
+// size --ledger exits 2 for a ledger it cannot read, a repository without
+// v1's history and a usage error, before it counts anything.
+func TestSizeLedgerCommandUsage(t *testing.T) {
+	isolate(t)
+	repo := filepath.Join(t.TempDir(), "repo")
+	write(t, filepath.Join(repo, "docs", "v2", "size-ledger.md"), "# A made-up ledger\n")
+	write(t, filepath.Join(repo, "go.mod"), "module example.com/app\n\ngo 1.22\n")
+	gitIn(t, repo, "init", "--quiet")
+	commitAll(t, repo, "a history without v1's commit")
+	for name, c := range map[string]struct {
+		args []string
+		says string
+	}{
+		"a missing ledger":          {[]string{"size", "--repo", repo, "--ledger", "docs/v2/none.md"}, "none.md"},
+		"a ledger that is a folder": {[]string{"size", "--repo", repo, "--ledger", "docs/v2"}, "docs/v2"},
+		"no v1 history":             {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md"}, guard.V1},
+		"no repository":             {[]string{"size", "--repo", t.TempDir(), "--ledger", "docs/v2/size-ledger.md"}, "size-ledger.md"},
+		"an unknown flag":           {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md", "--fast"}, "-fast"},
+		"an argument":               {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md", "extra"}, "size [--repo dir] [--ledger file]"},
+		"no file to the flag":       {[]string{"size", "--repo", repo, "--ledger"}, "-ledger"},
+	} {
+		if code, out, errOut := cmd(c.args...); code != 2 || out != "" || !strings.Contains(errOut, c.says) {
+			t.Errorf("%s: %d %q %q", name, code, out, errOut)
+		}
+	}
+}
