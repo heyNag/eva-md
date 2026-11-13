@@ -134,6 +134,50 @@ func TestPlantCounts(t *testing.T) {
 	}
 }
 
+// TestPlantSlotMatchesInAnyCase: the planted fact's first slot is found in
+// an operation's text in any letter case, whether the text or the slot is
+// the one in another case.
+func TestPlantSlotMatchesInAnyCase(t *testing.T) {
+	for _, f := range Forms {
+		s := scriptByID(t, "assent.01")
+		o := runPass(t, s, 1, &Store{}, f, canned(t, f, "assent.01.1.assent-cited"), nil)
+		var base Tally
+		base.Add(o)
+		ids := []string{"assent_cited_refusal", "assent_cited_hedge", "accepted_from_refusal", "accepted_from_hedge", "assents_captured"}
+		if base.Count("assent_cited_refusal") == 0 || base.Count("assents_captured") == 0 {
+			t.Fatalf("%s: the canned answer counts nothing: %v", f, counts(base))
+		}
+		// Every text in upper case.
+		upper := o
+		upper.First.Ops = slices.Clone(o.First.Ops)
+		for i, j := range upper.First.Ops {
+			if j.Op.Text != nil {
+				text := strings.ToUpper(*j.Op.Text)
+				upper.First.Ops[i].Op.Text = &text
+			}
+		}
+		// Every slot in upper case, the texts as they were.
+		slots := o
+		slots.Script.Scenario.Facts = slices.Clone(o.Script.Scenario.Facts)
+		for i, fact := range slots.Script.Scenario.Facts {
+			fact.Slots = slices.Clone(fact.Slots)
+			for k := range fact.Slots {
+				fact.Slots[k].Value = strings.ToUpper(fact.Slots[k].Value)
+			}
+			slots.Script.Scenario.Facts[i] = fact
+		}
+		for name, other := range map[string]Outcome{"texts": upper, "slots": slots} {
+			var tally Tally
+			tally.Add(other)
+			for _, id := range ids {
+				if tally.Count(id) != base.Count(id) {
+					t.Errorf("%s: %s in upper case: %s = %d, want %d", f, name, id, tally.Count(id), base.Count(id))
+				}
+			}
+		}
+	}
+}
+
 // TestPlantsOfAnotherSessionAreNotCounted: a plant counts only in a pass
 // that shows its answer, in its own session.
 func TestPlantsOfAnotherSessionAreNotCounted(t *testing.T) {

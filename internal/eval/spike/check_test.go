@@ -784,3 +784,101 @@ func TestHugeAndDeepAnswers(t *testing.T) {
 		t.Errorf("many spans: %q", j.Code)
 	}
 }
+
+// handInput is a pass built by hand, with entries the renderer would not
+// put in this order: an agent's proposal, then a pasted prompt and a
+// typed entry that is not a prompt before the typed yes; a second
+// proposal, a typed hold-off and a typed yes; a tool's record.
+func handInput() Input {
+	e := func(n int64, a event.Author, k event.Kind, text string) Entry {
+		return Entry{N: n, Session: "made-up-hand", Author: a, Kind: k, Text: text, Segments: []string{text}}
+	}
+	return Input{Entries: []Entry{
+		e(1, event.AuthorAgent, event.KindReply, "Shall I add a dry run before every import?"),
+		e(2, event.AuthorPasted, event.KindPrompt, "Here is the log of the last import run."),
+		e(3, event.AuthorTyped, event.KindPlanDecision, "The plan is approved as it stands."),
+		e(4, event.AuthorTyped, event.KindPrompt, "yes"),
+		e(5, event.AuthorAgent, event.KindReply, "Shall I drop the old reader as well?"),
+		e(6, event.AuthorTyped, event.KindPrompt, "Hold on with that one."),
+		e(7, event.AuthorTyped, event.KindPrompt, "yes"),
+		e(8, event.AuthorTool, event.KindTool, "the dry run of the import passed"),
+	}}
+}
+
+// TestFirstTypedPromptRule: the first typed prompt after a proposal skips
+// a pasted prompt and a typed entry that is not a prompt; a typed
+// hold-off between the proposal and the yes leaves the yes no tag; and an
+// assent outranks a tool's record, so a decision citing both is accepted.
+func TestFirstTypedPromptRule(t *testing.T) {
+	in := handInput()
+	for _, f := range Forms {
+		span := func(e int64, as string) Span {
+			if f == FormSegments {
+				return Span{E: e, S: 1, As: as}
+			}
+			return sq(e, in.Entries[e-1].Text, as)
+		}
+		for _, c := range []struct {
+			name string
+			ev   []Span
+			code string
+			tag  string
+		}{
+			{"a paste and a typed non-prompt between", []Span{span(1, "proposal"), span(4, "assent")}, "", TagAccepted},
+			{"the paste cited as the yes", []Span{span(1, "proposal"), span(2, "assent")}, "tag_too_low", TagSuggested},
+			{"the typed non-prompt cited as the yes", []Span{span(1, "proposal"), span(3, "assent")}, "tag_too_low", TagSuggested},
+			{"a hold-off between", []Span{span(5, "proposal"), span(7, "assent")}, "tag_too_low", TagSuggested},
+			{"the hold-off cited as the yes", []Span{span(5, "proposal"), span(6, "assent")}, "", TagAccepted},
+			{"an assent and a tool's record", []Span{span(8, "result"), span(1, "proposal"), span(4, "assent")}, "", TagAccepted},
+			{"a tool's record and a proposal", []Span{span(8, "result"), span(1, "proposal")}, "tag_too_low", TagObserved},
+		} {
+			j := judgeOne(in, nil, add("decision", "A dry run comes before every import.", c.ev...), f)
+			if j.Code != c.code || j.Tag != c.tag {
+				t.Errorf("%s: %s: code %q tag %q, want %q %q", f, c.name, j.Code, j.Tag, c.code, c.tag)
+			}
+		}
+	}
+}
+
+// TestTheFirstFailingSpanGivesTheCode: of an operation's spans that fail,
+// the first gives its code and place.
+func TestTheFirstFailingSpanGivesTheCode(t *testing.T) {
+	in := handInput()
+	missing, wrong := sq(99, "Shall I add a dry run?", "proposal"), sq(1, "Shall I add a wet run?", "proposal")
+	for _, c := range []struct {
+		ev          []Span
+		code, place string
+	}{
+		{[]Span{missing, wrong}, "bad_entry", "ev.1.e"},
+		{[]Span{wrong, missing}, "quote_not_found", "ev.1.q"},
+		{[]Span{sq(4, "yes", "assent"), wrong, missing}, "quote_not_found", "ev.2.q"},
+	} {
+		j := judgeOne(in, nil, Op{Op: "note", Kind: ptr("found"), Text: ptr("Noted."), Ev: c.ev}, FormQuotes)
+		if j.Code != c.code || j.Place != c.place {
+			t.Errorf("%+v: %q at %q, want %q at %q", c.ev, j.Code, j.Place, c.code, c.place)
+		}
+	}
+	seg := judgeOne(in, nil, Op{Op: "note", Kind: ptr("found"), Text: ptr("Noted."), Ev: []Span{{E: 1, S: 2, As: "report"}, {E: 99, S: 1, As: "report"}}}, FormSegments)
+	if seg.Code != "bad_segment" || seg.Place != "ev.1.s" {
+		t.Errorf("segments: %q at %q", seg.Code, seg.Place)
+	}
+}
+
+// TestThePromptsWrongExampleIsAccepted keeps a known limit in sight: the
+// prompt's negative example, a hold-off cited as a yes, passes the
+// checker, since the hold-off is the first typed prompt after the
+// proposal and the checker does not judge meaning. The plant measures,
+// not the checker, count this mistake (CHECK.md).
+func TestThePromptsWrongExampleIsAccepted(t *testing.T) {
+	for _, f := range Forms {
+		in := exampleInput(f)
+		good := Check(in, nil, parse(t, []byte(exampleAnswer[f]), f), f)
+		if got := codes(good); !slices.Equal(got, []string{"", "", "", ""}) {
+			t.Errorf("%s: the good example: %q", f, got)
+		}
+		wrong := Check(in, nil, parse(t, []byte(`{"ops":[`+exampleWrong[f]+`],"nothing":null}`), f), f)
+		if j := wrong.Ops[0]; !j.Accepted() || j.Tag != TagAccepted {
+			t.Errorf("%s: the wrong example: %q, tag %q", f, j.Code, j.Tag)
+		}
+	}
+}
