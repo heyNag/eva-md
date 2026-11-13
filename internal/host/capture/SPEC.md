@@ -34,7 +34,7 @@ The rules are tried in this order; the first that holds decides.
 | --- | --- | --- | --- | --- |
 | 1 | empty, or only white space | no event | `empty` | none |
 | 2 | the first word one of v1's builtin commands, in any case | no event | `builtin` | v1's list |
-| 3 | an agent id | `subagent` | `agent_id` | F-016 and, on Codex, the hosts' documents: subagent hooks carry `agent_id`; from source |
+| 3 | an agent id | `subagent` | `agent_id` | v1's list (the hook's `synthetic`); on Codex from source: a subagent's hooks carry `agent_id`, a main thread's never (note-evaluation, question 6) |
 | 4 | a source on the list | the list's author | `source` | F-016, v1's list |
 | 4 | any other non-empty source | `unknown` | `source_unlisted` | F-016, v1's list |
 | 5 | `<realtime_delegation>` after white space | section 4 | `voice`, or `wrapper` out of form | F-141, F-142, F-143, F-145, F-146; from source |

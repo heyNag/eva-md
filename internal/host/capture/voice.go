@@ -121,14 +121,12 @@ func handOver(prompt string) ([]event.Event, bool) {
 	transcript := ""
 	if h.transcript != nil {
 		transcript = unescape.Replace(*h.transcript)
-		for i, line := range strings.Split(transcript, "\n") {
+		// A first line the host's cut left short begins with the cut mark,
+		// so it has no head and is unknown, as any other line.
+		for _, line := range strings.Split(transcript, "\n") {
 			spoken, isSpoken := strings.CutPrefix(line, headSpoken)
 			front, isFront := strings.CutPrefix(line, headFront)
 			switch {
-			case i == 0 && strings.HasPrefix(transcript, cutMark):
-				// The cut left the first line short: whose it is, and
-				// what it said, are not known.
-				add(event.AuthorUnknown, line)
 			case isSpoken && repeats(spoken, request):
 				// The host adds the request as a user line.
 				add(event.AuthorUnknown, line)
