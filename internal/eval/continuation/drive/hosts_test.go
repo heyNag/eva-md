@@ -12,7 +12,7 @@ import (
 func TestEveryHostHasAnEntry(t *testing.T) {
 	for _, h := range adapter.All() {
 		e, ok := hosts[h.ID]
-		if !ok || e.Argv == nil || len(e.Off) == 0 || e.Plugin == nil || e.Read == nil {
+		if !ok || e.Argv == nil || len(e.Off) == 0 || e.Plugin == nil || e.Read == nil || len(e.ConfigEnv) == 0 {
 			t.Fatalf("%s: %+v", h.ID, e)
 		}
 	}
@@ -21,25 +21,26 @@ func TestEveryHostHasAnEntry(t *testing.T) {
 	}
 }
 
-// Each host's arguments: the prompt, the turn bound where the host has
-// one, the model, the session continued and the condition's flags.
+// Each host's arguments: the turn bound where the host has one, the
+// model, the session continued, the condition's flags, and the prompt
+// last, after "--", so that one that starts with "-" is no flag.
 func TestArgv(t *testing.T) {
-	c := chat{Prompt: "a made-up prompt", Turns: 7, Model: "made-up-model", Resume: "s-1", Extra: []string{"--x", "y"}}
+	c := chat{Prompt: "- a made-up prompt that opens with a list item", Turns: 7, Model: "made-up-model", Resume: "s-1", Extra: []string{"--x", "y"}}
 	cc := hosts[adapter.ClaudeCode].Argv(c)
-	if want := []string{"-p", "a made-up prompt", "--output-format", "stream-json", "--verbose", "--max-turns", "7", "--permission-mode", "bypassPermissions",
-		"--model", "made-up-model", "--resume", "s-1", "--x", "y"}; !slices.Equal(cc, want) {
+	if want := []string{"-p", "--output-format", "stream-json", "--verbose", "--max-turns", "7", "--permission-mode", "bypassPermissions",
+		"--model", "made-up-model", "--resume", "s-1", "--x", "y", "--", c.Prompt}; !slices.Equal(cc, want) {
 		t.Fatalf("Claude Code: %q", cc)
 	}
 	cx := hosts[adapter.Codex].Argv(c)
 	if want := []string{"exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "--model", "made-up-model", "--x", "y",
-		"resume", "s-1", "a made-up prompt"}; !slices.Equal(cx, want) {
+		"resume", "s-1", "--", c.Prompt}; !slices.Equal(cx, want) {
 		t.Fatalf("Codex: %q", cx)
 	}
 	c.Resume, c.Model = "", ""
-	if got := hosts[adapter.Codex].Argv(c); slices.Contains(got, "resume") || slices.Contains(got, "--model") || got[len(got)-1] != c.Prompt {
+	if got := hosts[adapter.Codex].Argv(c); slices.Contains(got, "resume") || slices.Contains(got, "--model") || !slices.Equal(got[len(got)-2:], []string{"--", c.Prompt}) {
 		t.Fatalf("Codex, a start: %q", got)
 	}
-	if got := hosts[adapter.ClaudeCode].Argv(c); slices.Contains(got, "--resume") || slices.Contains(got, "--model") {
+	if got := hosts[adapter.ClaudeCode].Argv(c); slices.Contains(got, "--resume") || slices.Contains(got, "--model") || !slices.Equal(got[len(got)-2:], []string{"--", c.Prompt}) {
 		t.Fatalf("Claude Code, a start: %q", got)
 	}
 }
@@ -52,10 +53,10 @@ func TestReadStreamJSON(t *testing.T) {
 a notice that is not JSON
 {"type":"assistant","session_id":"s-9","message":{"model":"m-a","content":[{"type":"tool_use"},{"type":"text"},{"type":"tool_use"}]}}
 {"type":"assistant","session_id":"s-9","message":{"model":"m-a","content":[{"type":"tool_use"}]}}
-{"type":"result","is_error":false,"session_id":"s-9","usage":{"input_tokens":1,"output_tokens":1},"modelUsage":{"m-b":{"inputTokens":10,"cacheCreationInputTokens":5,"cacheReadInputTokens":100,"outputTokens":3},"m-a":{"inputTokens":20,"cacheReadInputTokens":200,"outputTokens":40}}}
+{"type":"result","subtype":"success","is_error":false,"session_id":"s-9","usage":{"input_tokens":1,"output_tokens":1},"modelUsage":{"m-b":{"inputTokens":10,"cacheCreationInputTokens":5,"cacheReadInputTokens":100,"outputTokens":3},"m-a":{"inputTokens":20,"cacheReadInputTokens":200,"outputTokens":40}}}
 `)
 	got := readStreamJSON(out)
-	want := report{Session: "s-9", AgentEvents: 3, PromptTokens: 335, CachedTokens: 300, OutputTokens: 43, Model: "m-a"}
+	want := report{Session: "s-9", AgentEvents: 3, PromptTokens: 335, CachedTokens: 300, OutputTokens: 43, Model: "m-a", Answered: true}
 	if got != want {
 		t.Fatalf("%+v, want %+v", got, want)
 	}
@@ -64,14 +65,30 @@ a notice that is not JSON
 	if want := (report{Session: "s-2", PromptTokens: 12, CachedTokens: 6, OutputTokens: 9, Model: "m-c", Fail: CodeRateLimited}); usage != want {
 		t.Fatalf("%+v, want %+v", usage, want)
 	}
-	for status, code := range map[int]string{401: CodeSignIn, 403: CodeSignIn, 429: CodeRateLimited, 500: ""} {
-		r := readStreamJSON([]byte(`{"type":"result","is_error":true,"api_error_status":` + strconv.Itoa(status) + `}`))
-		if r.Fail != code {
-			t.Fatalf("status %d: %q", status, r.Fail)
+	// Sign-in and rate limit have their codes; any other error, a failure
+	// of the host's service among them, is no answer and has no code.
+	for status, code := range map[int]string{401: CodeSignIn, 403: CodeSignIn, 429: CodeRateLimited, 500: "", 529: ""} {
+		r := readStreamJSON([]byte(`{"type":"result","subtype":"error_during_execution","is_error":true,"api_error_status":` + strconv.Itoa(status) + `}`))
+		if r.Fail != code || r.Answered {
+			t.Fatalf("status %d: %+v", status, r)
 		}
 	}
-	if r := readStreamJSON([]byte(`{"type":"result","is_error":false,"api_error_status":401}`)); r.Fail != "" {
-		t.Fatalf("an answer that is no error failed: %q", r.Fail)
+	for name, c := range map[string]struct {
+		out      string
+		answered bool
+	}{
+		"no error, though a status":     {`{"type":"result","subtype":"success","is_error":false,"api_error_status":401}`, true},
+		"the turn bound":                {`{"type":"result","subtype":"error_max_turns","is_error":true}`, true},
+		"an error with no status":       {`{"type":"result","subtype":"success","is_error":true}`, false},
+		"an error subtype":              {`{"type":"result","subtype":"error_during_execution","is_error":false}`, false},
+		"no result":                     {`{"type":"system","subtype":"init","session_id":"s-1"}`, false},
+		"nothing":                       {``, false},
+		"an answer after a failed one":  {`{"type":"result","is_error":true,"api_error_status":500}` + "\n" + `{"type":"result","subtype":"success","is_error":false}`, false},
+		"an answer before a failed one": {`{"type":"result","subtype":"success","is_error":false}` + "\n" + `{"type":"result","is_error":true,"api_error_status":500}`, false},
+	} {
+		if r := readStreamJSON([]byte(c.out)); r.Fail != "" || r.Answered != c.answered {
+			t.Fatalf("%s: %+v", name, r)
+		}
 	}
 }
 
@@ -89,16 +106,21 @@ func TestReadExecJSON(t *testing.T) {
 {"type":"turn.completed","model":"m-x","usage":{"input_tokens":500,"cached_input_tokens":300,"output_tokens":20}}
 {"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":30,"output_tokens":2}}
 `)
-	if got, want := readExecJSON(out), (report{Session: "th-1", AgentEvents: 2, PromptTokens: 550, CachedTokens: 330, OutputTokens: 22, Model: "m-x"}); got != want {
+	if got, want := readExecJSON(out), (report{Session: "th-1", AgentEvents: 2, PromptTokens: 550, CachedTokens: 330, OutputTokens: 22, Model: "m-x", Answered: true}); got != want {
 		t.Fatalf("%+v, want %+v", got, want)
 	}
+	// Sign-in and rate limit have their codes; any other failure, and an
+	// output with no completed turn, is no answer.
 	for line, code := range map[string]string{
-		`{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized"}}`: CodeSignIn,
-		`{"type":"error","message":"stream error: 429 Too Many Requests"}`:                CodeRateLimited,
-		`{"type":"turn.failed","error":{"message":"the model could not finish"}}`:         "",
+		`{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized"}}`:    CodeSignIn,
+		`{"type":"error","message":"stream error: 429 Too Many Requests"}`:                   CodeRateLimited,
+		`{"type":"turn.failed","error":{"message":"the model could not finish"}}`:            "",
+		`{"type":"turn.failed","error":{"message":"unexpected status 529"}}`:                 "",
+		`{"type":"turn.completed","usage":{}}` + "\n" + `{"type":"error","message":"a 5xx"}`: "",
+		`{"type":"thread.started","thread_id":"th-2"}`:                                       "",
 	} {
-		if got := readExecJSON([]byte(line)); got.Fail != code {
-			t.Fatalf("%s: %q", line, got.Fail)
+		if got := readExecJSON([]byte(line)); got.Fail != code || got.Answered {
+			t.Fatalf("%s: %+v", line, got)
 		}
 	}
 }

@@ -2,14 +2,18 @@ package drive
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -406,15 +410,65 @@ func TestMaxTokens(t *testing.T) {
 	perTrial := r.script.Prompt + r.script.Output
 	r.opts.MaxTokens = perTrial
 	s, out, err := r.run()
-	if err != nil || s.Judged != 1 || s.NotRun != 2 || s.Tokens != perTrial || !strings.Contains(out, "trial hidden-banner.t2: not run, --max-tokens reached") {
+	if err != nil || s.Judged != 1 || s.NotRun != 2 || s.Tokens != perTrial || !strings.Contains(out, "trial hidden-banner.t2 and the 1 after it: not run, --max-tokens reached\n") {
 		t.Fatalf("run: %+v %v\n%s", s, err, out)
 	}
 	if starts := countMode(r.calls(), "start"); starts != 1 {
 		t.Fatalf("%d sessions started", starts)
 	}
 	r.opts.MaxTokens = perTrial + 1
-	if s, out, err = r.run(); err != nil || s.Judged != 2 || s.NotRun != 1 {
+	if s, out, err = r.run(); err != nil || s.Judged != 2 || s.NotRun != 1 || !strings.Contains(out, "trial hidden-banner.t3 and the 0 after it: not run") {
 		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+}
+
+// The trials not run are counted in one line, however many there are, and
+// a plan too large to count is refused: neither runs on past a ceiling.
+func TestCeilingsOnAHugePlan(t *testing.T) {
+	r := newRig(t, 1)
+	r.opts.Condition = task.Oracle
+	r.opts.Trials, r.opts.MaxSessions = 1<<40, 1<<41
+	r.opts.MaxTokens = r.script.Prompt + r.script.Output
+	s, out, err := r.run()
+	if err != nil || s.Judged != 1 || s.NotRun != 1<<40-1 || strings.Count(out, "\n") != 5 {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+	if starts := countMode(r.calls(), "start"); starts != 1 {
+		t.Fatalf("%d sessions started", starts)
+	}
+	// Two tasks of math.MaxInt trials each: the count would wrap.
+	second(t, r)
+	r.opts.Trials, r.opts.MaxSessions = math.MaxInt, 1
+	s, out, err = r.run()
+	var usage *UsageError
+	if !errors.As(err, &usage) || !strings.Contains(out, "tasks 2, trials "+strconv.Itoa(math.MaxInt)+" each, sessions over ") {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+	if starts := countMode(r.calls(), "start"); starts != 1 {
+		t.Fatalf("%d sessions started", starts)
+	}
+}
+
+// second adds a second task to the rig's tasks, the fixture's under
+// another id.
+func second(t *testing.T, r *rig) {
+	t.Helper()
+	tk, err := task.Load(r.script.Task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(r.opts.Tasks, "hidden-banner-two")
+	if err := os.CopyFS(dir, os.DirFS(r.script.Task)); err != nil {
+		t.Fatal(err)
+	}
+	tk.ID = "hidden-banner-two"
+	data, err := json.MarshalIndent(tk, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, task.FileName), string(data)+"\n")
+	if all, err := task.LoadAll(r.opts.Tasks); err != nil || len(all) != 2 {
+		t.Fatalf("%d tasks: %v", len(all), err)
 	}
 }
 
@@ -697,4 +751,239 @@ func TestUsageErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --pass-env passes no variable that points a host, git or the XDG
+// folders at a configuration outside the trial, or reaches the invoking
+// user's keys, and none whose value reaches the invoking home: each is
+// refused before anything starts.
+func TestPassEnvThatReachesOutIsRefused(t *testing.T) {
+	for name, c := range map[string]struct{ name, value string }{
+		"a host's configuration":  {"CODEX_HOME", "/made-up/codex"},
+		"another host's":          {"CLAUDE_CONFIG_DIR", "/made-up/claude"},
+		"git's":                   {"GIT_CONFIG_GLOBAL", "/made-up/gitconfig"},
+		"git's folder":            {"GIT_DIR", "/made-up/repo/.git"},
+		"the XDG folders":         {"XDG_CONFIG_HOME", "/made-up/config"},
+		"the keys":                {"SSH_AUTH_SOCK", "/made-up/agent.sock"},
+		"the home":                {"EVAL_MADE_UP_DIR", "{home}"},
+		"in the home":             {"EVAL_MADE_UP_DIR", "{home}/.config/made-up"},
+		"in the home, unresolved": {"EVAL_MADE_UP_DIR", "{home}/../home/.made-up"},
+		"holding the home":        {"EVAL_MADE_UP_DIR", "/"},
+		"in a list":               {"EVAL_MADE_UP_PATH", "/made-up/bin:{home}/bin"},
+		"after an =":              {"EVAL_MADE_UP_OPTS", "--config={home}/x.toml"},
+		"by a tilde":              {"EVAL_MADE_UP_DIR", "~/.made-up"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			t.Setenv(c.name, strings.ReplaceAll(c.value, "{home}", os.Getenv("HOME")))
+			r.opts.PassEnv = append(r.opts.PassEnv, c.name)
+			_, out, err := r.run()
+			var usage *UsageError
+			if !errors.As(err, &usage) || out != "" {
+				t.Fatalf("run: %v\n%s", err, out)
+			}
+			if calls := r.calls(); len(calls) != 0 {
+				t.Fatalf("the fake ran: %+v", calls)
+			}
+		})
+	}
+	// A path outside the home, and a short switch, pass.
+	r := newRig(t, 1)
+	t.Setenv("EVAL_MADE_UP_DIR", filepath.Join(r.base, "elsewhere")+string(filepath.ListSeparator)+"/usr/bin")
+	t.Setenv("EVAL_MADE_UP_SWITCH", "1")
+	r.opts.PassEnv = append(r.opts.PassEnv, "EVAL_MADE_UP_DIR", "EVAL_MADE_UP_SWITCH")
+	if s, out, err := r.run(); err != nil || s.Judged != 1 {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+}
+
+// A passed value the host names as its model reaches no row: the rows are
+// refused and the run stops.
+func TestAPassedValueAsTheModelWritesNoRow(t *testing.T) {
+	r := newRig(t, 1)
+	const secret = "made-up-key-qx7z31-not-real"
+	t.Setenv("EVAL_MADE_UP_KEY", secret)
+	r.opts.PassEnv = append(r.opts.PassEnv, "EVAL_MADE_UP_KEY")
+	r.script.Model = secret
+	s, out, err := r.run()
+	if err == nil || s.Judged != 0 || strings.Contains(out, secret) || strings.Contains(err.Error(), secret) {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+	if rows := r.rows(); rows != nil {
+		t.Fatalf("rows: %+v", rows)
+	}
+}
+
+// A call that gives no answer is never graded and writes no row: a
+// failure of the host's service, an exit having printed nothing, a CLI
+// killed by a signal, and an answer naming no session when the trial
+// needs a follow-up. Each stops the run with an error, since the closed
+// list has no code for it. A failure in the second round writes no row
+// for the first either.
+func TestCallsWithNoAnswerWriteNoRow(t *testing.T) {
+	for _, h := range adapter.All() {
+		for name, set := range map[string]func(s *fakehost.Script){
+			"a 529":              func(s *fakehost.Script) { s.Status = 529 },
+			"a 500":              func(s *fakehost.Script) { s.Status = 500 },
+			"nothing printed":    func(s *fakehost.Script) { s.Empty = true },
+			"killed":             func(s *fakehost.Script) { s.Killed = true },
+			"no session":         func(s *fakehost.Script) { s.NoSession = true },
+			"a 529 in round two": func(s *fakehost.Script) { s.Status, s.From = 529, 2 },
+			"killed in round two": func(s *fakehost.Script) {
+				s.Killed, s.From = true, 2
+			},
+		} {
+			t.Run(string(h.ID)+"/"+name, func(t *testing.T) {
+				r := newRig(t, 1)
+				r.opts.Host = string(h.ID)
+				set(&r.script)
+				s, out, err := r.run()
+				if err == nil || s.Judged != 0 || len(s.Unjudged) != 0 || strings.Contains(out, "solved") {
+					t.Fatalf("run: %+v %v\n%s", s, err, out)
+				}
+				if rows := r.rows(); rows != nil {
+					t.Fatalf("rows: %+v", rows)
+				}
+				want := 1
+				if r.script.From == 2 {
+					want = 2
+				}
+				if chats := len(r.calls()) - countMode(r.calls(), "version"); chats != want {
+					t.Fatalf("%d chats, want %d", chats, want)
+				}
+			})
+		}
+	}
+}
+
+// An answer that names no session is graded when no follow-up is needed,
+// and one that ends at the turn bound, exiting 1, is graded as it stands.
+func TestAnswersThatAreGraded(t *testing.T) {
+	r := newRig(t, 1)
+	r.opts.Condition = task.Oracle
+	r.script.NoSession = true
+	if s, out, err := r.run(); err != nil || s.Judged != 1 {
+		t.Fatalf("no session: %+v %v\n%s", s, err, out)
+	}
+	r = newRig(t, 1)
+	r.script.TurnBound = true
+	s, out, err := r.run()
+	if err != nil || s.Judged != 1 || !strings.Contains(out, "solved 1, first try 0, corrections 1, rounds 2") {
+		t.Fatalf("the turn bound: %+v %v\n%s", s, err, out)
+	}
+}
+
+// A stalled call's whole process group is killed at the session's limit:
+// the fake's child, which holds the call's output, goes with it, so the
+// trial ends at once as timeout, with no row. The limit ends at an exact
+// point, once the child runs; were the child left alive, the wait for the
+// output would last the raised waitDelay, past the guard.
+func TestStalledSessionsGroupIsKilled(t *testing.T) {
+	for _, h := range adapter.All() {
+		t.Run(string(h.ID), func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Host = string(h.ID)
+			ready := filepath.Join(r.base, "ready")
+			if err := syscall.Mkfifo(ready, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			r.script.Stall, r.script.Ready = true, ready
+			var limits []time.Duration
+			r.opts.sessionLimit = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+				limits = append(limits, d)
+				c, cancel := context.WithCancel(ctx)
+				go func() {
+					// Opening blocks until the child opens the pipe to write.
+					if f, err := os.Open(ready); err == nil {
+						_, _ = io.ReadAll(f)
+						_ = f.Close()
+					}
+					cancel()
+				}()
+				return c, cancel
+			}
+			res := guarded(t, r)
+			if res.err != nil || res.s.Unjudged[CodeTimeout] != 1 || res.s.Judged != 0 || !strings.Contains(res.out, "unjudged, timeout") {
+				t.Fatalf("run: %+v %v\n%s", res.s, res.err, res.out)
+			}
+			if rows := r.rows(); rows != nil {
+				t.Fatalf("an unjudged trial wrote rows: %+v", rows)
+			}
+			if !slices.Equal(limits, []time.Duration{time.Hour}) || countMode(r.calls(), "start") != 1 {
+				t.Fatalf("limits %v, calls %+v", limits, r.calls())
+			}
+		})
+	}
+}
+
+// A call that answers and exits leaving a child that holds its output is
+// graded at once: the child is killed with the call's group as soon as the
+// call has exited, so it can neither hold the trial nor edit the workspace
+// while it is graded.
+func TestALeftChildIsKilled(t *testing.T) {
+	for _, h := range adapter.All() {
+		t.Run(string(h.ID), func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Host = string(h.ID)
+			r.script.Leave = true
+			res := guarded(t, r)
+			want := task.Outcome{Solved: true, Corrections: 1, Rounds: 2, AgentEvents: 4, PromptTokens: 2000, CachedTokens: 1200, OutputTokens: 100, WallMs: 2000}
+			if res.err != nil || res.s.Judged != 1 {
+				t.Fatalf("run: %+v %v\n%s", res.s, res.err, res.out)
+			}
+			if got := timeless(r.rows()); !reflect.DeepEqual(got, r.wantRows(1, want, "fake-model-1")) {
+				t.Fatalf("rows:\n%+v\nwant\n%+v", got, r.wantRows(1, want, "fake-model-1"))
+			}
+		})
+	}
+}
+
+// The session's time limit bounds its calls, not their grading: each call
+// is given what is left of it, and a call past it leaves the trial
+// unjudged, timeout, with no row, though an earlier round was graded.
+func TestSessionLimitIsForCalls(t *testing.T) {
+	r := newRig(t, 1)
+	var limits []time.Duration
+	r.opts.sessionLimit = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+		limits = append(limits, d)
+		c, cancel := context.WithCancel(ctx)
+		if len(limits) == 2 {
+			cancel()
+		}
+		return c, cancel
+	}
+	s, out, err := r.run()
+	if err != nil || s.Unjudged[CodeTimeout] != 1 || s.Judged != 0 {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+	if rows := r.rows(); rows != nil {
+		t.Fatalf("rows: %+v", rows)
+	}
+	if len(limits) != 2 || limits[0] != r.opts.SessionTimeout || limits[1] >= limits[0] || limits[1] <= 0 {
+		t.Fatalf("limits %v", limits)
+	}
+}
+
+type guardedResult struct {
+	s   Summary
+	out string
+	err error
+}
+
+// guarded runs the rig, failing when the run does not end within a guard
+// far above any run here.
+func guarded(t *testing.T, r *rig) guardedResult {
+	t.Helper()
+	done := make(chan guardedResult, 1)
+	go func() {
+		s, out, err := r.run()
+		done <- guardedResult{s, out, err}
+	}()
+	select {
+	case res := <-done:
+		return res
+	case <-time.After(5 * time.Minute):
+		t.Fatal("the run did not end: a process the call left holds its output")
+	}
+	return guardedResult{}
 }

@@ -12,10 +12,13 @@
 // a line of Calls in the script's folder: its arguments, the names of its
 // variables (and the values of the four the driver builds), its folder,
 // its prompt, its session and the files of its folder before it changed
-// any, and those of the folder that holds it. Then it lays the task's decoy/ overlay over the folder until every
-// one of the script's facts has appeared in a prompt of the session, and
-// its solution/ overlay after. A script can make it stall until it is
-// killed, fail its sign-in or a rate limit, or name another model.
+// any, and those of the folder that holds it. Then it lays the task's
+// decoy/ overlay over the folder until every one of the script's facts has
+// appeared in a prompt of the session, and its solution/ overlay after. A
+// script can make it stall until it is killed, with a child holding its
+// output; leave such a child behind an answer; fail its sign-in, a rate
+// limit or with another status; exit having printed nothing; kill itself;
+// answer with no session, or at the turn bound; or name another model.
 //
 // Only tests import it.
 package fakehost
@@ -27,6 +30,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
@@ -65,12 +69,38 @@ type Script struct {
 	Prompt int64 `json:"prompt"`
 	Cached int64 `json:"cached"`
 	Output int64 `json:"output"`
-	// Stall makes a call block until it is killed, SignIn and RateLimited
-	// make it fail as the host does.
-	Stall       bool `json:"stall"`
+	// Stall makes a call start a child that holds its stdout, then block,
+	// as the child does, until it is killed. Ready, when set, is a named
+	// pipe the child writes a line to once it runs.
+	Stall bool   `json:"stall"`
+	Ready string `json:"ready"`
+	// Leave makes a call answer as usual and exit, leaving such a child
+	// behind, blocked until it is killed.
+	Leave bool `json:"leave"`
+	// SignIn and RateLimited make a call fail as the host does, with 401
+	// and 429; Status with any other HTTP status, such as a 529 or a 500.
 	SignIn      bool `json:"sign_in"`
 	RateLimited bool `json:"rate_limited"`
+	Status      int  `json:"status"`
+	// Empty makes a call exit 1 having printed nothing; Killed makes it
+	// kill itself with SIGKILL.
+	Empty  bool `json:"empty"`
+	Killed bool `json:"killed"`
+	// From is the first round of a session the failures above (SignIn to
+	// Killed) apply to; 0 is the first.
+	From int `json:"from"`
+	// NoSession makes an answer name no session.
+	NoSession bool `json:"no_session"`
+	// TurnBound makes an answer end at the turn bound, as the host says it,
+	// exiting 1 (Claude Code's shape; Codex's exec has no turn bound, and
+	// answers as usual).
+	TurnBound bool `json:"turn_bound"`
 }
+
+// ChildVar is the variable that makes the test binary a fake's child: it
+// writes a line to the named pipe the variable names, when it names one,
+// and blocks until it is killed.
+const ChildVar = "EVA_FAKEHOST_CHILD"
 
 // Call is one recorded call.
 type Call struct {
@@ -92,6 +122,9 @@ type Call struct {
 // Main runs the fake and exits when the process is a host's CLI with a
 // script; otherwise it returns at once.
 func Main() {
+	if ready, ok := os.LookupEnv(ChildVar); ok {
+		child(ready)
+	}
 	file := os.Getenv(ScriptVar)
 	if file == "" {
 		return
@@ -167,6 +200,9 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		return 3
 	}
 	if s.Stall {
+		if spawn(s.Ready) != nil {
+			return 3
+		}
 		block()
 	}
 	model := s.Model
@@ -176,14 +212,22 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	if model == "" {
 		model = "fake-model-1"
 	}
-	if s.SignIn || s.RateLimited {
-		fail(host.ID, s, c.Session, out)
-		return 1
-	}
 	prompts := []string{c.Prompt}
 	for _, x := range calls {
-		if x.Session == c.Session && x.Mode != "version" {
+		if x.Session == c.Session && x.Mode != "version" && x.Mode != "other" {
 			prompts = append(prompts, x.Prompt)
+		}
+	}
+	if round := len(prompts); round >= s.From {
+		switch {
+		case s.Killed:
+			_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+			block()
+		case s.Empty:
+			return 1
+		case s.SignIn || s.RateLimited || s.Status != 0:
+			fail(host.ID, s, c.Session, out)
+			return 1
 		}
 	}
 	overlay := task.OverlayDecoy
@@ -193,15 +237,60 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	if err := lay(s.Task, overlay, dir); err != nil {
 		return 3
 	}
-	answer(host.ID, s, c.Session, model, out)
+	session := c.Session
+	if s.NoSession {
+		session = ""
+	}
+	if s.Leave && spawn("") != nil {
+		return 3
+	}
+	answer(host.ID, s, session, model, out)
+	if s.TurnBound && host.ID == adapter.ClaudeCode {
+		return 1
+	}
 	return 0
+}
+
+// spawn starts the test binary again as a child (ChildVar) that holds
+// this process's stdout and blocks until it is killed, writing a line to
+// the named pipe ready, when given, once it runs. It stays in this
+// process's group.
+func spawn(ready string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe)
+	cmd.Env = append(os.Environ(), ChildVar+"="+ready)
+	cmd.Stdout = os.Stdout
+	return cmd.Start()
+}
+
+// child is the fake's child: it tells the named pipe ready, when given,
+// that it runs, then blocks until it is killed.
+func child(ready string) {
+	if ready != "" {
+		f, err := os.OpenFile(ready, os.O_WRONLY, 0)
+		if err != nil {
+			os.Exit(3)
+		}
+		_, _ = f.WriteString("running\n")
+		_ = f.Close()
+	}
+	block()
 }
 
 // parse reads the prompt, the session continued and the model asked for
 // from the arguments, as the driver's host table writes them, and reports
 // whether they are a headless chat in that shape.
 func parse(id adapter.ID, c *Call) bool {
-	args := c.Args
+	// The prompt is the one argument after "--"; the flags come before it.
+	end := slices.Index(c.Args, "--")
+	if end < 0 || end != len(c.Args)-2 {
+		return false
+	}
+	args := c.Args[:end]
+	c.Prompt = c.Args[end+1]
 	value := func(flag string) string {
 		if i := slices.Index(args, flag); i >= 0 && i+1 < len(args) {
 			return args[i+1]
@@ -211,14 +300,12 @@ func parse(id adapter.ID, c *Call) bool {
 	c.Model = value("--model")
 	switch id {
 	case adapter.ClaudeCode:
-		c.Prompt = value("-p")
 		c.Session = value("--resume")
 		return slices.Contains(args, "-p")
 	case adapter.Codex:
-		if len(args) < 2 || args[0] != "exec" {
+		if len(args) < 1 || args[0] != "exec" {
 			return false
 		}
-		c.Prompt = args[len(args)-1]
 		c.Session = value("resume")
 		return true
 	}
@@ -376,7 +463,11 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 		}
 		emit(out, map[string]any{"type": "assistant", "session_id": session,
 			"message": map[string]any{"model": model, "content": []any{map[string]any{"type": "text", "text": "Done."}}}})
-		emit(out, map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": session,
+		subtype := "success"
+		if s.TurnBound {
+			subtype = "error_max_turns"
+		}
+		emit(out, map[string]any{"type": "result", "subtype": subtype, "is_error": s.TurnBound, "session_id": session,
 			"usage":      map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output},
 			"modelUsage": map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}})
 	case adapter.Codex:
@@ -391,12 +482,15 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 	}
 }
 
-// fail writes a failed answer in the host's shape: a sign-in refused, or a
-// rate limit.
+// fail writes a failed answer in the host's shape: a sign-in refused, a
+// rate limit, or the script's status.
 func fail(id adapter.ID, s Script, session string, out io.Writer) {
-	status := 429
-	if s.SignIn {
+	status := s.Status
+	switch {
+	case s.SignIn:
 		status = 401
+	case s.RateLimited:
+		status = 429
 	}
 	switch id {
 	case adapter.ClaudeCode:

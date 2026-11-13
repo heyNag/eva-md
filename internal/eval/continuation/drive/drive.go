@@ -16,12 +16,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/heyNag/eva-md/internal/eval/continuation/task"
 	"github.com/heyNag/eva-md/internal/eval/results"
@@ -78,6 +81,11 @@ type Options struct {
 	Delivered func(t Trial, fact string) (bool, error)
 	// Clock is the run's clock; nil is time.Now.
 	Clock func() time.Time
+
+	// sessionLimit gives a call's context, which ends when what is left of
+	// the session's time limit, d, has passed; nil is context.WithTimeout.
+	// A test ends it at an exact point instead.
+	sessionLimit func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
 }
 
 // Dirs are a trial's folders.
@@ -177,6 +185,72 @@ var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // builtEnv are the variables the driver sets itself.
 var builtEnv = []string{"HOME", "PATH", "TMPDIR", "GIT_CONFIG_NOSYSTEM"}
 
+// redirectEnv are the variables --pass-env never passes besides the
+// hosts' ConfigEnv: those that point git, or any program that follows the
+// XDG folders, at a configuration other than the trial home's, and those
+// that reach the invoking user's keys.
+var (
+	redirectPrefixes = []string{"GIT_", "XDG_"}
+	redirectNames    = []string{"GNUPGHOME", "SSH_AUTH_SOCK"}
+)
+
+// redirects reports whether --pass-env may not pass the variable name.
+func redirects(name string) bool {
+	if slices.Contains(redirectNames, name) {
+		return true
+	}
+	for _, p := range redirectPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	for _, e := range hosts {
+		if slices.Contains(e.ConfigEnv, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// reachesHome reports whether value holds a path, or a list of paths, one
+// of which is in the folder home, holds it, or starts with "~": a value
+// that would point a chat back at the invoking home. home is absolute and
+// its links resolved.
+func reachesHome(value, home string) bool {
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == filepath.ListSeparator || r == '=' || r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
+	})
+	for _, part := range parts {
+		switch {
+		case strings.HasPrefix(part, "~"):
+			return true
+		case !filepath.IsAbs(part):
+			continue
+		}
+		p := resolveOr(filepath.Clean(part))
+		if within(p, home) || within(home, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// forbidMinimum is the fewest letters and digits a passed value has for
+// the rows to be checked for it. The store matches a word by its letters
+// and digits in any field, so a short value, such as a switch's 1, would
+// be found in every commit; a key or a path is longer.
+const forbidMinimum = 8
+
+func lettersAndDigits(s string) int {
+	n := 0
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			n++
+		}
+	}
+	return n
+}
+
 // plan is a checked run.
 type plan struct {
 	opts   Options
@@ -232,17 +306,30 @@ func prepare(o Options) (*plan, error) {
 			return nil, usagef("--eva-md: %v", err)
 		}
 	}
+	home, err := invokingHome()
+	if err != nil {
+		return nil, err
+	}
 	for i, name := range o.PassEnv {
 		switch {
 		case !envName.MatchString(name):
 			return nil, usagef("--pass-env %d is not a variable's name", i+1)
 		case slices.Contains(builtEnv, name):
 			return nil, usagef("--pass-env %s is one the driver sets itself", name)
+		case redirects(name):
+			return nil, usagef("--pass-env %s would point the chat at a configuration outside its trial", name)
 		case slices.Contains(o.PassEnv[:i], name):
 			return nil, usagef("--pass-env %s is given twice", name)
 		}
-		if _, set := os.LookupEnv(name); !set {
+		value, set := os.LookupEnv(name)
+		if !set {
 			return nil, usagef("--pass-env %s is not set", name)
+		}
+		if reachesHome(value, home) {
+			return nil, usagef("--pass-env %s holds a path that reaches the invoking home", name)
+		}
+		if lettersAndDigits(value) >= forbidMinimum {
+			p.forbid = append(p.forbid, value)
 		}
 	}
 	if p.work, err = checkWork(o); err != nil {
@@ -255,6 +342,18 @@ func prepare(o Options) (*plan, error) {
 		p.forbid = append(p.forbid, task.Forbid(t)...)
 	}
 	return p, nil
+}
+
+// invokingHome is the invoking home, absolute and with its links resolved.
+func invokingHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(home) {
+		return "", usagef("the invoking home is not known, so the trials cannot be shown to be outside it")
+	}
+	if home, err = resolve(home); err != nil {
+		return "", usagef("the invoking home cannot be read")
+	}
+	return home, nil
 }
 
 // idPattern is a results id.
@@ -292,11 +391,19 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
-	s := Summary{Planned: len(p.tasks) * o.Trials, Unjudged: map[string]int{}}
-	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %d; ceilings: sessions %d, tokens %d\n",
-		o.Condition, p.host.ID, len(p.tasks), o.Trials, s.Planned, o.MaxSessions, o.MaxTokens)
-	if int64(s.Planned) > o.MaxSessions {
-		return s, usagef("the plan's %d sessions are over --max-sessions %d", s.Planned, o.MaxSessions)
+	s := Summary{Unjudged: map[string]int{}}
+	// The plan's sessions, counted only when the count is an int: a count
+	// past that is over any ceiling.
+	sessions := "over " + strconv.Itoa(math.MaxInt)
+	countable := len(p.tasks) == 0 || o.Trials <= math.MaxInt/len(p.tasks)
+	if countable {
+		s.Planned = len(p.tasks) * o.Trials
+		sessions = strconv.Itoa(s.Planned)
+	}
+	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %s; ceilings: sessions %d, tokens %d\n",
+		o.Condition, p.host.ID, len(p.tasks), o.Trials, sessions, o.MaxSessions, o.MaxTokens)
+	if !countable || int64(s.Planned) > o.MaxSessions {
+		return s, usagef("the plan's %s sessions are over --max-sessions %d", sessions, o.MaxSessions)
 	}
 	if !o.Spend {
 		return s, ErrNoQuota
@@ -319,13 +426,17 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	}
 	fmt.Fprintf(out, "run %s\n", s.Run)
 	store := results.Store{Dir: o.Out, Forbid: p.forbid}
+	done := 0
+trials:
 	for _, t := range p.tasks {
 		for n := 1; n <= o.Trials; n++ {
 			if s.Tokens >= o.MaxTokens {
-				s.NotRun++
-				fmt.Fprintf(out, "trial %s.t%d: not run, --max-tokens reached\n", t.ID, n)
-				continue
+				// The rest are counted, in one line, not listed.
+				s.NotRun = s.Planned - done
+				fmt.Fprintf(out, "trial %s.t%d and the %d after it: not run, --max-tokens reached\n", t.ID, n, s.NotRun-1)
+				break trials
 			}
+			done++
 			r, err := p.trial(ctx, s.Run, t, n)
 			s.Tokens += r.tokens
 			if err != nil {

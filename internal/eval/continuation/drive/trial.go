@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,16 +143,11 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	extra = append(extra, launch.Args...)
 
 	s := session{p: p, tr: tr, env: env, extra: extra}
-	sctx, cancel := context.WithTimeout(ctx, p.opts.SessionTimeout)
-	code, err := s.run(sctx)
-	cancel()
+	code, err := s.run(ctx)
 	res.tokens = s.outcome.PromptTokens + s.outcome.OutputTokens
 	res.outcome, res.model = s.outcome, s.model
-	switch {
-	case ctx.Err() != nil:
+	if ctx.Err() != nil {
 		return res, ctx.Err()
-	case code == "" && err != nil && sctx.Err() != nil:
-		code, err = CodeTimeout, nil
 	}
 	if code != "" || err != nil {
 		res.unjudged = code
@@ -209,11 +205,18 @@ type session struct {
 	extra   []string
 	outcome task.Outcome
 	model   string
+	// spent is the time the session's calls took, which --session-timeout
+	// bounds; grading is not counted.
+	spent time.Duration
 }
 
+// errTimeout is a call's error when the session's time limit ended it.
+var errTimeout = errors.New("the session's time limit was reached")
+
 // run runs the chat until every hidden test passes or the task's rounds
-// are spent. It returns a code when the trial is unjudged. An error with
-// ctx ended is the session's time limit.
+// are spent. It returns a code when the trial is unjudged, CodeTimeout
+// among them when the session's calls ran past its time limit. Grading
+// runs under ctx, the run's, each hidden test within its own limit.
 func (s *session) run(ctx context.Context) (string, error) {
 	t := s.tr.Task
 	prompt, err := task.FirstPrompt(t, s.tr.Condition)
@@ -225,6 +228,9 @@ func (s *session) run(ctx context.Context) (string, error) {
 	id := ""
 	for round := 1; ; round++ {
 		r, err := s.call(ctx, chat{Prompt: prompt, Turns: t.MaxTurns, Model: s.p.opts.Model, Resume: id, Extra: s.extra})
+		if errors.Is(err, errTimeout) {
+			return CodeTimeout, nil
+		}
 		if err != nil {
 			return "", err
 		}
@@ -260,8 +266,13 @@ func (s *session) run(ctx context.Context) (string, error) {
 			s.outcome.FirstTry = round == 1
 			break
 		}
-		if round >= t.MaxRounds || id == "" {
+		if round >= t.MaxRounds {
 			break
+		}
+		if id == "" {
+			// The follow-up the card gives this trial cannot be sent to the
+			// same session: the trial is no measure of the condition.
+			return "", errors.New("the host named no session to continue")
 		}
 		var failing []string
 		var facts []task.Fact
@@ -320,22 +331,53 @@ func followUp(failing []string, facts []task.Fact) string {
 	return b.String()
 }
 
-// call runs one headless call of the chat in the workspace and reads its
-// output. The time it took is added to the outcome.
+// call runs one headless call of the chat in the workspace, within what
+// is left of the session's time limit, and reads its output. The time it
+// took is added to the outcome. A call ended by the limit gives
+// errTimeout. A call that gives no answer is an error, which stops the
+// run and writes no row for the trial: one killed by a signal, or one
+// whose output holds no answer (a failure of the host's service, an exit
+// that printed nothing, an output with no final event). Only a failure
+// the host names and the closed list has a code for leaves the trial
+// unjudged: sign-in and rate limit. A call that exits other than 0 with an
+// answer, as at the turn bound, is graded as it stands.
 func (s *session) call(ctx context.Context, c chat) (report, error) {
-	start := s.p.opts.Clock()
-	out, err := runGroup(ctx, s.tr.CLI, s.p.entry.Argv(c), s.env, s.tr.Dirs.Workspace, outputLimit)
-	s.outcome.WallMs += s.p.opts.Clock().Sub(start).Milliseconds()
-	if ctx.Err() != nil {
-		return report{}, ctx.Err()
+	left := s.p.opts.SessionTimeout - s.spent
+	if left <= 0 {
+		return report{}, errTimeout
 	}
-	r := s.p.entry.Read(out)
+	limit := s.p.opts.sessionLimit
+	if limit == nil {
+		limit = context.WithTimeout
+	}
+	cctx, cancel := limit(ctx, left)
+	defer cancel()
+	start, began := s.p.opts.Clock(), time.Now()
+	out, err := runGroup(cctx, s.tr.CLI, s.p.entry.Argv(c), s.env, s.tr.Dirs.Workspace, outputLimit)
+	s.spent += time.Since(began)
+	s.outcome.WallMs += s.p.opts.Clock().Sub(start).Milliseconds()
+	switch {
+	case ctx.Err() != nil:
+		return report{}, ctx.Err()
+	case cctx.Err() != nil:
+		return report{}, errTimeout
+	}
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {
 		return report{}, fmt.Errorf("the host's CLI: %w", pathless(err))
 	}
-	// A call that exits other than 0 for no reason the host names, such as
-	// the turn bound, is graded as it stands.
+	r := s.p.entry.Read(out)
+	if r.Fail != "" {
+		return r, nil
+	}
+	if exit != nil {
+		if ws, ok := exit.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return report{}, errors.New("the host's CLI was ended by a signal")
+		}
+	}
+	if !r.Answered {
+		return report{}, errors.New("the host's CLI gave no answer")
+	}
 	return r, nil
 }
 
@@ -355,22 +397,49 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 // runGroup runs cli in dir with exactly the environment env, in a process
-// group of its own that is killed when ctx ends and once it has exited,
-// and gives the first limit bytes it printed on stdout. Its stderr is
-// dropped.
+// group of its own that is killed when ctx ends and as soon as cli has
+// exited, so that nothing it left running goes on editing the workspace
+// while it is graded, and gives the first limit bytes the group printed on
+// stdout. Its stderr is dropped. Its stdout is a pipe of runGroup's own,
+// so that the wait ends when cli exits, not when the last process holding
+// the pipe does; one that left the group and still holds it after
+// waitDelay is an error.
 func runGroup(ctx context.Context, cli string, args, env []string, dir string, limit int) ([]byte, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, pathless(err)
+	}
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Dir = dir
 	cmd.Env = env
+	cmd.Stdout = w
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = waitDelay
 	out := &cappedBuffer{limit: limit}
-	cmd.Stdout = out
-	err := cmd.Run()
-	if cmd.Process != nil {
+	copied := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(out, r)
+		close(copied)
+	}()
+	err = cmd.Start()
+	_ = w.Close()
+	if err == nil {
+		err = cmd.Wait()
 		_ = killGroup(cmd.Process.Pid)
 	}
+	held := time.NewTimer(waitDelay)
+	defer held.Stop()
+	select {
+	case <-copied:
+	case <-held.C:
+		_ = r.Close()
+		<-copied
+		if err == nil {
+			err = errors.New("a process the host's CLI started still holds its output")
+		}
+	}
+	_ = r.Close()
 	return out.buffer.Bytes(), err
 }
 

@@ -48,6 +48,12 @@ type report struct {
 	// answer for a reason that says nothing of the task: CodeSignIn or
 	// CodeRateLimited; "" otherwise.
 	Fail string
+	// Answered says the output holds the end of an answer: the host's
+	// final event of a call, and no failure. A call that gives no answer,
+	// such as one the host's service failed or one that printed nothing, is
+	// never graded, since what the workspace holds then says nothing of the
+	// chat.
+	Answered bool
 }
 
 // pluginLoad is how a chat loads eva-md's plugin: flags, and files written
@@ -70,6 +76,11 @@ type hostEntry struct {
 	Plugin func(home string, h adapter.Host) (pluginLoad, error)
 	// Read reads what one call printed on stdout.
 	Read func(out []byte) report
+	// ConfigEnv are the variables that point the host at a configuration
+	// folder of its own. --pass-env passes none of them, whatever the host,
+	// since one would give the chat the invoking home's settings, sign-in
+	// and trust records.
+	ConfigEnv []string
 }
 
 // hosts is the table, by the adapter's id.
@@ -87,8 +98,10 @@ var hosts = map[adapter.ID]hostEntry{
 	//   - F-067: the run is headless under an API key; its permission mode
 	//     lets the chat edit files and run tests in the trial's workspace.
 	adapter.ClaudeCode: {
+		// The prompt comes last, after "--", so that one that starts with "-"
+		// is read as no flag, and no flag that takes several values takes it.
 		Argv: func(c chat) []string {
-			args := []string{"-p", c.Prompt, "--output-format", "stream-json", "--verbose",
+			args := []string{"-p", "--output-format", "stream-json", "--verbose",
 				"--max-turns", strconv.Itoa(c.Turns), "--permission-mode", "bypassPermissions"}
 			if c.Model != "" {
 				args = append(args, "--model", c.Model)
@@ -96,7 +109,8 @@ var hosts = map[adapter.ID]hostEntry{
 			if c.Resume != "" {
 				args = append(args, "--resume", c.Resume)
 			}
-			return append(args, c.Extra...)
+			args = append(args, c.Extra...)
+			return append(args, "--", c.Prompt)
 		},
 		Off: []string{"--settings", `{"autoMemoryEnabled":false}`},
 		Plugin: func(home string, h adapter.Host) (pluginLoad, error) {
@@ -106,7 +120,8 @@ var hosts = map[adapter.ID]hostEntry{
 			}
 			return pluginLoad{Args: []string{"--settings", `{"autoMemoryEnabled":false}`, "--plugin-dir", dir}}, nil
 		},
-		Read: readStreamJSON,
+		Read:      readStreamJSON,
+		ConfigEnv: []string{"CLAUDE_CONFIG_DIR"},
 	},
 	// Codex.
 	//   - F-068: exec --json emits an item for each tool call.
@@ -133,7 +148,9 @@ var hosts = map[adapter.ID]hostEntry{
 			if c.Resume != "" {
 				args = append(args, "resume", c.Resume)
 			}
-			return append(args, c.Prompt)
+			// The prompt comes last, after "--", so that one that starts with
+			// "-" is read as no flag.
+			return append(args, "--", c.Prompt)
 		},
 		Off: []string{"--disable", "hooks", "--disable", "plugins"},
 		Plugin: func(home string, h adapter.Host) (pluginLoad, error) {
@@ -150,7 +167,8 @@ var hosts = map[adapter.ID]hostEntry{
 				Files: map[string][]byte{filepath.Join(".codex", "requirements.toml"): managed},
 			}, nil
 		},
-		Read: readExecJSON,
+		Read:      readExecJSON,
+		ConfigEnv: []string{"CODEX_HOME"},
 	},
 }
 
@@ -259,9 +277,13 @@ func num(raw json.RawMessage) int64 {
 // (every model call of the run) else by usage, and whether it failed for
 // sign-in (401 or 403) or a rate limit (429). The model that answered is
 // the one modelUsage credits with the most output tokens, else the last
-// assistant message's.
+// assistant message's. The call answered when a result event is no error,
+// or is the end of a run at its turn bound (subtype error_max_turns),
+// which leaves the chat's work as it stands; any other error, such as one
+// of the host's service (a 5xx), is no answer.
 func readStreamJSON(out []byte) report {
 	var r report
+	broken := false
 	lines(out, func(e map[string]json.RawMessage) {
 		if id := str(e["session_id"]); id != "" {
 			r.Session = id
@@ -308,16 +330,22 @@ func readStreamJSON(out []byte) report {
 			}
 			var failed bool
 			_ = json.Unmarshal(e["is_error"], &failed)
-			if failed {
-				switch num(e["api_error_status"]) {
-				case 401, 403:
-					r.Fail = CodeSignIn
-				case 429:
-					r.Fail = CodeRateLimited
-				}
+			subtype, status := str(e["subtype"]), num(e["api_error_status"])
+			switch {
+			case failed && (status == 401 || status == 403):
+				r.Fail = CodeSignIn
+			case failed && status == 429:
+				r.Fail = CodeRateLimited
+			case subtype == "error_max_turns":
+				r.Answered = true
+			case failed || strings.HasPrefix(subtype, "error"):
+				broken = true
+			default:
+				r.Answered = true
 			}
 		}
 	})
+	r.Answered = r.Answered && !broken
 	return r
 }
 
@@ -326,9 +354,12 @@ func readStreamJSON(out []byte) report {
 // agent's message, its reasoning or an error; the tokens of each
 // turn.completed, whose input already holds the cached ones; the model a
 // turn names; and from turn.failed or error whether it failed for sign-in
-// (401 or 403) or a rate limit (429).
+// (401 or 403) or a rate limit (429). The call answered when a turn
+// completed and none failed: exec has no turn bound, so a turn.failed or
+// an error event is no answer.
 func readExecJSON(out []byte) report {
 	var r report
+	broken := false
 	lines(out, func(e map[string]json.RawMessage) {
 		switch str(e["type"]) {
 		case "thread.started":
@@ -352,7 +383,9 @@ func readExecJSON(out []byte) report {
 			if m := str(e["model"]); m != "" {
 				r.Model = m
 			}
+			r.Answered = true
 		case "turn.failed", "error":
+			broken = true
 			var msg string
 			if raw, ok := e["error"]; ok {
 				var x struct {
@@ -371,5 +404,6 @@ func readExecJSON(out []byte) report {
 			}
 		}
 	})
+	r.Answered = r.Answered && !broken
 	return r
 }

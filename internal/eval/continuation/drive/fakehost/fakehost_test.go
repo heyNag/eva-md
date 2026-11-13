@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/heyNag/eva-md/internal/host/adapter"
@@ -37,8 +38,12 @@ func TestOtherCallsAreRefused(t *testing.T) {
 		{adapter.ClaudeCode, []string{"plugin", "list", "--json"}, 2, "other"},
 		{adapter.Codex, []string{"plugin", "list"}, 2, "other"},
 		{adapter.Codex, []string{"exec"}, 2, "other"},
+		{adapter.Codex, []string{"exec", "--json", "a made-up prompt"}, 2, "other"},
+		{adapter.ClaudeCode, []string{"-p", "a made-up prompt"}, 2, "other"},
+		{adapter.ClaudeCode, []string{"-p", "--", "a", "made-up prompt"}, 2, "other"},
 		{adapter.ClaudeCode, []string{"--version"}, 0, "version"},
-		{adapter.Codex, []string{"exec", "--json", "a made-up prompt"}, 0, "start"},
+		{adapter.Codex, []string{"exec", "--json", "--", "-a made-up prompt"}, 0, "start"},
+		{adapter.ClaudeCode, []string{"-p", "--", "--resume"}, 0, "start"},
 	}
 	for i, c := range cases {
 		h, _ := adapter.ByID(string(c.host))
@@ -52,6 +57,11 @@ func TestOtherCallsAreRefused(t *testing.T) {
 		}
 		if c.mode == "other" && out.Len() != 0 {
 			t.Fatalf("%v answered %q", c.args, out.String())
+		}
+		// The prompt is the argument after "--", even one that looks like a
+		// flag, and is never read as one.
+		if c.mode == "start" && (calls[i].Prompt != c.args[len(c.args)-1] || !strings.HasPrefix(calls[i].Session, "fake-session-")) {
+			t.Fatalf("%v: %+v", c.args, calls[i])
 		}
 	}
 }
