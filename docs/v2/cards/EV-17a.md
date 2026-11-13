@@ -49,3 +49,16 @@ Everything else. `internal/eval/results` and `cmd/eva-eval/main.go` are read, ne
 - `Grade` on the three tasks gives exact pass and fail sets on the start, the solution and the decoy, and the workspace is unchanged; a stub test that blocks until its context ends, with `limit_s` 1, fails.
 - `Rows` gives exact rows for a made-up outcome, and the catalogue's `Check` accepts every row it can give; a value in a task's id is refused by `Validate`, and in a row by the Store with `Forbid(t)`.
 - `FirstPrompt` is exact under each condition.
+
+## As merged
+
+Merged from `pkg/ev-17a-r1` on 2026-11-13, after a review, a fix round and a verification that accepted it. Its builder was cut off once at the start, by a usage limit, and its first reviewer by a restart of the machine. The fix round's check failed in the benchmark alone, on a busy machine; nothing a hook runs imports the package.
+
+Accepted as built, beyond the card: a test's `limit_s` is refused over 3,600 seconds, and a hidden task with no fact is refused. An error names a repository by its place in the task's list, never by its name or a path.
+
+For EV-17e, which writes the real tasks:
+
+- **A test that cannot fail passes on every state.** A runner whose pattern matches no test exits 0. `Check` catches that only for a test that holds a fact in a hidden task, through the decoy. Each task's author makes sure each test can fail; a later card may make `Check` ask it of every test.
+- **The catalogue's metrics cover a folder that does not exist yet**, `eval/continuation/testdata`. EV-17e creates it before any gate or baseline of the continuation instrument is added.
+
+The kill of a test's process group is tested through a test whose context ends and through one that exits leaving a child, not through one that runs out of its time: a short limit could end the stub before it had started its child on a slow machine, and both paths end the group the same way.
