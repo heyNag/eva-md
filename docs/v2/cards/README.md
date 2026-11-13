@@ -41,8 +41,8 @@ Rules every card carries, so they are said once here:
 | [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | merged |
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | merged |
-| [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | ready, since DV-03a is merged |
-| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b |
+| [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | merged; a short second round builds four rulings of the lead's |
+| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | ready once DV-03b's second round is merged |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
 | [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | ready; it replaces the card for a pilot's own driver (the ruling below the table) |
@@ -94,7 +94,7 @@ Rules every card carries, so they are said once here:
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | merged |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | merged, with a second round for two rulings of the lead's; the pilot runs on it, and its host table waits for the pilot's recordings |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost; the pilot's v1 arm | after EV-17g, since both change the driver; real runs after decision 28's keys |
-| [EV-17g](EV-17g.md) | The continuation driver's guards before a live run | ready; two reviewers; before any live session |
+| [EV-17g](EV-17g.md) | The continuation driver's guards before a live run | building since 2026-11-13; two reviewers; before any live session |
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; EV-17f adds the check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03); it also settles grading as another user and the build cache grading uses (EV-17g checks a chat's reach for hidden files) |
 | [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | ready; two reviewers; its first run on a real release is the owner's next cut |
