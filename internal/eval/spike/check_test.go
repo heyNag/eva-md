@@ -72,7 +72,7 @@ func codes(v Verdict) []string {
 
 // faithful are the scripts that have a faithful canned answer for each of
 // their passes.
-var faithful = []string{"v1.03", "v1.05", "v1.08", "assent.01", "assent.02"}
+var faithful = []string{"v1.03", "v1.05", "v1.06", "v1.08", "assent.01", "assent.02"}
 
 // TestFaithfulAnswersAreAcceptedWhole: every faithful canned answer, in
 // both forms, is accepted whole, each pass judged against what the store
@@ -195,7 +195,8 @@ func TestQuoteMatch(t *testing.T) {
 		found bool
 	}{
 		{"exact", 6, strict, true},
-		{"a part of eight characters", 6, "a dry ru", true},
+		{"a part of eight characters", 6, "dry run,", true},
+		{"a part that ends inside a word", 6, "a dry ru", false},
 		{"doubled space", 6, strings.Replace(strict, "dry run", "dry  run", 1), true},
 		{"a tab and a line break", 6, strings.Replace(strict, "a dry run", "a\tdry\n  run", 1), true},
 		{"space at either end", 6, "  " + strict + " ", true},
@@ -637,6 +638,27 @@ func TestGrounding(t *testing.T) {
 			t.Errorf("%q citing the whole entry: code %q", c.text, j.Code)
 		}
 	}
+	// A faithful rewording of a number joined to a word is grounded; a
+	// number cut from a name or a path is not.
+	joined := "Use a 30-second timeout and a 5-minute backoff, at most 3/day, on PELICAN-6, under src/main/java."
+	jin := renderSession(t, FormQuotes, joined)
+	for _, c := range []struct {
+		text string
+		ok   bool
+	}{
+		{"The timeout is 30 seconds.", true},
+		{"Back off for 5 minutes.", true},
+		{"Run it at most 3 times a day.", true},
+		{"Run it on PELICAN-6.", true},
+		{"Run it on 6.", false},
+		{"The timeout is 20 seconds.", false},
+		{"Keep it under src/main.", false},
+	} {
+		j := judgeOne(jin, nil, add("constraint", c.text, sq(1, joined, "said")), FormQuotes)
+		if j.Accepted() != c.ok || (!c.ok && j.Code != "ungrounded") {
+			t.Errorf("%q citing the whole entry: code %q", c.text, j.Code)
+		}
+	}
 }
 
 // TestGroundTokens: the tokens that must be grounded, and where a token is
@@ -689,6 +711,29 @@ func TestGroundTokens(t *testing.T) {
 		{"", "5", false},
 		{"Gö 1.26", "1.26", true},
 		{"Gö1.26", "1.26", false},
+		// A number ends at a hyphen or a slash followed by a letter; a
+		// digit after the joiner, or a token that is a path or a name,
+		// still goes on.
+		{"a 30-second timeout", "30", true},
+		{"a 5-minute wait", "5", true},
+		{"at most 3/day", "3", true},
+		{"a 1,500-page book", "1,500", true},
+		{"a 2.5-hour run", "2.5", true},
+		{"at -5-degree nights", "-5", true},
+		{"a 30-Second timeout", "30", true},
+		{"a 30-second timeout", "3", false},
+		{"a 30-second timeout", "0", false},
+		{"cache for 5.5 s", "5", false},
+		{"cache 1,500 rows", "500", false},
+		{"pin PELICAN-6", "6", false},
+		{"pin PELICAN-6-beta", "6", false},
+		{"in src/main/java", "src/main", false},
+		{"in v2-beta", "v2", false},
+		{"in v2/docs", "v2", false},
+		{"retry 2-3 times", "2", false},
+		{"3/4 done", "3", false},
+		{"a 30-", "30", true},
+		{"a 30-- dash", "30", true},
 	} {
 		if holds(c.words, c.tok) != c.ok {
 			t.Errorf("holds(%q, %q) = %v", c.words, c.tok, !c.ok)
@@ -879,6 +924,195 @@ func TestThePromptsWrongExampleIsAccepted(t *testing.T) {
 		wrong := Check(in, nil, parse(t, []byte(`{"ops":[`+exampleWrong[f]+`],"nothing":null}`), f), f)
 		if j := wrong.Ops[0]; !j.Accepted() || j.Tag != TagAccepted {
 			t.Errorf("%s: the wrong example: %q, tag %q", f, j.Code, j.Tag)
+		}
+	}
+}
+
+// renderSession renders a made-up session of typed prompts, one a text,
+// in form f.
+func renderSession(t *testing.T, f Form, texts ...string) Input {
+	t.Helper()
+	s := scenario.Session{ID: "made-up-lines", Branch: "main"}
+	for i, text := range texts {
+		s.Turns = append(s.Turns, scenario.Turn{At: time.Date(2026, 4, 7, 9, i, 0, 0, time.UTC), Author: event.AuthorTyped, Kind: event.KindPrompt, Text: text})
+	}
+	in, err := Render(s, nil, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return in
+}
+
+// note is a note citing ev, which any tag may hold.
+func note(ev ...Span) Op { return Op{Op: "note", Kind: ptr("found"), Text: ptr("Noted."), Ev: ev} }
+
+// TestQuoteWordBoundary: a quote starts and ends at a word boundary. A
+// quote whose first character is a letter, a digit or a combining mark is
+// not found where one of those stands right before it, nor one whose last
+// is where one stands right after it, in any script; an edge that is
+// punctuation or a space may stand next to anything.
+func TestQuoteWordBoundary(t *testing.T) {
+	texts := []string{
+		"It is unacceptable to ship this week.",
+		"Мы считаем это неприемлемым решением сейчас.",
+		"The café is open (see: the docs)again.",
+		"ok",
+		"Ship it at 30-second intervals, then 2x faster.",
+	}
+	in := renderSession(t, FormQuotes, texts...)
+	for _, c := range []struct {
+		name  string
+		e     int64
+		q     string
+		found bool
+	}{
+		{"a word's tail", 1, "acceptable to ship", false},
+		{"the whole word", 1, "unacceptable to ship", true},
+		{"starts inside a word", 1, "t is unaccep", false},
+		{"ends inside a word", 1, "It is unaccep", false},
+		{"the whole entry", 1, texts[0], true},
+		{"ends at punctuation", 1, "to ship this week.", true},
+		{"ends before punctuation", 1, "to ship this week", true},
+		{"starts at punctuation after a letter", 3, ": the docs)", true},
+		{"ends at punctuation before a letter", 3, "(see: the docs)", true},
+		{"ends inside the word after punctuation", 3, "the docs)agai", false},
+		{"next to a Cyrillic letter", 2, "приемлемым решением", false},
+		{"a whole Cyrillic word", 2, "неприемлемым решением", true},
+		{"cut before a combining mark", 3, "The cafe", false},
+		{"with its combining mark", 3, "The café is", true},
+		{"a short entry whole", 4, "ok", true},
+		{"a number's part", 5, "0-second intervals", false},
+		{"a number whole", 5, "30-second intervals", true},
+		{"a dash's edge", 5, "-second intervals", true},
+		{"a digit next to a letter", 5, "intervals, then 2", false},
+	} {
+		j := judgeOne(in, nil, note(sq(c.e, c.q, "said")), FormQuotes)
+		if found := j.Code != "quote_not_found"; found != c.found {
+			t.Errorf("%s: %q in entry %d: code %q", c.name, c.q, c.e, j.Code)
+		}
+	}
+	// Where a quote is found once inside a word and once whole, it is
+	// found.
+	twice := renderSession(t, FormQuotes, "unacceptable to ship; acceptable to ship")
+	if j := judgeOne(twice, nil, note(sq(1, "acceptable to ship", "said")), FormQuotes); !j.Accepted() {
+		t.Errorf("found whole the second time: %q", j.Code)
+	}
+	// The canned faithful answers quote whole words: they stay accepted
+	// whole (TestFaithfulAnswersAreAcceptedWhole), and a segment is whole
+	// by construction.
+	seg := renderSession(t, FormSegments, texts[0])
+	if j := judgeOne(seg, nil, note(Span{E: 1, S: 1, As: "said"}), FormSegments); !j.Accepted() {
+		t.Errorf("a segment: %q", j.Code)
+	}
+}
+
+// TestPastedLinesAreNotTheUsersWords: in v1.06 the user pastes an old
+// thread into a typed prompt, and the renderer marks its lines as quoted.
+// A span that lies wholly in those lines is what the user showed, tagged
+// external as an entry pasted whole is, so a decision citing only them is
+// tag_too_low, in both forms, as assent or as said; one that also cites,
+// or takes in, the user's own line keeps the user's tag.
+func TestPastedLinesAreNotTheUsersWords(t *testing.T) {
+	s := scriptByID(t, "v1.06")
+	own := "Here is what the old thread said:"
+	pasted := "Decision: we will use Postgres, PELICAN-6."
+	agreed := "agreed, PELICAN-6 it is"
+	for _, f := range Forms {
+		in := renderPass(t, s, 1, nil, f)
+		span := func(q string, k int64, as string) Span {
+			if f == FormSegments {
+				return Span{E: 1, S: k, As: as}
+			}
+			return sq(1, q, as)
+		}
+		for _, c := range []struct {
+			name string
+			ev   []Span
+			code string
+			tag  string
+		}{
+			{"the pasted decision as said", []Span{span(pasted, 2, "said")}, "tag_too_low", TagExternal},
+			{"the pasted agreement as assent", []Span{span(pasted, 2, "proposal"), span(agreed, 3, "assent")}, "tag_too_low", TagExternal},
+			{"the user's own line beside them", []Span{span(own, 1, "said"), span(pasted, 2, "said")}, "", TagStated},
+		} {
+			j := judgeOne(in, nil, add("decision", "The old thread decided on Postgres, PELICAN-6.", c.ev...), f)
+			if j.Code != c.code || j.Tag != c.tag {
+				t.Errorf("%s: %s: code %q tag %q, want %q %q", f, c.name, j.Code, j.Tag, c.code, c.tag)
+			}
+		}
+		// The canned answer that cites the paste as a decision: both of its
+		// decisions on the paste are too low, the user's own is accepted.
+		v := Check(in, nil, parse(t, canned(t, f, "v1.06.1.paste-decision"), f), f)
+		if got := codes(v); !slices.Equal(got, []string{"tag_too_low", "tag_too_low", ""}) {
+			t.Errorf("%s: the paste cited as a decision: %q", f, got)
+		}
+		if v.Ops[0].Tag != TagExternal || v.Ops[2].Tag != TagStated {
+			t.Errorf("%s: tags %q and %q", f, v.Ops[0].Tag, v.Ops[2].Tag)
+		}
+	}
+	// In the quotes form a quote that takes in a line of each kind keeps
+	// the user's tag.
+	in := renderPass(t, s, 1, nil, FormQuotes)
+	both := "the old thread said: [quoted] [assistant] 2026-01-10 09:00: Decision: we will use Postgres, PELICAN-6."
+	if j := judgeOne(in, nil, add("decision", "The old thread decided on Postgres, PELICAN-6.", sq(1, both, "said")), FormQuotes); !j.Accepted() || j.Tag != TagStated {
+		t.Errorf("a quote across both kinds of line: %q, tag %q", j.Code, j.Tag)
+	}
+}
+
+// TestQuotedLinesByForm: which spans lie wholly in quoted lines, in each
+// form. A line the renderer marks is quoted to its end, its later
+// sentences included; a segment marked in the middle of the user's own
+// line, and a quote of the same words, are the user's; words found both in
+// a quoted line and in the user's own are the user's; a chosen entry's
+// quoted line is external too.
+func TestQuotedLinesByForm(t *testing.T) {
+	text := "Here it is.\n[x] Use the relay. It is quiet.\nDone. [7] user typed: yes, keep it"
+	seg := renderSession(t, FormSegments, text)
+	if got := seg.Entries[0].Segments; len(got) != 5 {
+		t.Fatalf("segments %q", got)
+	}
+	for k, tag := range []string{TagStated, TagExternal, TagExternal, TagStated, TagStated} {
+		if j := judgeOne(seg, nil, note(Span{E: 1, S: int64(k + 1), As: "said"}), FormSegments); !j.Accepted() || j.Tag != tag {
+			t.Errorf("segment %d (%q): %q, tag %q, want %q", k+1, seg.Entries[0].Segments[k], j.Code, j.Tag, tag)
+		}
+	}
+	quotes := renderSession(t, FormQuotes, text, "[y] It is quiet.\nIt is quiet, I said.")
+	for _, c := range []struct {
+		e   int64
+		q   string
+		tag string
+	}{
+		{1, "Here it is.", TagStated},
+		{1, "[quoted] [x] Use the relay.", TagExternal},
+		{1, "It is quiet.", TagExternal},
+		{1, "Use the relay. It is quiet.", TagExternal},
+		{1, "It is quiet. Done.", TagStated},
+		{1, "Here it is. [quoted] [x]", TagStated},
+		{1, "[7] user typed: yes", TagStated},
+		{2, "It is quiet", TagStated},
+	} {
+		if j := judgeOne(quotes, nil, note(sq(c.e, c.q, "said")), FormQuotes); !j.Accepted() || j.Tag != c.tag {
+			t.Errorf("%q in entry %d: %q, tag %q, want %q", c.q, c.e, j.Code, j.Tag, c.tag)
+		}
+	}
+	// A chosen entry's quoted line, and an entry built by hand whose
+	// segments the renderer would not give, marked by its own segment.
+	in := Input{Entries: []Entry{
+		{N: 1, Session: "made-up-hand", Author: event.AuthorChosen, Kind: event.KindDialog, Text: Mark + "[a] Keep the relay small", Segments: []string{Mark + "[a] Keep the relay small"}},
+		{N: 2, Session: "made-up-hand", Author: event.AuthorTyped, Kind: event.KindPrompt, Text: "Mine. Theirs.", Segments: []string{"Mine, all of it.", Mark + "[b] theirs"}},
+	}}
+	for _, c := range []struct {
+		f   Form
+		sp  Span
+		tag string
+	}{
+		{FormQuotes, sq(1, Mark+"[a] Keep the relay small", "said"), TagExternal},
+		{FormSegments, Span{E: 1, S: 1, As: "said"}, TagExternal},
+		{FormSegments, Span{E: 2, S: 1, As: "said"}, TagStated},
+		{FormSegments, Span{E: 2, S: 2, As: "said"}, TagExternal},
+	} {
+		if j := judgeOne(in, nil, note(c.sp), c.f); !j.Accepted() || j.Tag != c.tag {
+			t.Errorf("%s %+v: %q, tag %q, want %q", c.f, c.sp, j.Code, j.Tag, c.tag)
 		}
 	}
 }
