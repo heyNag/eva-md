@@ -419,11 +419,12 @@ func TestCodexContentHash(t *testing.T) {
 		}
 	}
 	// Without each file's size, a then b would hash as one file a whose
-	// bytes run on into b's path and bytes.
+	// bytes run on into b's path, the two separators that stand around the
+	// size, and b's bytes.
 	two, one := realTemp(t), realTemp(t)
 	write(t, filepath.Join(two, "a"), "1")
 	write(t, filepath.Join(two, "b"), "2")
-	write(t, filepath.Join(one, "a"), "1b\x002")
+	write(t, filepath.Join(one, "a"), "1b\x00\x002")
 	if h2, err := CodexContentHash(two); err != nil {
 		t.Fatal(err)
 	} else if h1, _ := CodexContentHash(one); h1 == h2 {
