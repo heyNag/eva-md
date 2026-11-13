@@ -63,7 +63,7 @@ Rules every card carries, so they are said once here:
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
-| [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | ready |
+| [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | building since 2026-11-13 |
 | [DV-11b](DV-11b.md) | The runner's Codex backend | after DV-11a and HO-14; beside DV-11c |
 | [DV-11c](DV-11c.md) | The runner's Claude Code backend | after DV-11a; beside DV-11b |
 | [HO-13a](HO-13a.md) | The signed release manifest, and its check in Go | not before the Stage 0 readout (decision 9); open then: one approval of a cut or two, and whether the manifest's first format carries the day it was published |
