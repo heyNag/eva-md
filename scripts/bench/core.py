@@ -287,12 +287,13 @@ def context(output):
     return value.get("hookSpecificOutput", {}).get("additionalContext", value.get("additionalContext", ""))
 
 
-# The gate. Each round runs each binary twice, as two roles: old and
-# old_again, new and new_again, in the order schedule gives, so at the
-# default two rounds each binary has four runs. decide takes each role's
-# samples by run, and compares the old binary's runs, pooled, with the new
-# one's, by the lower bound of the bootstrap interval (LEVEL, DRAWS draws, a
-# fixed seed) of the ratio of the new p95 to the old one.
+# The gate, by its third rule (RULE). Each round runs each binary twice, as
+# two roles: old and old_again, new and new_again, in the order schedule
+# gives, so at the default three rounds each binary has six runs. decide
+# takes each role's samples by run, and compares the old binary's runs,
+# pooled, with the new one's twice: by the lower bound of the bootstrap
+# interval (LEVEL, DRAWS draws, a fixed seed) of the ratio of the new p95 to
+# the old one, and by that of the ratio of their medians.
 #
 # The controls are splits of the runs into two sides that each hold half of
 # the old binary's runs and half of the new one's: 18 at two rounds, the two
@@ -304,60 +305,72 @@ def context(output):
 # much between the sides of some split as between the two binaries. A
 # change cancels out too, unless it is large: then each side's p95 comes
 # from its runs of the slower binary alone, and the controls would measure
-# two of its runs against two. So when the binaries' typical runs differ by
+# its runs against each other. So when the binaries' typical runs differ by
 # more than THRESHOLD (the ratio of the lower medians of their runs'
 # medians, which load on half of a binary's runs or fewer leaves where it
 # was), the controls first bring the new binary's samples to THRESHOLD of
 # the old one's (aligned). A figure's noise is the NOISE_QUANTILE, by
-# nearest rank, of its controls' lower bounds, both ways, and at least 1:
-# the fourth largest of 36 at two rounds, the eighth of 72 at three.
+# nearest rank, of its controls' lower bounds of the p95, both ways, and at
+# least 1: the sixth largest of 72 at three rounds, the third of 36 at two.
+# Its median's noise is the same of the controls' bounds of the median.
 #
 # A figure is judged only with at least WHOLE samples on each binary's
 # side. One with fewer is listed as having too few samples, and neither
 # fails nor passes; when it is short only because a scenario failed in some
 # runs (each run, given as many samples as the figure's fullest, would have
 # reached WHOLE), the gate is not judged, to be run again. A judged figure
-# whose noise is above THRESHOLD is too noisy to judge, and cannot fail.
-# When NOISY_FIGURES or more judged figures are too noisy to judge, the
-# machine was too noisy, and the whole verdict stops. So it does when one of
-# a binary's runs was more than QUICK times as quick as its next, over all
-# the judged figures (run_levels): load on all of a binary's runs but
-# one is what no control can tell from a change, since every split has a
-# loaded run on each side. Only the runs themselves call the machine noisy.
-# Otherwise a figure fails when its lower bound is above THRESHOLD times its
-# noise, or when the lower bound of the interval of the new binary's p95 is
-# above its ceiling and the old binary's p95 is not. One whose lower bound
-# is above THRESHOLD but not above THRESHOLD times its noise is unsettled. A
-# figure too noisy to judge, or unsettled, stops nothing: another figure
-# that failed still fails the gate, and without one the gate is not judged.
-# The controls have no ceiling: a fixed ceiling says where a binary sits,
-# not how noisy the machine is.
+# whose noise is above THRESHOLD has a p95 too noisy to judge; when
+# NOISY_FIGURES or more have, the machine was too noisy, and the whole
+# verdict stops. So it does when one of a binary's runs was more than QUICK
+# times as quick as the median of its other runs, over all the judged
+# figures (run_levels): load on all of a binary's runs but one, or on half
+# of them, is what no control can tell from a change, since every split has
+# loaded runs on each side. Only the runs themselves call the machine
+# noisy. Otherwise each figure is judged on its p95 when that is not too
+# noisy, and on its median when that is not: it fails when a lower bound is
+# above its threshold (THRESHOLD for the p95, MEDIAN_THRESHOLD for the
+# median) times its noise, or when the lower bound of the interval of the
+# new binary's p95 is above its ceiling and the old binary's p95 is not. A
+# lower bound above its threshold but not above that times its noise leaves
+# the figure unsettled; a figure neither can judge is too noisy to judge.
+# Either stops nothing: another figure that failed still fails the gate,
+# and without one the gate is not judged. The controls have no ceiling: a
+# fixed ceiling says where a binary sits, not how noisy the machine is.
 ROLES = ("old", "new", "old_again", "new_again")
 BINARY = {"old": "old", "old_again": "old", "new": "new", "new_again": "new"}
 ROLES_OF = {"old": ("old", "old_again"), "new": ("new", "new_again")}
 RULE = 3  # the rule's number, which gate.json records
 ROUNDS = 3  # the gate's rounds unless --rounds says otherwise
 THRESHOLD = 1.15
+# The median's own threshold. Its controls' bounds are far tighter than the
+# p95's, so a rise of one hook alone, which the p95 of 100 to 150 samples a
+# side seldom tells from noise, shows in it; a lower one, 1.10, failed an
+# unchanged binary on a quiet machine where its runs differed by chance.
+MEDIAN_THRESHOLD = 1.15
 MEDIAN = 0.5
-MEDIAN_THRESHOLD = 1.15  # the median's own bound
 DRAWS = 2000
 SEED = 0x65766120  # fixed; changing it changes every interval
 LEVEL = 0.95  # the interval's coverage; its lower bound is the 2.5% quantile
 WHOLE = 100  # the samples on each binary's side a figure needs to be judged
 # The samples a figure gets in each of the gate's runs at least, so that at
 # ROUNDS rounds each binary gives it WHOLE even when one of its runs is
-# lost to a failed scenario (Run.loops): 34 at two rounds.
+# lost to a failed scenario (Run.loops): 20 at three rounds, where the
+# second rule's two rounds took 34.
 GATE_RUN_SAMPLES = -(-WHOLE // (2*ROUNDS-1))
 SPLITS = 36  # the most controls a figure has
-NOISE_QUANTILE = 0.89  # of the controls' lower bounds: the fourth largest of 36
-NOISY_FIGURES = 2  # the figures too noisy to judge that call the machine too noisy
-# A binary's run more than QUICK times as quick as its next calls the
-# machine too noisy (one_quick_run). It is below THRESHOLD: load on three of
-# a binary's four runs of a little over THRESHOLD leaves the run it missed
-# less than THRESHOLD quicker once the runs differ by chance as well, while
-# the pooled samples still put a figure past THRESHOLD. The runs of an
-# unchanged binary on a quiet machine differ by far less: by 1.043 at most
-# in the 20 such gates of the proof.
+# Of the controls' lower bounds: the sixth largest of 72. The eighth (0.89),
+# the second rule's, failed unchanged binaries by their p95 on the saved
+# gates under a mild load and on CI's runner.
+NOISE_QUANTILE = 0.92
+NOISY_FIGURES = 2  # the figures whose p95 is too noisy that call the machine too noisy
+# A binary's run more than QUICK times as quick as the lower median of its
+# other runs calls the machine too noisy (one_quick_run). It is below
+# THRESHOLD: a mild load (1.1 to 1.3) on half the new binary's runs, or on
+# all but one, leaves the median of its others on a loaded run, while the
+# pooled samples can put a figure past THRESHOLD and no control sees it.
+# On a quiet machine the runs of an unchanged binary differ by less; how
+# often it trips there, and what 1.08 and 1.09 cost instead, are in
+# docs/v2/baselines/README.md.
 QUICK = 1.10
 # A scenario the new binary failed in at least BROKEN of its runs more than
 # the old one fails the gate; in at least LOST of them, the verdict is "not

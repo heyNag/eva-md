@@ -309,7 +309,8 @@ class Decide(unittest.TestCase):
         d = decide(startup, {"startup": 600})
         self.assertEqual((d["verdict"], d["too_few_samples"]), ("fail", []))
 
-    def test_the_noise_is_the_fourth_largest_bound_and_at_least_1(self):
+    def test_the_noise_is_the_third_largest_bound_and_at_least_1(self):
+        # At two rounds the 0.92 quantile of 36 bounds is the third largest.
         cases = ((runs_of("capture", {"old": (1, 1, 1, 1.3), "new": (1.3, 1.05, 1, 1)}), 1.15),
                  (runs_of("capture", {"new": (1.195,)*4}, n=25, spread=0.3), 1.0))
         for parts, at_least in cases:
@@ -323,41 +324,56 @@ class Decide(unittest.TestCase):
                 bounds += [low, 1/high]
             bounds.sort()
             m = decide(parts, {"capture": 100})["metrics"]["capture"]
-            self.assertEqual(m["noise"], round(max(1.0, bounds[-4]), 3))
+            self.assertEqual(m["noise"], round(max(1.0, bounds[-3]), 3))
             if at_least == 1.0:
-                self.assertLess(bounds[-4], 1.0)
-                # A rise whose bound is above 1.15 times the
-                # fourth largest bound, but not above 1.15.
-                self.assertTrue(1.15*bounds[-4] < m["ratio_low"] <= 1.15, (bounds[-4], m["ratio_low"]))
-                self.assertEqual(m["reasons"], [])
+                self.assertLess(bounds[-3], 1.0)
+                # A rise whose bound is above 1.15 times the third largest
+                # bound, but not above 1.15: the p95 does not fail it.
+                self.assertTrue(1.15*bounds[-3] < m["ratio_low"] <= 1.15, (bounds[-3], m["ratio_low"]))
+                self.assertFalse(any(r.startswith("p95") for r in m["reasons"]), m["reasons"])
             else:
                 # The largest bound is not the noise.
-                self.assertGreater(bounds[-4], at_least)
-                self.assertGreater(bounds[-1], bounds[-4]+0.01, bounds[-6:])
+                self.assertGreater(bounds[-3], at_least)
+                self.assertNotEqual(m["noise"], round(bounds[-1], 3), bounds[-6:])
 
-    def test_the_noise_is_the_fourth_largest_of_untied_bounds(self):
-        # Bounds whose third, fourth and fifth largest all differ.
+    def test_the_noise_is_the_quantile_of_untied_bounds(self):
+        # Bounds whose second, third and fourth largest all differ: at two
+        # rounds the noise is the third largest of 36.
         parts = runs_of("capture", {"old": (1, 1.06, 1.02, 1.2), "new": (1.16, 1.09, 1.03, 1)}, spread=0.3, seed=16)
         old = [run["capture"] for role in core.ROLES_OF["old"] for run in parts[role]]
         new = [run["capture"] for role in core.ROLES_OF["new"] for run in parts[role]]
         bounds = sorted(core.control_bounds(old, new, core.splits(2)))
         self.assertEqual(len(bounds), 36)
-        self.assertTrue(bounds[-5] < bounds[-4] < bounds[-3] and bounds[-4] > 1, bounds[-6:])
-        self.assertEqual(decide(parts, {"capture": 100})["metrics"]["capture"]["noise"], round(bounds[-4], 3))
-        self.assertEqual(core.NOISE_QUANTILE, 0.89)
+        self.assertTrue(bounds[-4] < bounds[-3] < bounds[-2] and bounds[-3] > 1, bounds[-6:])
+        self.assertEqual(decide(parts, {"capture": 100})["metrics"]["capture"]["noise"], round(bounds[-3], 3))
+        self.assertEqual(core.NOISE_QUANTILE, 0.92)
+        # At three, the sixth largest of 72, for the p95 and the median.
+        parts = runs3("capture", {"old": (1, 1.06, 1.02, 1.2, 1.1, 1), "new": (1.16, 1.09, 1.03, 1, 1.12, 1.05)}, spread=0.3, seed=13)
+        runs = core.by_run(parts, 3)
+        old, new = [r["capture"] for r in runs["old"]], [r["capture"] for r in runs["new"]]
+        m = core.decide(parts, {"capture": 100})["metrics"]["capture"]
+        for q, key in ((core.P95, "noise"), (core.MEDIAN, "median_noise")):
+            bounds = sorted(core.control_bounds(old, new, core.splits(3), q=q))
+            self.assertEqual(len(bounds), 72)
+            self.assertTrue(round(bounds[-7], 3) < round(bounds[-6], 3) < round(bounds[-5], 3) and bounds[-6] > 1, (q, bounds[-8:]))
+            self.assertEqual(m[key], round(max(1.0, bounds[-6]), 3), q)
 
     def test_a_noise_of_1_15_is_not_too_noisy(self):
         # One run of each binary is 1.15 times as slow as the rest, all
         # samples alike: the controls that put both on one side say 1.15,
-        # which is not above it.
+        # which is not above it. (1.15 has no exact binary fraction, and
+        # 1/(10/11.5) lands a little above it: so the threshold is given as
+        # 1.25, and the slow runs 12.5, whose bounds both ways are exact.)
         def parts(slow):
             out = {}
             for binary, levels in (("old", (10, 10, 10, slow)), ("new", (slow, 10, 10, 10))):
                 for i, role in enumerate(core.ROLES_OF[binary]):
                     out[role] = [{"capture": [float(v)]*100} for v in levels[2*i:2*i+2]]
             return out
-        d = decide(parts(11.5), {"capture": 100})
-        self.assertEqual((d["metrics"]["capture"]["noise"], d["verdict"], d["too_noisy"]), (1.15, "pass", []))
+        d = decide(parts(12.5), {"capture": 100}, threshold=1.25)
+        self.assertEqual((d["metrics"]["capture"]["noise"], d["verdict"], d["too_noisy"]), (1.25, "pass", []))
+        d = decide(parts(12.6), {"capture": 100}, threshold=1.25)
+        self.assertEqual((d["too_noisy"], d["metrics"]["capture"]["noise"]), (["capture"], 1.26))
         d = decide(parts(11.6), {"capture": 100})
         self.assertEqual((d["too_noisy"], d["metrics"]["capture"]["noise"]), (["capture"], 1.16))
         # Its median, half of each side's samples at 10, does not move: the
@@ -799,8 +815,9 @@ class Controls(unittest.TestCase):
         self.assertEqual((d["too_noisy"], d["one_quick_run"], d["verdict"]), (["c"], ["new"], "not judged"))
         self.assertEqual(d["run_levels"]["new"], [0.87, 1.0, 1.0, 1.0])
         self.assertEqual(sorted({f.split(":")[0] for f in d["failures"]}), ["d"])
-        # c's p95 is too noisy; its median judges it.
-        self.assertEqual(d["metrics"]["c"]["judged_on"], ["median"])
+        # c's p95 and its median are both too noisy: it is judged on
+        # neither.
+        self.assertEqual((d["metrics"]["c"]["judged_on"], d["too_noisy_to_judge"]), ([], ["c"]))
 
 
 class LostRuns(unittest.TestCase):
@@ -947,13 +964,14 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["verdict"], d["failures"]), ("pass", []))
 
     def test_a_ceiling_is_passed_whatever_the_noise_below_the_threshold(self):
-        # The new binary's runs differ by 10%, so its noise is about 1.1:
-        # the rise is too small for the ratio, but every run is past the
-        # ceiling.
-        d = decide(self.constant([95]*4, [101, 111, 101, 111]), {"capture": 100})
+        # The new binary's runs differ by 7%, so its noise is about 1.07
+        # (and less than QUICK lies between its runs): the rise is too
+        # small for the ratio, of the p95 or the median, but every run is
+        # past the ceiling.
+        d = decide(self.constant([95]*4, [101, 108, 101, 108]), {"capture": 100})
         m = d["metrics"]["capture"]
         self.assertTrue(1.05 < m["noise"] <= 1.15, m["noise"])
-        self.assertEqual(m["reasons"], ["p95 111.0 ms, at least 111.0 ms, passed the ceiling of 100 ms"])
+        self.assertEqual(m["reasons"], ["p95 108.0 ms, at least 108.0 ms, passed the ceiling of 100 ms"])
         self.assertEqual(d["verdict"], "fail")
 
 

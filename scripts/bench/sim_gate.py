@@ -7,30 +7,35 @@ test, and takes minutes:
     python3 -I scripts/bench/sim_gate.py --rework GATE.json ...
 
 It feeds core.decide made-up samples, as the gate's runs give them at the
-default two rounds (or --rounds): each hook figure with the samples a run it
-has in the gate's runs, a long right tail, a few slow outliers, runs that
-differ a little on a quiet machine, as the saved gates' runs differ (by a
-factor each run shares with every figure, and by one of each figure's
-own), and gates that differ from each other in that too. --gates
-takes the base samples from saved gate.json files of an unchanged binary
-instead: each seed takes one gate's eight runs and deals them to the four
-roles at random, with the samples they have (a saved gate's chat-start
-figures have 10 a run, from before the gate took more, and are too few to
-judge there; a gate that lost a run is not drawn, and it has only the
-default rounds). On that base it puts a load (none, light bursts, heavy
-bursts, whole runs, a drift, one run of each of the new binary's roles, or
-three or all four of the new binary's runs and none of the old one's) and
-a change to the new binary (none, every hook 20%, 30%, 50% slower or two
-or three times as slow, 20 ms added to capture, the first chat start alone
-half as slow again or twice as slow, one hook alone 30% slower, capture
-slower by a factor each of the new binary's runs draws, or every hook 30%
-slower in three of the new binary's four runs), and prints, for each pair,
-the share of seeds whose verdict was fail, pass and not judged, with the
-figures that most often failed or stopped the verdict.
+default three rounds (or --rounds): each hook figure with the samples a run
+it has in the gate's runs, a long right tail, a few slow outliers, runs
+that differ a little on a quiet machine, as the saved gates' runs differ
+(by a factor each run shares with every figure, and by one of each
+figure's own), and gates that differ from each other in that too. --gates
+takes the base samples from saved gate.json files of an unchanged binary,
+all from one machine, instead: at two rounds each seed takes one gate's
+eight runs and deals them to the four roles at random; at three, two
+gates, each figure of the second brought to the first's level, and twelve
+of their sixteen runs, never one twice (from_gates). The runs keep the
+samples they have (a saved gate's chat-start figures may have 10 a run,
+from before the gate took more, and are too few to judge there), and a
+gate that lost a run is not drawn. On that base it puts a load (none,
+light bursts, heavy bursts, whole runs, a drift, one run of each of the new
+binary's roles, the four runs of one round, three or four of the new
+binary's runs and none of the old one's, or a mild load of 1.1 to 1.3 on
+three, all but one or all of them) and a change to the new binary (none,
+every hook 20%, 30%, 50% slower or two or three times as slow, 20 ms
+added to capture, one hook alone 30% or 50% slower or two or three times
+as slow, capture slower by a factor each of the new binary's runs draws,
+or every hook 30% slower in all but one of the new binary's runs), and
+prints, for each pair, the share of seeds whose verdict was fail, pass and
+not judged, with the figures that most often failed or stopped the
+verdict.
 
 --monotonic takes the same base samples a seed, on a quiet machine, with
-every hook 20%, 30%, 50% slower and two and three times as slow, and counts
-the seeds in which a smaller rise failed and a larger one did not.
+every hook 20%, 30%, 50% slower and two and three times as slow, and each
+hook alone 30%, 50% slower and two and three times as slow, and counts the
+seeds in which a smaller rise failed and a larger one did not.
 
 --rework works saved gate.json files out again by the rule as it now is,
 from their samples by run (a file written before the samples were kept by
@@ -327,8 +332,9 @@ def capture_varies(rng):
 
 
 def in_three_runs(rng):
-    """Every hook 30% slower in three of the new binary's four runs, and
-    unchanged in the other: a regression that shows in only some runs."""
+    """Every hook 30% slower in all the new binary's runs but one (three of
+    four at two rounds), and unchanged in the other: a regression that
+    shows in only some runs."""
     spared = rng.randrange(2*ROUNDS)
     return lambda name, v, run: v if run == spared else v*1.3
 
@@ -341,12 +347,10 @@ CHANGES = {
     "all-x2": every(lambda name, v: v*2),
     "all-x3": every(lambda name, v: v*3),
     "capture+20ms": every(lambda name, v: v+20 if name == "capture" else v),
-    "startup-x1.5": every(lambda name, v: v*1.5 if name == "startup" else v),
-    "startup-x2": every(lambda name, v: v*2 if name == "startup" else v),
     "capture-varies": capture_varies,
     "all-x1.3-in-3": in_three_runs,
 }
-ALONE = (1.3, 1.5, 2, 3)  # the rises of one hook alone
+ALONE = (1.3, 1.5, 2, 3)  # the rises of one hook alone, as startup-x1.5
 for _name in [f[0] for f in FIGURES]:
     for _x in ALONE:
         CHANGES["%s-x%g" % (_name, _x)] = every(lambda name, v, _f=_name, _x=_x: v*_x if name == _f else v)
@@ -391,6 +395,8 @@ def seeded(s):
 
 def tally(d, why):
     if d["verdict"] == "not judged":
+        if d["machine_too_noisy"]:
+            why["quick run" if d["one_quick_run"] else "two noisy p95s"] += 1
         for name, m in d["metrics"].items():
             if m["unsettled"]:
                 why["stopped by "+name if "too noisy" in m["unsettled"][0] else "unsettled "+name] += 1
@@ -410,20 +416,25 @@ def measure(base, ceilings, load, change, seeds, first=0, quantile=core.NOISE_QU
     return verdicts, why
 
 
-def monotonic(base, ceilings, seeds, first=0, quantile=core.NOISE_QUANTILE):
-    """The verdicts of each rise in RISES on the same base samples a seed,
-    on a quiet machine: the share of seeds each failed, and the seeds in
-    which a smaller rise failed and a larger one did not."""
-    fails, broken = Counter(), []
+def monotonic(base, ceilings, seeds, first=0, quantile=core.NOISE_QUANTILE, groups=None):
+    """The verdicts of each rise of each group (by default every hook's
+    RISES, and each hook's rises alone) on the same base samples a seed, on
+    a quiet machine: the share of seeds each rise failed, and, by group,
+    the seeds in which a smaller rise failed and a larger one did not."""
+    if groups is None:
+        groups = {"every hook": RISES}
+        groups.update({name: ["%s-x%g" % (name, x) for x in ALONE] for name in ceilings if name in COUNTS})
+    fails, broken = Counter(), {g: [] for g in groups}
     for s in range(first, first+seeds):
         runs = base(seeded(s))
-        verdicts = []
-        for change in RISES:
-            d = core.decide(one(runs, LOADS["none"], CHANGES[change], seeded(s)), ceilings, rounds=ROUNDS, quantile=quantile)
-            verdicts.append(d["verdict"])
-            fails[change] += d["verdict"] == "fail"
-        if any(verdicts[i] == "fail" and verdicts[j] != "fail" for i in range(len(RISES)) for j in range(i+1, len(RISES))):
-            broken.append((s, verdicts))
+        for g, rises in groups.items():
+            verdicts = []
+            for change in rises:
+                d = core.decide(one(runs, LOADS["none"], CHANGES[change], seeded(s)), ceilings, rounds=ROUNDS, quantile=quantile)
+                verdicts.append(d["verdict"])
+                fails[change] += d["verdict"] == "fail"
+            if any(verdicts[i] == "fail" and verdicts[j] != "fail" for i in range(len(rises)) for j in range(i+1, len(rises))):
+                broken[g].append((s, verdicts))
     return fails, broken
 
 
@@ -433,11 +444,12 @@ def rework(paths, quantile=core.NOISE_QUANTILE):
         by_role = runs_of(gate)
         d = core.decide(by_role, ceilings_of(gate), gate.get("scenario_failures"), gate["rounds"], quantile=quantile,
                         sources=gate.get("figure_scenarios"))
-        noisy = [n for n, m in d["metrics"].items() if m["unsettled"] and "too noisy" in m["unsettled"][0]]
-        print("%-12s %-10s was %-10s failed: %s  noisy: %s  unsettled: %s  too few: %d  lost: %d" % (
-            Path(path).stem, d["verdict"], gate.get("verdict"), sorted({f.split(":")[0] for f in d["failures"]}) or "-",
-            noisy or "-", [u.split(":")[0] for u in d["unsettled"] if "too noisy" not in u] or "-",
-            len(d["too_few_samples"]), len(d["lost"])))
+        print("%-12s %-10s was %-10s failed: %s  p95 too noisy: %s  on the median alone: %d  unsettled: %s  quick run: %s  "
+              "too few: %d  lost: %d" % (
+                  Path(path).stem, d["verdict"], gate.get("verdict"), sorted({f.split(":")[0] for f in d["failures"]}) or "-",
+                  d["too_noisy"] or "-", sum(m["judged_on"] == ["median"] for m in d["metrics"].values()),
+                  [u.split(":")[0] for u in d["unsettled"]] or "-", d["one_quick_run"] or "-",
+                  len(d["too_few_samples"]), len(d["lost"])))
 
 
 def main():
@@ -451,29 +463,29 @@ def main():
     p.add_argument("--gates", nargs="+", type=Path, help="take the base samples from these gate.json files")
     p.add_argument("--monotonic", action="store_true", help="count the seeds in which a larger rise did not fail")
     p.add_argument("--rework", nargs="+", type=Path, help="work these gate.json files out again, and stop")
-    p.add_argument("--rounds", type=int, default=core.ROUNDS, help="the gate's rounds, on the made-up base")
+    p.add_argument("--rounds", type=int, default=core.ROUNDS, help="the gate's rounds")
     a = p.parse_args()
     if a.rework:
         rework(a.rework, a.quantile)
         return 0
-    if a.gates and a.rounds != core.ROUNDS:
-        p.error("a saved gate has the runs of %d rounds only" % core.ROUNDS)
     set_rounds(a.rounds)
     if a.gates:
         gates = [json.loads(path.read_text()) for path in a.gates]
         base, ceilings = from_gates(gates), ceilings_of(gates[0])
     else:
         base, ceilings = made_up, CEILINGS
-    print("rule: noise is the %g quantile of %d controls' bounds; threshold %.2f; quick run %.2f; %d samples a side to judge; "
-          "%d rounds; %s base; %d seeds a case" % (
-              a.quantile, 2*len(core.splits(a.rounds)), core.THRESHOLD, core.QUICK, core.WHOLE, a.rounds,
-              "saved gates'" if a.gates else "made-up", a.seeds), flush=True)
+    print("rule %d: noise is the %g quantile of %d controls' bounds; threshold %.2f, the median's %.2f; quick run %.2f; "
+          "%d samples a side to judge; %d rounds; %s base; %d seeds a case" % (
+              core.RULE, a.quantile, 2*len(core.splits(a.rounds)), core.THRESHOLD, core.MEDIAN_THRESHOLD, core.QUICK, core.WHOLE,
+              a.rounds, "saved gates'" if a.gates else "made-up", a.seeds), flush=True)
     if a.monotonic:
         began = time.time()
         fails, broken = monotonic(base, ceilings, a.seeds, a.first, a.quantile)
-        print("quiet machine, the same samples a seed: %s; a larger rise not failing where a smaller one failed: %d of %d seeds%s (%.0f s)" % (
-            ", ".join("%s fails %.1f%%" % (c, 100*fails[c]/a.seeds) for c in RISES), len(broken), a.seeds,
-            "".join("\n  seed %d: %s" % (s, " ".join(v)) for s, v in broken[:10]), time.time()-began), flush=True)
+        print("quiet machine, the same samples a seed: %s (%.0f s)" % (
+            ", ".join("%s fails %.1f%%" % (c, 100*fails[c]/a.seeds) for c in RISES), time.time()-began))
+        for g, seeds in broken.items():
+            print("%-26s a larger rise not failing where a smaller one failed: %d of %d seeds%s" % (
+                g, len(seeds), a.seeds, "".join("\n  seed %d: %s" % (s, " ".join(v)) for s, v in seeds[:10])), flush=True)
         return 0
     print("%-10s %-14s %6s %6s %10s  %s" % ("load", "change", "fail", "pass", "not judged", "most often"), flush=True)
     for load in a.load:
