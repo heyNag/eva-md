@@ -65,6 +65,9 @@ func Grade(ctx context.Context, t Task, workspace, scratch string, limit time.Du
 	}
 	for _, test := range t.Tests {
 		ok, err := s.run(ctx, s.repo(test.Repo), test.Run, limit)
+		if err != nil && ctx.Err() != nil {
+			return nil, fmt.Errorf("task %s: test %s: %w", t.ID, test.ID, ctx.Err())
+		}
 		if err != nil {
 			return nil, t.errorf("test %s: %s", test.ID, bare(err))
 		}
@@ -94,12 +97,6 @@ func (s *sandbox) repo(name string) string { return filepath.Join(s.dir, "repos"
 // overlap any of avoid, into a sandbox holding links to the runners
 // needed, each found on the invoking PATH.
 func newSandbox(ctx context.Context, t Task, scratch string, needs []string, avoid ...string) (*sandbox, error) {
-	if err := os.MkdirAll(scratch, 0o700); err != nil {
-		return nil, t.errorf("cannot make the scratch folder: %s", bare(err))
-	}
-	if entries, err := os.ReadDir(scratch); err != nil || len(entries) > 0 {
-		return nil, t.errorf("the scratch folder is not empty")
-	}
 	dir, err := resolved(scratch)
 	if err != nil {
 		return nil, t.errorf("cannot resolve the scratch folder: %s", bare(err))
@@ -115,6 +112,12 @@ func newSandbox(ctx context.Context, t Task, scratch string, needs []string, avo
 		if within(dir, a) || within(a, dir) {
 			return nil, t.errorf("the scratch folder overlaps the workspace or the task")
 		}
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, t.errorf("cannot make the scratch folder: %s", bare(err))
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) > 0 {
+		return nil, t.errorf("the scratch folder is not empty")
 	}
 	s := &sandbox{dir: dir, bin: filepath.Join(dir, "bin")}
 	for _, sub := range []string{"bin", "home", "tmp", "repos"} {
@@ -155,13 +158,22 @@ func newSandbox(ctx context.Context, t Task, scratch string, needs []string, avo
 	return s, nil
 }
 
-// resolved returns path made absolute with its links resolved.
+// resolved returns path made absolute with its links resolved; of a path
+// that does not exist yet, the part that does is resolved.
 func resolved(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
-	return filepath.EvalSymlinks(abs)
+	real, err := filepath.EvalSymlinks(abs)
+	if errors.Is(err, fs.ErrNotExist) && filepath.Dir(abs) != abs {
+		parent, err := resolved(filepath.Dir(abs))
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(parent, filepath.Base(abs)), nil
+	}
+	return real, err
 }
 
 // within reports whether path is dir or under it.
