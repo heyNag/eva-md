@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000031",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000031.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<unlisted-wrapper>made-up words</unlisted-wrapper>",
+ "prompt_id": "prompt-31"
+}

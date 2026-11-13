@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000036",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000036.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "[Request interrupted by user]",
+ "prompt_id": "prompt-36"
+}

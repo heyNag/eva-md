@@ -1,0 +1,9 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000511",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000511.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "Summarize the release checklist.",
+ "source": "made-up-source",
+ "turn_id": "turn-11"
+}
