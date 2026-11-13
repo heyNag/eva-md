@@ -233,12 +233,16 @@ func checkResolve(ctx context.Context, r ledger.Reader, keys []ledger.Key, reads
 	switch {
 	case len(hits) != 1 && errors.Is(err, ledger.ErrAmbiguous):
 		return nil
+	case len(hits) != 1 && err != nil:
+		return fault(k, e.Seq, ClauseResolve, "%s names sessions that hold #%d alike, and Resolve gives %w, not ambiguity", ref, e.Seq, err)
 	case len(hits) != 1:
-		return fault(k, e.Seq, ClauseResolve, "%s names sessions that hold #%d alike, and Resolve gives %v, not ambiguity", ref, e.Seq, err)
+		return fault(k, e.Seq, ClauseResolve, "%s names sessions that hold #%d alike, and Resolve gives #%d of %s, not ambiguity", ref, e.Seq, found.Seq, recordName(s))
 	case err != nil:
 		return fault(k, e.Seq, ClauseResolve, "%s: %w", ref, err)
-	case s != hits[0].s || !same(found, hits[0].events[0]):
-		return fault(k, e.Seq, ClauseResolve, "%s gives #%d of %s, not #%d of %s as it reads", ref, found.Seq, recordName(s), e.Seq, recordName(hits[0].s))
+	case s != hits[0].s:
+		return fault(k, e.Seq, ClauseResolve, "%s gives the record %+v, not %+v as it reads", ref, s, hits[0].s)
+	case !same(found, hits[0].events[0]):
+		return fault(k, e.Seq, ClauseResolve, "%s gives another event than #%d of %s as it reads", ref, e.Seq, recordName(hits[0].s))
 	}
 	return nil
 }
