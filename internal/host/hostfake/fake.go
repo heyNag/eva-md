@@ -12,8 +12,8 @@ import (
 )
 
 // Claude and Codex are the CLIs the fake answers for. They are its only
-// host names written as literals, on one line, which the host literal count
-// of internal/host/adapter counts.
+// host names written as literals, on one line; the host literal count of
+// internal/host/adapter passes over them, as it does all of internal/host.
 const Claude, Codex = "claude", "codex"
 
 // The versions a new fake reports.

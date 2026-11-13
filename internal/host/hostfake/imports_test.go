@@ -11,17 +11,17 @@ import (
 	"testing"
 )
 
-const importPath = "github.com/heyNag/eva-md/internal/hostfake"
+const importPath = "github.com/heyNag/eva-md/internal/host/hostfake"
 
-// moduleRoot is the repository's top folder, two up from this package.
+// moduleRoot is the repository's top folder, three up from this package.
 func moduleRoot(t *testing.T) string {
 	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Fatalf("no go.mod two folders up: %v", err)
+		t.Fatalf("no go.mod three folders up: %v", err)
 	}
 	return root
 }
@@ -95,7 +95,7 @@ func TestOnlyTestsImportTheFake(t *testing.T) {
 		}
 		checked++
 		for _, p := range imports(t, path) {
-			if p == importPath && filepath.Dir(path) != filepath.Join(root, "internal", "hostfake") {
+			if p == importPath && filepath.Dir(path) != filepath.Join(root, "internal", "host", "hostfake") {
 				rel, _ := filepath.Rel(root, path)
 				t.Errorf("%s imports the fake, which only tests may", rel)
 			}

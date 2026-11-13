@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/heyNag/eva-md/internal/config"
-	"github.com/heyNag/eva-md/internal/hostfake"
+	"github.com/heyNag/eva-md/internal/host/hostfake"
 )
 
 // The written fake CLIs run this test binary again; as one of them, it
