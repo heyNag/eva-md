@@ -30,8 +30,8 @@ Rules every card carries, so they are said once here:
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 passes with no fail on macOS |
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | merged; the gate stays advisory, since this rule cannot yet block a merge (EV-16d) |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | merged |
-| [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | building since 2026-11-13 |
-| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | after EV-16d, which changes the same files |
+| [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | merged; on CI's runner the gate still seldom judges, and its count starts again at 0 |
+| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | ready, since EV-16d is merged |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
@@ -58,7 +58,7 @@ Rules every card carries, so they are said once here:
 | [LG-22a](LG-22a.md) | The project registry's types, the project id as a function of a key, and its fake | ready; LG-22's first part, with no caller |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
-| [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | ready; first of the follow-ups, since these tests fail builders' checks on a busy machine |
+| [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | building since 2026-11-13 |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | ready |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | ready |

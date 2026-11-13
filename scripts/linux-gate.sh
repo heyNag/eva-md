@@ -6,7 +6,7 @@
 # and the one built from the working tree, uncommitted changes included.
 # BASE is by default the commit this branch left origin/main at, or the
 # commit before HEAD when the branch has not left it. Further arguments go
-# to the benchmark, as --rounds 3.
+# to the benchmark, as --rounds 2.
 #
 # It needs what scripts/linux-check.sh needs for the benchmark, and gets it
 # the same way: started as root, it runs the gate as the user eva-md-check

@@ -48,3 +48,4 @@ The card's checker left these to the lead.
 - With the trace on, `code_brief` costs what the trace costs. The gate compares two binaries traced alike, so its verdict stands; the next refresh of the stored baseline says, in the baselines' README, that its `code_brief` is measured with the trace.
 - Whether CI's macOS git reads the trace's target from the global config is seen on the merge: the card's own check fails loudly if it does not.
 - A chat start in the brief loop that passes its limit and prints nothing is not this card's.
+- Added with EV-16d's merge: this card also adds, to `test_gate.py`, a test that `uneven_load` picks a binary's slower and quicker halves by its own run levels, not by its runs over the other binary's: EV-16d's verifier found a mutant there that every test passed.

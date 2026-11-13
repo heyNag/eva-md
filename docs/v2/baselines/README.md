@@ -226,10 +226,34 @@ The second round's rule (EV-16b) was the gate's from the commit that merged it, 
 | 138 | f5c0d69 | not judged |
 | 139 | d07758a | pass |
 | 140 | f1de822 | not judged |
+| 141 | b31a372 | not judged |
+| 142 | abae3e3 | not judged |
+| 143 | c33523f | not judged |
+| 144 | 6612f77 | not judged |
+| 145 | fe39012 | not judged |
+| 146 | 3b7f116 | not judged |
+| 147 | ba6b116 | not judged |
+| 148 | e15a80c | not judged |
+| 149 | ec9df30 | not judged |
+| 150 | 532bf7c | not judged |
+| 151 | 816fad7 | not judged |
+| 152 | 67333a8 | not judged |
+| 153 | c32f821 | not judged |
+| 154 | 16b0dc7 | not judged |
+| 155 | f789382 | not judged |
+| 156 | 1cc6a8b | not judged |
+| 157 | 52a642d | not judged |
+| 158 | 4230f6b | not judged |
+| 159 | f35869c | not judged |
 
 Run 110 is the second rule's first: every figure but one was too noisy to judge. The job had waited its five minutes, and the load was still 8.9 on 3 CPUs, down from 40 when the machine started.
 
-Of these thirty-one runs the rule judged two: run 120, whose job began timing at a load of 2.9, and run 139, which began at 10.9 and passed. Where the lead read the others (runs 119 to 140), they began at loads of 2.6 to 17 after the same wait and were too noisy to judge. So on CI's runner the second rule seldom gives a verdict. The count stands at 1: run 139's push changed documents only, so it counts, and run 120's changed files under `internal/`, though none the binary is built from, so by the rule above it counts neither way. Four of these runs changed what a hook runs: 119 (install and setup ask the host adapter), 121 (the hook's handler list), 126 (redaction can run the current rules alone, behind a switch that is off) and 137 (the words of an identity error, and one line of the command's table). None of the hook changes was judged on CI. What stands in for a verdict there is each run's `latency` artifact, which holds the new binary's own figures on macOS, and the gate on a quiet Linux machine, which judged all 19 figures and passed for run 126's change and for run 137's. In the runs the lead read, every figure was inside its target on macOS but in four, each on a busy runner and on a commit that changed no package the binary holds: run 125 (the prompt with pointers, 52.8 ms against 50), runs 129 and 130 (one and two prompt figures at 51 to 54 ms) and run 132 (one figure). The third round (EV-16d) takes up a rule that can judge on this runner.
+Of these fifty runs the rule judged two: run 120, whose job began timing at a load of 2.9, and run 139, which began at 10.9 and passed. Where the lead read the others (runs 119 to 159), they began at loads of 2.6 to 17 after the same wait and were too noisy to judge. So on CI's runner the second rule seldom gives a verdict. The count stood at 1 when the third rule replaced this one: run 139's push changed documents only, so it counts, and run 120's changed files under `internal/`, though none the binary is built from, so by the rule above it counts neither way. Four of these runs changed what a hook runs: 119 (install and setup ask the host adapter), 121 (the hook's handler list), 126 (redaction can run the current rules alone, behind a switch that is off) and 137 (the words of an identity error, and one line of the command's table). Run 154 changed what the binary holds, though nothing a hook runs (the update's runner can hand what a host printed to the live accuracy run). None of these changes was judged on CI. What stands in for a verdict there is each run's `latency` artifact, which holds the new binary's own figures on macOS, and the gate on a quiet Linux machine, which judged all 19 figures and passed for run 126's change and for run 137's. In the runs the lead read, every figure was inside its target on macOS but in four, each on a busy runner and on a commit that changed no package the binary holds: run 125 (the prompt with pointers, 52.8 ms against 50), runs 129 and 130 (one and two prompt figures at 51 to 54 ms) and run 132 (one figure). The third round (EV-16d) takes up a rule that judges a quiet machine's gates; worked out on CI's 69 saved gates it fails none and judges 5.
+
+The third round's rule is the gate's from run 160, the push that merged it, and its count starts at 0. Its runs are listed here as the lead reads them.
+
+| Run | Commit | Verdict |
+| --- | --- | --- |
 
 ## What the counters cost
 
