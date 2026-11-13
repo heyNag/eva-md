@@ -398,6 +398,67 @@ func TestCodexStreams(t *testing.T) {
 			output: answer, class: ClassHost},
 		{name: "two events on a line", stream: threadStarted + `{"type":"turn.started"} {"type":"turn.started"}` + "\n" + message + completed,
 			output: answer, class: ClassHost},
+		// JSON that is not an object is no event this reader knows, null or
+		// not; only a line that is not JSON at all is skipped.
+		{name: "an array", stream: threadStarted + "[1,2]\n" + message + completed, output: answer, class: ClassHost},
+		{name: "an empty array", stream: threadStarted + "[]\n" + message + completed, output: answer, class: ClassHost},
+		{name: "a tool in an array", stream: threadStarted + `["command_execution","cat notes"]` + "\n" + message + completed, output: answer, class: ClassHost},
+		{name: "a string", stream: threadStarted + `"command_execution"` + "\n" + message + completed, output: answer, class: ClassHost},
+		{name: "a number", stream: threadStarted + "42\n" + message + completed, output: answer, class: ClassHost},
+		{name: "true", stream: threadStarted + "true\n" + message + completed, output: answer, class: ClassHost},
+		// A type below an event's item, or anywhere but the event and its
+		// item, is a shape this reader can't vouch for, and so is a type key
+		// in another letter case or a tool's own field out of place.
+		{name: "a type in a message's field", stream: threadStarted +
+			`{"type":"item.completed","item":{"type":"agent_message","text":"x","attachments":[{"type":"image_view","path":"/x"}]}}` + "\n" + completed,
+			output: answer, class: ClassHost},
+		{name: "a type in a list of a known event", stream: threadStarted +
+			`{"type":"turn.completed","usage":{},"items":[{"type":"collab_tool_call"}]}` + "\n",
+			output: answer, class: ClassHost},
+		{name: "a type below an error item", stream: threadStarted +
+			`{"type":"item.completed","item":{"type":"error","message":"x","details":{"type":"exec_command","command":"ls"}}}` + "\n" + completed,
+			output: answer, class: ClassHost},
+		{name: "a type in a known event's other field", stream: threadStarted +
+			`{"type":"turn.completed","usage":{"input_tokens":1},"last_item":{"type":"exec_command_begin"}}` + "\n",
+			output: answer, class: ClassHost},
+		{name: "a type in usage", stream: threadStarted + `{"type":"turn.completed","usage":{"type":"x","input_tokens":1}}` + "\n",
+			output: answer, class: ClassHost},
+		{name: "a type key in another case", stream: threadStarted + `{"type":"turn.started","Type":"browser"}` + "\n" + message + completed,
+			output: answer, class: ClassHost},
+		{name: "a tool's fields on a message", stream: threadStarted +
+			`{"type":"item.completed","item":{"type":"agent_message","text":"x","command":"ls","exit_code":0,"aggregated_output":"a"}}` + "\n" + completed,
+			output: answer, class: ClassHost},
+		{name: "a tool's fields on a known event", stream: threadStarted + `{"type":"turn.started","tool":"shell","Command":"ls"}` + "\n" + message + completed,
+			output: answer, class: ClassHost},
+		{name: "a tool's field deep in usage", stream: threadStarted + `{"type":"turn.completed","usage":{"input_tokens":1,"x":[{"query":"q"}]}}` + "\n",
+			output: answer, class: ClassHost},
+		// An item on an event that holds none is read as one: an unknown
+		// item type there is host.
+		{name: "unknown item on a known event", stream: threadStarted + `{"type":"turn.completed","item":{"type":"browser_session"}}` + "\n",
+			output: answer, class: ClassHost},
+		// The type key is read in any letter case.
+		{name: "type key in another case", stream: threadStarted + `{"type":"item.started","item":{"TYPE":"command_execution"}}` + "\n" + completed,
+			output: answer, class: ClassToolUsed},
+		{name: "a known event's type key in another case", stream: threadStarted + `{"TYPE":"turn.started","type":"item.started","item":{"Type":"file_change"}}` + "\n",
+			output: answer, class: ClassToolUsed},
+		// A sign-in problem is named before a limit.
+		{name: "sign-in before a limit", stream: threadStarted + turnStarted +
+			`{"type":"turn.failed","error":{"message":"rate limit reached; not logged in"}}` + "\n",
+			exit: 1, class: ClassAuth},
+		// clap's refusal of a flag's value names the effort, but is no refusal
+		// of it: host, with Refused empty.
+		{name: "clap refusing an effort value", stderr: "error: invalid value 'xhigh' for '--model-reasoning-effort <X>'\n\nFor more information, try '--help'.\n",
+			exit: 1, class: ClassHost},
+		// Codex's own wording of a filtered answer comes after "stream
+		// disconnected", which is otherwise the host's.
+		{name: "filtered answer as codex words it", stream: threadStarted + turnStarted +
+			`{"type":"turn.failed","error":{"message":"stream disconnected before completion: Incomplete response returned, reason: content_filter"}}` + "\n",
+			exit: 1, class: ClassAnswerInvalid},
+		// Error text is kept to 64 KiB: a term past it names nothing.
+		{name: "a term past the kept error text", stream: threadStarted + turnStarted +
+			strings.Repeat(`{"type":"item.completed","item":{"type":"error","message":"`+strings.Repeat("x", 1023)+`"}}`+"\n", 70) +
+			`{"type":"turn.failed","error":{"message":"You've hit your usage limit."}}` + "\n",
+			exit: 1, class: ClassHost},
 		{name: "answer missing", stream: codexClean, class: ClassAnswerInvalid, usage: codexCleanUsage},
 		{name: "answer not an object", stream: codexClean, output: `["done"]`, class: ClassAnswerInvalid, usage: codexCleanUsage},
 		{name: "failed exit", stream: codexClean, output: answer, exit: 1, class: ClassHost, usage: codexCleanUsage},
@@ -486,6 +547,9 @@ func TestCodexModelOrEffortRefusedIsOneAttempt(t *testing.T) {
 		{"model with an effort", codexRejected, "high", RefusedModel},
 		{"effort", codexEffortRejected("ultra"), "ultra", RefusedEffort},
 		{"effort by name", strings.ReplaceAll(codexRejected, "The 'gpt-test-model' model is not supported", "The reasoning effort is not supported"), "high", RefusedEffort},
+		// The effort's bare name on a model's refusal is no refusal of the
+		// effort: only its quoted value is.
+		{"model, the effort's name unquoted", strings.ReplaceAll(codexRejected, "is not supported when using Codex", "is not supported at high load when using Codex"), "high", RefusedModel},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, dump := codexRun(t, map[string]string{"stdout": tc.stream, "output": answer, "exit": "1"}, func(c *Call) { c.Effort = tc.effort })
@@ -546,6 +610,78 @@ func TestCodexAnswerFileIsReadSafely(t *testing.T) {
 				t.Fatalf("outcome %s with an answer of %d bytes, %v; want %s", out.Class, len(out.Answer), err, tc.class)
 			}
 		})
+	}
+}
+
+// Only a regular file is read as the answer: a pipe that holds a valid
+// object, read to its end, is none.
+func TestCodexAnswerIsReadFromARegularFileOnly(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if _, err := w.WriteString(answer); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	if got, ok := codexReadAnswer(r); ok || got != nil {
+		t.Fatalf("a pipe's object was read as the answer: %q", got)
+	}
+	f, err := os.Create(filepath.Join(t.TempDir(), "output.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(answer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := codexReadAnswer(f); !ok || string(got) != answer {
+		t.Fatalf("a regular file's object read as %q %v", got, ok)
+	}
+}
+
+// A line nested deeper than encoding/json reads, of any length up to the
+// line limit, is host and stops the run; it never exhausts the stack. A
+// tool found before the depth runs out is a tool.
+func TestCodexDeepLinesAreHost(t *testing.T) {
+	for _, tc := range []struct {
+		name, line string
+		tool       bool
+	}{
+		{"brackets to the line limit", strings.Repeat("[", codexMaxLine-1), false},
+		{"objects to the line limit", strings.Repeat(`{"a":`, (codexMaxLine-1)/5), false},
+		{"just past the depth", strings.Repeat("[", codexMaxDepth+1) + strings.Repeat("]", codexMaxDepth+1), false},
+		{"in a known event", `{"type":"turn.started","x":` + strings.Repeat("[", codexMaxDepth) + strings.Repeat("]", codexMaxDepth) + "}", false},
+		{"a tool before the depth runs out", `{"type":"command_execution","x":` + strings.Repeat("[", codexMaxLine/2), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, stopped := codexRead(`{"type":"thread.started","thread_id":"x"}`+"\n"+tc.line+"\n"+codexClean, 1<<16)
+			if s.toolUsed != tc.tool || s.invalid == tc.tool || !stopped || s.skipped {
+				t.Fatalf("tool %v, invalid %v, stopped %v, skipped %v", s.toolUsed, s.invalid, stopped, s.skipped)
+			}
+		})
+	}
+	// At the depth encoding/json reads, a line is read: one in a known
+	// event is no reason to stop.
+	inside := `{"type":"turn.started","x":` + strings.Repeat("[", codexMaxDepth-1) + strings.Repeat("]", codexMaxDepth-1) + "}"
+	if s, stopped := codexRead(inside+"\n"+codexClean, 0); s.toolUsed || s.invalid || stopped {
+		t.Fatalf("a line at the depth limit: tool %v, invalid %v, stopped %v", s.toolUsed, s.invalid, stopped)
+	}
+	// Through the whole run: the run ends with a class, and its private
+	// folder is gone.
+	for _, line := range []string{strings.Repeat("[", 3<<20), strings.Repeat(`{"a":`, (3<<20)/5)} {
+		out, _ := codexRun(t, map[string]string{"stdout": line + "\n" + codexClean, "output": answer}, nil)
+		if out.Class != ClassHost || out.Answer != nil {
+			t.Fatalf("outcome %+v", out)
+		}
+		left, err := filepath.Glob(filepath.Join(os.Getenv("TMPDIR"), "eva-md-codex-*"))
+		if err != nil || len(left) != 0 {
+			t.Fatalf("private folders left: %q %v", left, err)
+		}
 	}
 }
 

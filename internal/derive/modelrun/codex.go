@@ -222,21 +222,23 @@ func (s *codexStream) decide(flag *bool) {
 
 // event reads one line. A tool item anywhere in it, at any depth, is a tool.
 // A line that is not JSON and holds no brace, such as a notice, is skipped;
-// one that holds a brace may be an event run together with other text, and
-// an object with a key twice may be read two ways, so the run can't be shown
-// to be tool-free: host.
+// one that holds a brace may be an event run together with other text, so
+// the run can't be shown to be tool-free: host. So is JSON this reader can't
+// vouch for (codexScanned's odd), and JSON that is not an object, null too.
 func (s *codexStream) event(line []byte) {
 	line = bytes.TrimSpace(line)
 	if len(line) == 0 {
 		return
 	}
-	tool, whole := codexScan(line)
-	if tool {
+	scan := codexScan(line)
+	switch {
+	case scan.tool:
 		s.decide(&s.toolUsed)
 		return
-	}
-	var e map[string]json.RawMessage
-	if json.Unmarshal(line, &e) != nil {
+	case scan.odd:
+		s.decide(&s.invalid)
+		return
+	case !scan.whole:
 		if bytes.IndexByte(line, '{') >= 0 {
 			s.decide(&s.invalid)
 		} else {
@@ -244,7 +246,8 @@ func (s *codexStream) event(line []byte) {
 		}
 		return
 	}
-	if !whole {
+	var e map[string]json.RawMessage
+	if json.Unmarshal(line, &e) != nil || e == nil {
 		s.decide(&s.invalid)
 		return
 	}
@@ -352,6 +355,12 @@ func codexReadOutput(file string) ([]byte, bool) {
 		return nil, false
 	}
 	defer f.Close()
+	return codexReadAnswer(f)
+}
+
+// codexReadAnswer reads the answer from the opened file f, if it is a
+// regular file.
+func codexReadAnswer(f *os.File) ([]byte, bool) {
 	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
 		return nil, false
 	}
@@ -362,43 +371,89 @@ func codexReadOutput(file string) ([]byte, bool) {
 	return object(data)
 }
 
-// codexScan walks one line's JSON and reports whether any object in it, at
-// any depth, has a type key, in any letter case, naming a tool item, and
-// whether the line is one JSON value whose objects hold no key twice. A tool
+// codexMaxDepth is how deep a line's JSON is read: encoding/json's own
+// limit, past which json.Unmarshal reads no line as an event. The scan stops
+// there, so no line, however deep, can exhaust the stack.
+const codexMaxDepth = 10000
+
+// codexToolKeys are keys only a tool item carries in codex 0.166.0's events:
+// a command's, a file change's, an MCP call's and a web search's. One
+// anywhere else is a tool's field out of place.
+var codexToolKeys = []string{"command", "aggregated_output", "exit_code", "changes", "server", "tool", "arguments", "query"}
+
+// codexScanned is what codexScan found in a line.
+type codexScanned struct {
+	// tool: an object, at any depth, has a type key naming a tool item,
+	// both in any letter case. It outranks the rest.
+	tool bool
+	// odd: JSON this reader can't vouch for, as it may be read two ways or
+	// hide a tool under a shape no list here names: nested past
+	// codexMaxDepth, an object with a key twice, a type key in another
+	// letter case or anywhere but on the event and its item, or a key of
+	// codexToolKeys in any letter case.
+	odd bool
+	// whole: the line is one JSON value, read to its end.
+	whole bool
+}
+
+// Where a value stands in a line, for codexScan: the line itself, the value
+// of the event's item key, or anywhere else.
+const (
+	codexAtEvent = iota
+	codexAtItem
+	codexAtElsewhere
+)
+
+// codexScan walks one line's JSON, token by token, to codexMaxDepth. A tool
 // found before the line goes wrong still counts.
-func codexScan(line []byte) (tool, whole bool) {
+func codexScan(line []byte) (r codexScanned) {
 	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.UseNumber()
-	var value func(tok json.Token) bool
-	value = func(tok json.Token) bool {
+	// value reads the rest of the value tok starts, depth levels down and
+	// standing at at, and reports whether it was read to its end.
+	var value func(tok json.Token, depth, at int) bool
+	value = func(tok json.Token, depth, at int) bool {
 		delim, ok := tok.(json.Delim)
 		if !ok {
 			return true
 		}
-		seen := map[string]bool{}
+		if depth > codexMaxDepth {
+			r.odd = true
+			return false
+		}
+		var seen map[string]bool
 		for dec.More() {
-			if delim == '{' {
-				k, err := dec.Token()
-				key, isKey := k.(string)
-				if err != nil || !isKey || seen[key] {
-					return false
-				}
-				seen[key] = true
+			if delim != '{' {
 				v, err := dec.Token()
-				if err != nil {
-					return false
-				}
-				if name, isText := v.(string); isText && strings.EqualFold(key, "type") &&
-					slices.ContainsFunc(codexToolItems, func(t string) bool { return strings.EqualFold(t, name) }) {
-					tool = true
-				}
-				if !value(v) {
+				if err != nil || !value(v, depth+1, codexAtElsewhere) {
 					return false
 				}
 				continue
 			}
+			k, err := dec.Token()
+			key, isKey := k.(string)
+			if err != nil || !isKey {
+				return false
+			}
+			if seen == nil {
+				seen = map[string]bool{}
+			}
+			r.odd = r.odd || seen[key] || codexFoldedIn(codexToolKeys, key)
+			seen[key] = true
 			v, err := dec.Token()
-			if err != nil || !value(v) {
+			if err != nil {
+				return false
+			}
+			if strings.EqualFold(key, "type") {
+				name, isText := v.(string)
+				r.tool = r.tool || isText && codexFoldedIn(codexToolItems, name)
+				r.odd = r.odd || key != "type" || at == codexAtElsewhere
+			}
+			next := codexAtElsewhere
+			if at == codexAtEvent && key == "item" {
+				next = codexAtItem
+			}
+			if !value(v, depth+1, next) {
 				return false
 			}
 		}
@@ -406,11 +461,17 @@ func codexScan(line []byte) (tool, whole bool) {
 		return err == nil
 	}
 	tok, err := dec.Token()
-	if err != nil || !value(tok) {
-		return tool, false
+	if err != nil || !value(tok, 1, codexAtEvent) {
+		return r
 	}
 	_, err = dec.Token()
-	return tool, err == io.EOF
+	r.whole = err == io.EOF
+	return r
+}
+
+// codexFoldedIn reports whether name is one of names, in any letter case.
+func codexFoldedIn(names []string, name string) bool {
+	return slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) })
 }
 
 // The failure wording, lowercased, as v1 reads codex's (internal/update/
