@@ -36,3 +36,14 @@ Any Go file: what the hook does when it misses its limit is v1's, and DV-12 chan
 - An empty output from a hook timed inside its limit fails the scenario; one from a hook timed past it does not; more than one in twenty past the limit fails: a case for each on made-up numbers.
 - With the stand-in made to lose one start (a test-only way, such as a stand-in that drops its nth call) and no slow hook, the scenario fails, and its message names the kind that is one short.
 - The report says, from the Go code, which time limit each of the two events has and what margin the hook takes off it, and shows that the Python figures match.
+
+## As merged
+
+Merged from `pkg/ev-16c-r1` on 2026-11-13, after a review, a fix round and a verification that accepted it. The lead's rulings:
+
+- **Every loop that reads an output, not the pointer prompts alone.** The allowance for an empty output holds in every loop of the padded inbox that reads a hook's output as JSON: the pointer, code and recall prompts and the two Codex Stop loops. `Home.hook` in `core.py` is shared with the real-install and turn scenarios, which read no output: there an empty Codex Stop timed past its limit is let through without a count, and one in time still fails.
+- **One in twenty is asked only of a loop that passed an output over.** A loop whose hooks all answered passes however many were late: its slowness is for the p95 figures and the latency gate to judge. The other reading would give load a new way to turn CI red, which this card exists to stop.
+- **No cap on missing starts** beyond the hooks timed past their limit, as point 1 says. A cap of one in twenty would have failed run 122 again, where 2 of 62 were missing.
+
+Owed, small, and outside what this card held: no test notices if the pointer loop stops checking the three pointers it reads; `Home.take_sweep`, which other scenarios use, still gives the sweep's message without the chat start's time; and under load the code-brief check can fail when a brief answers in time but drops its code notes, which a later card takes up if CI shows it.
+
