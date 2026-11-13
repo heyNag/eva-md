@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -264,7 +265,10 @@ func TestProbeEndsAtItsWaitDelay(t *testing.T) {
 	dir := realDir(t)
 	pidFile := filepath.Join(dir, "child.pid")
 	fakeCLI(t, dir, "codex", "sleep 3600 &\necho $! > '"+pidFile+"'\necho 'codex-cli 0.165.0'")
-	t.Cleanup(func() { killSleep(pidFile, "sleep 3600") })
+	// The CLI writes the pid as soon as it forks its child, which may not yet
+	// have become the sleep: until it does, ps names it by the CLI's own
+	// command line. Either is this test's child.
+	t.Cleanup(func() { killSleep(pidFile, "sleep 3600", "/bin/sh "+filepath.Join(dir, "codex")+" --version") })
 	p := probeWithin(t, Codex, dir, limits{timeout: probeTimeout, waitDelay: 100 * time.Millisecond})
 	if p.Version != "" || p.Known || p.CLI != filepath.Join(dir, "codex") {
 		t.Fatalf("a probe whose CLI left its output open: %+v", p)
@@ -275,9 +279,10 @@ func TestProbeEndsAtItsWaitDelay(t *testing.T) {
 }
 
 // killSleep kills the process pidFile names, but only while ps still names
-// its command as want, so a pid that has ended and been taken by another
-// process is never killed. It reports whether it sent the kill.
-func killSleep(pidFile, want string) bool {
+// its command as one of own, the commands that are the test's own child, so
+// a pid that has ended and been taken by another process is never killed.
+// It reports whether it sent the kill.
+func killSleep(pidFile string, own ...string) bool {
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
 		return false
@@ -287,22 +292,41 @@ func killSleep(pidFile, want string) bool {
 		return false
 	}
 	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil || strings.TrimSpace(string(out)) != want {
+	if err != nil || !slices.Contains(own, strings.TrimSpace(string(out))) {
 		return false
 	}
 	return syscall.Kill(pid, syscall.SIGKILL) == nil
 }
 
-// The cleanup of TestProbeEndsAtItsWaitDelay kills the sleep its pid file
-// names, and nothing when the file names another process: here the test's
+// The cleanup of TestProbeEndsAtItsWaitDelay kills the child its pid file
+// names, whether that child has become the sleep or is still the fake CLI's
+// shell, and nothing when the file names another process: here the test's
 // own, which a kill would end, failing the run.
 func TestKillSleepKillsOnlyThatSleep(t *testing.T) {
 	dir := realDir(t)
 	pidFile := filepath.Join(dir, "child.pid")
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
-		t.Fatal(err)
+	// The fake CLI waits on its input, which the test holds open, so ps names
+	// it by its own command line, as it names a child that has forked from
+	// it and not yet become the sleep.
+	cli := fakeCLI(t, dir, "codex", "read line")
+	own := []string{"sleep 3600", "/bin/sh " + cli + " --version"}
+	writePid := func(pid int) {
+		t.Helper()
+		if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if killSleep(pidFile, "sleep 3600") {
+	wantKilled := func(cmd *exec.Cmd) {
+		t.Helper()
+		err := cmd.Wait()
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.Sys().(syscall.WaitStatus).Signal() != syscall.SIGKILL {
+			t.Fatalf("%s ended with %v; want a kill", cmd.Path, err)
+		}
+	}
+
+	writePid(os.Getpid())
+	if killSleep(pidFile, own...) {
 		t.Fatal("killed the process of the test, which is not the sleep")
 	}
 
@@ -311,20 +335,33 @@ func TestKillSleepKillsOnlyThatSleep(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sleep.Process.Kill() })
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(sleep.Process.Pid)+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePid(sleep.Process.Pid)
 	if killSleep(pidFile, "sleep 60") {
 		t.Fatal("killed a sleep whose command is not the one asked for")
 	}
-	if !killSleep(pidFile, "sleep 3600") {
+	if !killSleep(pidFile, own...) {
 		t.Fatal("did not kill the sleep the pid file names")
 	}
-	err := sleep.Wait()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.Sys().(syscall.WaitStatus).Signal() != syscall.SIGKILL {
-		t.Fatalf("the sleep ended with %v; want a kill", err)
+	wantKilled(sleep)
+
+	shell := exec.Command(cli, "--version")
+	stdin, err := shell.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
 	}
+	if err := shell.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stdin.Close(); _ = shell.Process.Kill() })
+	writePid(shell.Process.Pid)
+	if killSleep(pidFile, "sleep 3600") {
+		t.Fatal("killed the fake CLI's shell though only the sleep was asked for")
+	}
+	if !killSleep(pidFile, own...) {
+		out, _ := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(shell.Process.Pid)).Output()
+		t.Fatalf("did not kill the fake CLI's shell, which ps names %q", strings.TrimSpace(string(out)))
+	}
+	wantKilled(shell)
 }
 
 // Of what <cli> --version prints, only the first 64 KiB are read, and a CLI
