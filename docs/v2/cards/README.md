@@ -26,7 +26,7 @@ Rules every card carries, so they are said once here:
 | [ST-01](ST-01.md) | The store's written format and its profile checker | merged |
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 passes with no fail on macOS |
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | merged; the gate stays advisory, since this rule cannot yet block a merge (EV-16d) |
-| [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | ready |
+| [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | building since 2026-11-13 |
 | [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | after EV-16c |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
@@ -47,7 +47,7 @@ Rules every card carries, so they are said once here:
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
-| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | ready; a first builder was cut off part way and left nothing |
+| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | building since 2026-11-13; a first builder was cut off part way and left nothing |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records, and a card is owed for a hook test that depends on speed |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | ready |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
@@ -67,10 +67,10 @@ Rules every card carries, so they are said once here:
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | ready; a first builder was cut off part way, and its three commits are kept ([leading-the-build.md](../leading-the-build.md), "Where the build stands") |
+| [EV-11](EV-11.md) | Ownership and size checks | building since 2026-11-13, from the three commits a first builder left when it was cut off ([leading-the-build.md](../leading-the-build.md), "Where the build stands") |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
-| [IF-01b](IF-01b.md) | The reader's fake | ready; a first builder was cut off part way, and its unchecked work is kept ([leading-the-build.md](../leading-the-build.md), "Where the build stands") |
-| [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | ready |
+| [IF-01b](IF-01b.md) | The reader's fake | building since 2026-11-13, from the unchecked work a first builder left when it was cut off ([leading-the-build.md](../leading-the-build.md), "Where the build stands") |
+| [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | building since 2026-11-13 |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | merged; owed: a property that a pass keeps what a session file holds |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
 | [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | merged; a card is owed for ST-03a's reading of a lock or a verified mark behind Unicode white space |

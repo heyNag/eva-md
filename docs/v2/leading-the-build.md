@@ -2,6 +2,18 @@
 
 For whoever leads the v2 build next, a person or an agent that takes it over part way. [The plan](plan.md) says what is built and why; section 9 of it says how the build is run, and section 15 gives the order of work and the owner's calendar. This says how that has worked in practice, and what each lesson cost, so that it is paid for once.
 
+## Always ready to hand over
+
+The owner's rule, given on 2026-11-13: the lead works as if the build were handed to someone else at any moment, and answers for it. A session can end and a machine can restart without warning, and the next lead has only the repository and the remote. So, at every change of state, and not at the end of a day:
+
+- the index says what is building, in review, merged or owed, in the same push as the change;
+- "Where the build stands", below, says what is running now, what comes next and what is kept beside `main`, and is rewritten when any of that changes;
+- a ruling the lead makes is written into the card it concerns when it is made, not at the merge;
+- every branch that holds work not on `main` has its tip in the safety copy (lesson 18), renewed when a wave ends or a builder is cut off, after work an agent left uncommitted is committed on its branch (lesson 25);
+- a lesson is written here when it is learned.
+
+The test is a reader with nothing but a fresh clone: can it say what to do next, and find everything it needs?
+
 ## Where the state is
 
 - **The plan** governs. A card that differs from it is wrong and is fixed.
@@ -81,7 +93,8 @@ As of 2026-11-13, for whoever leads next; the index stays the list of every card
 
 - **Released.** The counters release is 2026.11.13, cut from GitHub on the owner's word and approval. The owner upgrades the real install, uses it for a day or more, and runs the second field evaluation.
 - **Kept beside `main`.** The branch `heynag/amazing-pascal-di8yn0` on the remote is the safety copy of lesson 18. Two of the tips its head commit has as parents are still wanted: `pkg/ev-11` at e64004c (three commits) and `pkg/if-01b` at 28fa9b5 (one commit of work nobody has checked). Each was a first builder's, cut off part way; the next builder reads it against the card and keeps it or starts again. HO-14's first builder left nothing.
-- **Next, in this order:** the three that were cut off (EV-11, IF-01b, HO-14); then the ready cards the index lists: EV-16c first, since CI's Linux job has failed four times on what it mends, then IF-01c, HO-11, HO-12a, SEAM-0e, EV-17d, LG-13a, DV-11a, EV-17a, EV-03a, DV-03a, EV-14c, DV-02a and DV-12b.
+- **Running since 2026-11-13,** as two waves of the script: the three that were cut off (EV-11, IF-01b, HO-14), and EV-16c, since CI's Linux job has failed four times on what it mends, with IF-01c. EV-11 merges before the others, since its check reads a `paths` block from each card and its branch gives the cards that lack one theirs.
+- **Next, in this order,** as those end: HO-11, HO-12a, SEAM-0e, EV-17d, LG-13a, DV-11a, EV-17a, EV-03a, DV-03a, EV-14c, DV-02a and DV-12b.
 - **Cards owed, each named in the index or in a merged card's notes:** a hook test that depends on speed (`TestLateRunRecordsItsTime`, in LG-12's notes); ST-03a's reading of a lock or a verified mark behind Unicode white space (ST-03b's notes); the files v1's `.gitignore` hid, for ST-07's card (ST-04's notes); LG-22a; and the small tests owed in the notes of ST-02, ST-04, ST-03b, EV-14d and DL-04.
 - **At the Stage 0 readout** the lead writes the rulings' words into the plan, and the amendments to the store's format that the rulings and ST-02 ask for.
 
