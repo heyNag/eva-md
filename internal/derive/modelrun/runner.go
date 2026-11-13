@@ -102,7 +102,7 @@ type Signal string
 // that answered.
 const SignalModelUnreported Signal = "model_unreported"
 
-// coreSignals are the signals Run gives itself.
+// coreSignals are the signals Run alone gives; no backend may.
 var coreSignals = []Signal{SignalModelUnreported}
 
 // Usage is what a call used, over its attempts. In is the uncached input,
@@ -149,7 +149,8 @@ type backend struct {
 	// efforts are the values the CLI's effort flag takes, lowest first.
 	efforts []string
 	// signals are the signals its results may carry; any other is dropped.
-	// Each is a constant of the package: lower-case letters, digits and _.
+	// Each is a constant of the package: lower-case letters, digits and _,
+	// and none of the core's.
 	signals []Signal
 	// probe is the probe step, run once per entry of the probe cache with
 	// run, which starts the CLI with args under the step's own limit. It
@@ -220,8 +221,8 @@ func (b backend) check() error {
 		return errors.New("modelrun: a backend has no attempt")
 	}
 	for _, s := range b.signals {
-		if !signalName.MatchString(string(s)) {
-			return fmt.Errorf("modelrun: a backend's signal %q is not a name", s)
+		if !signalName.MatchString(string(s)) || slices.Contains(coreSignals, s) {
+			return fmt.Errorf("modelrun: a backend's signal %q is not a name of its own", s)
 		}
 	}
 	for _, e := range b.efforts {
@@ -347,9 +348,10 @@ func (r *runner) pathDir(cli string) string {
 	return filepath.Dir(cli)
 }
 
+// allowed are the signals the backend declared.
 func (r *runner) allowed() map[Signal]bool {
 	allowed := map[Signal]bool{}
-	for _, s := range slices.Concat(coreSignals, r.b.signals) {
+	for _, s := range r.b.signals {
 		allowed[s] = true
 	}
 	return allowed
@@ -439,7 +441,7 @@ func settle(o Outcome, res result, t tally, allowed map[Signal]bool) Outcome {
 			o.Signals = append(o.Signals, s)
 		}
 	}
-	if o.Attempts > 0 && o.ModelAnswered == "" && !slices.Contains(o.Signals, SignalModelUnreported) {
+	if o.Attempts > 0 && o.ModelAnswered == "" {
 		o.Signals = append(o.Signals, SignalModelUnreported)
 	}
 	return o
