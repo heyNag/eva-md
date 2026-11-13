@@ -127,6 +127,12 @@ func TestEachLedgerFault(t *testing.T) {
 			want: []string{"rows new/j.go and new/j.go: both hold the same files"}},
 		{name: "a folder over a file", text: replace("| `c/**` | 3 | ST-03a | ST-05 |\n", "| `c/**` | 3 | ST-03a | ST-05 |\n| `old/**` | 0 | ST-03a | ST-05 |\n"),
 			want: []string{"rows old/a.go and old/**: both hold the same files", "rows old/b.go and old/**: both hold the same files"}},
+		{name: "a file under a folder that comes first", text: replace("| `old/a.go` | 5 |", "| `old/**` | 0 | DV-26 | CUT-4 | loose | none |\n| `old/a.go` | 5 |"),
+			want: []string{"rows old/** and old/a.go: both hold the same files", "rows old/** and old/b.go: both hold the same files"}},
+		{name: "a card twice in Scheduled on", text: replace("| file | AA-1 |", "| file | AA-1, AA-1 |"),
+			want: []string{`row old/a.go: its Scheduled on, "AA-1, AA-1", is neither none nor cards' ids, each once, separated by commas`}},
+		{name: "a word in Scheduled on that is no card", text: replace("| file | AA-1 |", "| file | AA-1, soon |"),
+			want: []string{`row old/a.go: its Scheduled on, "AA-1, soon", is neither none nor cards' ids`}},
 		{name: "a merged card's entry with no row scheduled on it", text: replace("| file | AA-1 |", "| file | none |"),
 			want: []string{"AA-1's deletes block names old/a.go, and no (a) row of that path is scheduled on AA-1"}},
 		{name: "scheduled on a card not merged", text: replace("| `v1.go` | 3 | hosts' own | CUT-4 | file | none |", "| `v1.go` | 3 | hosts' own | CUT-4 | file | AA-2 |"),
@@ -151,7 +157,7 @@ func TestEachLedgerFault(t *testing.T) {
 		{name: "a kept row read as leaving", text: replace("| kept by EV-23 |", "| leaves at CUT-4 |"),
 			want: []string{"leaves-instruments says 11, and the figures it sums give 24"}},
 		{name: "a frozen row one line off", built: func(m map[string]int) { m["old/a.go"] = 6 },
-			want: []string{"row old/a.go: says 5, counts 6, and the row is frozen: AA-1's deletes block has scheduled it"}},
+			want: []string{"row old/a.go: says 5, counts 6, and the row is frozen: the deletes block of AA-1 has scheduled it"}},
 		{name: "an unknown table", text: replace("## (c)", "| Path | Lines |\n| --- | --- |\n| `x.go` | 1 |\n\n## (c)"),
 			want: []string{"a table whose header is not one of the ledger's three"}},
 		{name: "a table missing", text: func(string) string { return ledgerText(ledgerA, "", ledgerC, ledgerEnd) },
@@ -373,7 +379,9 @@ func TestTheSizeLedgerHoldsForThisRepository(t *testing.T) {
 	for _, r := range l.Rows {
 		tables[r.Table]++
 	}
-	if tables["a"] < 12 || tables["b"] < 5 || tables["c"] < 8 || len(l.Keys) != len(ledgerKeys)-1 {
+	// A row per table at least: a package that builds what a row holds, or
+	// gives (c)'s code its caller, drops the row, which fails nothing here.
+	if tables["a"] < 1 || tables["b"] < 1 || tables["c"] < 1 || len(l.Keys) != len(ledgerKeys)-1 {
 		t.Errorf("the ledger has rows %v and keys %v", tables, l.Keys)
 	}
 }
@@ -399,5 +407,95 @@ func TestARowWhosePathIsGone(t *testing.T) {
 	}
 	if len(l.Faults) != 2 || !containsFault(l.Faults, GoneFault("v1.go")) || !containsFault(l.Faults, GoneFault("old/a.go")) {
 		t.Fatalf("faults:\n%s", l.Report())
+	}
+}
+
+// mergeCards rewrites the fixture's index with the cards given merged
+// besides AA-1, each with the text given (a card of no block for ""), and
+// AA-2 still building.
+func mergeCards(t *testing.T, repo string, cards map[string]string) {
+	t.Helper()
+	index := "| Card | Package | State |\n| --- | --- | --- |\n" + row("AA-1", "merged") + row("AA-2", "building since today")
+	for id, text := range cards {
+		index += row(id, "merged")
+		if text == "" {
+			text = "# A card\n"
+		}
+		write(t, filepath.Join(repo, "docs", "v2", "cards", id+".md"), text)
+	}
+	write(t, filepath.Join(repo, "docs", "v2", "cards", "README.md"), index)
+}
+
+// Once a row's stage has merged the row is done: its path must be gone,
+// and a frozen row whose path the stage deleted moves to 0 with a
+// difference, not a fault.
+func TestARowWhoseStageHasMerged(t *testing.T) {
+	repo, built := ledgerRepo(t), ledgerBuilt()
+	mergeCards(t, repo, map[string]string{CutOver: ""})
+	l := checkLedger(t, repo, ledgerBase, built, ledgerV1())
+	if len(l.Faults) != 3 || len(l.Differences) != 0 {
+		t.Fatalf("the stage merged, its paths still there:\n%s", l.Report())
+	}
+	for _, f := range []string{"old/a.go", "old/b.go", "v1.go"} {
+		if want := "row " + f + ": its stage, CUT-4, has merged and the path is still in the repository"; !containsFault(l.Faults, want) {
+			t.Errorf("no fault says %q:\n%s", want, l.Report())
+		}
+	}
+
+	for _, f := range []string{"old/a.go", "old/b.go", "v1.go"} {
+		if err := os.Remove(filepath.Join(repo, f)); err != nil {
+			t.Fatal(err)
+		}
+		delete(built, f)
+	}
+	l = checkLedger(t, repo, ledgerBase, built, ledgerV1())
+	if len(l.Faults) != 0 || len(l.Differences) == 0 || l.Differences[0].Text != "row old/a.go: says 5, counts 0" {
+		t.Fatalf("the stage merged, its paths gone:\n%s", l.Report())
+	}
+	for _, r := range l.Rows {
+		if r.Table == "a" && (!r.Done || r.Frozen || !r.Gone) {
+			t.Errorf("row %s: done %v, frozen %v, gone %v", r.Path, r.Done, r.Frozen, r.Gone)
+		}
+	}
+	if !strings.Contains(l.Report(), "(a) old/a.go: 0 (done: CUT-4 has merged)\n") {
+		t.Errorf("report:\n%s", l.Report())
+	}
+
+	mended := ledgerText(strings.NewReplacer("| 5 |", "| 0 |", "| 7 |", "| 0 |", "| 3 |", "| 0 |").Replace(ledgerA), ledgerB, ledgerC,
+		strings.NewReplacer("built: 156", "built: 141", "leaves-v1: 15", "leaves-v1: 0", "leaves: 26", "leaves: 11").Replace(ledgerEnd))
+	if l := checkLedger(t, repo, mended, built, ledgerV1()); !l.Holds() {
+		t.Fatalf("mended:\n%s", l.Report())
+	}
+}
+
+// Two merged cards may name one path: its row is scheduled on both, and a
+// row that names only one of them leaves the other's entry without a row.
+func TestTwoCardsScheduleOnePath(t *testing.T) {
+	repo := ledgerRepo(t)
+	mergeCards(t, repo, map[string]string{"AA-3": deletes("old/a.go")})
+	l := checkLedger(t, repo, ledgerBase, ledgerBuilt(), ledgerV1())
+	if len(l.Faults) != 1 || !containsFault(l.Faults, "AA-3's deletes block names old/a.go, and no (a) row of that path is scheduled on AA-3") {
+		t.Fatalf("scheduled on AA-1 alone:\n%s", l.Report())
+	}
+	both := strings.Replace(ledgerBase, "| file | AA-1 |", "| file | AA-1, AA-3 |", 1)
+	l = checkLedger(t, repo, both, ledgerBuilt(), ledgerV1())
+	if !l.Holds() {
+		t.Fatalf("scheduled on both:\n%s", l.Report())
+	}
+	if r := l.Rows[0]; r.Path != "old/a.go" || !r.Frozen || !strings.Contains(l.Report(), "(frozen: scheduled on AA-1, AA-3)") {
+		t.Fatalf("row %+v:\n%s", r, l.Report())
+	}
+	built := ledgerBuilt()
+	built["old/a.go"] = 6
+	if l := checkLedger(t, repo, both, built, ledgerV1()); len(l.Faults) != 1 ||
+		!containsFault(l.Faults, "row old/a.go: says 5, counts 6, and the row is frozen: the deletes block of AA-1 and of AA-3 has scheduled it") {
+		t.Fatalf("a row frozen by two cards, moved:\n%s", l.Report())
+	}
+	// One of the two not merged is a fault, and the other still freezes
+	// the row.
+	mergeCards(t, repo, nil)
+	if l := checkLedger(t, repo, both, ledgerBuilt(), ledgerV1()); len(l.Faults) != 1 || !l.Rows[0].Frozen ||
+		!containsFault(l.Faults, "row old/a.go: it is scheduled on AA-3, which the index does not list as merged") {
+		t.Fatalf("AA-3 not merged:\n%s", l.Report())
 	}
 }

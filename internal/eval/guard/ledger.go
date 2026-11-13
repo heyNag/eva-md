@@ -46,14 +46,16 @@ var (
 
 // A LedgerRow is one row of the ledger's tables.
 type LedgerRow struct {
-	Table       string  // "a", "b" or "c"
-	Path        Pattern // the files the row holds
-	Says        int     // the figure the ledger gives
-	Counts      int     // today's figure
-	ScheduledOn string  // (a): the card whose deletes block names the path, or "none"
-	Frozen      bool    // (a): scheduled on a merged card, so its figure may not move
-	Leaves      bool    // (b): its fate is to leave at the cut-over
-	Gone        bool    // the path is not in the repository
+	Table       string   // "a", "b" or "c"
+	Path        Pattern  // the files the row holds
+	Says        int      // the figure the ledger gives
+	Counts      int      // today's figure
+	ScheduledOn []string // (a): the cards whose deletes blocks name the path; none when empty
+	Stage       string   // (a): the package that removes the path
+	Frozen      bool     // (a): scheduled on merged cards, so its figure may not move
+	Done        bool     // (a): its stage has merged, so the path is gone and the row frozen no more
+	Leaves      bool     // (b): its fate is to leave at the cut-over
+	Gone        bool     // the path is not in the repository
 	cells       []string
 }
 
@@ -106,10 +108,13 @@ func (l Ledger) Holds() bool { return len(l.Differences) == 0 && len(l.Faults) =
 // had or a (b) row naming one, two rows over one file, a merged card's
 // deletes entry with no (a) row of that path scheduled on that card, a row
 // scheduled on a card that is not merged or whose block lacks the path, a
-// sum or ceiling that does not add up, and a row scheduled on a merged
-// card, frozen, whose figure is not today's. Every other figure that is
-// not today's is a difference. The error is for an index that cannot be
-// read, a folder that cannot be walked, or v1's files.
+// sum or ceiling that does not add up, and a row scheduled on merged
+// cards, frozen, whose figure is not today's. An (a) row whose stage the
+// index lists as merged is done: its path must be gone, a fault if it is
+// still there, and it is frozen no more, so its figure is today's, 0, or a
+// difference. Every other figure that is not today's is a difference. The
+// error is for an index that cannot be read, a folder that cannot be
+// walked, or v1's files.
 func CheckLedger(repo, text string, built map[string]int, ceiling int, v1 func() (map[string]bool, error)) (Ledger, error) {
 	l := Ledger{}
 	keys := l.parse(text)
@@ -138,7 +143,14 @@ func CheckLedger(repo, text string, built map[string]int, ceiling int, v1 func()
 				}
 			}
 		}
-		if r.Gone = !exists(repo, r.Path); r.Gone {
+		// A row whose stage has merged is done: its path is gone, as the
+		// size check's own faults require once the cut-over has merged.
+		r.Gone = !exists(repo, r.Path)
+		r.Done = r.Table == "a" && slices.Contains(merged, r.Stage)
+		switch {
+		case r.Done && !r.Gone:
+			l.fault("row %s: its stage, %s, has merged and the path is still in the repository", r.Path, r.Stage)
+		case !r.Done && r.Gone:
 			l.fault("%s", GoneFault(r.Path))
 		}
 		if had != nil && r.Table != "c" {
@@ -155,16 +167,19 @@ func CheckLedger(repo, text string, built map[string]int, ceiling int, v1 func()
 				l.fault("row %s: it is in (b) and names %d files v1 had", r.Path, v1s)
 			}
 		}
-		if r.ScheduledOn != "none" {
+		// Any merged card whose block names the path freezes the row.
+		frozen := false
+		for _, card := range r.ScheduledOn {
 			switch {
-			case !slices.Contains(merged, r.ScheduledOn):
-				l.fault("row %s: it is scheduled on %s, which the index does not list as merged", r.Path, r.ScheduledOn)
-			case !slices.Contains(blocks[r.ScheduledOn], r.Path):
-				l.fault("row %s: it is scheduled on %s, whose deletes block does not name it", r.Path, r.ScheduledOn)
+			case !slices.Contains(merged, card):
+				l.fault("row %s: it is scheduled on %s, which the index does not list as merged", r.Path, card)
+			case !slices.Contains(blocks[card], r.Path):
+				l.fault("row %s: it is scheduled on %s, whose deletes block does not name it", r.Path, card)
 			default:
-				r.Frozen = true
+				frozen = true
 			}
 		}
+		r.Frozen = frozen && !r.Done
 		for _, q := range l.Rows[:i] {
 			if q.Path.covers(r.Path) || r.Path.covers(q.Path) {
 				l.fault("rows %s and %s: both hold the same files", q.Path, r.Path)
@@ -173,7 +188,7 @@ func CheckLedger(repo, text string, built map[string]int, ceiling int, v1 func()
 		if r.Says != r.Counts {
 			d := fmt.Sprintf("row %s: says %d, counts %d", r.Path, r.Says, r.Counts)
 			if r.Frozen {
-				l.fault("%s, and the row is frozen: %s's deletes block has scheduled it", d, r.ScheduledOn)
+				l.fault("%s, and the row is frozen: the deletes block of %s has scheduled it", d, strings.Join(r.ScheduledOn, " and of "))
 			} else {
 				l.Differences = append(l.Differences, Difference{d, r.Line()})
 			}
@@ -182,7 +197,7 @@ func CheckLedger(repo, text string, built map[string]int, ceiling int, v1 func()
 	for _, card := range merged {
 		for _, p := range blocks[card] {
 			if !slices.ContainsFunc(l.Rows, func(r LedgerRow) bool {
-				return r.Table == "a" && r.Path == p && r.ScheduledOn == card
+				return r.Table == "a" && r.Path == p && slices.Contains(r.ScheduledOn, card)
 			}) {
 				l.fault("%s's deletes block names %s, and no (a) row of that path is scheduled on %s", card, p, card)
 			}
@@ -378,7 +393,7 @@ func tableCells(line string) ([]string, bool) {
 // figure could be read, so the row is checked and counted even if err
 // says what else is wrong with it.
 func parseRow(kind string, cells []string) (r LedgerRow, ok bool, err error) {
-	r = LedgerRow{Table: kind, cells: cells, ScheduledOn: "none"}
+	r = LedgerRow{Table: kind, cells: cells}
 	if len(cells) != len(ledgerTables[kind]) {
 		return r, false, fmt.Errorf("a row of %d cells in the (%s) table, which has %d", len(cells), kind, len(ledgerTables[kind]))
 	}
@@ -402,8 +417,19 @@ func parseRow(kind string, cells []string) (r LedgerRow, ok bool, err error) {
 	isCard := func(s string) bool { return CardFile(s) != "" }
 	switch kind {
 	case "a":
-		if isCard(cells[5]) {
-			r.ScheduledOn = cells[5]
+		r.Stage = cells[3]
+		// Scheduled on is none, or the cards whose deletes blocks name the
+		// path, separated by commas: two merged cards may name one path.
+		var cards []string
+		if cells[5] != "none" {
+			for c := range strings.SplitSeq(cells[5], ",") {
+				cards = append(cards, strings.TrimSpace(c))
+			}
+		}
+		for i, c := range cards {
+			if isCard(c) && !slices.Contains(cards[:i], c) {
+				r.ScheduledOn = append(r.ScheduledOn, c)
+			}
 		}
 		switch {
 		case !isCard(cells[2]) && !slices.Contains(trackOwn, cells[2]):
@@ -412,8 +438,8 @@ func parseRow(kind string, cells []string) (r LedgerRow, ok bool, err error) {
 			return bad("Stage", "is not a plan id")
 		case cells[4] != "file" && cells[4] != "loose":
 			return bad("Named", "is neither file nor loose")
-		case cells[5] != "none" && !isCard(cells[5]):
-			return bad("Scheduled on", "is neither a card's id nor none")
+		case len(r.ScheduledOn) != len(cards):
+			return bad("Scheduled on", "is neither none nor cards' ids, each once, separated by commas")
 		}
 	case "b":
 		kept, isKept := strings.CutPrefix(cells[4], "kept by ")
@@ -525,8 +551,10 @@ func (l Ledger) Report() string {
 	for _, r := range l.Rows {
 		note := ""
 		switch {
+		case r.Done:
+			note = " (done: " + r.Stage + " has merged)"
 		case r.Frozen:
-			note = " (frozen: scheduled on " + r.ScheduledOn + ")"
+			note = " (frozen: scheduled on " + strings.Join(r.ScheduledOn, ", ") + ")"
 		case r.Table == "b" && r.Leaves:
 			note = " (leaves at " + CutOver + ")"
 		case r.Table == "b":
