@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000052",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000052.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "PostToolUseFailure",
+ "tool_name": "Bash",
+ "error": "Exit code 1"
+}

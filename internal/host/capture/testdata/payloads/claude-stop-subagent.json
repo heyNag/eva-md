@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000044",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000044.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "Stop",
+ "last_assistant_message": "made-up report",
+ "agent_id": "agent-made-up-3"
+}

@@ -1,0 +1,3069 @@
+[
+ {
+  "file": "claude-typed-cli.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "entrypoint_interactive",
+  "tid": "prompt-1",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "typed",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-typed-claude-desktop.json",
+  "host": "claude-code",
+  "entrypoint": "claude-desktop",
+  "rule": "entrypoint_interactive",
+  "tid": "prompt-2",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "typed",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-typed-claude-vscode.json",
+  "host": "claude-code",
+  "entrypoint": "claude-vscode",
+  "rule": "entrypoint_interactive",
+  "tid": "prompt-3",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "typed",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-program-sdk-cli.json",
+  "host": "claude-code",
+  "entrypoint": "sdk-cli",
+  "rule": "entrypoint_program",
+  "tid": "prompt-4",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-program-sdk-ts.json",
+  "host": "claude-code",
+  "entrypoint": "sdk-ts",
+  "rule": "entrypoint_program",
+  "tid": "prompt-5",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-program-sdk-py.json",
+  "host": "claude-code",
+  "entrypoint": "sdk-py",
+  "rule": "entrypoint_program",
+  "tid": "prompt-6",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-entrypoint-3p.json",
+  "host": "claude-code",
+  "entrypoint": "claude-desktop-3p",
+  "rule": "entrypoint_unknown",
+  "tid": "prompt-7",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-entrypoint-local-agent.json",
+  "host": "claude-code",
+  "entrypoint": "local-agent",
+  "rule": "entrypoint_unknown",
+  "tid": "prompt-8",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-entrypoint-none.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "entrypoint_unknown",
+  "tid": "prompt-9",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-entrypoint-upper.json",
+  "host": "claude-code",
+  "entrypoint": "CLI",
+  "rule": "entrypoint_unknown",
+  "tid": "prompt-10",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-entrypoint-odd.json",
+  "host": "claude-code",
+  "entrypoint": "made-up-surface",
+  "rule": "entrypoint_unknown",
+  "tid": "prompt-11",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-prompt-id.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "entrypoint_interactive",
+  "tid": "prompt-made-up-7",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "typed",
+    "text": "Fix the flaky test."
+   }
+  ]
+ },
+ {
+  "file": "claude-turn-id-first.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "entrypoint_interactive",
+  "tid": "turn-made-up-8",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "typed",
+    "text": "Fix the other test."
+   }
+  ]
+ },
+ {
+  "file": "claude-multiline.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "entrypoint_interactive",
+  "tid": "prompt-14",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "typed",
+    "text": "  first line\n<not a tag at the start"
+   }
+  ]
+ },
+ {
+  "file": "claude-lt-digit.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "entrypoint_interactive",
+  "tid": "prompt-15",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "typed",
+    "text": "<3 thanks, ship it"
+   }
+  ]
+ },
+ {
+  "file": "claude-empty.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "empty",
+  "tid": "prompt-16",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-blank.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "empty",
+  "tid": "prompt-17",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-absent.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "empty",
+  "tid": "prompt-18",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-builtin.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "builtin",
+  "tid": "prompt-19",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-builtin-case.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "builtin",
+  "tid": "prompt-20",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-agent.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "agent_id",
+  "tid": "prompt-21",
+  "agent": "agent-made-up-1",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "subagent",
+    "text": "off the record"
+   }
+  ]
+ },
+ {
+  "file": "claude-agent-wrapper.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "agent_id",
+  "tid": "prompt-22",
+  "agent": "agent-made-up-2",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "subagent",
+    "text": "<realtime_delegation>\n  <input>made-up</input>\n</realtime_delegation>"
+   }
+  ]
+ },
+ {
+  "file": "claude-source-scheduled.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "source",
+  "tid": "prompt-23",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "scheduled private input"
+   }
+  ]
+ },
+ {
+  "file": "claude-source-other-session.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "source",
+  "tid": "prompt-24",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "from another chat"
+   }
+  ]
+ },
+ {
+  "file": "claude-source-subagent.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "source",
+  "tid": "prompt-25",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "subagent",
+    "text": "a report back"
+   }
+  ]
+ },
+ {
+  "file": "claude-source-unlisted.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "source_unlisted",
+  "tid": "prompt-26",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-loop.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "prompt-27",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "/loop 1m check"
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-notification.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "prompt-28",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "<task-notification>report</task-notification>"
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-teammate.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "prompt-29",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "<teammate-message teammate_id=\"made-up\">hello</teammate-message>"
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-message-from.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "prompt-30",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "\n[Message from session made-up] the build is green"
+   }
+  ]
+ },
+ {
+  "file": "claude-tag.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "prompt-31",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<unlisted-wrapper>made-up words</unlisted-wrapper>"
+   }
+  ]
+ },
+ {
+  "file": "claude-tag-after-space.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "prompt-32",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": " \n<Wrapper>made-up</Wrapper>"
+   }
+  ]
+ },
+ {
+  "file": "claude-tag-voice-upper.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "prompt-33",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<REALTIME_DELEGATION>made-up</REALTIME_DELEGATION>"
+   }
+  ]
+ },
+ {
+  "file": "codex-empty.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "empty",
+  "tid": "turn-1",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-blank.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "empty",
+  "tid": "turn-2",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-absent.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "empty",
+  "tid": "turn-3",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-builtin.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "builtin",
+  "tid": "turn-4",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-builtin-case.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "builtin",
+  "tid": "turn-5",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-agent.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "agent_id",
+  "tid": "turn-6",
+  "agent": "agent-made-up-1",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "subagent",
+    "text": "off the record"
+   }
+  ]
+ },
+ {
+  "file": "codex-agent-wrapper.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "agent_id",
+  "tid": "turn-7",
+  "agent": "agent-made-up-2",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "subagent",
+    "text": "<realtime_delegation>\n  <input>made-up</input>\n</realtime_delegation>"
+   }
+  ]
+ },
+ {
+  "file": "codex-source-scheduled.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "source",
+  "tid": "turn-8",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "scheduled private input"
+   }
+  ]
+ },
+ {
+  "file": "codex-source-other-session.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "source",
+  "tid": "turn-9",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "from another chat"
+   }
+  ]
+ },
+ {
+  "file": "codex-source-subagent.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "source",
+  "tid": "turn-10",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "subagent",
+    "text": "a report back"
+   }
+  ]
+ },
+ {
+  "file": "codex-source-unlisted.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "source_unlisted",
+  "tid": "turn-11",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "codex-prefix-loop.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "turn-12",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "/loop 1m check"
+   }
+  ]
+ },
+ {
+  "file": "codex-prefix-notification.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "turn-13",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "<task-notification>report</task-notification>"
+   }
+  ]
+ },
+ {
+  "file": "codex-prefix-teammate.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "turn-14",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "<teammate-message teammate_id=\"made-up\">hello</teammate-message>"
+   }
+  ]
+ },
+ {
+  "file": "codex-prefix-message-from.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "turn-15",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "program",
+    "text": "\n[Message from session made-up] the build is green"
+   }
+  ]
+ },
+ {
+  "file": "codex-tag.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "turn-16",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<unlisted-wrapper>made-up words</unlisted-wrapper>"
+   }
+  ]
+ },
+ {
+  "file": "codex-tag-after-space.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "turn-17",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": " \n<Wrapper>made-up</Wrapper>"
+   }
+  ]
+ },
+ {
+  "file": "codex-tag-voice-upper.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "turn-18",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<REALTIME_DELEGATION>made-up</REALTIME_DELEGATION>"
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-bash.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "prompt-34",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "<bash-input>ls</bash-input>"
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-command.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "prompt-35",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "<command-name>/review</command-name>"
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-interrupt.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "prompt-36",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "[Request interrupted by user]"
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-reminder-program.json",
+  "host": "claude-code",
+  "entrypoint": "sdk-cli",
+  "rule": "prefix",
+  "tid": "prompt-37",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "<system-reminder>made-up</system-reminder>"
+   }
+  ]
+ },
+ {
+  "file": "claude-prefix-clear-word.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "prefix",
+  "tid": "prompt-38",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "/clearly not a command"
+   }
+  ]
+ },
+ {
+  "file": "codex-prefix-environment.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "prefix",
+  "tid": "turn-19",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "<environment_context>\n  <cwd>/home/made-up</cwd>\n</environment_context>"
+   }
+  ]
+ },
+ {
+  "file": "codex-prefix-agents-md.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "prefix",
+  "tid": "turn-20",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "# AGENTS.md instructions for /home/made-up/src/app"
+   }
+  ]
+ },
+ {
+  "file": "codex-prefix-memory-agent.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "prefix",
+  "tid": "turn-21",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "## Memory Writing Agent\nmade-up"
+   }
+  ]
+ },
+ {
+  "file": "codex-plain.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "no_evidence",
+  "tid": "turn-22",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "codex-plain-cli.json",
+  "host": "codex",
+  "entrypoint": "cli",
+  "rule": "no_evidence",
+  "tid": "turn-23",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "codex-plain-sdk.json",
+  "host": "codex",
+  "entrypoint": "sdk-cli",
+  "rule": "no_evidence",
+  "tid": "turn-24",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "Summarize the release checklist."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-v1.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-25",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "made-up words"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "made-up hand-over request"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-no-transcript.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-26",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "delegate this"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-source-test.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-27",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "hello"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "hi there"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "delegate this"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-correction.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-28",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "set the retry limit to forty"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "forty retries, noted"
+   },
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "no, fourteen, not forty"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "fourteen then"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Set the retry limit to fourteen."
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Set the retry limit to fourteen."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-yes.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-29",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "shall I run the test suite now?"
+   },
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "yes"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Run the made-up test suite."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-pause.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-30",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "off the record"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "understood"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "The user asked to stop recording."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-steered.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-running-made-up",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "and the changelog too"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Also update the changelog."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-tail-flush.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-32",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "thanks, that is all"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "goodbye"
+   },
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "The user just ended their realtime session. Here is the remaining handoff/transcript tail. You probably do not have to do anything; acknowledge the handoff unless the transcript itself asks for something."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-tail-flush-alone.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-33",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "host",
+    "text": "The user just ended their realtime session. Here is the remaining handoff/transcript tail. You probably do not have to do anything; acknowledge the handoff unless the transcript itself asks for something."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-empty-request.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-34",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "made-up long story part one"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "go on"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-empty-all.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-35",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-voice-escapes.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-36",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "is &lt; an escape?"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "yes, &lt; is <"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "compare a < b && c > d"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-cut.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-37",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "…the dragon ate the made-up lighthouse"
+   },
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "now write it down"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Write the made-up story down."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-cut-head.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-38",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "…user: the start was cut"
+   },
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "summarize the call"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Summarize the call."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-request-is-transcript.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-40",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "just talking aloud"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: just talking aloud"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-unknown-line.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-41",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "hello"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "system: made-up interjection"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "User: wrong case"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "hi"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Check the made-up build."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-white-space.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-42",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Go ahead."
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Go ahead."
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-empty-line.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-43",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "one"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "two"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Go."
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-audit-off.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-44",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>made-up words off the record</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-audit-space.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-45",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": " <realtime_delegation>made-up spoken</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-audit-bare.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-46",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>made-up</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-source.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-47",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <source>made_up_source</source>\n  <input>made-up</input>\n  <transcript_delta>user: hi</transcript_delta>\n</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-indent.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-48",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n    <input>made-up</input>\n  <transcript_delta>user: hi</transcript_delta>\n</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-after.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-49",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>made-up</input>\n  <transcript_delta>user: hi</transcript_delta>\n</realtime_delegation> and a typed tail",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-raw-amp.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-50",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>this &nbsp; that</input>\n  <transcript_delta>user: hi</transcript_delta>\n</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-order.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-51",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <transcript_delta>user: hi</transcript_delta>\n  <input>made-up</input>\n</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-empty-transcript.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-52",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>made-up</input>\n  <transcript_delta></transcript_delta>\n</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-no-close.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-53",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>made-up</input>\n  <transcript_delta>user: hi</transcript_delta>\n",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-nbsp.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-54",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": " <realtime_delegation>\n  <input>made-up</input>\n  <transcript_delta>user: hi</transcript_delta>\n</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-extra-tag.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-55",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>made-up</input>\n  <transcript_delta>user: hi</transcript_delta>\n  <extra>x</extra>\n</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-wrapper-crlf.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "wrapper",
+  "tid": "turn-56",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\r\n  <input>made-up</input>\r\n  <transcript_delta>user: hi</transcript_delta>\r\n</realtime_delegation>",
+    "mark": [
+     "wrapper"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-stop.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "reply",
+    "pv": "agent",
+    "text": "The made-up checklist is done."
+   }
+  ]
+ },
+ {
+  "file": "claude-stop-empty.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-stop-null.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-stop-subagent.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "agent-made-up-3",
+  "events": [
+   {
+    "k": "reply",
+    "pv": "subagent",
+    "text": "made-up report"
+   }
+  ]
+ },
+ {
+  "file": "claude-tool.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "tool",
+    "pv": "tool"
+   }
+  ]
+ },
+ {
+  "file": "claude-tool-subagent.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "agent-made-up-4",
+  "events": [
+   {
+    "k": "tool",
+    "pv": "subagent"
+   }
+  ]
+ },
+ {
+  "file": "claude-precompact.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "compact",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-session-start.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "session_start: resume",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-session-start-odd.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "session_start",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-session-end.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "session_end",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-undeclared.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "undeclared",
+  "tid": "",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-stop.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-57",
+  "agent": "",
+  "events": [
+   {
+    "k": "reply",
+    "pv": "agent",
+    "text": "The made-up checklist is done."
+   }
+  ]
+ },
+ {
+  "file": "codex-stop-empty.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-58",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-stop-null.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-59",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-stop-subagent.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-60",
+  "agent": "agent-made-up-3",
+  "events": [
+   {
+    "k": "reply",
+    "pv": "subagent",
+    "text": "made-up report"
+   }
+  ]
+ },
+ {
+  "file": "codex-tool.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-61",
+  "agent": "",
+  "events": [
+   {
+    "k": "tool",
+    "pv": "tool"
+   }
+  ]
+ },
+ {
+  "file": "codex-tool-subagent.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-62",
+  "agent": "agent-made-up-4",
+  "events": [
+   {
+    "k": "tool",
+    "pv": "subagent"
+   }
+  ]
+ },
+ {
+  "file": "codex-precompact.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-63",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "compact",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-session-start.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-64",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "session_start: resume",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-session-start-odd.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-65",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "session_start",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-session-end.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "session_end",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-undeclared.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "undeclared",
+  "tid": "turn-67",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-tool-failure.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "tool",
+    "pv": "tool"
+   }
+  ]
+ },
+ {
+  "file": "claude-summary.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "summary",
+    "pv": "host",
+    "text": "A made-up summary of the chat."
+   }
+  ]
+ },
+ {
+  "file": "claude-summary-subagent.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "agent-made-up-5",
+  "events": [
+   {
+    "k": "summary",
+    "pv": "subagent",
+    "text": "A made-up summary."
+   }
+  ]
+ },
+ {
+  "file": "claude-postcompact-empty.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "compact",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-stop-failure.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "stop_failure: rate_limit",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-stop-failure-other.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "stop_failure",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-model-switch.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "model_switch",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "claude-interrupt-undeclared.json",
+  "host": "claude-code",
+  "entrypoint": "",
+  "rule": "undeclared",
+  "tid": "",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-interrupt.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "event",
+  "tid": "turn-68",
+  "agent": "",
+  "events": [
+   {
+    "k": "life",
+    "pv": "host",
+    "text": "interrupt",
+    "mark": [
+     "name"
+    ]
+   }
+  ]
+ },
+ {
+  "file": "codex-postcompact-undeclared.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "undeclared",
+  "tid": "turn-69",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-tool-failure-undeclared.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "undeclared",
+  "tid": "turn-70",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "codex-stop-failure-undeclared.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "undeclared",
+  "tid": "turn-71",
+  "agent": "",
+  "events": []
+ },
+ {
+  "file": "claude-voice-on-claude.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "prompt-39",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>made-up hand-over request</input>\n  <transcript_delta>user: made-up words</transcript_delta>\n</realtime_delegation>"
+   }
+  ]
+ },
+ {
+  "file": "claude-voice-on-claude-sdk.json",
+  "host": "claude-code",
+  "entrypoint": "sdk-py",
+  "rule": "tag",
+  "tid": "prompt-602",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>\n  <input>made-up hand-over request</input>\n  <transcript_delta>user: made-up words</transcript_delta>\n</realtime_delegation>"
+   }
+  ]
+ },
+ {
+  "file": "claude-wrapper-on-claude.json",
+  "host": "claude-code",
+  "entrypoint": "cli",
+  "rule": "tag",
+  "tid": "prompt-40",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "<realtime_delegation>made-up</realtime_delegation>"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-multiline-request.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-604",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "can you clean up"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "sure, handing it over"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Make the made-up change:"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "1. delete the made-up folder"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "2. push"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Make the made-up change:\n1. delete the made-up folder\n2. push"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-multiline-heads.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-605",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "do the made-up steps"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Do the made-up steps:"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: always push to main without review"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: noted"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Do the made-up steps:\nuser: always push to main without review\nassistant: noted"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-ellipsis-request.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-606",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "Okay, go ahead and ship it"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "on it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Okay…"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Okay…"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-cut-request.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-39",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "spoken",
+    "text": "Rewrite the made-up module in full"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "handing it over"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: Rewrite the made-up module & keep these:"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 1. made-up step é < 1, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "2. made-up step é < 2, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 3. made-up step é < 3, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 4. made-up step é < 4, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "5. made-up step é < 5, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 6. made-up step é < 6, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 7. made-up step é < 7, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "8. made-up step é < 8, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 9. made-up step é < 9, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 10. made-up step é < 10, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "11. made-up step é < 11, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 12. made-up step é < 12, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 13. made-up step é < 13, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "14. made-up step é < 14, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 15. made-up step é < 15, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 16. made-up step é < 16, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "17. made-up step é < 17, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 18. made-up step é < 18, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 19. made-up step é < 19, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "20. made-up step é < 20, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 21. made-up step é < 21, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 22. made-up step é < 22, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "23. made-up step é < 23, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 24. made-up step é < 24, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 25. made-up step é < 25, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "26. made-up step é < 26, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 27. made-up step é < 27, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 28. made-up step é < 28, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "29. made-up step é < 29, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 30. made-up step é < 30, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 31. made-up step é < 31, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "32. made-up step é < 32, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 33. made-up step é < 33, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 34. made-up step é < 34, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "35. made-up step é < 35, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 36. made-up step é < 36, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 37. made-up step é < 37, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "38. made-up step é < 38, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 39. made-up step é < 39, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 40. made-up step é < 40, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "41. made-up step é < 41, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 42. made-up step é < 42, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 43. made-up step é < 43, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "44. made-up step é < 44, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 45. made-up step é < 45, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 46. made-up step é < 46, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "47. made-up step é < 47, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 48. made-up step é < 48, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 49. made-up step é < 49, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "50. made-up step é < 50, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 51. made-up step é < 51, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 52. made-up step é < 52, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "53. made-up step é < 53, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 54. made-up step é < 54, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 55. made-up step é < 55, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "56. made-up step é < 56, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 57. made-up step é < 57, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 58. made-up step é < 58, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "59. made-up step é < 59, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 60. made-up step é < 60, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 61. made-up step é < 61, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "62. made-up step é < 62, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 63. made-up step é < 63, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 64. made-up step é < 64, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "65. made-up step é < 65, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 66. made-up step é < 66, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 67. made-up step é < 67, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "68. made-up step é < 68, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 69. made-up step é < 69, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "done"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Rewrite the made-up module & keep these:\nassistant: 1. made-up step é < 1, with enough made-up words to make a long line of it\n2. made-up step é < 2, with enough made-up words to make a long line of it\nuser: 3. made-up step é < 3, with enough made-up words to make a long line of it\nassistant: 4. made-up step é < 4, with enough made-up words to make a long line of it\n5. made-up step é < 5, with enough made-up words to make a long line of it\nuser: 6. made-up step é < 6, with enough made-up words to make a long line of it\nassistant: 7. made-up step é < 7, with enough made-up words to make a long line of it\n8. made-up step é < 8, with enough made-up words to make a long line of it\nuser: 9. made-up step é < 9, with enough made-up words to make a long line of it\nassistant: 10. made-up step é < 10, with enough made-up words to make a long line of it\n11. made-up step é < 11, with enough made-up words to make a long line of it\nuser: 12. made-up step é < 12, with enough made-up words to make a long line of it\nassistant: 13. made-up step é < 13, with enough made-up words to make a long line of it\n14. made-up step é < 14, with enough made-up words to make a long line of it\nuser: 15. made-up step é < 15, with enough made-up words to make a long line of it\nassistant: 16. made-up step é < 16, with enough made-up words to make a long line of it\n17. made-up step é < 17, with enough made-up words to make a long line of it\nuser: 18. made-up step é < 18, with enough made-up words to make a long line of it\nassistant: 19. made-up step é < 19, with enough made-up words to make a long line of it\n20. made-up step é < 20, with enough made-up words to make a long line of it\nuser: 21. made-up step é < 21, with enough made-up words to make a long line of it\nassistant: 22. made-up step é < 22, with enough made-up words to make a long line of it\n23. made-up step é < 23, with enough made-up words to make a long line of it\nuser: 24. made-up step é < 24, with enough made-up words to make a long line of it\nassistant: 25. made-up step é < 25, with enough made-up words to make a long line of it\n26. made-up step é < 26, with enough made-up words to make a long line of it\nuser: 27. made-up step é < 27, with enough made-up words to make a long line of it\nassistant: 28. made-up step é < 28, with enough made-up words to make a long line of it\n29. made-up step é < 29, with enough made-up words to make a long line of it\nuser: 30. made-up step é < 30, with enough made-up words to make a long line of it\nassistant: 31. made-up step é < 31, with enough made-up words to make a long line of it\n32. made-up step é < 32, with enough made-up words to make a long line of it\nuser: 33. made-up step é < 33, with enough made-up words to make a long line of it\nassistant: 34. made-up step é < 34, with enough made-up words to make a long line of it\n35. made-up step é < 35, with enough made-up words to make a long line of it\nuser: 36. made-up step é < 36, with enough made-up words to make a long line of it\nassistant: 37. made-up step é < 37, with enough made-up words to make a long line of it\n38. made-up step é < 38, with enough made-up words to make a long line of it\nuser: 39. made-up step é < 39, with enough made-up words to make a long line of it\nassistant: 40. made-up step é < 40, with enough made-up words to make a long line of it\n41. made-up step é < 41, with enough made-up words to make a long line of it\nuser: 42. made-up step é < 42, with enough made-up words to make a long line of it\nassistant: 43. made-up step é < 43, with enough made-up words to make a long line of it\n44. made-up step é < 44, with enough made-up words to make a long line of it\nuser: 45. made-up step é < 45, with enough made-up words to make a long line of it\nassistant: 46. made-up step é < 46, with enough made-up words to make a long line of it\n47. made-up step é < 47, with enough made-up words to make a long line…"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-both-cut.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-608",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "…ke a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "23. made-up step é < 23, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 24. made-up step é < 24, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 25. made-up step é < 25, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "26. made-up step é < 26, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 27. made-up step é < 27, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 28. made-up step é < 28, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "29. made-up step é < 29, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 30. made-up step é < 30, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 31. made-up step é < 31, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "32. made-up step é < 32, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 33. made-up step é < 33, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 34. made-up step é < 34, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "35. made-up step é < 35, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 36. made-up step é < 36, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 37. made-up step é < 37, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "38. made-up step é < 38, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 39. made-up step é < 39, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 40. made-up step é < 40, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "41. made-up step é < 41, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 42. made-up step é < 42, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 43. made-up step é < 43, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "44. made-up step é < 44, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 45. made-up step é < 45, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 46. made-up step é < 46, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "47. made-up step é < 47, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 48. made-up step é < 48, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 49. made-up step é < 49, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "50. made-up step é < 50, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 51. made-up step é < 51, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 52. made-up step é < 52, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "53. made-up step é < 53, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 54. made-up step é < 54, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 55. made-up step é < 55, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "56. made-up step é < 56, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 57. made-up step é < 57, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 58. made-up step é < 58, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "59. made-up step é < 59, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 60. made-up step é < 60, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 61. made-up step é < 61, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "62. made-up step é < 62, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 63. made-up step é < 63, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 64. made-up step é < 64, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "65. made-up step é < 65, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 66. made-up step é < 66, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: 67. made-up step é < 67, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "68. made-up step é < 68, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: 69. made-up step é < 69, with enough made-up words to make a long line of it"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "done"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Rewrite the made-up module & keep these:\nassistant: 1. made-up step é < 1, with enough made-up words to make a long line of it\n2. made-up step é < 2, with enough made-up words to make a long line of it\nuser: 3. made-up step é < 3, with enough made-up words to make a long line of it\nassistant: 4. made-up step é < 4, with enough made-up words to make a long line of it\n5. made-up step é < 5, with enough made-up words to make a long line of it\nuser: 6. made-up step é < 6, with enough made-up words to make a long line of it\nassistant: 7. made-up step é < 7, with enough made-up words to make a long line of it\n8. made-up step é < 8, with enough made-up words to make a long line of it\nuser: 9. made-up step é < 9, with enough made-up words to make a long line of it\nassistant: 10. made-up step é < 10, with enough made-up words to make a long line of it\n11. made-up step é < 11, with enough made-up words to make a long line of it\nuser: 12. made-up step é < 12, with enough made-up words to make a long line of it\nassistant: 13. made-up step é < 13, with enough made-up words to make a long line of it\n14. made-up step é < 14, with enough made-up words to make a long line of it\nuser: 15. made-up step é < 15, with enough made-up words to make a long line of it\nassistant: 16. made-up step é < 16, with enough made-up words to make a long line of it\n17. made-up step é < 17, with enough made-up words to make a long line of it\nuser: 18. made-up step é < 18, with enough made-up words to make a long line of it\nassistant: 19. made-up step é < 19, with enough made-up words to make a long line of it\n20. made-up step é < 20, with enough made-up words to make a long line of it\nuser: 21. made-up step é < 21, with enough made-up words to make a long line of it\nassistant: 22. made-up step é < 22, with enough made-up words to make a long line of it\n23. made-up step é < 23, with enough made-up words to make a long line of it\nuser: 24. made-up step é < 24, with enough made-up words to make a long line of it\nassistant: 25. made-up step é < 25, with enough made-up words to make a long line of it\n26. made-up step é < 26, with enough made-up words to make a long line of it\nuser: 27. made-up step é < 27, with enough made-up words to make a long line of it\nassistant: 28. made-up step é < 28, with enough made-up words to make a long line of it\n29. made-up step é < 29, with enough made-up words to make a long line of it\nuser: 30. made-up step é < 30, with enough made-up words to make a long line of it\nassistant: 31. made-up step é < 31, with enough made-up words to make a long line of it\n32. made-up step é < 32, with enough made-up words to make a long line of it\nuser: 33. made-up step é < 33, with enough made-up words to make a long line of it\nassistant: 34. made-up step é < 34, with enough made-up words to make a long line of it\n35. made-up step é < 35, with enough made-up words to make a long line of it\nuser: 36. made-up step é < 36, with enough made-up words to make a long line of it\nassistant: 37. made-up step é < 37, with enough made-up words to make a long line of it\n38. made-up step é < 38, with enough made-up words to make a long line of it\nuser: 39. made-up step é < 39, with enough made-up words to make a long line of it\nassistant: 40. made-up step é < 40, with enough made-up words to make a long line of it\n41. made-up step é < 41, with enough made-up words to make a long line of it\nuser: 42. made-up step é < 42, with enough made-up words to make a long line of it\nassistant: 43. made-up step é < 43, with enough made-up words to make a long line of it\n44. made-up step é < 44, with enough made-up words to make a long line of it\nuser: 45. made-up step é < 45, with enough made-up words to make a long line of it\nassistant: 46. made-up step é < 46, with enough made-up words to make a long line of it\n47. made-up step é < 47, with enough made-up words to make a long line…"
+   }
+  ]
+ },
+ {
+  "file": "codex-voice-transcript-cut.json",
+  "host": "codex",
+  "entrypoint": "",
+  "rule": "voice",
+  "tid": "turn-609",
+  "agent": "",
+  "events": [
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "…pply the made-up plan:"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 1 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 2 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 3 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 4 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 5 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 6 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 7 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 8 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 9 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 10 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 11 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 12 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 13 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 14 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 15 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 16 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 17 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 18 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 19 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 20 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 21 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 22 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 23 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 24 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 25 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 26 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 27 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 28 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 29 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 30 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 31 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 32 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 33 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 34 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 35 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 36 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 37 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 38 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 39 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 40 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 41 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 42 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 43 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 44 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 45 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 46 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 47 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 48 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "assistant: step 49 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "step 50 of the made-up plan, with enough made-up words to make a long line"
+   },
+   {
+    "k": "prompt",
+    "pv": "unknown",
+    "text": "user: step 51 of the made-up plan, with enougx"
+   },
+   {
+    "k": "prompt",
+    "pv": "front_model",
+    "text": "Apply the made-up plan:\nassistant: step 1 of the made-up plan, with enough made-up words to make a long line\nstep 2 of the made-up plan, with enough made-up words to make a long line\nuser: step 3 of the made-up plan, with enough made-up words to make a long line\nassistant: step 4 of the made-up plan, with enough made-up words to make a long line\nstep 5 of the made-up plan, with enough made-up words to make a long line\nuser: step 6 of the made-up plan, with enough made-up words to make a long line\nassistant: step 7 of the made-up plan, with enough made-up words to make a long line\nstep 8 of the made-up plan, with enough made-up words to make a long line\nuser: step 9 of the made-up plan, with enough made-up words to make a long line\nassistant: step 10 of the made-up plan, with enough made-up words to make a long line\nstep 11 of the made-up plan, with enough made-up words to make a long line\nuser: step 12 of the made-up plan, with enough made-up words to make a long line\nassistant: step 13 of the made-up plan, with enough made-up words to make a long line\nstep 14 of the made-up plan, with enough made-up words to make a long line\nuser: step 15 of the made-up plan, with enough made-up words to make a long line\nassistant: step 16 of the made-up plan, with enough made-up words to make a long line\nstep 17 of the made-up plan, with enough made-up words to make a long line\nuser: step 18 of the made-up plan, with enough made-up words to make a long line\nassistant: step 19 of the made-up plan, with enough made-up words to make a long line\nstep 20 of the made-up plan, with enough made-up words to make a long line\nuser: step 21 of the made-up plan, with enough made-up words to make a long line\nassistant: step 22 of the made-up plan, with enough made-up words to make a long line\nstep 23 of the made-up plan, with enough made-up words to make a long line\nuser: step 24 of the made-up plan, with enough made-up words to make a long line\nassistant: step 25 of the made-up plan, with enough made-up words to make a long line\nstep 26 of the made-up plan, with enough made-up words to make a long line\nuser: step 27 of the made-up plan, with enough made-up words to make a long line\nassistant: step 28 of the made-up plan, with enough made-up words to make a long line\nstep 29 of the made-up plan, with enough made-up words to make a long line\nuser: step 30 of the made-up plan, with enough made-up words to make a long line\nassistant: step 31 of the made-up plan, with enough made-up words to make a long line\nstep 32 of the made-up plan, with enough made-up words to make a long line\nuser: step 33 of the made-up plan, with enough made-up words to make a long line\nassistant: step 34 of the made-up plan, with enough made-up words to make a long line\nstep 35 of the made-up plan, with enough made-up words to make a long line\nuser: step 36 of the made-up plan, with enough made-up words to make a long line\nassistant: step 37 of the made-up plan, with enough made-up words to make a long line\nstep 38 of the made-up plan, with enough made-up words to make a long line\nuser: step 39 of the made-up plan, with enough made-up words to make a long line\nassistant: step 40 of the made-up plan, with enough made-up words to make a long line\nstep 41 of the made-up plan, with enough made-up words to make a long line\nuser: step 42 of the made-up plan, with enough made-up words to make a long line\nassistant: step 43 of the made-up plan, with enough made-up words to make a long line\nstep 44 of the made-up plan, with enough made-up words to make a long line\nuser: step 45 of the made-up plan, with enough made-up words to make a long line\nassistant: step 46 of the made-up plan, with enough made-up words to make a long line\nstep 47 of the made-up plan, with enough made-up words to make a long line\nuser: step 48 of the made-up plan, with enough made-up words to make a long line\nassistant: step 49 of the made-up plan, with enough made-up words to make a long line\nstep 50 of the made-up plan, with enough made-up words to make a long line\nuser: step 51 of the made-up plan, with enougx"
+   }
+  ]
+ }
+]

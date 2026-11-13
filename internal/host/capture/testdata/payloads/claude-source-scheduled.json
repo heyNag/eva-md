@@ -1,0 +1,9 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000023",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000023.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "scheduled private input",
+ "source": "scheduled_task",
+ "prompt_id": "prompt-23"
+}
