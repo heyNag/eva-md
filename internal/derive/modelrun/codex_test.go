@@ -466,6 +466,32 @@ func TestCodexStreams(t *testing.T) {
 		{name: "failed exit", stream: codexClean, output: answer, exit: 1, class: ClassHost, usage: codexCleanUsage},
 		{name: "last line without a newline", stream: strings.TrimSuffix(threadStarted+turnStarted+message+completed, "\n"),
 			output: answer, class: ClassOK, usage: codexCleanUsage},
+		// A clean exit with no known event read is host, answer or not: a
+		// reader that saw nothing can vouch for nothing.
+		{name: "no event and an answer", output: answer, class: ClassHost},
+		{name: "no event and no answer", class: ClassHost},
+		{name: "only skipped lines and an answer", stream: "Update available: run brew upgrade\nRelease notes: see the site\n",
+			output: answer, class: ClassHost, signals: []Signal{SignalCodexLineSkipped}},
+		{name: "no event, sign-in words and a clean exit", stderr: "Not logged in. Run codex login\n", output: answer, class: ClassHost},
+		{name: "no event, an MCP failure and a clean exit", stderr: "MCP client for `docs` timed out after 10 seconds.\n", output: answer, class: ClassHost},
+		{name: "one known event and an answer", stream: threadStarted, output: answer, class: ClassOK},
+		{name: "one error item and an answer", stream: `{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Reconnecting... 1/5"}}` + "\n",
+			output: answer, class: ClassOK},
+		// A CLI that fails before its first event prints none: a failed exit
+		// is still named from its text.
+		{name: "no event, sign-in words and a failed exit", stderr: "Error: Not logged in. Run codex login\n", output: answer, exit: 1, class: ClassAuth},
+		{name: "no event, a limit and a failed exit", stderr: "Error: You've hit your usage limit. Try again later.\n", exit: 1, class: ClassRateLimit},
+		// A tool sign outranks the rest, with no known event read too.
+		{name: "a tool on an unknown event and no other", stream: `{"kind":"x","detail":{"type":"command_execution"}}` + "\n",
+			output: answer, class: ClassToolUsed},
+		// A key given twice does not stop the scan: a tool later on the line
+		// still counts.
+		{name: "a key twice before a tool", stream: threadStarted +
+			`{"type":"item.completed","item":{"id":"item_0","id":"item_1","type":"command_execution"}}` + "\n" + message + completed,
+			output: answer, class: ClassToolUsed},
+		{name: "a key twice before a tool deeper on the line", stream: threadStarted +
+			`{"type":"item.completed","type":"item.completed","item":{"type":"agent_message","text":"x"},"extra":[{"type":"web_search"}]}` + "\n" + message + completed,
+			output: answer, class: ClassToolUsed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
