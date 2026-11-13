@@ -27,8 +27,10 @@ const (
 	// that is not itself a copy, and no two events that are not copies
 	// share a key (SPEC.md section 8).
 	ClauseCopies Clause = "copies"
-	// ClauseResolve: ledger.Resolve of e:<session>#<seq> gives that event,
-	// or what the sessions the reference names hold for it (see Check).
+	// ClauseResolve: a second listing and a second read give what the
+	// first gave, and ledger.Resolve of e:<session>#<seq> gives that
+	// event, or what the sessions the reference names hold for it (see
+	// Check).
 	ClauseResolve Clause = "resolve"
 )
 
@@ -63,10 +65,10 @@ type read struct {
 
 // Check holds r to the reader's contract (internal/ledger/SPEC.md sections
 // 1, 7, 8 and 10) and returns the first Fault, or the error of a listing
-// that fails or of a context that ends. It lists the sessions once and
-// reads each, and checks, for each in the listing's order, the clauses
-// read, seqs, copies and counts; then, for every event of every session,
-// resolve.
+// that fails or of a context that ends. It lists the sessions and reads
+// each, and checks, for each in the listing's order, the clauses read,
+// seqs, copies and counts; then resolve (see checkResolves), for every
+// event of every session.
 //
 // A reference names a session by its whole id, or by its first 8
 // characters, so e:<session>#<seq> names every listed session with that id,
@@ -109,14 +111,86 @@ func Check(ctx context.Context, r ledger.Reader) error {
 		}
 		reads[k] = read{s, events}
 	}
+	return checkResolves(ctx, r, keys, reads)
+}
+
+// checkResolves holds r to the clause resolve. Resolve lists and reads
+// again, so a second listing and a second read of every session must give
+// what the first gave. Resolve over r itself must then give the first
+// event of every session, and Resolve over what r read every event: a
+// session is read once for each, not once for each of its events, so Check
+// stays linear in the size of the record.
+func checkResolves(ctx context.Context, r ledger.Reader, keys []ledger.Key, reads map[ledger.Key]read) error {
+	again, err := r.Sessions(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err != nil {
+		return fmt.Errorf("ledgertest: the second listing fails: %w", err)
+	}
+	for i := range max(len(keys), len(again)) {
+		if i >= len(keys) || i >= len(again) || keys[i] != again[i] {
+			k := ledger.Key{}
+			if i < len(keys) {
+				k = keys[i]
+			} else {
+				k = again[i]
+			}
+			return fault(k, 0, ClauseResolve, "a second listing differs from the first here")
+		}
+	}
+	for _, k := range keys {
+		s, events, err := r.Read(ctx, k)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		first := reads[k]
+		switch {
+		case err != nil:
+			return &Fault{Key: k, Clause: ClauseResolve, Err: fmt.Errorf("a second read: %w", err)}
+		case s != first.s:
+			return fault(k, 0, ClauseResolve, "a second read gives the record %+v, the first %+v", s, first.s)
+		case len(events) != len(first.events):
+			return fault(k, 0, ClauseResolve, "a second read gives %d events, the first %d", len(events), len(first.events))
+		}
+		for i, e := range events {
+			if !same(e, first.events[i]) {
+				return fault(k, first.events[i].Seq, ClauseResolve, "a second read gives another event here")
+			}
+		}
+	}
+	for _, k := range keys {
+		if events := reads[k].events; len(events) > 0 {
+			if err := checkResolve(ctx, r, keys, reads, k, events[0]); err != nil {
+				return err
+			}
+		}
+	}
+	held := frozen{keys, reads}
 	for _, k := range keys {
 		for _, e := range reads[k].events {
-			if err := checkResolve(ctx, r, keys, reads, k, e); err != nil {
+			if err := checkResolve(ctx, held, keys, reads, k, e); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// frozen is a reader of what Check read.
+type frozen struct {
+	keys  []ledger.Key
+	reads map[ledger.Key]read
+}
+
+func (f frozen) Sessions(context.Context) ([]ledger.Key, error) { return f.keys, nil }
+
+func (f frozen) Read(_ context.Context, k ledger.Key) (event.Session, []event.Event, error) {
+	r, ok := f.reads[k]
+	if !ok {
+		return event.Session{}, nil, fmt.Errorf("%w: %s", ErrNoSession, name(k))
+	}
+	return r.s, r.events, nil
 }
 
 // checkResolve holds Resolve of e's reference to what the sessions it
