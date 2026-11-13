@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/heyNag/eva-md/internal/ledger"
 	"github.com/heyNag/eva-md/internal/ledger/event"
@@ -24,13 +25,16 @@ const (
 	// ClauseSeqs: seqs rise, from 1 or more, and every event validates.
 	ClauseSeqs Clause = "seqs"
 	// ClauseCopies: a copy names an earlier event with its key and turn
-	// that is not itself a copy, and no two events that are not copies
-	// share a key (SPEC.md section 8).
+	// that is not itself a copy, nor withheld, nor a tombstone; no two
+	// events that are not copies share a key; and no event takes another
+	// place's key, place:<seq> (SPEC.md section 8).
 	ClauseCopies Clause = "copies"
-	// ClauseResolve: a second listing and a second read give what the
-	// first gave, and ledger.Resolve of e:<session>#<seq> gives that
-	// event, or what the sessions the reference names hold for it (see
-	// Check).
+	// ClauseResolve: a second listing lists the keys of the first, in any
+	// order, and a second read gives what the first gave; every event's
+	// reference e:<session>#<seq> parses and names its session; and
+	// ledger.Resolve over the reader gives, for the events of each session
+	// it is tried on, that event, or what the sessions the reference names
+	// hold for it (see Check).
 	ClauseResolve Clause = "resolve"
 )
 
@@ -67,8 +71,13 @@ type read struct {
 // 1, 7, 8 and 10) and returns the first Fault, or the error of a listing
 // that fails or of a context that ends. It lists the sessions and reads
 // each, and checks, for each in the listing's order, the clauses read,
-// seqs, copies and counts; then resolve (see checkResolves), for every
-// event of every session.
+// seqs, copies and counts; then resolve (see checkResolves).
+//
+// Resolve is tried through r on every event of a session of at most 8
+// events, and on 8 of a longer one: its first, its last and 6 spread
+// evenly between them. A reader whose later reads change an event it does
+// not try can pass; the second read, which must equal the first, is what
+// holds every event.
 //
 // A reference names a session by its whole id, or by its first 8
 // characters, so e:<session>#<seq> names every listed session with that id,
@@ -114,12 +123,20 @@ func Check(ctx context.Context, r ledger.Reader) error {
 	return checkResolves(ctx, r, keys, reads)
 }
 
+// resolveOnReader is how many events of a session Check resolves through
+// the reader itself: all of a session with no more, and otherwise its first,
+// its last and as many spread evenly between them.
+const resolveOnReader = 8
+
 // checkResolves holds r to the clause resolve. Resolve lists and reads
-// again, so a second listing and a second read of every session must give
-// what the first gave. Resolve over r itself must then give the first
-// event of every session, and Resolve over what r read every event: a
-// session is read once for each, not once for each of its events, so Check
-// stays linear in the size of the record.
+// again, so a second listing must hold the keys of the first, each once, in
+// any order, and a second read of every session must give what the first
+// gave. Resolve over r itself must then give the events resolveOnReader
+// picks, and the reference of every event must parse and name its session.
+// Resolve reads each session it names once for every call, so resolving
+// every event of a long session through r would read that session once for
+// each of its events; resolving at most resolveOnReader keeps Check linear
+// in the size of the record.
 func checkResolves(ctx context.Context, r ledger.Reader, keys []ledger.Key, reads map[ledger.Key]read) error {
 	again, err := r.Sessions(ctx)
 	if err := ctx.Err(); err != nil {
@@ -128,15 +145,19 @@ func checkResolves(ctx context.Context, r ledger.Reader, keys []ledger.Key, read
 	if err != nil {
 		return fmt.Errorf("ledgertest: the second listing fails: %w", err)
 	}
-	for i := range max(len(keys), len(again)) {
-		if i >= len(keys) || i >= len(again) || keys[i] != again[i] {
-			k := ledger.Key{}
-			if i < len(keys) {
-				k = keys[i]
-			} else {
-				k = again[i]
-			}
-			return fault(k, 0, ClauseResolve, "a second listing differs from the first here")
+	listed := map[ledger.Key]bool{}
+	for _, k := range again {
+		switch {
+		case listed[k]:
+			return fault(k, 0, ClauseResolve, "a second listing lists it twice")
+		case !hasKey(reads, k):
+			return fault(k, 0, ClauseResolve, "a second listing lists it, and the first does not")
+		}
+		listed[k] = true
+	}
+	for _, k := range keys {
+		if !listed[k] {
+			return fault(k, 0, ClauseResolve, "a second listing does not list it")
 		}
 	}
 	for _, k := range keys {
@@ -160,16 +181,15 @@ func checkResolves(ctx context.Context, r ledger.Reader, keys []ledger.Key, read
 		}
 	}
 	for _, k := range keys {
-		if events := reads[k].events; len(events) > 0 {
-			if err := checkResolve(ctx, r, keys, reads, k, events[0]); err != nil {
-				return err
+		events := reads[k].events
+		for _, e := range events {
+			ref := refOf(k, e.Seq)
+			if parsed, err := event.ParseRef(ref.String()); err != nil || !parsed.Names(k.Session) || parsed.First != e.Seq {
+				return fault(k, e.Seq, ClauseResolve, "no reference names it: %s does not parse back (%v)", ref, err)
 			}
 		}
-	}
-	held := frozen{keys, reads}
-	for _, k := range keys {
-		for _, e := range reads[k].events {
-			if err := checkResolve(ctx, held, keys, reads, k, e); err != nil {
+		for _, i := range picks(len(events)) {
+			if err := checkResolve(ctx, r, keys, reads, k, events[i]); err != nil {
 				return err
 			}
 		}
@@ -177,30 +197,44 @@ func checkResolves(ctx context.Context, r ledger.Reader, keys []ledger.Key, read
 	return nil
 }
 
-// frozen is a reader of what Check read.
-type frozen struct {
-	keys  []ledger.Key
-	reads map[ledger.Key]read
+func hasKey(reads map[ledger.Key]read, k ledger.Key) bool {
+	_, ok := reads[k]
+	return ok
 }
 
-func (f frozen) Sessions(context.Context) ([]ledger.Key, error) { return f.keys, nil }
-
-func (f frozen) Read(_ context.Context, k ledger.Key) (event.Session, []event.Event, error) {
-	r, ok := f.reads[k]
-	if !ok {
-		return event.Session{}, nil, fmt.Errorf("%w: %s", ErrNoSession, name(k))
+// picks gives the indexes of the events of a session of n that Check
+// resolves through the reader: every one when n is at most
+// resolveOnReader, and otherwise the first, the last and the rest spread
+// evenly between them, resolveOnReader in all.
+func picks(n int) []int {
+	if n <= resolveOnReader {
+		out := make([]int, n)
+		for i := range out {
+			out[i] = i
+		}
+		return out
 	}
-	return r.s, r.events, nil
+	out := make([]int, resolveOnReader)
+	for j := range out {
+		out[j] = j * (n - 1) / (resolveOnReader - 1)
+	}
+	return out
+}
+
+// refOf is the reference of seq in the session k names: its whole id, or
+// its first 8 characters for an id longer than a reference carries whole.
+func refOf(k ledger.Key, seq int64) event.Ref {
+	ref := event.Ref{Session: k.Session, First: seq, Last: seq}
+	if len(k.Session) > 128 {
+		ref.Session = event.Prefix(k.Session)
+	}
+	return ref
 }
 
 // checkResolve holds Resolve of e's reference to what the sessions it
 // names hold for it, as Check read them.
 func checkResolve(ctx context.Context, r ledger.Reader, keys []ledger.Key, reads map[ledger.Key]read, k ledger.Key, e event.Event) error {
-	ref := event.Ref{Session: k.Session, First: e.Seq, Last: e.Seq}
-	if len(k.Session) > 128 {
-		// Longer than a reference carries whole.
-		ref.Session = event.Prefix(k.Session)
-	}
+	ref := refOf(k, e.Seq)
 	// What Resolve must give: of the sessions the reference names, those
 	// that hold the seq; where more than one does, those whose event
 	// decodes and belongs to its file; and ambiguity unless one is left.
@@ -265,7 +299,13 @@ func count(events []event.Event) event.Session {
 	return s
 }
 
-// checkEvents holds a session's events to the clauses seqs and copies.
+// placePrefix begins every place key, event.PlaceKey's form.
+var placePrefix = strings.TrimSuffix(event.PlaceKey(0), "0")
+
+// checkEvents holds a session's events to the clauses seqs and copies. A
+// copy is never of a withheld event or a tombstone, and no event takes the
+// place key of another place (SPEC.md section 8: such an event is never a
+// copy and never copied).
 func checkEvents(k ledger.Key, events []event.Event) error {
 	var last int64
 	for _, e := range events {
@@ -281,6 +321,15 @@ func checkEvents(k ledger.Key, events []event.Event) error {
 	firsts := map[string]int64{} // the sameness key of each event that is not a copy
 	for _, e := range events {
 		bySeq[e.Seq] = e
+		if first, ok := bySeq[e.Copy]; e.Copy != 0 && ok && (first.Has(event.MarkWithheld) || first.Kind == event.KindGone) {
+			// A withheld event and a tombstone hold nothing but their place,
+			// so a copy of one could only carry what they withhold.
+			return fault(k, e.Seq, ClauseCopies, "a copy of #%d, which holds nothing but its place", e.Copy)
+		}
+		if strings.HasPrefix(e.Src.Key, placePrefix) && e.Src.Key != event.PlaceKey(e.Seq) {
+			// A place key is never another event's key (SPEC.md section 8).
+			return fault(k, e.Seq, ClauseCopies, "keyed by another place, %s", e.Src.Key)
+		}
 		if e.Copy == 0 {
 			if seq, ok := firsts[e.Src.Key]; ok {
 				return fault(k, e.Seq, ClauseCopies, "not a copy, but its key is #%d's", seq)

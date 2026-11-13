@@ -37,6 +37,17 @@ func chat() []event.Event {
 	}
 }
 
+// offRecordCopy is a line that passes for a copy of chat's withheld #5,
+// and so would carry what #5 withholds.
+func offRecordCopy() event.Event {
+	return event.Event{Seq: 7, Turn: 1, Kind: event.KindPrompt, Author: event.AuthorV1User, Text: "said off the record", Src: event.Source{Key: event.PlaceKey(5)}, Copy: 5}
+}
+
+// otherPlace is a line keyed by a place that is not its own.
+func otherPlace() event.Event {
+	return event.Event{Seq: 7, Turn: 2, Kind: event.KindPrompt, Author: event.AuthorV1User, Text: "made-up prompt", Src: event.Source{Key: event.PlaceKey(9)}}
+}
+
 func housekeeping() []event.Event {
 	return []event.Event{
 		{Seq: 1, Kind: event.KindLife, Author: event.AuthorHost, Text: "compact", Src: event.Source{Key: "k:1"}, Marks: []event.Mark{event.MarkName}},
@@ -105,6 +116,14 @@ func TestNewRefuses(t *testing.T) {
 		},
 		"two events that are not copies with one key": func(ss []ledgertest.Session) []ledgertest.Session {
 			ss[0].Events[2].Copy = 0
+			return ss
+		},
+		"a copy of a withheld event": func(ss []ledgertest.Session) []ledgertest.Session {
+			ss[0].Events = append(ss[0].Events, offRecordCopy())
+			return ss
+		},
+		"an event keyed by another place": func(ss []ledgertest.Session) []ledgertest.Session {
+			ss[0].Events = append(ss[0].Events, otherPlace())
 			return ss
 		},
 		"a key given twice": func(ss []ledgertest.Session) []ledgertest.Session {

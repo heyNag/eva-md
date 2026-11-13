@@ -11,9 +11,10 @@
 // New refuses what the reader's contract forbids: an event that
 // event.Event.Validate refuses, seqs that do not rise, a copy that does not
 // name an earlier event with its key and turn that is not itself a copy,
-// two events that are not copies with one key, a key given twice, a key
-// with no host or a session id no reference can name, and a class that is
-// not valid. So whatever New accepts passes Check.
+// a copy of a withheld event or a tombstone, an event keyed by another
+// event's place, two events that are not copies with one key, a key given
+// twice, a key with no host or a session id no reference can name, and a
+// class that is not valid. So whatever New accepts passes Check.
 //
 // The fake lists the keys in the order given and reads each session as
 // copies of its events, so a caller cannot change it. A session's record
