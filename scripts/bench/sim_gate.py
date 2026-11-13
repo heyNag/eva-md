@@ -176,22 +176,45 @@ def ceilings_of(gate):
     return gate.get("ceilings") or {name: m["ceiling_ms"] for name, m in gate["decision"]["metrics"].items()}
 
 
+def level(runs):
+    """Each figure's typical run in a gate's runs: the lower median of its
+    runs' medians."""
+    out = {}
+    for name in runs[0]:
+        medians = sorted(core.nearest_rank(run[name], 0.5) for run in runs)
+        out[name] = medians[(len(medians)-1)//2]
+    return out
+
+
 def from_gates(gates):
-    """A base drawn from saved gates: one gate's eight runs dealt to the
-    roles at random, with the samples they have. A gate one of whose runs
-    lost a scenario is not drawn: its figures would be short by a run,
-    which the gate's runs now take enough samples to stand."""
+    """A base drawn from saved gates of an unchanged binary, all from one
+    machine. At RUNS runs or fewer (two rounds): one gate's runs dealt to
+    the roles at random, with the samples they have. At more: two gates
+    drawn, each figure of the second brought to the level of the first's
+    (by its typical run, level), so that the gap between the gates is not
+    read as load, and RUNS of their runs drawn and dealt at random, never
+    one run twice. A gate one of whose runs lost a scenario is not drawn:
+    its figures would be short by a run, which the gate's runs now take
+    enough samples to stand."""
     pools = []
     for gate in gates:
         by_role = runs_of(gate)
         runs = [run for role in core.ROLES for run in by_role[role]]
         if all(set(run) == set(runs[0]) for run in runs):
             pools.append(runs)
+    if not pools or RUNS > len(pools[0])*min(len(pools), 2):
+        raise ValueError("%d saved gates that lost no run cannot give %d runs" % (len(pools), RUNS))
 
     def base(rng):
-        runs = [dict(run) for run in rng.choice(pools)]
+        first = rng.randrange(len(pools))
+        runs = [dict(run) for run in pools[first]]
+        if RUNS > len(runs):
+            second = rng.choice([k for k in range(len(pools)) if k != first])
+            at, there = level(pools[first]), level(pools[second])
+            runs += [{name: [v*at[name]/there[name] for v in values] for name, values in run.items() if name in at}
+                     for run in pools[second]]
         rng.shuffle(runs)
-        return runs
+        return runs[:RUNS]
     return base
 
 
@@ -256,13 +279,23 @@ def new_pair(rng):
 
 def new_runs(count, low=1.2, high=2.0):
     """count of the new binary's runs loaded and none of the old one's, by
-    one factor between low and high: with three or four, no control can
-    tell the load from a change."""
+    one factor between low and high; count below 0 is all the new binary's
+    runs but -count of them. With all of them, no control can tell the
+    load from a change."""
     def make(rng):
-        loaded = set(rng.sample([k for k, role in enumerate(ORDER) if core.BINARY[role] == "new"], count))
+        mine = [k for k, role in enumerate(ORDER) if core.BINARY[role] == "new"]
+        loaded = set(rng.sample(mine, count if count > 0 else len(mine)+count))
         f = rng.uniform(low, high)
         return lambda t: f if int(t) in loaded else 1.0
     return make
+
+
+def one_round(rng):
+    """The four runs of one round loaded, a round drawn at random, by a
+    factor between 1.2 and 2: as CI's runner, still busy from the builds
+    before the gate, loads its first round."""
+    r, f = rng.randrange(ROUNDS), rng.uniform(1.2, 2.0)
+    return lambda t: f if int(t)//4 == r else 1.0
 
 
 LOADS = {
@@ -272,9 +305,12 @@ LOADS = {
     "runs": whole_runs,
     "drift": drift,
     "new-pair": new_pair,
+    "round": one_round,
     "new-3": new_runs(3),
     "new-3-mild": new_runs(3, 1.1, 1.3),
     "new-4": new_runs(4),
+    "new-but-1-mild": new_runs(-1, 1.1, 1.3),
+    "new-all-mild": new_runs(0, 1.1, 1.3),
 }
 
 
@@ -310,9 +346,11 @@ CHANGES = {
     "capture-varies": capture_varies,
     "all-x1.3-in-3": in_three_runs,
 }
+ALONE = (1.3, 1.5, 2, 3)  # the rises of one hook alone
 for _name in [f[0] for f in FIGURES]:
-    CHANGES[_name+"-x1.3"] = every(lambda name, v, _f=_name: v*1.3 if name == _f else v)
-DEFAULT_LOADS = ["none", "light", "heavy", "runs", "drift", "new-pair"]
+    for _x in ALONE:
+        CHANGES["%s-x%g" % (_name, _x)] = every(lambda name, v, _f=_name, _x=_x: v*_x if name == _f else v)
+DEFAULT_LOADS = ["none", "light", "heavy", "runs", "drift", "new-pair", "round", "new-3", "new-3-mild"]
 DEFAULT_CHANGES = ["unchanged", "all-x1.2", "all-x1.3", "capture+20ms"]
 RISES = ["all-x1.2", "all-x1.3", "all-x1.5", "all-x2", "all-x3"]
 

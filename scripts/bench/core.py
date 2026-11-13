@@ -334,8 +334,11 @@ def context(output):
 ROLES = ("old", "new", "old_again", "new_again")
 BINARY = {"old": "old", "old_again": "old", "new": "new", "new_again": "new"}
 ROLES_OF = {"old": ("old", "old_again"), "new": ("new", "new_again")}
-ROUNDS = 2  # the gate's rounds unless --rounds says otherwise
+RULE = 3  # the rule's number, which gate.json records
+ROUNDS = 3  # the gate's rounds unless --rounds says otherwise
 THRESHOLD = 1.15
+MEDIAN = 0.5
+MEDIAN_THRESHOLD = 1.10  # the median's own bound
 DRAWS = 2000
 SEED = 0x65766120  # fixed; changing it changes every interval
 LEVEL = 0.95  # the interval's coverage; its lower bound is the 2.5% quantile
@@ -381,43 +384,46 @@ def nearest_rank(values, q=P95):
 
 
 @functools.lru_cache(maxsize=1024)
-def ranks(sizes, seed, draws):
+def ranks(sizes, seed, draws, q=P95):
     """For each size n in sizes, in turn, from one generator seeded with
-    seed: the ranks, in n sorted values, of the p95 of draws resamples of
-    them with replacement. The p95 by nearest rank of a resample is its R-th
-    smallest value, R = max(ceil(0.95 n), 1), and the R-th smallest of n
-    uniform draws is Beta(R, n-R+1), so a rank is drawn directly and no
-    resample is built. They depend on the sizes alone."""
+    seed: the ranks, in n sorted values, of the q quantile (the p95 unless
+    said) of draws resamples of them with replacement. The quantile by
+    nearest rank of a resample is its R-th smallest value, R = max(ceil(q
+    n), 1), and the R-th smallest of n uniform draws is Beta(R, n-R+1), so a
+    rank is drawn directly and no resample is built. They depend on the
+    sizes alone."""
     rng = random.Random(seed)
     out = []
     for n in sizes:
-        r = max(math.ceil(P95*n), 1)
+        r = max(math.ceil(q*n), 1)
         out.append(tuple(min(int(rng.betavariate(r, n-r+1)*n), n-1) for _ in range(draws)))
     return tuple(out)
 
 
-def ratios(base, cand, seed=SEED, draws=DRAWS):
-    """The bootstrap draws of p95(cand)/p95(base), sorted: each draw takes
-    the p95 of a resample of each, so the same samples, in any order, give
-    the same draws."""
-    rb, rc = ranks((len(base), len(cand)), seed, draws)
+def ratios(base, cand, seed=SEED, draws=DRAWS, q=P95):
+    """The bootstrap draws of p95(cand)/p95(base), sorted, or of the q
+    quantile's ratio: each draw takes the quantile of a resample of each, so
+    the same samples, in any order, give the same draws."""
+    rb, rc = ranks((len(base), len(cand)), seed, draws, q)
     base, cand = sorted(base), sorted(cand)
-    b, c = [base[i] for i in rb], [cand[i] for i in rc]
+    b, c = list(map(base.__getitem__, rb)), list(map(cand.__getitem__, rc))
     if base[0] > 0:
         return sorted(map(operator.truediv, c, b))
     return sorted(y/x if x > 0 else (math.inf if y > 0 else 1.0) for x, y in zip(b, c))
 
 
-def interval(base, cand, seed=SEED, draws=DRAWS):
-    """The bootstrap interval of p95(cand)/p95(base), at LEVEL."""
-    r = ratios(base, cand, seed, draws)
+def interval(base, cand, seed=SEED, draws=DRAWS, q=P95):
+    """The bootstrap interval of p95(cand)/p95(base), or of the q
+    quantile's ratio, at LEVEL."""
+    r = ratios(base, cand, seed, draws, q)
     k = int(math.floor((1-LEVEL)/2*draws))
     return r[k], r[draws-1-k]
 
 
-def ratio_low(base, cand, seed=SEED, draws=DRAWS):
-    """The lower bound of the bootstrap interval of p95(cand)/p95(base)."""
-    return interval(base, cand, seed, draws)[0]
+def ratio_low(base, cand, seed=SEED, draws=DRAWS, q=P95):
+    """The lower bound of the bootstrap interval of p95(cand)/p95(base), or
+    of the q quantile's ratio."""
+    return interval(base, cand, seed, draws, q)[0]
 
 
 def p95_low(values, seed=SEED, draws=DRAWS):
@@ -527,40 +533,63 @@ def run_levels(figures):
 
 def one_quick_run(levels, threshold=QUICK):
     """Whether a binary's quickest run, by run_levels, was more than
-    threshold times as quick as its next: load on all its other runs, which
-    no control can tell from a change, or a run the machine sped up."""
+    threshold times as quick as the median of its other runs (their lower
+    median): load on all its other runs, or on all but one or two of them
+    at three rounds, which no control can tell from a change, or a run the
+    machine sped up. The median of the others, not the next run, so that
+    one of them slow by chance does not hide it."""
     if not levels or len(levels) < 3:
         return False
     ordered_levels = sorted(levels)
-    return ordered_levels[1] > threshold*ordered_levels[0]
+    return nearest_rank(ordered_levels[1:], 0.5) > threshold*ordered_levels[0]
 
 
-def control_bounds(o_runs, n_runs, controls, seed=SEED, draws=DRAWS):
+def control_bounds(o_runs, n_runs, controls, seed=SEED, draws=DRAWS, q=P95):
     """The controls' lower bounds, both ways: for each split, the bound of
-    its other side's p95 over its first side's, and of the first over the
-    other. A split with a side that has no samples, as when runs were lost,
-    gives none."""
+    its other side's p95 (or q quantile) over its first side's, and of the
+    first over the other. A split with a side that has no samples, as when
+    runs were lost, gives none."""
+    return controls_of(o_runs, n_runs, controls, seed, draws, (q,))[q]
+
+
+def controls_of(o_runs, n_runs, controls, seed=SEED, draws=DRAWS, qs=(P95,)):
+    """control_bounds for each quantile in qs, by quantile, from the same
+    sides: each run is sorted once, so each side is a merge."""
+    o_runs, n_runs = [sorted(r) for r in o_runs], [sorted(r) for r in n_runs]
     every = range(len(o_runs))
-    bounds = []
+    bounds = {q: [] for q in qs}
     for a_old, a_new in controls:
-        a = [v for i in a_old for v in o_runs[i]] + [v for i in a_new for v in n_runs[i]]
-        b = [v for i in every if i not in a_old for v in o_runs[i]] + [v for i in every if i not in a_new for v in n_runs[i]]
+        a = sorted(itertools.chain(*[o_runs[i] for i in a_old], *[n_runs[i] for i in a_new]))
+        b = sorted(itertools.chain(*[o_runs[i] for i in every if i not in a_old], *[n_runs[i] for i in every if i not in a_new]))
         if a and b:
-            low, high = interval(a, b, seed, draws)
-            bounds += [low, 1/high if high > 0 else math.inf]
+            for q in qs:
+                low, high = interval(a, b, seed, draws, q)
+                bounds[q] += [low, 1/high if high > 0 else math.inf]
     return bounds
 
 
+def judge(low, noise, threshold, what):
+    """One statistic of a figure, its ratio's lower bound low against its
+    controls' noise: the reasons it fails, and what leaves it unsettled."""
+    if low > threshold*noise:
+        return ["%s ratio's lower bound %.3f is above %.2f times the controls' %.3f" % (what, low, threshold, noise)], []
+    if low > threshold:
+        return [], ["%s ratio's lower bound %.3f is above %.2f, but not above %.2f times the controls' %.3f" % (
+            what, low, threshold, threshold, noise)]
+    return [], []
+
+
 def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD, seed=SEED, draws=DRAWS,
-           whole=WHOLE, quantile=NOISE_QUANTILE, noisy_figures=NOISY_FIGURES, sources=None, quick=QUICK):
+           whole=WHOLE, quantile=NOISE_QUANTILE, noisy_figures=NOISY_FIGURES, sources=None, quick=QUICK,
+           median_threshold=MEDIAN_THRESHOLD, median="always"):
     """The gate's verdict. samples maps each role (ROLES) to its runs, in
     order, each a map of each figure to its samples from that run; ceilings
     maps each gated figure to its ceiling in milliseconds, or None;
     failures holds the scenarios that failed, as scenarios() takes them;
     sources maps a figure to the scenario that gives it, when known; quick
-    is the gap between a binary's quickest run and its next that calls the
-    machine too noisy. Each role ran rounds times. The rule is the one
-    above ROLES.
+    is the gap between a binary's quickest run and the median of its others
+    that calls the machine too noisy; median_threshold is the median's own
+    bound. Each role ran rounds times. The rule is the one above ROLES.
 
     A figure the old binary gave no samples, as one added with the change,
     is listed as not compared. One the new binary gave none fails, unless
@@ -573,10 +602,10 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     when the new binary broke a scenario or gave a figure no samples; "not
     judged", exit 0, when noisy_figures or more figures were too noisy to
     judge, or one of a binary's runs was more than quick times as quick as
-    its next; "fail", exit 1, when a figure failed; "not judged", exit 0, when
-    a figure was too noisy to judge or unsettled, a scenario was lost, or a
-    figure was short because a scenario failed in some runs; otherwise
-    "pass", exit 0."""
+    the median of its others; "fail", exit 1, when a figure failed; "not
+    judged", exit 0, when a figure was too noisy to judge or unsettled, a
+    scenario was lost, or a figure was short because a scenario failed in
+    some runs; otherwise "pass", exit 0."""
     found = scenarios(failures or {}, rounds)
     runs = by_run(samples, rounds)
     controls = splits(rounds, seed)
@@ -600,12 +629,16 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
                 missing.append("%s: the new binary gave no samples, the old one %d" % (name, len(o)))
             continue
         k = aligned(o_runs, n_runs, threshold)
-        lows = control_bounds(o_runs, [[v/k for v in r] for r in n_runs], controls, seed, draws)
+        n_aligned = [[v/k for v in r] for r in n_runs]
+        bounds = controls_of(o_runs, n_aligned, controls, seed, draws, (P95, MEDIAN))
+        lows, m_lows = bounds[P95], bounds[MEDIAN]
         noise = max(1.0, nearest_rank(lows, quantile)) if lows else math.inf
-        low = ratio_low(o, n, seed, draws)
+        m_noise = max(1.0, nearest_rank(m_lows, quantile)) if m_lows else math.inf
+        low, m_low = ratio_low(o, n, seed, draws), ratio_low(o, n, seed, draws, MEDIAN)
         p95_o, p95_n, p95_n_low = nearest_rank(o), nearest_rank(n), p95_low(n, seed, draws)
+        med_o, med_n = nearest_rank(o, MEDIAN), nearest_rank(n, MEDIAN)
         ceiling = ceilings[name]
-        reasons, unsettled = [], []
+        reasons, unsettled, judged_on = [], [], []
         enough = min(len(o), len(n)) >= whole
         if enough:
             judged_runs["old"].append(o_runs)
@@ -619,24 +652,32 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
             failed_some = (source in found["failed_runs"]) if source is not None else bool(found["failed_runs"])
             if failed_some and max(len(r) for r in o_runs+n_runs)*2*rounds >= whole:
                 short.append(name)
-        elif noise > threshold:
-            noisy.append(name)
-            unsettled.append("the controls' %.3f is above %.2f: too noisy to judge" % (noise, threshold))
         else:
-            if low > threshold*noise:
-                reasons.append("p95 ratio's lower bound %.3f is above %.2f times the controls' %.3f" % (low, threshold, noise))
-            elif low > threshold:
-                unsettled.append("p95 ratio's lower bound %.3f is above %.2f, but not above %.2f times the controls' %.3f" % (
-                    low, threshold, threshold, noise))
-            if ceiling is not None and p95_n_low > ceiling >= p95_o:
-                reasons.append("p95 %.1f ms, at least %.1f ms, passed the ceiling of %g ms" % (p95_n, p95_n_low, ceiling))
+            if noise <= threshold:
+                judged_on.append("p95")
+                r, u = judge(low, noise, threshold, "p95")
+                reasons += r
+                unsettled += u
+                if ceiling is not None and p95_n_low > ceiling >= p95_o:
+                    reasons.append("p95 %.1f ms, at least %.1f ms, passed the ceiling of %g ms" % (p95_n, p95_n_low, ceiling))
+            if m_noise <= threshold and (median == "always" or noise > threshold):
+                judged_on.append("median")
+                r, u = judge(m_low, m_noise, median_threshold, "median")
+                reasons += r
+                unsettled += u
+            if not judged_on:
+                noisy.append(name)
+                unsettled.append("the controls' %.3f is above %.2f: too noisy to judge" % (noise, threshold))
         metrics[name] = {
             "p95_base_ms": round(p95_o, 3), "p95_ms": round(p95_n, 3), "p95_low_ms": round(p95_n_low, 3),
             "ratio": round(p95_n/p95_o, 3) if p95_o > 0 else None,
             "ratio_low": round(low, 3) if math.isfinite(low) else None,
+            "median_base_ms": round(med_o, 3), "median_ms": round(med_n, 3),
+            "median_ratio_low": round(m_low, 3) if math.isfinite(m_low) else None,
             "n_old": len(o), "n_new": len(n), "ceiling_ms": ceiling,
             "n_runs": {role: [len(run.get(name) or []) for run in samples.get(role, [])] for role in ROLES},
             "controls": len(lows), "aligned": round(k, 3), "noise": round(noise, 3) if math.isfinite(noise) else None,
+            "median_noise": round(m_noise, 3) if math.isfinite(m_noise) else None, "judged_on": judged_on,
             "too_few_samples": not enough, "reasons": reasons, "unsettled": unsettled,
             "judged": enough and not unsettled}
         unsettled_all += ["%s: %s" % (name, r) for r in unsettled]
@@ -663,7 +704,8 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
         verdict, code = "not judged", 0
     else:
         verdict, code = "pass", 0
-    return {"verdict": verdict, "exit": code, "rounds": rounds, "threshold": threshold, "seed": seed, "draws": draws,
+    return {"verdict": verdict, "exit": code, "rule": RULE, "rounds": rounds, "threshold": threshold,
+            "median_threshold": median_threshold, "seed": seed, "draws": draws,
             "whole": whole, "noise_quantile": quantile, "noisy_figures": noisy_figures, "quick": quick,
             "controls": len(controls), "machine_too_noisy": machine, "too_noisy": noisy, "one_quick_run": quick_runs,
             "run_levels": {b: [round(x, 3) for x in v] if v else None for b, v in levels.items()}, "unsettled": unsettled_all, "lost": lost,
@@ -672,11 +714,17 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
 
 
 def redecide(gate):
-    """The verdict worked out again from a gate.json: its samples by run,
-    its ceilings, its scenarios' failures, the scenario that gave each
-    figure and the rule's parameters it recorded. A gate.json from before
-    the quick run had a gap of its own took the threshold for it."""
+    """The verdict worked out again by this rule from a gate.json: its
+    samples by run, its ceilings, its scenarios' failures and the scenario
+    that gave each figure. One this rule wrote (its decision's "rule" is
+    RULE) is worked out by the parameters it recorded, so exactly to the
+    verdict it printed; an earlier rule's, by this rule's own."""
     d = gate["decision"]
+    if d.get("rule") != RULE:
+        return decide(gate["samples"], gate["ceilings"], gate["scenario_failures"], gate["rounds"],
+                      sources=gate.get("figure_scenarios"))
     return decide(gate["samples"], gate["ceilings"], gate["scenario_failures"], gate["rounds"], d["threshold"],
                   d["seed"], d["draws"], d["whole"], d["noise_quantile"], d["noisy_figures"], gate.get("figure_scenarios"),
-                  d.get("quick", d["threshold"]))
+                  d["quick"], d["median_threshold"])
+
+
