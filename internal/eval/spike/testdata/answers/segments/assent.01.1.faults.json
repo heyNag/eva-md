@@ -1,0 +1,10 @@
+{"ops": [
+  {"op": "item.add", "id": null, "kind": "procedure", "text": "Run importer verify --strict-rows as a dry run before every import.", "admit": "command", "ev": [{"e": 6, "s": 1, "as": "proposal"}, {"e": 7, "s": 1, "as": "assent"}]},
+  {"op": "note", "id": null, "kind": "decision", "text": "The user turned down the slowtide profile.", "admit": null, "ev": [{"e": 11, "s": 1, "as": "said"}]},
+  {"op": "item.retire", "id": "h7", "kind": null, "text": "The old reader is kept.", "admit": null, "ev": [{"e": 21, "s": 1, "as": "said"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should the importer skip the rows the orphan-sweep check flags?", "admit": null, "ev": [{"e": 99, "s": 1, "as": "proposal"}]},
+  {"op": "item.add", "id": null, "kind": "decision", "text": "Every rejected row is logged to rejects.jsonl in the run folder.", "admit": "decision", "ev": [{"e": 16, "s": 3, "as": "proposal"}, {"e": 17, "s": 1, "as": "assent"}]},
+  {"op": "item.add", "id": null, "kind": "procedure", "text": "Run importer verify --strict-rows twice before every import, at 2 in the morning.", "admit": "command", "ev": [{"e": 6, "s": 1, "as": "proposal"}, {"e": 7, "s": 1, "as": "assent"}]},
+  {"op": "item.add", "id": null, "kind": "decision", "text": "The importer moves to the quillstream parser.", "admit": "decision", "ev": [{"e": 4, "s": 1, "as": "proposal"}, {"e": 3, "s": 1, "as": "assent"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should the importer write its checkpoints to the marrow_ckpt table?", "admit": null, "ev": [{"e": 4, "s": 1, "as": "said"}]}
+], "nothing": null}

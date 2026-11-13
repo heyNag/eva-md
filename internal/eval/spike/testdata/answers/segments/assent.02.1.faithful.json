@@ -1,0 +1,8 @@
+{"ops": [
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should the CI cache move to the gravelstore bucket?", "admit": null, "ev": [{"e": 2, "s": 1, "as": "proposal"}]},
+  {"op": "item.add", "id": null, "kind": "decision", "text": "The CI runner image is pinned to tidewater-22.", "admit": "decision", "ev": [{"e": 6, "s": 1, "as": "proposal"}, {"e": 7, "s": 1, "as": "assent"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should CI post its results to the build-lounge channel?", "admit": null, "ev": [{"e": 8, "s": 1, "as": "proposal"}]},
+  {"op": "item.add", "id": null, "kind": "procedure", "text": "Run scripts/smoke-ladder.sh as a required step before each merge.", "admit": "command", "ev": [{"e": 12, "s": 1, "as": "proposal"}, {"e": 13, "s": 1, "as": "assent"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should CI jobs be capped at the quietlane concurrency group?", "admit": null, "ev": [{"e": 14, "s": 1, "as": "proposal"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should Go modules be cached behind the vault-mirror proxy?", "admit": null, "ev": [{"e": 18, "s": 1, "as": "proposal"}]}
+], "nothing": null}
