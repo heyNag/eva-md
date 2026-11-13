@@ -47,7 +47,7 @@ Rules every card carries, so they are said once here:
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
-| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
+| [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | ready; a first builder was cut off part way and left nothing |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records, and a card is owed for a hook test that depends on speed |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | ready |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
@@ -67,9 +67,9 @@ Rules every card carries, so they are said once here:
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
+| [EV-11](EV-11.md) | Ownership and size checks | ready; a first builder was cut off part way, and its three commits are kept ([leading-the-build.md](../leading-the-build.md), "Where the build stands") |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
-| [IF-01b](IF-01b.md) | The reader's fake | started on 2026-11-11 and cut off part way, on a branch; its build resumes after the packages now in review |
+| [IF-01b](IF-01b.md) | The reader's fake | ready; a first builder was cut off part way, and its unchecked work is kept ([leading-the-build.md](../leading-the-build.md), "Where the build stands") |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | ready |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | merged; owed: a property that a pass keeps what a session file holds |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |

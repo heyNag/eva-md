@@ -154,10 +154,12 @@ The second round's rule (EV-16b) is the gate's from the commit that merged it, a
 | 123 | 3a8a396 | not judged |
 | 124 | ff52541 | not judged |
 | 125 | b7223d6 | not judged |
+| 126 | 75ba0be | not judged |
+| 127 | 1411db3 | not judged |
 
 Run 110 is the second rule's first: every figure but one was too noisy to judge. The job had waited its five minutes, and the load was still 8.9 on 3 CPUs, down from 40 when the machine started.
 
-Of these sixteen runs the rule judged one, run 120, whose job began timing at a load of 2.9. The others began at loads of 4.6 to 16 where the lead read them (runs 119 to 125), after the same wait. So on CI's runner the second rule seldom gives a verdict, and the count stands at 1. Two of these runs changed what a hook runs: 119 (install and setup ask the host adapter) and 121 (the hook's handler list). Neither was judged. What stands in for a verdict there is each run's `latency` artifact, which holds the new binary's own figures on macOS: every figure was inside its target in runs 119 to 124, and the ratios of new to old lay on both sides of 1. In run 125 one figure was outside its target: the prompt with pointers read 52.8 ms against 50, at a load of 13.8, on a commit that changed no package the binary holds, where the run before had read 35.0 ms. The third round (EV-16d) takes up a rule that can judge on this runner.
+Of these eighteen runs the rule judged one, run 120, whose job began timing at a load of 2.9. The others began at loads of 4.6 to 16 where the lead read them (runs 119 to 127), after the same wait. So on CI's runner the second rule seldom gives a verdict, and the count stands at 1. Three of these runs changed what a hook runs: 119 (install and setup ask the host adapter), 121 (the hook's handler list) and 126 (redaction can run the current rules alone, behind a switch that is off). None was judged. What stands in for a verdict there is each run's `latency` artifact, which holds the new binary's own figures on macOS: every figure was inside its target in runs 119 to 124, and the ratios of new to old lay on both sides of 1. In run 125 one figure was outside its target: the prompt with pointers read 52.8 ms against 50, at a load of 13.8, on a commit that changed no package the binary holds, where the run before had read 35.0 ms. In runs 126 and 127 every figure was inside its target again, and for run 126's change the gate on a quiet Linux machine judged all 19 figures and passed. The third round (EV-16d) takes up a rule that can judge on this runner.
 
 ## What the counters cost
 
