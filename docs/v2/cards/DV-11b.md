@@ -47,3 +47,7 @@ DV-11a's files (the rig is used unchanged; a gap in it goes in the report), DV-1
 - HO-14's `(*Fake).Run`, given the base name by a wrapper in `Options.Env.Run` that counts calls, answers `--version` and `features list`; the runs go to the rig's script through the test's own link. Two runs at one version read `features list` once; after `SetVersion` and `os.Chtimes` on the link, once more. At HO-14's default (0.167.0, above the adapter's newest row) `Caps.Untested` is true and `CLIVersion` is that version; at that row's highest (0.166.0) `Known` is true.
 - An agent message saying "rate limit" or "not logged in" never classifies. A marker planted in a message, an item type, an event type and an error text reaches no field DV-11a's invariants forbid.
 - Mutations (an unknown item allowed, an unknown event ignored, `features list` read per run, a link followed to the answer, cached tokens counted twice) are each caught.
+
+## Read first, added by the lead on 2026-11-13
+
+DV-11a's page, under "As merged", holds four rules for this package that its builder could not have known when this page was written. Read them before the code.

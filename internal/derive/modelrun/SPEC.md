@@ -130,6 +130,8 @@ type result struct {
 
 A call makes at most two attempts. A result with `again` set gets a second, with `n` 2, unless the call's time has run out (then it is `timeout`), a tool was seen, the CLI was missing or the attempt timed out. The second attempt's result is the call's, whatever it asks. There is no effort ladder and no model fallback: a refused model or effort is `host` with `Refused` set, and the policy decides what to try next.
 
+An error a backend returns is not passed on: `Run` gives the caller none of its text. The one error `Run` passes on unchanged is the core's own type, `runError`, whose text the core wrote. A backend lives in this package and could make one: it never does, and never wraps its own text, a path or anything the CLI printed in one.
+
 ## 8. The fake
 
 `modelrun.Fake`, in `fake.go` and not a test file, so other packages' tests can use it (as v1's `update.Fake`). `Probe` gives a copy of `Caps`. `Run` records a copy of the call, its `Input` and `Schema` cloned, then answers with `Respond` when set, given a copy of its own, and otherwise with a copy of `Outcome` and `Err`. A done `ctx` gets its error, after the call is recorded. `Calls` gives copies of the calls so far, oldest first, each `Input` and `Schema` cloned again. Set the fields before the first call; then it is safe for concurrent use.

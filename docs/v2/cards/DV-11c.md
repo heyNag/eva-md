@@ -48,3 +48,7 @@ DV-11a's files (the rig is used unchanged; a gap in it goes in the report), DV-1
 - An envelope printed, then a CLI that waits to be killed, and the test ends the run's time with the rig's held timer: `timeout`, no answer, that envelope's usage.
 - A marker planted in `result`, `errors`, a denial's input and stderr reaches no field DV-11a's invariants forbid.
 - Mutations (the denial check dropped, only the top model kept, the asked model copied, `result` read without `is_error`, the answer kept on a timeout) are each caught.
+
+## Read first, added by the lead on 2026-11-13
+
+DV-11a's page, under "As merged", holds four rules for this package that its builder could not have known when this page was written. Read them before the code.

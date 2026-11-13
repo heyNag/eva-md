@@ -63,9 +63,9 @@ Rules every card carries, so they are said once here:
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
-| [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | building since 2026-11-13 |
-| [DV-11b](DV-11b.md) | The runner's Codex backend | after DV-11a and HO-14; beside DV-11c |
-| [DV-11c](DV-11c.md) | The runner's Claude Code backend | after DV-11a; beside DV-11b |
+| [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | merged |
+| [DV-11b](DV-11b.md) | The runner's Codex backend | ready, since DV-11a and HO-14 are merged; beside DV-11c |
+| [DV-11c](DV-11c.md) | The runner's Claude Code backend | ready, since DV-11a is merged; beside DV-11b |
 | [HO-13a](HO-13a.md) | The signed release manifest, and its check in Go | not before the Stage 0 readout (decision 9); open then: one approval of a cut or two, and whether the manifest's first format carries the day it was published |
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
@@ -81,7 +81,7 @@ Rules every card carries, so they are said once here:
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
-| [EV-14c](EV-14c.md) | Six new families, half held out | ready |
+| [EV-14c](EV-14c.md) | Six new families, half held out | building since 2026-11-13 |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | building since 2026-11-13 |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | after EV-17a |
