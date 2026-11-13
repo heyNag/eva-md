@@ -135,8 +135,9 @@ func TestCorrectionKeepsTheNewValue(t *testing.T) {
 			t.Fatalf("%s plants %d facts", sc.ID, len(sc.Facts))
 		}
 		old, fixed, echo := sc.Facts[0], sc.Facts[1], sc.Facts[2]
-		_, echoTurn := plantedAt(t, sc, echo.ID)
-		if fixed.Supersedes != old.ID || old.Until == nil || echo.Until == nil || echo.Slots[0].Value != old.Slots[0].Value ||
+		echoAt, echoTurn := plantedAt(t, sc, echo.ID)
+		fixedAt, _ := plantedAt(t, sc, fixed.ID)
+		if echoAt.Seq <= fixedAt.Seq || fixed.Supersedes != old.ID || old.Until == nil || echo.Until == nil || echo.Slots[0].Value != old.Slots[0].Value ||
 			echo.Authority != scenario.AuthorityOther || echoTurn.Author != event.AuthorAgent || fixed.Slots[0].Value == old.Slots[0].Value {
 			t.Fatalf("%s: the facts are %+v", sc.ID, sc.Facts)
 		}
@@ -215,8 +216,11 @@ func TestUnagreedHasNoAuthority(t *testing.T) {
 // the wrong authority, as the card asks.
 func TestAcceptedIsADecisionNeverARule(t *testing.T) {
 	for _, sc := range instances(t)["accepted"] {
-		choice := facts(sc, scenario.MustStore)[1]
-		never := facts(sc, scenario.MustNotAsRule)[0]
+		stored, nevers := facts(sc, scenario.MustStore), facts(sc, scenario.MustNotAsRule)
+		if len(stored) != 2 || len(nevers) != 1 {
+			t.Fatalf("%s plants %d facts to store and %d never to be a rule", sc.ID, len(stored), len(nevers))
+		}
+		choice, never := stored[1], nevers[0]
 		ideal := score.Ideal(sc)
 		if ideal.Items[1].Authority != score.TagAccepted || ideal.Items[1].Kind != scenario.KindDecision {
 			t.Errorf("%s: the acceptance is stored as %+v", sc.ID, ideal.Items[1])
@@ -243,6 +247,9 @@ func TestAcceptedIsADecisionNeverARule(t *testing.T) {
 func TestLimitSurvives(t *testing.T) {
 	forms := map[string]bool{}
 	for _, sc := range instances(t)["limit"] {
+		if len(sc.Facts) != 1 || len(sc.Facts[0].Slots) != 2 {
+			t.Fatalf("%s: the facts are %+v", sc.ID, sc.Facts)
+		}
 		f := sc.Facts[0]
 		bound := f.Slots[1]
 		switch {
@@ -293,6 +300,9 @@ func TestHeldOutShapes(t *testing.T) {
 	}
 	limitF, _ := ByName("limit")
 	sc := limitF.Generate(seed)
+	if len(sc.Facts) != 1 {
+		t.Fatalf("limit plants %d facts", len(sc.Facts))
+	}
 	f := sc.Facts[0]
 	tr := planter(sc, f.ID)
 	if len(sc.Facts) != 1 || f.Must != scenario.MustStore || f.Authority != scenario.AuthorityOther ||

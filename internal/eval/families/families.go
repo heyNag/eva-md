@@ -82,10 +82,11 @@ func Draw(name string, seed uint64, n int) ([]scenario.Scenario, error) {
 }
 
 // SeedOf is the seed of a draw at gate time: the first 16 hex digits of
-// the candidate's commit, read as a number.
+// the candidate's commit, read as a number. The commit is given in
+// lower-case hex, 16 digits or more.
 func SeedOf(commit string) (uint64, error) {
-	if len(commit) < 16 || strings.Trim(commit[:16], "0123456789abcdef") != "" {
-		return 0, errors.New("families: a commit begins with 16 lower-case hex digits")
+	if len(commit) < 16 || strings.Trim(commit, "0123456789abcdef") != "" {
+		return 0, errors.New("families: a commit is 16 or more lower-case hex digits")
 	}
 	return strconv.ParseUint(commit[:16], 16, 64)
 }

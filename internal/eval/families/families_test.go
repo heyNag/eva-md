@@ -272,7 +272,7 @@ func TestDraws(t *testing.T) {
 	if s, err := SeedOf("fedcba9876543210"); err != nil || s != 0xfedcba9876543210 {
 		t.Errorf("SeedOf of 16 digits = %x, %v", s, err)
 	}
-	for _, bad := range []string{"", "0123456789abcde", "0123456789ABCDEF0123", "0123456789abcdeg0123", " 0123456789abcdef", "+123456789abcdef0"} {
+	for _, bad := range []string{"", "0123456789abcde", "0123456789abcdef-x", "0123456789abcdef ", "0123456789ABCDEF0123", "0123456789abcdeg0123", " 0123456789abcdef", "+123456789abcdef0"} {
 		if _, err := SeedOf(bad); err == nil {
 			t.Errorf("SeedOf(%q) takes it", bad)
 		}
