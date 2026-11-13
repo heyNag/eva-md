@@ -245,7 +245,13 @@ func (s *session) run(ctx context.Context) (string, error) {
 		if r.Session != "" {
 			id = r.Session
 		}
-		g, err := task.Grade(ctx, t, t.Dir, s.tr.Dirs.Workspace, filepath.Join(s.tr.Dirs.Grade, "r"+strconv.Itoa(round)))
+		// The grading's copy holds the hidden tests, and the chat can reach
+		// the trial's folder, so it is removed before any next prompt.
+		scratch := filepath.Join(s.tr.Dirs.Grade, "r"+strconv.Itoa(round))
+		g, err := task.Grade(ctx, t, t.Dir, s.tr.Dirs.Workspace, scratch)
+		if rerr := os.RemoveAll(scratch); err == nil && rerr != nil {
+			err = fmt.Errorf("removing the grading's copy: %w", pathless(rerr))
+		}
 		if err != nil {
 			return "", err
 		}

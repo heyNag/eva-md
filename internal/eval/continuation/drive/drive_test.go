@@ -123,6 +123,12 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 							t.Fatalf("the workspace held %s at a prompt", f)
 						}
 					}
+					// Nor can the chat find one in its trial's folder.
+					for _, f := range call.Around {
+						if strings.Contains(f, "checks/") {
+							t.Fatalf("the trial's folder held %s at a prompt", f)
+						}
+					}
 				}
 				if want := []string{".gitconfig"}; !slices.Equal(list(t, filepath.Join(dir, "home")), want) {
 					t.Fatalf("the home holds %v", list(t, filepath.Join(dir, "home")))
@@ -480,6 +486,11 @@ func TestArmPrepareAndAfter(t *testing.T) {
 	t.Run("launch", func(t *testing.T) {
 		r := newRig(t, 1)
 		r.opts.Condition = task.Eva
+		r.opts.EvaMD = filepath.Join(r.base, "made-up-eva-md")
+		write(t, r.opts.EvaMD, "#!/bin/sh\nexit 0\n")
+		if err := os.Chmod(r.opts.EvaMD, 0o755); err != nil {
+			t.Fatal(err)
+		}
 		var trial Trial
 		useArm(t, Arm{
 			Prepare: func(_ context.Context, tr Trial) (Launch, error) {
@@ -500,6 +511,9 @@ func TestArmPrepareAndAfter(t *testing.T) {
 			if filepath.Dir(d) != trial.Dirs.Root {
 				t.Fatalf("%s is not in the trial's folder", d)
 			}
+		}
+		if to, err := os.Readlink(filepath.Join(trial.Dirs.Bin, "eva-md")); err != nil || to != r.opts.EvaMD {
+			t.Fatalf("--eva-md is not linked into the trial's bin: %q %v", to, err)
 		}
 		calls := r.calls()
 		if !slices.Contains(calls[1].Args, "--made-up-flag") || !slices.Contains(calls[1].Env, "EVAL_MADE_UP_ACTOR") || slices.Contains(calls[0].Env, "EVAL_MADE_UP_ACTOR") {

@@ -12,7 +12,7 @@
 // a line of Calls in the script's folder: its arguments, the names of its
 // variables (and the values of the four the driver builds), its folder,
 // its prompt, its session and the files of its folder before it changed
-// any. Then it lays the task's decoy/ overlay over the folder until every
+// any, and those of the folder that holds it. Then it lays the task's decoy/ overlay over the folder until every
 // one of the script's facts has appeared in a prompt of the session, and
 // its solution/ overlay after. A script can make it stall until it is
 // killed, fail its sign-in or a rate limit, or name another model.
@@ -84,6 +84,9 @@ type Call struct {
 	Prompt  string            `json:"prompt,omitempty"`
 	Model   string            `json:"model,omitempty"` // the model asked for
 	Files   []string          `json:"files,omitempty"` // the folder's files, slash paths, .git left out
+	// Around are the files of the folder that holds the call's folder,
+	// which the driver makes a trial's, as Files lists them.
+	Around []string `json:"around,omitempty"`
 }
 
 // Main runs the fake and exits when the process is a host's CLI with a
@@ -148,6 +151,9 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		c.Mode = "continue"
 	}
 	if c.Files, err = files(dir); err != nil {
+		return 3
+	}
+	if c.Around, err = files(filepath.Dir(dir)); err != nil {
 		return 3
 	}
 	if err := record(s, c); err != nil {
