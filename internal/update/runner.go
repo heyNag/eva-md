@@ -76,6 +76,11 @@ type Request struct {
 	IgnoreUserConfig bool          // codex_ignore_user_config
 	Timeout          time.Duration // zero: derived from the effort; one budget for all attempts
 	CLI              string        // the CLI's absolute path, as install recorded it; empty, or no longer the CLI: looked up on PATH
+	// Tap, when set, is called once after each CLI run of an attempt, never
+	// for codex features list nor for a CLI that is missing, with what the
+	// run kept of the CLI's stdout and stderr: copies, so it can change no
+	// Result. Nothing in eva-md sets it; the live accuracy run's trace does.
+	Tap func(stdout, stderr []byte)
 }
 
 // Result is a run's outcome. Output is set only when Reason is empty and
