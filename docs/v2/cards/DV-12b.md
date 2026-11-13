@@ -27,6 +27,20 @@ One thing the handler list's review found, which this card settles (SEAM-0b, "As
 
 `cmd/eva-md/work.go` and `work_test.go` (new), `internal/hook/wake.go` and `wake_test.go` (new), `internal/health/work.go` and `work_test.go` (new), `internal/update/runlog.go` (the one field), `cmd/eva-md/maintain.go` (the busy signal), the two tests named in item 5, and the one line of `README.md`.
 
+```paths
+cmd/eva-md/work.go
+cmd/eva-md/work_test.go
+internal/hook/wake.go
+internal/hook/wake_test.go
+internal/health/work.go
+internal/health/work_test.go
+internal/update/runlog.go
+cmd/eva-md/maintain.go
+cmd/eva-md/docs_test.go
+cmd/eva-md/main_test.go
+README.md
+```
+
 ## Must not touch
 
 `internal/work` (DV-12a's), `hook.go`, `trigger.go`, `spawn.go`, `uninstall.go`, `update.go`, any plugin byte, and what v1 does with the switch off.

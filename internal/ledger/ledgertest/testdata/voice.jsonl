@@ -1,0 +1,9 @@
+{"v":2,"k":"header","host":"codex","session":"0193c2d1-aaaa-7000-8000-00000000000a"}
+{"seq":1,"t":"2026-11-03T08:00:00.000Z","turn":0,"k":"ctx","pv":"eva","src":{"key":"k:ctx:1"},"ctx":{"project":"p_made_up","branch":"main","cwd":"src/app","model":"model-a"}}
+{"seq":2,"t":"2026-11-03T08:00:00.000Z","turn":0,"k":"life","pv":"host","text":"session_start: startup","src":{"h":true,"key":"k:life:2"},"mark":["name"]}
+{"seq":3,"t":"2026-11-03T08:01:00.000Z","turn":1,"tid":"turn-1","k":"prompt","pv":"front_model","text":"The person asks to move the review to Thursday.","src":{"r":"row-3","key":"k:prompt:3"}}
+{"seq":4,"t":"2026-11-03T08:01:00.000Z","turn":1,"tid":"turn-1","k":"prompt","pv":"spoken","text":"move the review to thursday","src":{"r":"row-4","key":"k:prompt:4"}}
+{"seq":5,"t":"2026-11-03T08:02:00.000Z","turn":1,"tid":"turn-1","k":"reply","pv":"agent","text":"Moved the review to Thursday.","src":{"h":true,"key":"k:reply:5"}}
+{"seq":6,"turn":1,"k":"gap","pv":"eva","src":{"key":"place:6"},"why":"off_record","mark":["withheld"]}
+{"seq":7,"t":"2026-11-03T08:02:00.000Z","turn":1,"tid":"turn-1","k":"reply","pv":"agent","text":"Moved the review to Thursday.","src":{"r":"row-5","key":"k:reply:5"},"mark":["recovered"],"copy":5}
+{"seq":8,"t":"2026-11-03T08:03:00.000Z","turn":2,"tid":"turn-2","k":"prompt","pv":"v1_user","text":"\u003crealtime_delegation\u003e made-up hand-over \u003c/realtime_delegation\u003e","src":{"h":true,"key":"k:prompt:8"},"mark":["wrapper"]}
