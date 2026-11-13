@@ -15,7 +15,7 @@ A new package, `internal/eval/families`, that no release contains. It imports `i
    - `moment` (tuning): instructions meant for the moment ("for this run only", "not today"), each `not_as_rule`, beside one standing instruction that must be stored as a rule.
    - `correction` (tuning): the user states a value, then corrects it; the agent's later reply repeats the old one. The corrected value must be in force; the old fact ends at the correction, and the reply's turn plants it too, so an item holding the old value is `stale_in_force` whichever turn it cites.
    - `other-author` (tuning): a subagent's report (a turn with a subagent id) states a decision-shaped line, `not_with_authority`.
-   - `limit` (held out): a finding with a stated limit, one of four forms: not found in a sample of N, tested and not deployed, tried and refused, a hypothesis. Its `limit` slot must survive; a hypothesis may be filed only as `open` or as a fact that keeps its hedge.
+   - `limit` (held out): a finding with a stated limit, one of four forms: not found in a sample of N, tested and not deployed, tried and refused, a hypothesis. Its `limit` slot must survive; a hypothesis may be filed only as `open` or as a fact, and keeps its hedge in either (the second ruling below).
    - `unagreed` (held out): the agent proposes something; the user asks about it or quotes it without agreeing. `not_with_authority`.
    - `accepted` (held out): the agent proposes something; the user picks it in a dialog or approves a plan that holds it (author `chosen`, kinds `dialog` and `plan_decision`). It must be stored with the `accepted` authority as a decision or a procedure, and is `not_as_rule` (decision 10). v1 keeps no such entry, so this family renders only as events.
 3. **Packs and the held-out split.** `internal/eval/families/packs/tuning.json` lists, for each tuning family, its seeds and the sha256 of each instance's canonical JSON, so a generator change that alters an instance fails until the pack is updated. A held-out family has no pack: `Draw(family, seed, n)` makes its instances at gate time, with the seed `SeedOf(commit)`, the first 16 hex digits of the candidate's commit, so they do not exist while code is written.
@@ -38,6 +38,28 @@ Everything else. `internal/eval/scenario` and `internal/eval/score` are EV-14a's
 - `scripts/linux-check.sh` passes, and `go list -deps ./cmd/eva-md | grep -c internal/eval` prints 0.
 - Each family has a golden instance from a fixed seed whose v1 rendering (`V1Entries`) is a committed file, for tuning families only; for a held-out family the test checks the shape of one instance from a seed set in the test (slots, `Must`, the planting turns' authors) and commits no instance.
 - Changing one word of a tuning template fails the pack test until `tuning.json` is updated; two draws of a family with different seeds share no instance; no file under `internal/eval/families/` names a held-out instance's id, by test.
-- For every family, on instances from at least 20 seeds: `score.Ideal` scores `fact_holds` 1 with every count 0, and each of these scores as stated, by test: a moment instruction stored as a rule is a `violation`; the old value of `correction` in force is `stale_in_force`; the subagent's line or the unagreed proposal under the user's authority is a `violation`; `accepted`'s decision stored as a rule is a `violation`, and stored under `stated` is `found` with the wrong authority; a `limit` item without its limit, or a hypothesis stored as a fact without its hedge, is a `wrong_write` with outcome `limit_dropped`; `Distort(..., moved)` between two permitted kinds leaves `fact_holds` at 1.
+- For every family, on instances from at least 20 seeds: `score.Ideal` scores `fact_holds` 1 with every count 0, and each of these scores as stated, by test: a moment instruction stored as a rule is a `violation`; the old value of `correction` in force is `stale_in_force`; the subagent's line or the unagreed proposal under the user's authority is a `violation`; `accepted`'s decision stored as a rule is a `violation`, and stored under `stated` scores as the scorer scores it today, held by a test that fails when the scorer changes (the first ruling below); a `limit` item without its limit, or a hypothesis stored as a fact without its hedge, is a `wrong_write` with outcome `limit_dropped`; `Distort(..., moved)` between two permitted kinds leaves `fact_holds` at 1.
 - Every rendered text of every instance is unchanged by `redact.Redact`, by test.
 - Only eva's name in any text; no new module.
+
+## The lead's rulings of 2026-11-13
+
+Two verifications running stopped at the same two points, and neither can be mended inside this package, which may read EV-14b's scorer and not change it.
+
+1. **`accepted` under `stated`.** The card asked that `accepted`'s decision stored under `stated` be found with the wrong authority. The scorer reads `stated` and `accepted` alike, so it scores that store as holding. This package does not ask it: a test here holds today's score, named so that it fails when the scorer tells the two apart, and "Accepted when" is changed to say so.
+2. **A hypothesis keeps its hedge in every filing.** The card let a hypothesis be filed as `open` or as a fact that keeps its hedge, which reads as asking the hedge of the fact alone. The scorer cannot ask a slot of one kind and not of another, so the family asks it of both: an open question about a hypothesis with no hedge word scores `limit_dropped`, though a store that wrote it did nothing wrong. The family's doc comment and the card say so, and the family is held out, so no tuning leans on it.
+
+Owed, on a card for EV-14b's scorer, before any figure of these two families is put in a gate: the scorer tells `accepted` from `stated`, and a fact may ask a slot of some kinds only. When it merges, this package's two tests fail by design and the families take the card's first wording back.
+
+## As merged
+
+Merged from `pkg/ev-14c-r3b` on 2026-11-13, after a review that found three major faults, three fix rounds and a verification that found nothing left to mend. The first fix answered the review's first fault and half of its second. The next two rounds stopped at the two points the rulings above settle, and the last made the package say what the rulings say: each has a test of its own, named for what it holds until the scorer changes.
+
+Also accepted as built: a standing instruction of `moment` may be filed as a rule or as a constraint, so that a move between two permitted kinds has something to apply to, as the last acceptance item asks of every family.
+
+To know when reading these families' figures:
+
+- `correction` needs a store to keep each line's reference, as v1's scenarios need their codenames. A store that keeps the corrected value without its reference scores `value_dropped`, and `stale_in_force` when it also names the old value.
+- An item that keeps the corrected value, names the old one and cites the agent's echo of it still scores `stale_in_force`: that is the scorer's rule, and the card for the scorer takes it up with the two rulings.
+
+Every fix round's check failed in the benchmark alone, on a machine at ten times its CPUs or more; nothing a hook runs imports the package.

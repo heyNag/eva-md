@@ -1,0 +1,81 @@
+{
+  "v": 1,
+  "id": "d02",
+  "family": "hidden",
+  "lang": "go",
+  "repos": [
+    "cindervale"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "People keep asking to put cindervale's cache somewhere other than their home folder, on a bigger disk. I want an environment variable for it, but let's agree on the name before anyone writes code.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "The usual choice would be a name after the package, with CACHE in it. Dir builds the folder from the home folder today and doesn't make it, so the override would go at the top of Dir, and an empty value should mean the default.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "Not a cindervale name. The other tools of the family already read TOVRANE_CACHE_DIR, and one variable should move all their caches at once. So the variable is TOVRANE_CACHE_DIR, exactly that.",
+      "plants": [
+        "f1"
+      ]
+    },
+    {
+      "by": "agent",
+      "text": "Agreed: Dir will honour TOVRANE_CACHE_DIR, shared with the other tools of the family, and ignore an empty value. I haven't changed any code yet; it's a small change to Dir when we get to it.",
+      "plants": [
+        "f1"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "The cache folder's override variable is TOVRANE_CACHE_DIR, shared with the other tools of the family; it is not named after cindervale.",
+      "values": [
+        "TOVRANE_CACHE_DIR"
+      ],
+      "name": true
+    }
+  ],
+  "prompt": "Let people move the cindervale cache folder with an environment variable, and make Dir create the folder when it is missing.",
+  "note": "Hand-over for cindervale. Decided: the cache override variable is TOVRANE_CACHE_DIR, shared with the family's other tools, not a cindervale-named one; an empty value means the default under the home folder.",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "cindervale",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenDirIsMade$",
+        "."
+      ],
+      "facts": []
+    },
+    {
+      "id": "t2",
+      "repo": "cindervale",
+      "run": [
+        "go",
+        "test",
+        "-count=1",
+        "-run",
+        "^TestHiddenDirOverride$",
+        "."
+      ],
+      "facts": [
+        "f1"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}

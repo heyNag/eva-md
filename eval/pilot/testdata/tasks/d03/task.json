@@ -1,0 +1,77 @@
+{
+  "v": 1,
+  "id": "d03",
+  "family": "hidden",
+  "lang": "python",
+  "repos": [
+    "marlbrook"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "Next for marlbrook: a subcommand that prints two schedule files merged into one. Before you write it, what would you call it?",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "merge is the obvious name, next to show. agenda.py already has a merge function stub that raises NotImplementedError, so the subcommand would parse both files, call agenda.merge and render the result. On a tie the first file's entry should come first, which a stable sort gives.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "Not merge: the shell wrappers already have a merge of their own and would shadow it. We settled on quorvane, after the old tool this replaces. Call the subcommand quorvane.",
+      "plants": [
+        "f1"
+      ]
+    },
+    {
+      "by": "agent",
+      "text": "Got it: the subcommand is quorvane, taking the two files in order, so nothing clashes with the wrappers' merge. The function in agenda.py keeps its name, merge. I'll write both when we pick this up.",
+      "plants": [
+        "f1"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "The subcommand that prints two schedules merged is named quorvane, not merge, so the shell wrappers' own merge does not shadow it.",
+      "values": [
+        "quorvane"
+      ],
+      "name": true
+    }
+  ],
+  "prompt": "Add a subcommand to marlbrook's command line that prints two schedule files merged into one, with the name we settled on, and fill in merge in agenda.py.",
+  "note": "Hand-over for marlbrook. Decided: the merge subcommand is named quorvane (not merge, which the shell wrappers shadow), taking two files in order. agenda.merge keeps its name; on a tie the first schedule's entry comes first.",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "marlbrook",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_merge"
+      ],
+      "facts": []
+    },
+    {
+      "id": "t2",
+      "repo": "marlbrook",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_subcommand"
+      ],
+      "facts": [
+        "f1"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}
