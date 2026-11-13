@@ -3,7 +3,9 @@ package families
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/eval/scenario"
 	"github.com/heyNag/eva-md/internal/eval/score"
@@ -240,10 +242,32 @@ func TestAcceptedIsADecisionNeverARule(t *testing.T) {
 	}
 }
 
+// keptLimits are, for each form of limit, ways a store may write the
+// finding with its limit kept, in words of its own; {v} is the finding's
+// name, {n} a sample's size and {w} a hedge. Each must hold.
+var keptLimits = map[string][]string{
+	"sample": {
+		"No {v} errors across {n} runs", "No {v} errors in {n} runs checked", "{v}: no errors, sample of {n}",
+		"{v} clean in {n} sampled runs",
+	},
+	"deployed": {
+		"The {v} fix isn't deployed", "The {v} fix isn’t deployed", "{v} fix: deploy pending", "The {v} patch is not in production",
+		"{v} change, pending deployment", "The {v} fix hasn't been deployed", "{v}: tested, awaiting deploy", "The {v} fix is not yet live",
+	},
+	"refused": {
+		"Reading {v} was blocked: access forbidden", "{v}: permission denied", "Access to {v} was rejected", "No access to {v}",
+		"Querying {v} is not allowed", "{v} returned unauthorized", "{v}: the read was blocked",
+	},
+	"hypothesis": {"The {v} cache causes the slow start ({w})"},
+}
+
 // TestLimitSurvives: a finding stored without its limit, or a hypothesis
 // stored as a fact without its hedge, is a wrong write, limit_dropped, of
-// the item and the fact; with it, it holds, as an open question or as a
-// fact. The draw holds every form of limit.
+// the item and the fact; with it, in the words it was said in or in one
+// of the common ways of writing it, it holds, as an open question or as a
+// fact. A finding of the first three forms holds as a dated line too; a
+// hypothesis may be filed only as an open question or a fact, so as a
+// dated line it does not hold. The draw holds every form of limit.
 func TestLimitSurvives(t *testing.T) {
 	forms := map[string]bool{}
 	for _, sc := range instances(t)["limit"] {
@@ -252,20 +276,52 @@ func TestLimitSurvives(t *testing.T) {
 		}
 		f := sc.Facts[0]
 		bound := f.Slots[1]
+		form, n := "", ""
 		switch {
 		case slices.Contains(hedges, bound.Value):
-			forms["hypothesis"] = true
+			form = "hypothesis"
 		case wordRun(bound.Value, "sample"):
-			forms["sample"] = true
+			form = "sample"
+			n = strings.Fields(bound.Value)[2]
 		case bound.Value == "not deployed":
-			forms["deployed"] = true
+			form = "deployed"
 		case bound.Value == "refused":
-			forms["refused"] = true
+			form = "refused"
 		default:
 			t.Errorf("%s: a limit of no form, %q", sc.ID, bound.Value)
 		}
+		forms[form] = true
+		var phrasings []string
+		for _, p := range keptLimits[form] {
+			if form != "hypothesis" {
+				phrasings = append(phrasings, fillIn(p, f.Slots[0].Value, "", n))
+				continue
+			}
+			for _, h := range hedges {
+				phrasings = append(phrasings, fillIn(p, f.Slots[0].Value, h, ""))
+			}
+		}
+		for _, text := range phrasings {
+			for _, kind := range []scenario.Kind{scenario.KindOpen, scenario.KindFact} {
+				kept := score.Export{Items: []score.Item{itemOf(t, sc, kind, score.TagSuggested, text, f.ID)}}
+				if r := score.Score(sc, kept); r.Metrics != perfect {
+					t.Errorf("%s: %q, as %s, scores %+v, item %s", sc.ID, text, kind, r.Metrics, r.Items[0].Outcome)
+				}
+			}
+		}
+		_, tr := plantedAt(t, sc, f.ID)
+		logged := itemOf(t, sc, scenario.KindLog, score.TagSuggested, f.Slots[0].Value+", "+bound.Value, f.ID)
+		logged.State, logged.Date = score.StateLog, tr.At.Format(time.DateOnly)
+		r := score.Score(sc, score.Export{Items: []score.Item{logged}})
+		if form == "hypothesis" {
+			if !slices.Equal(f.Kinds, []scenario.Kind{scenario.KindOpen, scenario.KindFact}) || f.LogDate != "" || r.Facts[0].Outcome == score.Holds {
+				t.Errorf("%s: a hypothesis may be filed as %v, and as a dated line it is %s", sc.ID, f.Kinds, r.Facts[0].Outcome)
+			}
+		} else if r.Metrics != perfect {
+			t.Errorf("%s: the finding with %q, as a dated line, scores %+v", sc.ID, bound.Value, r.Metrics)
+		}
 		dropped := score.Export{Items: []score.Item{itemOf(t, sc, scenario.KindFact, score.TagSuggested, f.Slots[0].Value, f.ID)}}
-		r := score.Score(sc, dropped)
+		r = score.Score(sc, dropped)
 		want := score.Metrics{WrongWrite: 1}
 		if r.Metrics != want || r.Items[0].Outcome != score.LimitDropped || r.Facts[0].Outcome != score.LimitDropped {
 			t.Errorf("%s: the finding without %q scores %+v, item %s, fact %s", sc.ID, bound.Value, r.Metrics, r.Items[0].Outcome, r.Facts[0].Outcome)

@@ -66,12 +66,30 @@ var hedges = []string{"guess", "suspect", "might", "maybe", "perhaps", "probably
 // samples are the sizes of a sample.
 var samples = []string{"12", "20", "25", "30", "40", "50", "64", "80", "120", "200"}
 
+// limitWords are the forms a store may give a limit of each form but the
+// hypothesis, besides the words it is said in: the common ways of writing
+// the same limit, so that a store that keeps it in other words is not
+// counted as dropping it. A sample's forms hold its size, {n}.
+var limitWords = map[string][]string{
+	"sample": {"sample of {n}", "{n} runs", "{n} sampled"},
+	"deployed": {
+		"not yet deployed", "undeployed", "isn't deployed", "isn't yet deployed", "not been deployed", "hasn't been deployed",
+		"not in production", "not live", "not yet live", "pending deploy", "pending deployment", "deploy pending", "deployment pending",
+		"awaiting deploy", "awaiting deployment",
+	},
+	"refused": {"denied", "blocked", "forbidden", "rejected", "not allowed", "not permitted", "no access", "unauthorized"},
+}
+
 // limit plants an agent's finding with a stated limit, in one of four
 // forms: none found in a sample of n runs, tested and not deployed, tried
 // and refused, or a hypothesis. The limit is a slot of its own, so an item
 // that drops it holds the finding only in part, which is a wrong write,
-// limit_dropped. A hypothesis's limit is its hedge: it may be filed as an
-// open question or as a fact, and in either it keeps the hedge.
+// limit_dropped. A finding with a limit may be filed as a fact, an open
+// question or a dated line. A hypothesis's limit is its hedge: it may be
+// filed only as an open question or as a fact, never as a dated line,
+// which would record a guess as what happened, and in either it keeps the
+// hedge. The scorer cannot make a slot depend on the kind an item is
+// filed in, so an open question must keep a hedge word too.
 func limit(seed uint64) scenario.Scenario {
 	b := newBuilder("limit", scenario.SplitHeldout, seed, "a finding with a stated limit")
 	v := b.g.names(1)[0]
@@ -84,19 +102,28 @@ func limit(seed uint64) scenario.Scenario {
 	var bound scenario.Slot
 	switch form {
 	case "sample":
-		bound = slot(scenario.SlotLimit, "sample of "+n+" runs", n+" runs sampled", n+" sampled runs")
+		bound = slot(scenario.SlotLimit, "sample of "+n+" runs", formsOf(form, n)...)
 	case "deployed":
-		bound = slot(scenario.SlotLimit, "not deployed", "not yet deployed", "undeployed")
+		bound = slot(scenario.SlotLimit, "not deployed", formsOf(form, n)...)
 	case "refused":
-		bound = slot(scenario.SlotLimit, "refused", "denied")
+		bound = slot(scenario.SlotLimit, "refused", formsOf(form, n)...)
 	case "hypothesis":
-		found = kinds(scenario.KindOpen, scenario.KindFact, scenario.KindLog)
+		found = kinds(scenario.KindOpen, scenario.KindFact)
 		said := hedgeIn(text)
 		bound = slot(scenario.SlotLimit, said, slices.DeleteFunc(slices.Clone(hedges), func(h string) bool { return h == said })...)
 	}
 	b.say(event.AuthorAgent, event.KindReply, "", text,
 		fact(scenario.MustStore, scenario.AuthorityOther, found, slot(scenario.SlotIdent, v), bound))
 	return b.done()
+}
+
+// formsOf are the forms of a limit of form, with a sample's size n.
+func formsOf(form, n string) []string {
+	var out []string
+	for _, w := range limitWords[form] {
+		out = append(out, fillIn(w, "", "", n))
+	}
+	return out
 }
 
 // hedgeIn is the first hedge text holds as a word. Every template of the
