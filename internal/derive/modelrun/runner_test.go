@@ -302,6 +302,10 @@ func TestTimeoutKillsTheChildAndItsGroup(t *testing.T) {
 	put(t, dump, "output", answer)
 	put(t, dump, "stdout", events(`{"type":"again"}`))
 	r, _ := puppetRunner(t, adapter.Codex, Options{})
+	// The wait for output past the CLI's end is longer than the test waits:
+	// only a kill of the whole group, the child that holds the output too,
+	// ends the run in time.
+	r.waitDelay = 3 * hangGuard
 	c := call(t, adapter.Codex)
 	c.Deadline = 1500 * time.Millisecond
 	ctx, timeouts := holdTimeouts(context.Background())
@@ -443,6 +447,7 @@ func TestCanceledRunIsAnErrorAndEndsTheChild(t *testing.T) {
 	isolate(t)
 	dump := fakeCLI(t, startChild+"exec sleep 300")
 	r, _ := puppetRunner(t, adapter.Codex, Options{})
+	r.waitDelay = 3 * hangGuard // as in TestTimeoutKillsTheChildAndItsGroup
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := launch(t, ctx, r, call(t, adapter.Codex))
