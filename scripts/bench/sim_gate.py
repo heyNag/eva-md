@@ -2,6 +2,7 @@
 test, and takes minutes:
 
     python3 -I scripts/bench/sim_gate.py [--seeds 300] [--load NAME ...] [--change NAME ...] [--rounds N]
+                                         [--common 0.025] [--own-scale 1]
     python3 -I scripts/bench/sim_gate.py --gates DIR/same-*.json ...
     python3 -I scripts/bench/sim_gate.py --monotonic [--gates ...]
     python3 -I scripts/bench/sim_gate.py --rework GATE.json ...
@@ -23,14 +24,16 @@ gate that lost a run is not drawn. On that base it puts a load (none,
 light bursts, heavy bursts, whole runs, a drift, one run of each of the new
 binary's roles, the four runs of one round, three or four of the new
 binary's runs and none of the old one's, or a mild load of 1.1 to 1.3 on
-three, all but one or all of them) and a change to the new binary (none,
+three, all but one or all of them, by one factor or, with -each, by one
+each loaded run draws) and a change to the new binary (none,
 every hook 20%, 30%, 50% slower or two or three times as slow, 20 ms
 added to capture, one hook alone 30% or 50% slower or two or three times
 as slow, capture slower by a factor each of the new binary's runs draws,
 or every hook 30% slower in all but one of the new binary's runs), and
 prints, for each pair, the share of seeds whose verdict was fail, pass and
 not judged, with the figures that most often failed or stopped the
-verdict.
+verdict. --common and --own-scale widen the made-up base's runs, as CI's
+runner's differ: a run's common factor, and each figure's own.
 
 --monotonic takes the same base samples a seed, on a quiet machine, with
 every hook 20%, 30%, 50% slower and two and three times as slow, and each
@@ -390,7 +393,7 @@ def seeded(s):
 def tally(d, why):
     if d["verdict"] == "not judged":
         if d["machine_too_noisy"]:
-            why["quick run" if d["one_quick_run"] else "two noisy p95s"] += 1
+            why["quick run" if d["one_quick_run"] else "uneven runs" if d["uneven_load"] else "two noisy p95s"] += 1
         for name, m in d["metrics"].items():
             if m["unsettled"]:
                 why["stopped by "+name if "too noisy" in m["unsettled"][0] else "unsettled "+name] += 1
@@ -438,10 +441,10 @@ def rework(paths, quantile=core.NOISE_QUANTILE):
         d = core.decide(runs_of(gate), ceilings_of(gate), gate.get("scenario_failures"), gate["rounds"], quantile=quantile,
                         sources=gate.get("figure_scenarios"))
         print("%-12s %-10s was %-10s failed: %s  p95 too noisy: %s  on the median alone: %d  unsettled: %s  quick run: %s  "
-              "too few: %d  lost: %d" % (
+              "uneven: %s  too few: %d  lost: %d" % (
                   Path(path).stem, d["verdict"], gate.get("verdict"), sorted({f.split(":")[0] for f in d["failures"]}) or "-",
                   d["too_noisy"] or "-", sum(m["judged_on"] == ["median"] for m in d["metrics"].values()),
-                  [u.split(":")[0] for u in d["unsettled"]] or "-", d["one_quick_run"] or "-",
+                  [u.split(":")[0] for u in d["unsettled"]] or "-", d["one_quick_run"] or "-", d["uneven_load"] or "-",
                   len(d["too_few_samples"]), len(d["lost"])))
 
 
@@ -473,9 +476,9 @@ def main():
     else:
         base, ceilings = made_up, CEILINGS
     print("rule %d: noise is the %g quantile of %d controls' bounds; threshold %.2f, the median's %.2f; quick run %.2f; "
-          "%d samples a side to judge; %d rounds; %s base; %d seeds a case" % (
-              core.RULE, a.quantile, 2*len(core.splits(a.rounds)), core.THRESHOLD, core.MEDIAN_THRESHOLD, core.QUICK, core.WHOLE,
-              a.rounds, "saved gates'" if a.gates else "made-up", a.seeds), flush=True)
+          "uneven halves %.2f; %d samples a side to judge; %d rounds; %s base; %d seeds a case" % (
+              core.RULE, a.quantile, 2*len(core.splits(a.rounds)), core.THRESHOLD, core.MEDIAN_THRESHOLD, core.QUICK, core.UNEVEN,
+              core.WHOLE, a.rounds, "saved gates'" if a.gates else "made-up", a.seeds), flush=True)
     if a.monotonic:
         began = time.time()
         fails, broken = monotonic(base, ceilings, a.seeds, a.first, a.quantile)
