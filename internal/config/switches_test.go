@@ -29,9 +29,11 @@ func load(t *testing.T, body string) (Config, error) {
 }
 
 // The config package registers no switch of its own; the packages that
-// are switched on register theirs.
+// are switched on register theirs. The one exception is redaction's, which
+// config holds because the redact package cannot import config (config
+// imports identity, which imports redact).
 func TestNoSwitchIsRegisteredHere(t *testing.T) {
-	if len(switches) != 0 {
+	if _, ok := switches[RedactionCurrentRulesOnly.name]; len(switches) != 1 || !ok {
 		t.Fatalf("switches registered outside a test: %v", switches)
 	}
 }

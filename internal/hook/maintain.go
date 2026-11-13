@@ -3,7 +3,6 @@ package hook
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"syscall"
 	"time"
 
@@ -13,11 +12,17 @@ import (
 )
 
 // The jobs maintain runs as: the day's commit, push, lint and search index,
-// and the retry of a pending push.
+// and the retry of a pending push. Both run git.
 var (
-	dailyJob = []string{"maintain"}
-	retryJob = []string{"maintain", "--push-only"}
+	dailyJob = job{args: []string{"maintain"}, reason: reasonDaily, git: true}
+	retryJob = job{args: []string{"maintain", "--push-only"}, reason: reasonPushRetry, git: true}
 )
+
+// The maintain handler asks, once the guards have passed, for the day's
+// maintain and, at a chat start, a push retry.
+func init() {
+	registerHandler(100, "maintain", atGuarded, func(t *turn) { queueMaintain(t, t.event == "SessionStart") })
+}
 
 // retryEvery spaces the push retries chat starts spawn.
 const retryEvery = 30 * time.Minute
@@ -36,28 +41,28 @@ func maintainOn(c config.Config) bool { return wikiOn(c) || c.WikiPath == "" }
 // retry while commits are on and a wiki is set up. Asking costs the hook
 // nothing here: launch decides, once the output is written, whether each is
 // due.
-func queueMaintain(spawns *[][]string, env Env, start bool) {
-	if !maintainOn(env.Config) {
+func queueMaintain(t *turn, start bool) {
+	if !maintainOn(t.env.Config) {
 		return
 	}
-	*spawns = append(*spawns, dailyJob)
-	if start && env.Config.Commits && wikiOn(env.Config) {
-		*spawns = append(*spawns, retryJob)
+	t.ask(dailyJob)
+	if start && t.env.Config.Commits && wikiOn(t.env.Config) {
+		t.ask(retryJob)
 	}
 }
 
-// due reports whether launch starts args now. An update always is. The
-// day's maintain is due for the day's first event, the one whose open
+// due reports whether launch starts j now, by its reason. An update always
+// is. The day's maintain is due for the day's first event, the one whose open
 // creates <state>/commit/attempt-<YYYY-MM-DD>; every later event that day
 // finds the file and starts nothing. A push retry is due when no maintain
 // started with it and retryDue says so. started records whether this hook
 // started the day's maintain.
-func due(env Env, args []string, now time.Time, started *bool) bool {
-	switch {
-	case slices.Equal(args, dailyJob):
+func due(env Env, j job, now time.Time, started *bool) bool {
+	switch j.reason {
+	case reasonDaily:
 		*started = firstOfDay(env.Dirs.State, now)
 		return *started
-	case slices.Equal(args, retryJob):
+	case reasonPushRetry:
 		return !*started && retryDue(env.Dirs, now)
 	}
 	return true

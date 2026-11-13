@@ -1,0 +1,15 @@
+{
+  "type": "knowledge",
+  "title": "Tide feed",
+  "description": "",
+  "status": "",
+  "stale_after": "",
+  "generated": {
+    "by": "codex/model-b",
+    "at": "2026-11-04T06:12:09Z"
+  },
+  "verified": null,
+  "sources": null,
+  "extra": {},
+  "body": "\n# Body\n\nSome text.\n"
+}

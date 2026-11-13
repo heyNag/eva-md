@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/wikiinit"
 )
@@ -143,7 +144,7 @@ func checkInstall(ctx context.Context, ck checklist, env setupEnv, opts install.
 		}
 		// Claude Code is looked for by its command, as the host check
 		// looks, not among the hosts: --host codex leaves it out of them.
-		if _, err := env.lookPath("claude"); err != nil {
+		if claudeCode, _ := adapter.ByID(string(adapter.ClaudeCode)); claudeCode.FindCLI(env.lookPath) == "" {
 			only = "install Claude Code, then " + only
 		}
 		ck.fail("Codex's hooks feature is off, so eva-md can't capture Codex chats", "run codex features enable hooks, or "+only+" to install for Claude Code only")

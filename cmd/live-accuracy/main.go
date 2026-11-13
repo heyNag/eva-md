@@ -12,6 +12,11 @@
 // is removed at the end; it reads and writes nothing of eva-md's own. The
 // host CLI runs with your usual login, as the update job's calls do.
 //
+// --record writes each pass's answer to a recording as the run goes (see
+// record.go), --replay answers each pass from one, calling nothing, and
+// --pages writes each script's page after its last pass, which the
+// evaluation's fidelity command scores.
+//
 //	go run ./cmd/live-accuracy --host claude-code --spend-model-quota
 package main
 
@@ -22,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"os/signal"
@@ -60,6 +66,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 	model := f.String("model", "", "the model each call asks for; the host's default when empty")
 	cli := f.String("cli", "", "the host CLI's absolute path; looked up on PATH when empty")
 	ignore := f.Bool("codex-ignore-user-config", false, "run codex without your Codex config, as codex_ignore_user_config = true runs the update")
+	record := f.String("record", "", "write each pass's answer to this file, which must not exist yet, as the run goes")
+	replay := f.String("replay", "", "answer each pass from this recording, made with the same --host and --model; calls nothing and needs no --spend-model-quota; without --effort, the report says the effort is as recorded")
+	pages := f.String("pages", "", "write each script's page after its last pass into this folder, new or empty, as v1.NN.md")
 	if err := f.Parse(args); err != nil {
 		return 2
 	}
@@ -73,6 +82,10 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 		return usage(errOut, "--cli must be the absolute path of a command named "+name)
 	case *ignore && *host != update.HostCodex:
 		return usage(errOut, "--codex-ignore-user-config is for codex only")
+	case *record != "" && *replay != "":
+		return usage(errOut, "--record and --replay can't be used together")
+	case *replay != "" && (*cli != "" || *ignore):
+		return usage(errOut, "--replay runs no CLI, so it takes no --cli or --codex-ignore-user-config")
 	}
 	// The effort, the model and the CLI as the runner would refuse them, or
 	// pass over a CLI for the one on PATH, before anything is made or called.
@@ -80,31 +93,100 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 		return usage(errOut, strings.TrimPrefix(err.Error(), "update: "))
 	}
 	scripts, calls := accuracy.Scripts(), 0
-	for _, s := range scripts {
+	index, counts := map[*accuracy.Script]int{}, make([]int, len(scripts))
+	for i, s := range scripts {
 		calls += len(s.Passes)
+		index[s], counts[i] = i+1, len(s.Passes)
 	}
-	if !*spend {
+	var answers map[passKey]passRecord
+	if *replay != "" {
+		var err error
+		if answers, err = readRecording(*replay, *host, *model, counts); err != nil {
+			fmt.Fprintf(errOut, "live-accuracy: the recording %s is refused: %v. Nothing was called.\n", *replay, err)
+			return 2
+		}
+	} else if !*spend {
 		fmt.Fprintf(errOut, "live-accuracy: the run makes %d model calls on %s's subscription, one for each pass of the suite's %d fact scripts, each allowed up to 10 minutes. Nothing was called; run it again with --spend-model-quota to make them.\n", calls, *host, len(scripts))
 		return 2
 	}
-	home, err := os.MkdirTemp("", "eva-md-live-accuracy-")
-	if err != nil {
-		fmt.Fprintf(errOut, "live-accuracy: could not make its temporary home: %v\n", err)
-		return 1
-	}
-	defer func() {
-		if err := os.RemoveAll(home); err != nil {
-			fmt.Fprintf(errOut, "live-accuracy: could not remove its temporary home %s: %v\n", home, err)
-			code = 1
+	if *record != "" {
+		if _, err := os.Lstat(*record); !errors.Is(err, fs.ErrNotExist) {
+			return usage(errOut, "--record must name a file that does not exist yet")
 		}
-	}()
-	c := caller{host: *host, effort: *effort, model: *model, cli: *cli, ignore: *ignore, home: home, runner: newRunner(*host), log: errOut, efforts: map[string]int{}}
+	}
+	if *pages != "" {
+		if err := checkPages(*pages); err != nil {
+			return usage(errOut, err.Error())
+		}
+	}
+	// The recording first, so a folder it cannot be made in leaves nothing
+	// made and nothing called.
+	var rec *recorder
+	if *record != "" {
+		var err error
+		if rec, err = createRecording(*record, *host, *model); err != nil {
+			fmt.Fprintf(errOut, "live-accuracy: could not make the recording: %v\n", err)
+			return 1
+		}
+		defer func() {
+			if err := rec.close(); err != nil {
+				fmt.Fprintf(errOut, "live-accuracy: could not close the recording: %v\n", err)
+				code = 1
+			}
+		}()
+	}
+	if *pages != "" {
+		if err := os.MkdirAll(*pages, 0o755); err != nil {
+			fmt.Fprintf(errOut, "live-accuracy: could not make the pages folder: %v\n", err)
+			return 1
+		}
+	}
+	efforts := map[string]int{}
+	var ask live.Ask
+	if answers != nil {
+		ask = replayer{answers: answers, index: index, efforts: efforts}.ask
+		fmt.Fprintf(errOut, "live-accuracy: replaying the %d answers of the recording %s; nothing is called\n", calls, *replay)
+	} else {
+		home, err := os.MkdirTemp("", "eva-md-live-accuracy-")
+		if err != nil {
+			fmt.Fprintf(errOut, "live-accuracy: could not make its temporary home: %v\n", err)
+			return 1
+		}
+		defer func() {
+			if err := os.RemoveAll(home); err != nil {
+				fmt.Fprintf(errOut, "live-accuracy: could not remove its temporary home %s: %v\n", home, err)
+				code = 1
+			}
+		}()
+		c := caller{host: *host, effort: *effort, model: *model, cli: *cli, ignore: *ignore, home: home, runner: newRunner(*host), log: errOut, efforts: efforts}
+		ask = c.ask
+	}
+	if rec != nil {
+		ask = recorded(ask, rec, index)
+	}
+	// A page that cannot be written stops the run before its next pass, so
+	// a live run spends no call on pages it cannot keep.
+	var pageErr error
+	if *pages != "" {
+		ask = keepingPages(ask, &pageErr)
+	}
 	who := *model
 	if who == "" {
 		who = "the host's default model"
 	}
-	fmt.Fprintf(out, "The accuracy suite's %d fact scripts on %s, %s, effort %s:\n", len(scripts), *host, who, *effort)
-	res, err := live.Run(ctx, *host, scripts, c.ask, func(h live.History) { history(out, h) })
+	asked := *effort
+	if answers != nil && !flagGiven(f, "effort") {
+		asked = "as recorded"
+	}
+	fmt.Fprintf(out, "The accuracy suite's %d fact scripts on %s, %s, effort %s:\n", len(scripts), *host, who, asked)
+	res, err := live.Run(ctx, *host, scripts, ask, func(h live.History) {
+		history(out, h)
+		if *pages != "" && pageErr == nil {
+			if err := writePage(*pages, index[h.Script], threadpage.Render(h.Page)); err != nil {
+				pageErr = fmt.Errorf("could not write the page %s: %w", pageName(index[h.Script]), err)
+			}
+		}
+	})
 	if err != nil {
 		var stopped *live.Stopped
 		if !errors.As(err, &stopped) {
@@ -113,12 +195,76 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 		fmt.Fprintf(errOut, "live-accuracy: %v\n", err)
 		return 1
 	}
-	return summary(out, *host, res, c.efforts)
+	if code = summary(out, *host, res, efforts); pageErr != nil {
+		// The last script's page, which no pass came after.
+		fmt.Fprintf(errOut, "live-accuracy: %v\n", pageErr)
+		code = 1
+	}
+	return code
+}
+
+// flagGiven says whether the command line gave the flag name.
+func flagGiven(f *flag.FlagSet, name string) bool {
+	given := false
+	f.Visit(func(fl *flag.Flag) { given = given || fl.Name == name })
+	return given
+}
+
+// keepingPages is ask, which is not asked once *pageErr holds a page that
+// could not be written: the run stops there with that error.
+func keepingPages(ask live.Ask, pageErr *error) live.Ask {
+	return func(ctx context.Context, s *accuracy.Script, n int, b update.Batch, page threadpage.Page) (update.Result, error) {
+		if *pageErr != nil {
+			return update.Result{}, *pageErr
+		}
+		return ask(ctx, s, n, b, page)
+	}
 }
 
 func usage(w io.Writer, msg string) int {
-	fmt.Fprintln(w, "live-accuracy: "+msg+"; usage: live-accuracy --host claude-code|codex --spend-model-quota [--effort level] [--model name] [--cli path] [--codex-ignore-user-config]")
+	fmt.Fprintln(w, "live-accuracy: "+msg+"; usage: live-accuracy --host claude-code|codex --spend-model-quota [--effort level] [--model name] [--cli path] [--codex-ignore-user-config] [--record file] [--pages dir], "+
+		"or live-accuracy --host claude-code|codex --replay file [--effort level] [--model name] [--pages dir]")
 	return 2
+}
+
+// recorded is ask, writing each answer it gives to rec, script by its
+// place in the suite. A pass ask fails, as on a model the host rejected,
+// is not written: its answer came from another model, or none came.
+func recorded(ask live.Ask, rec *recorder, index map[*accuracy.Script]int) live.Ask {
+	return func(ctx context.Context, s *accuracy.Script, n int, b update.Batch, page threadpage.Page) (update.Result, error) {
+		res, err := ask(ctx, s, n, b, page)
+		if err != nil {
+			return res, err
+		}
+		if err := rec.write(index[s], n, res); err != nil {
+			return res, fmt.Errorf("could not write the recording: %w", err)
+		}
+		return res, nil
+	}
+}
+
+// replayer answers each pass from a recording, which readRecording checked
+// holds every pass of the suite, and counts the efforts of its answers as
+// caller does.
+type replayer struct {
+	answers map[passKey]passRecord
+	index   map[*accuracy.Script]int
+	efforts map[string]int
+}
+
+func (r replayer) ask(ctx context.Context, s *accuracy.Script, n int, _ update.Batch, _ threadpage.Page) (update.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return update.Result{}, err
+	}
+	a, ok := r.answers[passKey{r.index[s], n}]
+	if !ok {
+		return update.Result{}, fmt.Errorf("the recording has no answer for %s, pass %d", s.Name, n)
+	}
+	res := a.result()
+	if res.Reason == "" {
+		r.efforts[res.Effort]++
+	}
+	return res, nil
 }
 
 // caller asks the host's update command for each pass's answer.

@@ -1,0 +1,46 @@
+{
+  "type": "system",
+  "title": "Tide feed",
+  "description": "Reads harbour stations into tide tables",
+  "status": "stable",
+  "stale_after": "2027-02-01",
+  "generated": {
+    "by": "claude-code/model-a",
+    "at": "2026-11-08T07:00:00Z"
+  },
+  "verified": null,
+  "sources": [
+    {
+      "id": "",
+      "resource": "s:9c41aa07#30",
+      "title": "",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    },
+    {
+      "id": "",
+      "resource": "code:git.example.test:example-org/tide-tables@4e2bf4c:internal/feed",
+      "title": "",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    }
+  ],
+  "extra": {
+    "aliases": [
+      "tide feed",
+      "harbour feed",
+      "Gezeiten-Feed"
+    ],
+    "as_of": "2026-11-08",
+    "repos": [
+      "git.example.test:example-org/tide-tables",
+      "git.example.test:example-org/feed-kit"
+    ],
+    "state": "active"
+  },
+  "body": "\n# Tide feed\n\n## What it is\nReads harbour stations into tide tables, every 10 minutes.\n\n## How it fits\nThe feed kit parses; the tables service stores. See [Billing stub](billing-stub.md) for the fake ledger.\n\nPart of the [system map](map.md).\n"
+}

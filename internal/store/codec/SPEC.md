@@ -3,7 +3,7 @@
 `internal/store/codec` reads and writes the bytes of one store document: an item, a workstream, a disagreement, a session file, a project record or a frozen system page, as [the store's written format](../../../docs/spec/store-format.md) describes them (cited below as "the format", by section).
 It is the one reader and writer of frontmatter that the store core (ST-05), the migration (ST-07) and system pages (DV-35) build on. It keeps every line a person wrote, reads a lock in every form YAML allows as a lock, and writes only the format's written forms.
 
-It works on bytes. It opens no file, takes no lock, has no clock and makes no network call. It holds no state between calls. Nothing outside the package calls it yet.
+It works on bytes. It opens no file, takes no lock, has no clock and makes no network call. It holds no state between calls. The profile checker reads every document through it (section 10); nothing else calls it yet.
 
 ## 1. The model
 
@@ -41,9 +41,19 @@ func (d *Doc) SetPreamble(text string) error
 func (d *Doc) Section(heading string) (string, error)
 func (d *Doc) SetSection(heading, text string) error
 func (d *Doc) RemoveSection(heading string) error
+
+func UnreadableText(b []byte) string                  // section 3's reasons but the frontmatter's two
+func (d *Doc) Entries() []Entry                       // every entry, in file order
+func (d *Doc) Opaque() []int                          // the frontmatter's lines that belong to no key
+func (d *Doc) Sections() []Section                    // every section, in order
+
+func ReadV1(b []byte) (V1Page, error)                 // a v1 wiki's page, section 12
 ```
 
-Errors: `ErrProtected`, `ErrNoKey` (no such key or section), `ErrRepeated` (the key or section is there more than once), `ErrNotWritten` (a value in a form the codec does not decode, or an edit it cannot write in a form it reads back), `ErrTooLarge`. An edit that returns an error changes nothing. A refusal's text may add a reason after the sentinel; callers test with `errors.Is`.
+The last four are for a reader that checks a document rather than edits it, the profile checker (section 10). An `Entry` is a key as section 1 reads it (`*` and `<<` as section 4 names them); its `Line`, the opening `---` being line 1; whether it is `Written`, and then its `Value` as `Value` decodes it; its `Scalar`, the value on the key's line with spaces and tabs around it, its quotes and a comment after a plain value dropped; and its `Text`, what follows the colon, then each line under the key after an LF.
+`Opaque` counts lines alike. A `Section` is a heading and the text `Section` gives for it. A repeated key or heading is listed each time. An unreadable document has no entries, opaque lines or sections. Each call decodes afresh.
+
+Errors: `ErrProtected`, `ErrNoKey` (no such key or section), `ErrRepeated` (the key or section is there more than once), `ErrNotWritten` (a value in a form the codec does not decode, or an edit it cannot write in a form it reads back), `ErrTooLarge`, and from `ReadV1` alone `ErrUnreadable`. An edit that returns an error changes nothing. A refusal's text may add a reason after the sentinel; callers test with `errors.Is`.
 
 The zero `Doc` reads as the empty document: unreadable, "no frontmatter on line 1".
 
@@ -122,7 +132,8 @@ So what the codec writes is in a written form by construction, and `Value` reads
 | `locked: true  # x` is locked | `TestLockedWithAComment` |
 | Each corpus case protects as listed | `TestCorpusProtection` |
 | A generated value or key form the codec cannot read protects; no misread | `TestProtectionProperty`, `TestProtectionBeyondProfile` |
-| `Protection()` equals the profile checker's `Report.Protected`, on every document of the fixture store and on each corpus case placed in a copy of it | `TestProtectionAgreesWithProfile`, `TestProtectionProperty` |
+| `Protection()` equals the profile checker's `Report.Protected`, on every document of the fixture store, on each corpus case placed in a copy of it, on generated forms and on each case of section 10 | `TestProtectionAgreesWithProfile`, `TestProtectionProperty`, `TestProtectionBeyondProfile` |
+| The read methods: each entry's line, form and value as `Value` gives it, the opaque lines, the sections, the text reasons | `TestEntries`, `TestEntriesAgreeWithValue`, `TestOpaque`, `TestSectionsInOrder`, `TestUnreadableText` |
 | After one edit of a readable, unlocked document, every byte outside the edited entry or section is unchanged, and `Read` gives back what was set | `TestEditProperty`, `TestSetKeepsOtherLines` |
 | Setting each key an item may hold leaves no `written-form` or `frontmatter` fault | `TestSetEachItemKey` |
 | The written form; every character written is one YAML allows | `TestWrittenForm`, `TestEditProperty` |
@@ -135,40 +146,47 @@ So what the codec writes is in a written form by construction, and `Value` reads
 | No error text, and no line of the package, names the library v1 was built on | `TestNoLibraryName` |
 | This spec is at most 24 KB and names only tests that exist | `TestSpec` |
 
-## 10. Where the codec and the profile checker must agree
+## 10. One reader
 
-`internal/store/profile` checks a store against the format and has its own reader today. The two must give the same answers on:
+`internal/store/profile` checks a store against the format and reads every document through the codec: `Unreadable` and `UnreadableText` for what cannot be read, `Entries` and `Opaque` for each frontmatter line and each value's written form, `Protection` for its report's `Protected`, `Preamble` and `Sections` for the body. It has no reader of its own, and its test TestReadsThroughTheCodec fails on one. So the two cannot drift: what the codec reads, the checker reports.
+A file at a path the layout rejects (a fault of rule `path`, or of its class's rule such as `item-file`) is reported by that fault and not read, so `Report.Protected` does not list it, locked or not.
 
-- **Unreadable**: the list and its order (section 3).
-- **How a frontmatter line is read**: the top level, the key forms, the value line of an explicit key, which lines belong to an entry (section 1).
-- **Protection**: section 4, value for value.
-- **The written forms**: what `Value` decodes is what the profile's `written-form` check accepts, and what `Set` and `SetBlock` write passes it.
+The tests that run the checker are in `protection_test.go`, in package `codec_test`, as the checker imports the codec. They hold the checker's protection equal to the codec's: `TestProtectionAgreesWithProfile` on the fixture store and on each corpus case placed in a copy of it, and `TestProtectionProperty` and `TestProtectionBeyondProfile` at an item and at a session, a project record and a disagreement, where none may be carried, each listed by the hand-edit record and not. And what `Set` and `SetBlock` write passes its `written-form` and `frontmatter` checks (`TestSetEachItemKey`).
 
-The reading code of both is the same today but for the cases below, held so by `TestProtectionAgreesWithProfile`, `TestProtectionProperty` and `TestSetEachItemKey`, which run the profile's `Check` on the codec's output and inputs. A change to either reader changes the other in the same commit, or those tests fail. When the profile checker reads through the codec, the copy goes.
+The checker's own reader, before it read through the codec, saw no protection where the codec saw one, in nine cases. `TestProtectionBeyondProfile` holds a document of each, and fails when the checker is given that reader again:
 
-Where they differ today, the codec protects and the profile checker does not; the checker is to follow (`TestProtectionBeyondProfile`):
+1. white space other than a space or a tab around a `locked` or `verified` value (it trimmed any Unicode space, so `locked: <no-break space>false` unlocked);
+2. `locked:false` and `verified:[]`, with no space after the colon;
+3. a block that is one flow mapping, `{type: fact, locked: true}`;
+4. a frontmatter line that holds a lone CR, NEL, LS or PS;
+5. an opaque line that reads as a protection key;
+6. an alias with its colon right after its name, `*k: true`, or with a name past libyaml's alphabet, `*k.x: true`;
+7. an explicit key whose node is a compact mapping, `? note: x` or `? locked : false`;
+8. a flow collection as an implicit key, `[locked]: false`;
+9. a line with a tab or U+FEFF before its key, `\tlocked: true`.
 
-- white space other than a space or a tab around a `locked` or `verified` value (the checker trims any Unicode space, so `locked: <no-break space>false` unlocks there);
-- `locked:false` and `verified:[]`, with no space after the colon;
-- a block that is one flow mapping, `{type: fact, locked: true}`;
-- a frontmatter line that holds a lone CR, NEL, LS or PS;
-- an opaque line that reads as a protection key;
-- an alias with its colon right after its name, `*k: true`, or with a name past libyaml's alphabet, `*k.x: true` (the checker reads the name to the space, so neither is a key there);
-- an explicit key whose node is a compact mapping, `? note: x` or `? locked : false` (the checker reads the inner key, `note` or `locked`);
-- a flow collection as an implicit key, `[locked]: false`;
-- a line with a tab or U+FEFF before its key, `\tlocked: true` (the checker makes the key `\tlocked`).
-
-`TestProtectionProperty` generates these forms too, and checks only that the checker never protects where the codec does not.
-
-They also differ on reading that does not change protection today:
-
-- **A bare key's colon.** The codec reads `title:{x: y}` as YAML does, the key `title:{x`; the checker reads the key `title`. Both protect `locked:x` and `verified:x`.
-- **Body sections.** The codec starts a section at a `## ` line outside fenced code and ends it at the next such line. The checker's `section()` ignores fences, so a `## Log` inside fenced code is a section there, and ends a section at a `# ` line too. Both match a heading on its exact text. The checker is to follow the codec, as ST-05 writes sections the checker then reads.
+The checker reads sections as the codec does: a `## ` line inside fenced code starts none, and a `# ` line ends none (its test TestSectionsAsTheCodecReadsThem). It reads `title:{x: y}` as YAML does, the key `title:{x`.
 
 ## 11. Not here
 
 - Files, locks, durability, compare-and-swap and the hand-edit record: the store core (ST-05).
 - What a verified mark forbids, and who may write `verified`: the store core.
-- v1's pages read through the codec, as v1 read them: ST-03b.
 - Escaping model text before it is set: the caller's, through the escaper the store core applies.
 - Merging two versions of a document: later, with sync.
+
+## 12. v1 pages
+
+`ReadV1(b) (V1Page, error)` reads a page of a v1 wiki through `Read`, as v1 read it, for the migration (ST-07) and frozen system pages (DV-35). `V1Page` names its fields as v1's page model did (`Title`, `Sources` and so on), with `Extra` (every other key but `resource`, `tags`, `governance` and `code_refs`, unused), `Body` (the bytes after the closing line), and `Doc`. Protection is `Doc.Protection()`; `Extra["locked"]` is never read as a lock.
+
+It reads what v1 wrote (flow mappings with plain values, block lists of mappings, flow lists, JSON, plain scalars) as v1 did, white space trimmed and numbers as `float64`. Where v1 misread a hand edit it reads as YAML: a comment after a value is dropped, a single-quoted value unquoted, a comment line is no key, item or line of a value. It refuses what it would guess at, returning only the Doc: `ErrUnreadable` (section 3's reasons, which v1 read past), `ErrRepeated`, and `ErrNotWritten` where YAML reads otherwise or not at all: a block scalar; a tag, anchor or alias; a scalar below its key; a value that runs on, as a flow mapping cut by a comment; text after a quoted value, item or collection; a collection closed by the other bracket; a quote inside a plain value (`[it's, b]`); a comment after a plain value holding `: `; an escape YAML does not know, or `\_`, `\L`, `\P`, which `Read` takes for a space; a `#` straight after a colon; a list item with no space after its dash (`-x`), or only a comment; a key read as `*` or `<<`; a flow-mapping block; a line that is no key (`title:x`, a tab, less indented than the block); a key v1 cut otherwise (a tag or anchor before it, a plain key holding a colon or a quote or with Unicode white space at an end, `title:: x`, a quoted key with an escape, white space at an end inside its quotes, or a colon after `verified`); and text in `generated`, `verified` or `sources` that is no pair (`note #1: x`, `by:a`). An error names only keys v1 wrote.
+
+Fourteen differences protect less: pages v1 read as locked or verified and the codec does not. An empty `verified` (`{}`, `~ # x`, `[] # x`, or only a comment) is no verified mark (the format's section 6). ReadV1 refuses the other nine, keys `Protection` does not read as a mark: a space or tab before the colon and none after (`locked :true`), a quote v1 trimmed or that never closes (`verified': x`, `'verified: a': x`, `"verified: x`), white space inside the quotes (`'locked ': true`), and Unicode white space at a key's end (U+00A0 before `locked`). They are ST-03a's `Protection` to widen; ST-07 decides what such a page keeps. The oracle's `protectsLess` lists all fourteen.
+
+| Invariant | Test |
+| --- | --- |
+| A fixture page of each type v1 writes reads as its golden | `TestV1Goldens` |
+| Each form v1 read, in `forms/`, reads as its golden | `TestReadV1Forms` |
+| Each difference, and the codec's answer | `TestV1Differences`, `TestReadV1Refusals` |
+| No panic; a refusal holds only the Doc | `FuzzReadV1` |
+
+`v1oracle`'s tests hold the goldens and differences to v1's own reader while it is in `go.mod`, with 10,000 seeded generated pages; ST-13 deletes it.

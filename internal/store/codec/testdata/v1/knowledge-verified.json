@@ -1,0 +1,53 @@
+{
+  "type": "knowledge",
+  "title": "Deploys wait for the \"green\" check",
+  "description": "Deploys to the tide service wait for the green check, then run: make deploy # not by hand.",
+  "status": "stable",
+  "stale_after": "",
+  "generated": {
+    "by": "codex/model-b",
+    "at": "2026-11-07T14:20:00Z"
+  },
+  "verified": [
+    {
+      "by": "human:river",
+      "at": "2026-11-07T15:00:00Z"
+    },
+    {
+      "by": "human:delta",
+      "at": "2026-11-08T09:30:00Z"
+    }
+  ],
+  "sources": [
+    {
+      "id": "src1",
+      "resource": "s:77b3e1d9#21",
+      "title": "Release notes, \"v3\" [draft]",
+      "author": "human/river",
+      "last_modified": "2026-11-07",
+      "usage_count": 4,
+      "extra": {
+        "capture": "hook",
+        "note #1": "kept: as written"
+      }
+    },
+    {
+      "id": "",
+      "resource": "s:77b3e1d9#22",
+      "title": "",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    }
+  ],
+  "extra": {
+    "as_of": "2026-11-07",
+    "kind": "procedure",
+    "locked": false,
+    "project": "general",
+    "scope": "all",
+    "state": "active"
+  },
+  "body": "\n## Statement\nDeploys to the tide service wait for the green check, then run: make deploy # not by hand. [stated] s:77b3e1d9#21\n\n## Kept by hand\nAsk in #deploys first.\n\nPart of the [knowledge map](map.md).\n"
+}

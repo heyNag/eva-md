@@ -57,6 +57,36 @@ var listStore = func(home string) listing {
 	return out
 }
 
+// StoreFile is one session file of a host's folder of chats, as the
+// capture audit lists it: by its name alone, never opened.
+type StoreFile struct {
+	Folder  string    // its project folder's name on Claude Code
+	ID      string    // the session id its name gives
+	Path    string    // its path, the folder of chats' links resolved
+	Mod     time.Time // its last write
+	Regular bool      // a regular file, and not a symlink
+}
+
+// ListStore is the capture audit's listing of the hosts' folders of chats
+// under home, by host: the same files, found the same way, in the same
+// order. It opens no file.
+func ListStore(home string) map[string][]StoreFile {
+	out := map[string][]StoreFile{}
+	for host, files := range listStore(home) {
+		for _, f := range files {
+			out[host] = append(out[host], StoreFile{Folder: f.folder, ID: f.id, Path: f.path, Mod: f.mod, Regular: f.regular})
+		}
+	}
+	return out
+}
+
+// RowLimit is the longest row of a host's record the audit decodes.
+const RowLimit = maxRow
+
+// Outside returns the capture audit's judge of a chat's folder: whether
+// it is one whose events v1's hook leaves out by design (see outside).
+func Outside(o Options) func(dir string) bool { return outside(o) }
+
 // stores counts each host's session files under o.Home against the
 // sessions the inbox knows, by host. first is the inbox's oldest line.
 func stores(o Options, files listing, known map[string]map[string]bool, first time.Time) []Store {

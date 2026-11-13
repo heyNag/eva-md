@@ -1,0 +1,512 @@
+Secrets just past each bound of the exceptions for code that make the shapes
+of oracle_gaps.txt, as secrets of a class whose name starts with
+oracle_near_. A bound is one condition of floorValue or plainCode in
+redact.go, or of a predicate they call, that limits an exception: a
+character class, a length, a count or a refusal. oracleBounds in
+oracle_bounds_test.go lists each one found, with what it says, changes of
+redact.go that widen the exception past it alone, and a generator of near
+cases. Each case here is a labelled near case of one bound: its name starts
+with the bound's id and a colon, and one case of each bound has the text of
+the bound's example; a bound with more than one widening has a case each
+widening keeps, the named ones too: a widening to one more name, which no
+generated case need draw and the tripwire guards (see README.md), has a
+case that holds that name. There the exception does not hold, and the current rules
+alone remove the secret today as the baseline rules do. Where the value
+rules would take the secret before the floor is asked, the case would hold
+nothing, so each case stands where the value rules read code and only the
+floor's exception refuses it.
+
+A gap class excuses its whole shape, so without these a rule change that
+widened an exception past one of its bounds would keep secrets the baseline
+rules remove and TestOracle would not see it. They are held to the baseline
+like any class that is no gap. The bounds of floorValue hold for every
+shape; their near cases stand in the near class of yaml_alias or
+name_index. See README.md for the format.
+
+=== secret oracle_near_regex_value regex.start: a regular expression literal starts with '/': no letter or mark before it, as Perl's qr/ or m/ or Ruby's %r/, makes one
+api_key = '⟦qr/Fz6Qe3¦+Nb8vL/i⟧'
+
+=== secret oracle_near_regex_value regex.start: Perl's m/ before the literal
+password: '⟦m/Wd4Hk8¦+Tq2Lz/g⟧'
+
+=== secret oracle_near_regex_value regex.shell: a regular expression literal is never read in a shell assignment
+SECRET_KEY='⟦/Pk4Nd8+Rw2¦Hs6Vm1Cx9/n⟧'
+
+=== secret oracle_near_regex_value regex.whole: a regular expression literal is the whole value: '/', a body with no '/' unescaped, '/' and flags
+SECRET_KEY: '⟦/Qm7+Rt2/¦g.source/i⟧'
+
+=== secret oracle_near_regex_value regex.meta: a regular expression's body holds a metacharacter, one of \ ^ $ | * + ?
+db_password: '⟦/Lw5Gt9Bq3X¦e7.Jn2Dk6/g⟧'
+
+=== secret oracle_near_regex_value regex.flags.letters: a regular expression's flags are of d g i m s u v y x o e n
+SECRET_KEY: '⟦/Qm7Rt2+W¦x9Lp4Zk/zq⟧'
+
+=== secret oracle_near_regex_value regex.flags.letters: a reviewer's probe, one flag that is no regular expression's
+api_key: '⟦/Qm7Rt2+W¦x9Lp4Zk/k⟧'
+
+=== secret oracle_near_regex_value regex.flags.count: a regular expression has 6 flags at most
+SECRET_KEY: '⟦/Hb4Zq8+Lm2¦Wx6/dgimsuv⟧'
+
+=== secret oracle_near_regex_value regex.flags.repeat: a regular expression has no flag twice
+access_token: '⟦/Rc8Vy2+Mh5¦Kp1Wz4Tb7/gg⟧'
+
+=== secret oracle_near_regex_value regex.after: after a regular expression comes nothing, a blank, a quote, a backslash, ';' or ','
+api_key = '⟦/Fz6Qe3¦+Nb8/i⟧')
+
+=== secret oracle_near_regex_value regex.after: a reviewer's probe, a '&' before a URL's next pair, which the value rules read as code
+api_key = '⟦/Gw4Rk7¦+Mc2/m⟧'&a=1
+
+=== secret oracle_near_regex_value regex.after: a ']' after the literal
+token: '⟦/Tz8Hn3¦+Bq5/g⟧']x
+
+=== secret oracle_near_yaml_alias floor.call: the floor takes nothing before '(', as the baseline rules do, and takes the value before any other character
+password: '⟦*Hmyh¦ybbz82⟧')
+
+=== secret oracle_near_yaml_alias floor.comparison.eq: a comparison, after which the floor takes nothing, is a separator with "==", not '=', ':=' or '=>'
+token = '⟦*Tq7Wn¦3Ks9Bv⟧'
+
+=== secret oracle_near_yaml_alias floor.comparison.blank: a comparison's "==" has a blank beside it: an unspaced "==" is no comparison
+token=='⟦*Rv8Kd¦2Wm5Qx⟧'
+
+=== secret oracle_near_yaml_alias floor.length: the floor takes a value of 8 characters or more, as the baseline rules do
+password: '⟦*Xk9¦mP2v⟧'
+
+=== secret oracle_near_yaml_alias floor.opref: a 1Password reference, which the floor leaves alone as the baseline rules do, starts with op:// exactly
+password: '⟦op:Xk9m¦P2vLq7Rt⟧'
+
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, another store's reference, vault://
+password: '⟦vault://Rk3¦Wp7Nc⟧'
+
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a reference of vals, ref+, which only the tripwire need see
+token = '⟦ref+Qw4e¦Rt7yUi9o⟧'
+
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a reference of bws://, which only the tripwire need see
+password: '⟦bws://Xk9m¦P2vLq7Rt⟧'
+
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a value of vals: that apply's pick leaves alone, which only the tripwire need see
+password: '⟦vals:Xk9m¦P2vLq7Rt⟧'
+
+=== secret oracle_near_yaml_alias floor.opref: a reviewer's probe, a value of kmsref: that a check of the rules table refuses, which only the tripwire need see
+api_key: '⟦kmsref:Xk9m¦P2vLq7Rt⟧'
+
+=== secret oracle_near_yaml_alias floor.undefined: the floor leaves alone the word undefined, in lower case and alone
+password: '⟦undefine¦d_Xk9mP2⟧'
+
+=== secret oracle_near_yaml_alias alias.star: a YAML alias starts with '*': no other mark, such as a tag's '!', makes one
+password: '⟦!Summer¦3Pillow⟧'
+
+=== secret oracle_near_yaml_alias alias.name.chars: an alias's name holds letters, digits, '_', '-' and '.' only
+password: '⟦*maple:¦Thunder⟧'
+
+=== secret oracle_near_yaml_alias alias.name.chars: digits before the first word of an alias's name
+password: '⟦*7walnut¦Rocket⟧'
+
+=== secret oracle_near_yaml_alias alias.colon: a YAML alias follows ':' only
+secret = '⟦*Garden¦7Pillow⟧'
+
+=== secret oracle_near_yaml_alias alias.words: an alias's name has two words or more, or is one word of lower-case letters
+password: '⟦*Lant¦ernsx⟧'
+
+=== secret oracle_near_yaml_alias alias.words: a random name with a '_' inside
+password: '⟦*Xk9m_P¦2vLq7⟧'
+
+=== secret oracle_near_yaml_alias alias.words: a long random name, after a key the entropy rule does not know
+SecretKey: '⟦*Jf6Rn2Xw8¦Kt4Mz9Gb3Lq7Vy⟧'
+
+=== secret oracle_near_yaml_alias alias.lower: an alias's name of one word is lower-case letters only
+password: '⟦*lant¦ern42⟧'
+
+=== secret oracle_near_yaml_alias alias.whole: an alias's line ends within maxCodeScan of it
+password: '⟦*Velvet¦4Rocket⟧'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        # c
+
+=== secret oracle_near_yaml_alias alias.rest: an alias has nothing but blanks after it on its line
+password: '⟦*Summer¦2Winter⟧' # x
+
+=== secret oracle_near_yaml_alias alias.rest: an index after a blank after the alias
+password: '⟦*Maple4¦Garden⟧' [0]
+
+=== secret oracle_near_name_index floor.variable: a variable, which the floor leaves alone as the baseline rules do, is $, self., config., os.environ. or process.env. and a name of letters, digits and '_' that starts with no digit
+password: '⟦$Xk9mP2¦+vLq7Rt⟧'
+
+=== secret oracle_near_name_index floor.variable: a name after a variable's prefix that starts with a digit
+password: '⟦self.4Kd9¦Wm2Qx7Rt⟧'
+
+=== secret oracle_near_name_index floor.variable: a '!' after the name after '$'
+password: '⟦$Rk8Tw3¦Mz6Qp!⟧'
+
+=== secret oracle_near_name_index floor.variable: a '?' after the name after a prefix
+password: '⟦self.Hn5X¦v2Lc9Bq?⟧'
+
+=== secret oracle_near_name_index floor.variable: a reviewer's probe, PowerShell's $env: before a name
+password: '⟦$env:Wq4¦Tz8Kd2Lm⟧'
+
+=== secret oracle_near_name_index floor.variable: a reviewer's probe, a name between two '%', as Windows writes a variable
+token: '⟦%Hr7Pq¦3Vn9Kx%⟧'
+
+=== secret oracle_near_name_index floor.variable: a reviewer's probe, a name joined to a name after '$' by "::", as Perl's package variable
+password: '⟦$Bt5Mw::¦Qk7Rz2⟧'
+
+=== secret oracle_near_name_index floor.variable: a name between two '@', as a template's placeholder
+password: '⟦@Gk2Wp9¦Lv4Nd@⟧'
+
+=== secret oracle_near_name_index floor.variable: a reviewer's probe, a second '$' before the name
+password: '⟦$$Xk9mP¦2vLq7Rt⟧'
+
+=== secret oracle_near_name_index floor.variable: a mark that is no '$' alone before the name
+token: '⟦%Jd4Hs¦8Wq2Nc⟧'
+
+=== secret oracle_near_name_index floor.variable: a reviewer's probe, PowerShell's $using: scope, which only the tripwire need see
+password: '⟦$using:Xk9¦mP2vLq7⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a variable's prefix is $, self., config., os.environ. or process.env., or it is os.environ alone
+password: '⟦cfg.Xk9m¦P2vLq7Rt⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, optional chaining after a prefix's name
+password: '⟦self?.Rd6W¦m2Kx8Tq⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a name joined to a prefix's name by "::"
+password: '⟦config::Hv¦3Ns7Pc5Ly⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, React's props. before a name
+password: '⟦props.Jw4¦Rc8Tn2Hq⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, a template's vars. before a name
+password: '⟦vars.Mq3T¦k8Wz5Lp⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, a template's inputs. before a name
+token: '⟦inputs.Qw4e¦Rt7yUi9o⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, vault. before a short name
+password: '⟦vault.Dn6¦Fh2Ks⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a prefix of three names, Vite's import.meta.env.
+password: '⟦import.meta.env.¦Vx7⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, a capitalised name and env. before a name
+password: '⟦Qux.env.Xk¦9mP2vL⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, Bun.env., which only the tripwire need see
+password: '⟦Bun.env.Hv¦3Ns7Pc⟧'
+
+=== secret oracle_near_name_index floor.variable.prefix: a reviewer's probe, Deno.env., which only the tripwire need see
+token = '⟦Deno.env.Wq¦4Tz8Kd⟧'
+
+=== secret oracle_near_name_index index.opens: an index or a literal after the value opens with '[' or '{': no other bracket, such as '<', opens one
+password: '⟦harbor¦Lantern⟧'<x9>
+
+=== secret oracle_near_name_index index.opens: a reviewer's probe, a blank before the '['
+password: '⟦harbor¦Lantern⟧' [x9]
+
+=== secret oracle_near_name_index index.opens: a reviewer's probe, a blank before the '[' of a name of lower-case words
+token = '⟦silver_¦window⟧' [0]
+
+=== secret oracle_near_name_index index.opens: a tab before the '['
+password: '⟦copper¦Basket⟧'	[i]
+
+=== secret oracle_near_name_index index.closes: brackets after the value close on its line, even where the line goes on to the next (the value rules read such a bracket as code)
+password: '⟦hunter¦Marble⟧'[x9,
+
+=== secret oracle_near_name_index index.closes.match: a closing bracket after the value closes the bracket it matches
+password: '⟦copper¦Lantern⟧'[x9)
+
+=== secret oracle_near_name_index index.closes.quote: a quote inside the brackets closes before the bracket does
+password: '⟦maple¦Rocket⟧'["x9]
+
+=== secret oracle_near_name_index index.closes.line: the brackets close on the value's line
+password: '⟦velvet¦Harbor⟧'[x9,
+]
+
+=== secret oracle_near_name_index index.closes.scan: the brackets close within maxCodeScan bytes of the value
+password: '⟦candle¦Meadow⟧'[i                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ]
+
+=== secret oracle_near_name_index index.expr.alnum: the brackets hold a letter or a digit
+password: '⟦lanter¦nPillow⟧'[--]
+
+=== secret oracle_near_name_index index.expr.alnum: a reviewer's probe, brackets that hold only '_'
+password: '⟦harbor¦Candle⟧'[__]
+
+=== secret oracle_near_name_index index.expr.alnum: brackets that hold only '$'
+password: '⟦maple¦Thunder⟧'[$]
+
+=== secret oracle_near_name_index index.expr.ascii: the letter or digit in the brackets is ASCII
+password: '⟦walnut¦Basket⟧'[š]
+
+=== secret oracle_near_name_index index.expr.semicolon: the brackets hold no ';'
+password: '⟦lanter¦nMarble⟧'[a;b]
+
+=== secret oracle_near_name_index index.expr.semicolon: a ';' in a longer expression
+token: '⟦pillow¦Garden⟧'[user_id;name]
+
+=== secret oracle_near_name_index index.expr.tilde: the brackets hold no '~'
+password: '⟦copper¦Basket⟧'[a~1]
+
+=== secret oracle_near_name_index index.expr.hash: the brackets hold no '#'
+password: '⟦walnut¦Rocket⟧'[a#1]
+
+=== secret oracle_near_name_index index.expr.backtick: the brackets hold no backtick
+password: '⟦silver¦Window⟧'[`a`]
+
+=== secret oracle_near_name_index index.expr.backtick: a reviewer's probe, a backtick in an index
+password: '⟦lantern¦Marble⟧'[`a`]
+
+=== secret oracle_near_name_index index.expr.backtick: a reviewer's probe, a backtick around a name in an index
+token: '⟦silver¦Window⟧'[`x9`]
+
+=== secret oracle_near_name_index index.after: after the brackets comes nothing, a blank, a quote, a backslash or one of , ; ) ] } . [ (
+password: '⟦harbor¦Candle⟧'[x9]:
+
+=== secret oracle_near_name_index index.after: a '!' after the brackets, which the value rules read as code before a closing bracket
+token: '⟦amber¦Falcon⟧'[0]!)
+
+=== secret oracle_near_name_index index.after: a blank before the brackets, and a ':' after them
+password: '⟦walnut¦Candle⟧' [x9]:
+
+=== secret oracle_near_name_index index.quoted.words: an index by a quoted name, which any value may have before it, holds a name of words
+api_key: '⟦Jd4Hs8¦Wq2Nc6⟧'["Qw3zR8"]
+
+=== secret oracle_near_name_index index.quoted.words: a random quoted name with a '_' inside
+token: '⟦Vb6Lm3¦Xs8Fk1⟧'["Zp4_rT9"]
+
+=== secret oracle_near_name_index index.quoted.words: a reviewer's probe, a quoted name of digits
+password: '⟦Nf5Tc8¦Jx2Wq7⟧'["12345"]
+
+=== secret oracle_near_name_index index.quoted.words: a quoted name that starts with a digit
+token: '⟦Kb9Rv4¦Hm6Ts1⟧'["2fa_code"]
+
+=== secret oracle_near_name_index index.quoted.bracket: an index by a quoted name is in square brackets: a quoted name in braces is none
+password: '⟦Xk9mP2¦vLq7Rt⟧'{"Token"}
+
+=== secret oracle_near_name_index index.quoted.chars: an index by a quoted name holds letters, digits, '_', '-' and '.' only
+password: '⟦Tw9Gk3¦Pz6Mr1⟧'["access:token"]
+
+=== secret oracle_near_name_index index.quoted.quote: an index by a quoted name opens and closes with the same quote, '"' or '''
+password: '⟦Mv6Rk2¦Tz8Pq4⟧'[xTokenx]
+
+=== secret oracle_near_name_index index.name.shell: a name of words before an index is no code in a shell assignment
+DB_PASSWORD='⟦candle¦Basket⟧'[x9]
+
+=== secret oracle_near_name_index index.name.segment: a name of words before an index is one name of letters, digits and '_'
+password: '⟦silver¦-Window⟧'[x9]
+
+=== secret oracle_near_name_index index.name.segment: a '$' inside a name of words
+password: '⟦pepper$¦Garden⟧'[x9]
+
+=== secret oracle_near_name_index index.name.segment: a '?' at the end of a name of words
+password: '⟦copperL¦antern?⟧'[x9]
+
+=== secret oracle_near_name_index index.name.segment: digits before the first word of a name of words
+password: '⟦2024har¦borCandle⟧'[x9]
+
+=== secret oracle_near_name_index index.name.words: a name before an index that is no member path or instance variable has two words or more
+password: '⟦Lant¦ern42⟧'[0]
+
+=== secret oracle_near_name_index index.name.words: a random name with a '_' inside
+password = '⟦Jt5m_K¦w2Pv8Rz⟧'[x9]
+
+=== secret oracle_near_name_index index.name.words: a reviewer's probe, a name of one word and digits after a key in double quotes
+"password": '⟦Summer¦2024⟧'[0]
+
+=== secret oracle_near_name_index index.name.words: a reviewer's probe, a name of one word and digits after a key in single quotes
+'token': '⟦Harbor¦1987⟧'[x]
+
+=== secret oracle_near_name_index words.digits.count: a name of words has 4 digits at most after a word
+password: '⟦Summer12¦345Winter⟧'[0]
+
+=== secret oracle_near_name_index words.digits.first: a name of words has no digit before its first word
+password: '⟦_42summ¦erWinter⟧'[0]
+
+=== secret oracle_near_name_index words.part.length: a word of a name has 3 letters or more
+password: '⟦huMarb¦leRiver⟧'[0]
+
+=== secret oracle_near_name_index words.acronym: an acronym in a name of words has 2 capitals or more
+password: '⟦XMarbl¦eRiver⟧'[0]
+
+=== secret oracle_near_name_index words.acronym.split: the last capital of a run before a lower-case letter starts the next word, so two capitals before one are no acronym
+password: '⟦QZmarb¦leLantern⟧'[0]
+
+=== secret oracle_near_name_index index.path.prefix: a member path has nothing before its first name but '@' and '$', or '::'
+password: '⟦*Summer¦.Winter⟧'[i]
+
+=== secret oracle_near_name_index index.path.suffix: a member path ends in its last name, perhaps followed by '?' or '!'
+password: '⟦Summer.¦Winter$⟧'[0]
+
+=== secret oracle_near_name_index index.path.separator: the names of a member path are joined by '.' or '::' only
+password: '⟦Summer¦?.Winter⟧'[0]
+
+=== secret oracle_near_name_index index.path.parts: a member path has two names or more
+password: '⟦lanter¦nmarble⟧'[0]
+
+=== secret oracle_near_name_index index.path.dots: a member path has no ".."
+password: '⟦Summer.¦.Winter⟧'[2]
+
+=== secret oracle_near_name_index index.path.trailing: a member path does not end in '.'
+password: '⟦Summer.¦Winter.⟧'[2]
+
+=== secret oracle_near_name_index index.path.segment: each name of a member path is of letters, digits and '_'
+password: '⟦Summer.w¦in-river⟧'[2]
+
+=== secret oracle_near_name_index index.path.segment: a reviewer's probe, a '$' at the start of a name
+password: '⟦cfg.$silv¦erWindow⟧'[2]
+
+=== secret oracle_near_name_index index.path.segment: a '$' inside a name
+password: '⟦Copper.Gar¦$denRiver⟧'[i]
+
+=== secret oracle_near_name_index index.path.part.words: each name of a member path is made of words, is one character, or is a short lower-case name
+secret: '⟦Bn7Kx2¦.qW4mZ9⟧'[2]
+
+=== secret oracle_near_name_index index.path.part.words: a random name with a '_' inside
+password: '⟦Summer.Q¦m7_Rt2x⟧'[2]
+
+=== secret oracle_near_name_index index.path.part.one: a name of a member path that is not made of words is one character, not two
+password: '⟦Summ¦er.Wq⟧'[2]
+
+=== secret oracle_near_name_index index.path.part.short: a short name of a member path that is not made of words is lower-case letters only
+password: '⟦Summe¦r.ab12⟧'[2]
+
+=== secret oracle_near_name_index index.path.part.digits: each name of a member path starts with a letter or '_' (memberSegment, and wordLike after it): a name of digits, or one that starts with a digit, makes no path
+password: '⟦harbor.8473¦1925⟧'[0]
+
+=== secret oracle_near_name_index index.path.part.digits: a name of a member path that starts with a digit
+password: '⟦Copper.7x¦Kd2Mw⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.prefix: an instance variable has one or two of '@' or '$' before its name
+password: '⟦$$$silv¦erWindow⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.prefix.chars: an instance variable's prefix is of '@' and '$' only
+password: '⟦*silve¦rWindow⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.prefix.chars: a ':' after the '@'
+password: '⟦@:marble¦Meadow⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.segment: an instance variable's name is of letters, digits and '_'
+password: '⟦@silver¦-window⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.segment: a '$' inside an instance variable's name
+password: '⟦@walnut$¦canyon⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.segment: a '!' at the end of an instance variable's name
+password: '⟦@thunder¦Basket!⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.segment: digits before the first word of an instance variable's name
+password: '⟦@42mea¦dow_falcon⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.words: an instance variable's name is made of words
+auth_token: '⟦@Vc3Lp¦8Hy5Mt⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.words: a reviewer's probe, a short random name after "@@"
+password: '⟦@@Qm7¦Rt2⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.words: a random name with a '_' inside
+password: '⟦@Hd4_Wn¦8zKq⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.words: a long random name, after a key the entropy rule does not know
+SecretKey: '⟦@Wm4Tz8Kq2¦Lx7Bn3Pv9Hc5Rd⟧'[i]
+
+=== secret oracle_near_name_index index.ivar.prefixed: an instance variable has a prefix: a name of one word alone is none
+password: '⟦copper¦falcon⟧'[i]
+
+=== secret oracle_near_name_index index.block.path: a block follows a member path or an instance variable only
+password: '⟦Xk9mP2¦vLq7Rt⟧' { x }
+
+=== secret oracle_near_name_index index.block.path: a block after a name of words, which is no member path
+password: '⟦copper¦Thunder⟧' { x }
+
+=== secret oracle_near_name_index index.block.blanks: a block's '{' has nothing but blanks before it
+password: '⟦Walnut¦.Cobalt⟧' x { y }
+
+=== secret oracle_near_type_annotation type.shell: a type annotation is never read in a shell assignment
+PASSWORD='⟦Xk9mP2¦vLq7Rt⟧' = 1
+
+=== secret oracle_near_type_annotation type.assign.before: an assignment after a type has a blank before its '='
+password: '⟦Wt6Ns1¦Kd9Fq4⟧'= 1
+
+=== secret oracle_near_type_annotation type.assign.after: an assignment after a type has a blank after its '='
+password: '⟦Xk9mP2¦vLq7Rt⟧' =1
+
+=== secret oracle_near_type_annotation type.assign.single: an assignment after a type is a single '=', not "=="
+password: '⟦Hb4Zq8¦Lm2Wx6⟧' == 1
+
+=== secret oracle_near_type_annotation type.assign.operator: an assignment after a type is a '=' alone: no other operator, such as ':=', '+=' or '=>', stands for it
+password: '⟦Wd3Hk8¦Rn6Tc1⟧' := 1
+
+=== secret oracle_near_type_annotation type.assign.operator: the operator of a compound assignment
+api_key: '⟦Jx5Pm9¦Ws2Gd7⟧' += 1
+
+=== secret oracle_near_type_annotation type.assign.operator: an arrow
+token: '⟦Nq8Lc4¦Zt6Hb2⟧' => x
+
+=== secret oracle_near_type_annotation type.bare: a type with no union and no assignment after it is no annotation
+password: '⟦Xk9mP2¦vLq7Rt⟧'<ab>
+
+=== secret oracle_near_type_annotation type.union.before: a union of types has a blank before its '|'
+secret: '⟦Yh2Mc7¦Pz5Lr8⟧'| None
+
+=== secret oracle_near_type_annotation type.union.after: a union of types has a blank after its '|'
+secret: '⟦aB3dE5¦fG7hJ2⟧' |None
+
+=== secret oracle_near_type_annotation type.union.single: a union of types has a single '|', not "||"
+secret: '⟦Nc5Gt1¦Vx8Kp3⟧' || None
+
+=== secret oracle_near_type_annotation type.union.operator: a union of types is joined by a '|' alone: no other operator, such as '&', 'or' or '|>', stands for it
+secret: '⟦Lt5Bq9¦Zm3Wx7⟧' & None
+
+=== secret oracle_near_type_annotation type.union.member: each member of a union of types is a type's name: no number, string or mark
+secret: '⟦Bz7Hq2¦Xn4Rw9⟧' | 1
+
+=== secret oracle_near_type_annotation type.union.operator: a reviewer's probe, a union by a word
+secret: '⟦Pk2Dv6¦Hr9Mz4⟧' or None
+
+=== secret oracle_near_type_annotation type.union.operator: a pipe
+client_secret: '⟦Ys7Fb3¦Kw1Qn8⟧' |> str
+
+=== secret oracle_near_type_annotation type.union.operator: a '+'
+password: '⟦Cm4Xt8¦Vg6Lp2⟧' + int
+
+=== secret oracle_near_type_annotation type.union.operator: a reviewer's probe, an unspaced ',' between members
+secret: '⟦Hd8Kw2¦Qv5Tm9⟧', None
+
+=== secret oracle_near_type_annotation type.union.operator: an unspaced '&' between members
+secret: '⟦Zr6Pn1¦Lc4Wx8⟧'&None
+
+=== secret oracle_near_type_annotation type.blank: the blanks around a type's '|' and '=' are spaces and tabs, not other white space (here a vertical tab)
+secret: '⟦Kq3Vb9¦Wd5Hn1⟧'| None
+
+=== secret oracle_near_type_annotation type.name.first: a type's name starts with a letter or '_'
+password: '⟦7Xk9mP¦2vLq7Rt⟧' = 1
+
+=== secret oracle_near_type_annotation type.name.rest: a type's name goes on with letters, digits, '_' and '.' only
+password: '⟦Xk9mP2+¦vLq7/Rt⟧' = 1
+
+=== secret oracle_near_type_annotation type.name.rest: a type's name holds no '/'
+secret: '⟦Hq4Wz7/¦Lp2Kv9⟧' | None
+
+=== secret oracle_near_type_annotation type.name.rest: a type's name holds no '+'
+token: '⟦Pw8Dn3+¦Gz5Rk1⟧' = 1
+
+=== secret oracle_near_type_annotation type.name.index: an index on a type ends at its first ']', which closes it on its line
+password: '⟦Gm5Tz1¦Ry8Pv3⟧'[a]b] = 1
+
+=== secret oracle_near_type_annotation type.name.index: an index on a type that never closes
+password: '⟦Jc6Wr2¦Mt9Hs4⟧'[ab = 1
+
+=== secret oracle_near_type_annotation type.name.generic: a generic on a type ends at its first '>', which closes it on its line
+password: '⟦Bn7Kx2¦qW4mZ9⟧'<a>b> = 1
+
+=== secret oracle_near_type_annotation type.name.generic: a generic on a type that never closes
+password: '⟦Fd2Lx8¦Qp5Vn7⟧'<ab = 1
+
+=== secret oracle_near_type_annotation type.name.brackets: a type has one index or one generic at most
+password: '⟦Qh6Vt2¦Lw9Ks4⟧'[a][b] = 1
+
+=== secret oracle_near_type_annotation type.name.brackets: a reviewer's probe, a generic and an index
+token: '⟦Rb3Wy7¦Gn5Jc1⟧'<T>[x] | None
+
+=== secret oracle_near_type_annotation type.name.optional: a type ends in its name, index or generic and one '?' at most: no second '?' and no other mark
+password: '⟦Vc3Lp8H¦y5Mt2??⟧' = 1
+
+=== secret oracle_near_type_annotation type.name.optional: a reviewer's probe, a '!' in place of the '?'
+password: '⟦Fm7Kz2¦Tq4Wh9!⟧' = 1
+
+=== secret oracle_near_type_annotation type.name.optional: a '*' after the name
+secret: '⟦Dg8Rv5¦Mx1Bs6*⟧' | None
+
