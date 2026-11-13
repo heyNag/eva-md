@@ -41,8 +41,8 @@ Rules every card carries, so they are said once here:
 | [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | merged |
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | merged |
-| [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | merged; a short second round builds four rulings of the lead's |
-| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | ready once DV-03b's second round is merged |
+| [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | merged, with a second round for four rulings of the lead's; three known limits of its checker are named for DV-21 |
+| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | ready, since DV-03b's second round is merged |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
 | [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | building since 2026-11-13; it replaces the card for a pilot's own driver (the ruling below the table) |
