@@ -13,24 +13,41 @@ import (
 // still caught. Git SHAs and UUIDs are kept in ordinary text, but not as the
 // value of a secret-looking key; op:// references are kept.
 //
-// The text removed is the union of what the baseline rules
+// By default the text removed is the union of what the baseline rules
 // (internal/redact/baseline) remove and what the current rules remove, both
 // judged on the same cleaned text. So no rule change can keep a secret that
 // the baseline rules remove, and the current rules still remove what the
 // baseline rules miss. Redacting the result again changes nothing.
 //
+// With the switch redaction_current_rules_only on (decision 7 of the plan),
+// only the current rules run, and TestOracle holds them to the baseline on
+// the labelled corpus and the generated secrets of its tests, and on nothing
+// else: there, no secret the baseline rules remove is kept, but for the gap
+// classes it records (testdata/corpus/oracle_gaps.txt). Every shape of code
+// the current rules keep on purpose (plainCode, and the comparison
+// floorValue leaves alone), such as a YAML alias, a name before an index, a
+// type annotation or a regular expression literal, is one the baseline rules
+// remove, so a secret in that shape is kept with the switch on and removed
+// with it off. The switch is not safe to turn on until a rule change has
+// closed each of those shapes and the oracle holds the rules to each, not
+// merely until the recorded gap classes are gone. It reaches Redact through
+// SetBaselineAtRunTime, which config.LoadContext calls. Redacting the result
+// again changes nothing then too.
+//
 // Redact is Scan to the end of the text, then Apply.
 func Redact(text string) (string, int) {
-	r := Scan(context.Background(), text)
+	alone := !BaselineAtRunTime()
+	r := driver{ctx: context.Background(), alone: alone}.scan(text)
 	out := Apply(r)
-	if redacted != nil {
+	if redacted != nil && !alone {
 		redacted(text, out, r.count)
 	}
 	return out, r.count
 }
 
-// redacted, when set, is told of every text Redact redacts, what it
-// returned and its count. Only tests set it.
+// redacted, when set, is told of every text Redact redacts with the
+// baseline rules beside the current rules, what it returned and its count.
+// Only tests set it.
 var redacted func(text, out string, n int)
 
 var privateKeyBlock = regexp.MustCompile(`-----BEGIN[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----(?s:.*?)(?:-----END[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|\z)`)

@@ -1,0 +1,58 @@
+Facts about authentication written as key: value, which are no secrets: the
+T3 row of the ledger design's section 10.3 (docs/v2/working-papers/design/
+ledger.md) first, then more like them. A fact is lost when the redacted text no
+longer holds its value whole. See README.md for the format.
+
+=== fact fact token optional
+token: ⟪optional⟫
+
+=== fact fact token endpoint
+token_endpoint: ⟪https://auth.example.com/oauth/token⟫
+
+=== fact fact private key path
+private_key_path: ⟪~/.ssh/id_ed25519_deploy⟫
+
+=== fact fact api key header
+api_key_header: ⟪X-Internal-Api-Key⟫
+
+=== fact fact secret name in a manifest
+secret_name: ⟪prod-db-credentials⟫
+
+=== fact fact token type
+token_type: ⟪refresh_token⟫
+
+=== fact fact secret store
+secret_store: ⟪aws-secrets-manager⟫
+
+=== fact fact api key location
+api_key_location: ⟪header⟫
+
+=== fact fact passphrase file
+passphrase_file: ⟪/etc/app/passphrase.txt⟫
+
+=== fact fact access key env name
+access_key_env: ⟪AWS_ACCESS_KEY_ID⟫
+
+=== fact fact token lifetime
+token_lifetime: ⟪3600 seconds⟫
+
+=== fact fact password policy
+password_policy: ⟪minimum-length-twelve⟫
+
+=== fact fact secret mount path
+secret_mount: ⟪/var/run/secrets/app⟫
+
+=== fact fact token audience
+token_audience: ⟪api.acme.example⟫
+
+=== fact fact api key prefix
+api_key_prefix: ⟪acme_live⟫
+
+=== fact fact secret engine in json
+{"secret_engine": "⟪kv-version-2⟫"}
+
+=== fact fact token issuer in toml
+token_issuer = "⟪https://login.acme.example/⟫"
+
+=== fact fact password hash algorithm
+password_hash: ⟪argon2id⟫

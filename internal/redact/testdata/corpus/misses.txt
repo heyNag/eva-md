@@ -1,0 +1,88 @@
+The shapes the audit found kept whole or in part (finding F2 of
+docs/v2/working-papers/audit/redact.md, and redact-m2), as secrets. They are
+recorded as misses, not fixed: their recall in rates.txt is what the rules
+change under (LG-26). See README.md for the format.
+
+=== secret audit_kept encryption key of 24 random characters
+ENCRYPTION_KEY='⟦Rk4Wz8Np2Q¦x6Lt9Vb3Hm7Jc⟧'
+
+=== secret audit_kept rails master key of 32 hex
+RAILS_MASTER_KEY='⟦3fa85f6457174562¦b3fc2c963f66afa6⟧'
+
+=== secret audit_kept signing key in yaml
+jwt:
+  signing_key: '⟦Sg7Kq2Wm9Zp4¦Xr8Lt3Vn6Bh1⟧'
+
+=== secret audit_kept bare key
+KEY='⟦Bk9Jx3Wq7Rm2¦Zt5Lp8Vc4Nh6⟧'
+
+=== secret audit_kept azure storage account key
+DefaultEndpointsProtocol=https;AccountName=acmelogs;AccountKey='⟦Az4Qw8Er2Ty6Ui0Op3As7Df1Gh5Jk9Lz¦Xc2Vb6Nm0Qw4Er8Ty1Ui5Op9As3Df7Gh==⟧';EndpointSuffix=core.windows.net
+
+=== secret audit_kept key in a toml auth table
+[auth]
+key = "'⟦T0mlAuthK¦3yRx8Wq2⟧'"
+
+=== secret audit_kept auth key with a random value
+auth = '⟦Au7hRn4Wx¦9Lq2Zp5Kt⟧'
+
+=== secret audit_kept docker config auth
+{"auths": {"registry.acme.example": {"auth": "'⟦Y2k6ZG9ja2Vy¦Q29uZmlnUHc5⟧'"}}}
+
+=== secret audit_kept credentials key
+credentials: '⟦Cr3dRx8Wq2¦Lp5Zt9Vn4⟧'
+
+=== secret audit_kept cookie session id
+Cookie: sessionid='⟦s3ss1onQx7¦Wm2Rp9Lt4⟧'
+
+=== secret audit_kept set-cookie connect sid
+Set-Cookie: connect.sid='⟦s%3Ak9Lm2Pq7¦Xt4.Wr8Zn3Vb6⟧'; Path=/; HttpOnly
+
+=== secret audit_kept wifi psk
+psk="'⟦W1f1PskV¦alue77⟧'"
+
+=== secret audit_kept netrc line
+machine api.acme.example login deploy password '⟦N3trcPa¦ssw0rd⟧'
+
+=== secret audit_kept sudo password through echo
+echo '⟦Sud0Echo¦Pass1⟧' | sudo -S systemctl restart app
+
+=== secret audit_kept kubectl from-literal
+kubectl create secret generic db --from-literal=pw='⟦KubeL1t¦eralPw⟧'
+
+=== secret audit_kept yaml password on the next line
+password: |
+  '⟦NextL1neY¦amlPw9⟧'
+
+=== secret audit_kept json password on the next line
+{
+  "password":
+    "'⟦NextL1neJ¦sonPw7⟧'"
+}
+
+=== secret audit_kept groq style key
+GROQ '⟦gs¦k_Qm7Rt2Vx9Lp4Nz8Kc1Hw6Jy3¦Fb5Gd0Se7Ua2Xi4Ok9Rt2Vx9Lp4Nz8⟧'
+
+=== secret audit_kept tailscale auth key
+tailscale up --authkey '⟦tskey¦-auth-kQ7Rt2Vx9CNTRL-¦Lp4Nz8Kc1Hw6Jy3Fb5Gd0Se7Ua2X⟧'
+
+=== secret audit_kept google oauth access token
+access: '⟦ya¦29.a0AfB_byC7Rt2Vx9Lp4Nz8Kc1¦Hw6Jy3Fb5Gd0Se7Ua2Xi4Ok9⟧'
+
+=== secret audit_kept age secret key
+'⟦AGE-SECRET¦-KEY-1QYQSZQGPQYQSZQGPQYQSZQ¦GPQYQSZQGPQYQSZQGPQYQSZQGPQYQSZQGPQ⟧'
+
+=== secret audit_kept url password with an at sign
+postgres://app:'⟦p@ssW0¦rd!x9⟧'@db.internal/app
+
+=== secret audit_kept url password with a slash
+https://deploy:'⟦sl4sh/Pa¦ss9Wd⟧'@git.acme.example/r.git
+
+=== secret audit_kept 24 digits after a trigger phrase
+the staging token is '⟦8304917265¦30418276591482⟧'
+
+=== secret audit_kept 24 hex after a trigger phrase
+the staging token is '⟦a83f19c07b¦2e4d6f5a1c9b⟧'
+
+=== secret audit_kept 32 hex after a trigger phrase
+the staging token is '⟦4f1c9a2e7b3d¦8f6a0c5e2b9d1a7f3c⟧'

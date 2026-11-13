@@ -1,0 +1,155 @@
+Texts that hold no secret: code, prose, docs, chat-like lines written by
+hand, SHAs, UUIDs, and op:// and $VAR references. A rule set that changes one
+loses text for nothing. See README.md for the format.
+
+=== negative code go tokenizer
+tok := tokenizer.New(cfg)
+for tok.Next() {
+	tokens = append(tokens, tok.Token())
+}
+
+=== negative code go config struct
+type Config struct {
+	APIKeyHeader string `toml:"api_key_header"`
+	TokenTTL     time.Duration
+}
+
+=== negative code python environ
+api_key = os.environ["OPENAI_API_KEY"]
+client = OpenAI(api_key=api_key)
+
+=== negative code python getter
+def refresh(self):
+    token = self.fetch_token(scope="read")
+    return token
+
+=== negative code javascript process env
+const token = process.env.GITHUB_TOKEN;
+if (!token) throw new Error("set GITHUB_TOKEN first");
+
+=== negative code typescript type annotation
+interface Session { accessToken: string | null; expiresAt: number }
+
+=== negative code shell command substitution
+export GITHUB_TOKEN=$(gh auth token)
+
+=== negative code shell read password
+read -s -p "Password: " password
+echo
+
+=== negative code rust struct field
+pub struct Credentials { pub token: Option<String>, pub user: String }
+
+=== negative code sql column
+ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';
+
+=== negative code go test of max tokens
+if got := resp.Usage.InputTokens; got > maxTokens {
+	t.Fatalf("input tokens %d over %d", got, maxTokens)
+}
+
+=== negative code ruby secret helper
+secret = Rails.application.credentials.dig(:aws, :secret_access_key)
+
+=== negative code kotlin password field
+val passwordField = findViewById<EditText>(R.id.password)
+
+=== negative code go index into a secret table
+	cfgSecret := store.readSecret[LevelHandshake]
+
+=== negative code ruby secret from a hash
+      secret = creds["SecretAccessKey"]
+
+=== negative code python tuple assignment
+    mail.user, mail.password = auth_pair[0], auth_pair[1]
+
+=== negative code go slice of a private key
+	k.PrivateKey = k.PrivateKey[1:]
+
+=== negative code go struct literal of a secret
+		Secret: FakeSecret{7},
+
+=== negative prose rotation policy
+Please rotate the password policy and update the secret manager docs before the audit.
+
+=== negative prose token budget
+The model ran out of tokens halfway through the summary, so we raised the budget.
+
+=== negative prose api key process
+Each team asks the platform group for an API key through the portal; nobody pastes keys in chat.
+
+=== negative prose secret santa
+The secret santa list is in the shared folder, and the deadline is the twelfth.
+
+=== negative prose private key explanation
+A private key never leaves the laptop; the public half goes to the server's authorized keys.
+
+=== negative docs readme placeholder
+Set `API_KEY=<your-api-key-here>` in `.env`, then run `make dev`.
+
+=== negative docs table of settings
+| Setting | Meaning |
+| --- | --- |
+| `token_ttl` | how long a session token lives |
+| `password_min_length` | the shortest password accepted |
+
+=== negative docs heading and steps
+## Rotating the deploy token
+
+1. Open the vault entry.
+2. Generate a new token.
+3. Update the CI variable, then revoke the old one.
+
+=== negative docs curl with a variable
+curl -H "X-Api-Key: $API_KEY" https://api.acme.example/v1/items
+
+=== negative chat asked about a token
+can you check why the token refresh fails on staging? it worked yesterday
+
+=== negative chat model name
+switched the secret model to model-x-20261028 for the eval
+
+=== negative chat test command
+run go test ./internal/redact/... with the token flag and send me the output
+
+=== negative chat skip names
+skip-tests and sk-learn are not keys, they are just names in the plan
+
+=== negative chat auth design
+Authorization header must be set by the client, the proxy only forwards it
+
+=== negative chat password reset flow
+the password reset email goes out, but the link expires after ten minutes
+
+=== negative sha commit after the word token
+the token was rotated in commit 4e2bf4c14e2bf4c14e2bf4c14e2bf4c14e2bf4c1
+
+=== negative sha short and long hashes
+secret rotation landed at 9b1d3e7f (full 9b1d3e7f2a4c6e8b0d1f3a5c7e9b2d4f6a8c0e1b) yesterday
+
+=== negative sha git log line
+commit 7c4a8d09ca3762af61e59520943dc26494f8941b
+Author: CI <ci@acme.example>
+    rotate the api token
+
+=== negative uuid session token uuid
+session token 3f2a91c0-1234-4abc-9def-0123456789ab
+
+=== negative uuid request id near secret
+secret lookup failed, request id 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+
+=== negative reference op reference
+ANTHROPIC_API_KEY=op://Vault/Example/ANTHROPIC_API_KEY
+
+=== negative reference op reference in yaml
+password: op://Work/db/password
+
+=== negative reference shell variable
+password: ${DB_PASSWORD}
+
+=== negative reference dollar variable
+token=$TOKEN ./deploy.sh
+
+=== negative reference env reference in a compose file
+environment:
+  - API_KEY=${API_KEY}
