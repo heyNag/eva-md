@@ -47,5 +47,5 @@ Merged from `pkg/seam-0e-r1` on 2026-11-13, after a review, a fix round and a ve
 
 - **The lead's ruling: the test ends its fake git with HUP, not SEGV.** The card listed KILL, SEGV and TERM. macOS writes a crash report for a process that SEGV ended, whoever sent the signal, into the real user's `~/Library/Logs/DiagnosticReports` whatever `HOME` is, and a test never writes to the real home. The lead changed the one line in a commit of its own after the package's.
 - **CI's two steps** are in the macOS `test` job as item 4 asked: after every run the names, sizes and dates of the system's crash reports, and after a failure the system log's lines on processes ended for memory.
-- The latency gate could not judge on the build machine, which was busy each time. The only change a hook runs is on the path of a git child that a signal ended, which no scenario of the benchmark takes; CI's `latency` job on the merge is the reading.
+- The latency gate could not judge on the build machine, which was busy each time. The only change a hook runs is on the path of a git child that a signal ended, which no scenario of the benchmark takes. CI's `latency` job on the merge could not judge either, with every figure inside its target; the gate on a quiet Linux machine, the commit before against the merge, then judged all 19 figures and passed.
 

@@ -83,7 +83,7 @@ Rules every card carries, so they are said once here:
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
 | [EV-14c](EV-14c.md) | Six new families, half held out | ready |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
-| [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | building since 2026-11-13 |
+| [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | ready; a first builder was cut off at the start and left nothing |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | after EV-17a |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; owed, on a card that owns the release workflow: a check of each published binary for a build tag |
