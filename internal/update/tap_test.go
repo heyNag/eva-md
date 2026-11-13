@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -179,5 +184,106 @@ func TestTapCallsMatchTheAttempts(t *testing.T) {
 				t.Fatalf("result %+v %v, the tap called %d times", res, err, len(got.stdout))
 			}
 		})
+	}
+}
+
+// A failure that only stderr names, a rate limit on a run that printed
+// nothing and exited 1, is read from the runner's own stderr, so the
+// Result with a tap that overwrites what it is given is the one without a
+// tap: rate_limit, not invalid_output.
+func TestTapLeavesTheStderrThatDecides(t *testing.T) {
+	const notice = "made-up: rate limit reached, try again later"
+	for _, host := range hosts {
+		t.Run(host, func(t *testing.T) {
+			isolate(t)
+			dump := fakeCLI(t, "")
+			put(t, dump, "stderr", notice)
+			put(t, dump, "exit", "1")
+			results := make([]Result, 2)
+			for i := range results {
+				clearRuns(t, dump)
+				r := request(t, host)
+				var got tapped
+				if i == 0 {
+					r.Tap = got.tap
+				}
+				res, err := NewRunner(host).Run(context.Background(), r)
+				if err != nil || res.Reason != ReasonRateLimit || res.Attempts != 1 {
+					t.Fatalf("result %+v %v, want a rate limit (with a tap: %v)", res, err, i == 0)
+				}
+				if i == 0 && (len(got.stderr) != 1 || string(got.stderr[0]) != notice || len(got.stdout[0]) != 0) {
+					t.Fatalf("the tap got stdout %q and stderr %q", got.stdout, got.stderr)
+				}
+				results[i] = res
+			}
+			if !reflect.DeepEqual(results[0], results[1]) {
+				t.Errorf("with a tap the result is\n%+v\nwithout one\n%+v", results[0], results[1])
+			}
+		})
+	}
+}
+
+// Nothing in eva-md sets a Request's Tap: a tap hands on what a host
+// printed, raw and unredacted, which only the live accuracy run's trace,
+// a developer's command, may keep. Every Go file of the module but tests
+// is read, and a Tap given in a composite literal or assigned anywhere
+// outside cmd/live-accuracy fails the test.
+func TestOnlyTheLiveRunSetsATap(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Fatalf("the module's root: %v", err)
+	}
+	allowed := filepath.Join(root, "cmd", "live-accuracy")
+	files, live := 0, 0
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != root && (strings.HasPrefix(d.Name(), ".") || d.Name() == "testdata" || d.Name() == "bin" || d.Name() == "scratch") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		files++
+		sets := 0
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.KeyValueExpr:
+				if k, ok := n.Key.(*ast.Ident); ok && k.Name == "Tap" {
+					sets++
+				}
+			case *ast.AssignStmt:
+				for _, l := range n.Lhs {
+					if s, ok := l.(*ast.SelectorExpr); ok && s.Sel.Name == "Tap" {
+						sets++
+					}
+				}
+			}
+			return true
+		})
+		if filepath.Dir(path) == allowed {
+			live += sets
+		} else if sets != 0 {
+			rel, _ := filepath.Rel(root, path)
+			t.Errorf("%s sets a Tap, which only cmd/live-accuracy may set", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files < 100 || live == 0 {
+		t.Fatalf("read %d files, %d taps set in cmd/live-accuracy: the walk missed the module", files, live)
 	}
 }

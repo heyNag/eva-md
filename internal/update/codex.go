@@ -65,10 +65,13 @@ func runCodex(ctx context.Context, r Request, t try) (attempt, error) {
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	s := &codexStream{stop: stop, diag: diagnostics{effort: t.effort}}
-	// With a tap, a copy of the stream as codex wrote it, beside the reader.
+	// With a tap, a copy of the stream as codex wrote it, beside the reader,
+	// which never fails a write, so the copy changes nothing it reads.
+	// Without one, the stream alone, as before.
 	var stdout io.Writer = s
-	raw := &capped{limit: maxStdout}
+	var raw *capped
 	if r.Tap != nil {
+		raw = &capped{limit: maxStdout}
 		stdout = io.MultiWriter(s, raw)
 	}
 	c, err := spawn(runCtx, cli, codexArgs(r, t, disable, schema, output), r.RunDir, codexStdin(r), stdout, t.timeout)
