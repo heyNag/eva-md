@@ -2,6 +2,7 @@ package families
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/heyNag/eva-md/internal/eval/scenario"
 	"github.com/heyNag/eva-md/internal/ledger/event"
@@ -51,20 +52,37 @@ func moment(seed uint64) scenario.Scenario {
 var correctionTexts = map[string][]string{
 	"subject": {"the staging bucket", "the deploy target", "the metrics store", "the backup host", "the release channel"},
 	"state": {
-		"For the record, {w} is {v}.",
-		"Set {w} to {v}, please.",
-		"We settled that {w} is {v}.",
+		"For the record, {w} is {v} (ticket {n}).",
+		"Set {w} to {v}, please; that is ticket {n}.",
+		"We settled that {w} is {v}, as {n} says.",
 	},
 	"correct": {
-		"Correction: {w} is {v}.",
-		"Sorry, I had that wrong: {w} is {v}.",
-		"Actually, {w} should be {v}.",
+		"Correction: {w} is {v}, per ticket {n}.",
+		"Sorry, I had that wrong: {w} is {v}. See {n}.",
+		"Actually, {w} should be {v}; I filed {n} for it.",
 	},
 	"echo": {
-		"Done. I set {w} to {v}, as you said.",
-		"I have updated the notes: {w} is {v}.",
-		"Understood, I will keep {w} at {v}.",
+		"Done. I set {w} to {v}, as you said, and logged it as {n}.",
+		"I have updated the notes under {n}: {w} is {v}.",
+		"Understood, I will keep {w} at {v} ({n}).",
 	},
+}
+
+// trackers are the prefixes of a correction's references, each with a
+// letter from g to z; a reference is one of them and a number.
+var trackers = []string{"OPS", "INFRA", "PLAT", "STOR", "REL", "SRE"}
+
+// refs draws k references of one tracker, no two alike.
+func (g *gen) refs(k int) []string {
+	tracker := g.pick(trackers)
+	var out []string
+	for len(out) < k {
+		r := fmt.Sprintf("%s-%d", tracker, 100+g.intn(900))
+		if !slices.Contains(out, r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // correction plants a value the user states and then corrects, and the
@@ -74,21 +92,28 @@ var correctionTexts = map[string][]string{
 // the agent's: the model has no fact that is stale when it is said, so it
 // ends at the next turn, the earliest it can, and an active item that
 // holds the old value is stale whichever of the two turns it cites.
+//
+// Each of the three lines also names a reference of its own, a second
+// value of its fact, as v1's codenames are. So an item that keeps the
+// corrected value and names the old one as its history, "<new>, <ref>,
+// corrected from <old>", holds the old fact only in part, and the scorer
+// spares it as the history of the correction it holds in full.
 func correction(seed uint64) scenario.Scenario {
 	b := newBuilder("correction", scenario.SplitTuning, seed, "a corrected value that the agent's reply repeats in its old form")
 	v := b.g.names(2)
+	ref := b.g.refs(3)
 	subject := b.g.pick(correctionTexts["subject"])
 	b.fill(1, 2)
-	b.say(event.AuthorTyped, event.KindPrompt, "", b.text("correction", "state", v[0], subject, ""),
-		fact(scenario.MustStore, scenario.AuthorityUser, kinds(scenario.KindDecision, scenario.KindFact), slot(scenario.SlotIdent, v[0])))
+	b.say(event.AuthorTyped, event.KindPrompt, "", b.text("correction", "state", v[0], subject, ref[0]),
+		fact(scenario.MustStore, scenario.AuthorityUser, kinds(scenario.KindDecision, scenario.KindFact), slot(scenario.SlotIdent, v[0]), slot(scenario.SlotIdent, ref[0])))
 	old := b.lastID()
 	b.fill(0, 2)
-	fixed := fact(scenario.MustStore, scenario.AuthorityUser, kinds(scenario.KindDecision, scenario.KindFact), slot(scenario.SlotIdent, v[1]))
+	fixed := fact(scenario.MustStore, scenario.AuthorityUser, kinds(scenario.KindDecision, scenario.KindFact), slot(scenario.SlotIdent, v[1]), slot(scenario.SlotIdent, ref[1]))
 	fixed.Supersedes = old
-	b.end(old, b.say(event.AuthorTyped, event.KindPrompt, "", b.text("correction", "correct", v[1], subject, ""), fixed))
+	b.end(old, b.say(event.AuthorTyped, event.KindPrompt, "", b.text("correction", "correct", v[1], subject, ref[1]), fixed))
 	b.fill(0, 1)
-	b.say(event.AuthorAgent, event.KindReply, "", b.text("correction", "echo", v[0], subject, ""),
-		fact(scenario.MustStore, scenario.AuthorityOther, kinds(scenario.KindFact), slot(scenario.SlotIdent, v[0])))
+	b.say(event.AuthorAgent, event.KindReply, "", b.text("correction", "echo", v[0], subject, ref[2]),
+		fact(scenario.MustStore, scenario.AuthorityOther, kinds(scenario.KindFact), slot(scenario.SlotIdent, v[0]), slot(scenario.SlotIdent, ref[2])))
 	b.end(b.lastID(), b.fill(1, 2))
 	return b.done()
 }

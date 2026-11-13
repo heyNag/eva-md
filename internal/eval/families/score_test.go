@@ -160,6 +160,43 @@ func TestCorrectionKeepsTheNewValue(t *testing.T) {
 		if r := score.Score(sc, onlyOld); r.Metrics.FactHolds != 0 || r.Metrics.StaleInForce != 1 || factResult(r, fixed.ID).Outcome != score.Missing {
 			t.Errorf("%s: only the old value scores %+v", sc.ID, r.Metrics)
 		}
+		// A store that keeps the corrected value in force and names the
+		// old one as its history holds every fact, whether its item cites
+		// the old line and the correction or the correction alone.
+		oldAt, _ := plantedAt(t, sc, old.ID)
+		kept := fixed.Slots[0].Value + ", " + fixed.Slots[1].Value
+		history := func(text string, cites ...score.Source) score.Result {
+			ex := score.Ideal(sc)
+			ex.Items[1] = score.Item{Kind: scenario.KindDecision, State: score.StateActive, Authority: score.TagStated, Text: text, Sources: cites}
+			return score.Score(sc, ex)
+		}
+		for _, tc := range []struct {
+			text  string
+			cites []score.Source
+		}{
+			{kept + ", corrected from " + old.Slots[0].Value, []score.Source{oldAt, fixedAt}},
+			{kept + ", corrected from " + old.Slots[0].Value, []score.Source{fixedAt}},
+			{kept + ", replacing " + old.Slots[1].Value, []score.Source{oldAt, fixedAt}},
+			{"Not " + old.Slots[0].Value + " after all: " + kept, []score.Source{oldAt, fixedAt}},
+		} {
+			r := history(tc.text, tc.cites...)
+			if r.Metrics != perfect || r.Items[1].Outcome != score.Supports {
+				t.Errorf("%s: %q, citing %v, scores %+v, item %s", sc.ID, tc.text, tc.cites, r.Metrics, r.Items[1].Outcome)
+			}
+			for _, f := range r.Facts {
+				if f.Outcome != score.Holds {
+					t.Errorf("%s: %q, citing %v, leaves %s %s", sc.ID, tc.text, tc.cites, f.Fact, f.Outcome)
+				}
+			}
+		}
+		// The scorer's rule, recorded: an item that cites the agent's echo
+		// and holds the old value keeps the echo in force, though it holds
+		// the correction in full, since the echo ends at a line that plants
+		// nothing, so no fact ends it. A store cites the correction for the
+		// corrected value, not the echo of the old one.
+		if r := history(kept+", corrected from "+old.Slots[0].Value, fixedAt, echoAt); r.Metrics.StaleInForce != 1 || factResult(r, echo.ID).Outcome != score.StaleInForce {
+			t.Errorf("%s: the history citing the echo scores %+v; if the scorer now spares it, make this a clean case above", sc.ID, r.Metrics)
+		}
 	}
 }
 
