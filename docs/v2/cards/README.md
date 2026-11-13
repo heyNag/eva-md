@@ -92,10 +92,10 @@ Rules every card carries, so they are said once here:
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
 | [EV-14e](EV-14e.md) | The scorer tells an agreement from a statement, and asks a slot of some kinds only | ready; two reviewers; before the families' figures are put in a gate |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | merged |
-| [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | building since 2026-11-13 |
-| [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
+| [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | merged; a short second round builds two rulings of the lead's; its host table waits for the pilot's recordings |
+| [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | ready to build once EV-17b's second round is merged; real runs after decision 28's keys |
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; EV-17f adds the check of each published binary for a build tag |
-| [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03) |
+| [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03); it also settles how grading keeps a hidden test from the chat (EV-17b's notes) |
 | [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | ready; two reviewers; its first run on a real release is the owner's next cut |
 | [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | ready, since the counters release is cut (2026.11.13) |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
