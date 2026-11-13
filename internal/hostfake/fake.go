@@ -11,11 +11,10 @@ import (
 	"syscall"
 )
 
-// The CLIs the fake answers for.
-const (
-	Claude = "claude"
-	Codex  = "codex"
-)
+// Claude and Codex are the CLIs the fake answers for. They are its only
+// host names written as literals, on one line, which the host literal count
+// of internal/host/adapter counts.
+const Claude, Codex = "claude", "codex"
 
 // The versions a new fake reports.
 const (
@@ -143,7 +142,7 @@ func (f *Fake) Root() string { return f.root }
 // CachePath is the folder Codex loads an installed plugin from: its copy,
 // <root>/codex/plugins/cache/<marketplace>/<plugin>/local.
 func (f *Fake) CachePath(marketplace, plugin string) string {
-	return filepath.Join(f.root, "codex", "plugins", "cache", marketplace, plugin, "local")
+	return filepath.Join(f.root, Codex, "plugins", "cache", marketplace, plugin, "local")
 }
 
 // dataPath is a plugin's data folder, outside its root.

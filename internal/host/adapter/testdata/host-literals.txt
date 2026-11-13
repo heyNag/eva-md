@@ -4,6 +4,7 @@ internal/catchup 13
 internal/config 1
 internal/health 28
 internal/hook 7
+internal/hostfake 1
 internal/inbox 2
 internal/ledger/audit 4
 internal/ledger/inboxv1 1
