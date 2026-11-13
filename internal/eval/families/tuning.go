@@ -29,6 +29,13 @@ var momentTexts = map[string][]string{
 // keep as a next step or a dated line but never as a rule or a
 // constraint, beside one standing instruction, which it must keep as a
 // rule. The standing one falls first, second or last.
+//
+// The standing instruction may also be kept as a constraint, which is
+// standing too: Ideal files it as a rule, its first kind, and a store
+// that files it as a constraint is not faulted. A second permitted kind is
+// also what lets Distort's moved apply to this family, as the card's last
+// acceptance item asks of every family; with a rule alone the family's
+// one fact to store could not be moved.
 func moment(seed uint64) scenario.Scenario {
 	b := newBuilder("moment", scenario.SplitTuning, seed, "instructions meant for the moment beside a standing one")
 	v := b.g.names(3)
