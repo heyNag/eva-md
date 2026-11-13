@@ -8,7 +8,8 @@
 // A trial's environment is built from nothing: its own home, temporary
 // folder and bin folder, and only the variables the run names. Nothing it
 // starts runs outside its folder, and it never writes a host's trust
-// record or settings. A trial a host failure leaves unjudged writes no row.
+// record or settings. A trial a host failure leaves unjudged writes no row,
+// and the run goes on to the next.
 package drive
 
 import (
@@ -39,10 +40,17 @@ const (
 	CodeOtherModel   = "other_model"
 	CodeSetupFailed  = "setup_failed"
 	CodeUpdateFailed = "update_failed"
+	// CodeHostFailed is a call that gave no answer for a reason of the
+	// host's that is no sign-in, rate limit or timeout: a failure of its
+	// service (an overload or another 5xx), an exit that printed nothing or
+	// no final event, a CLI a signal ended (even after it printed an
+	// answer), or an answer that names no session when the trial needs a
+	// follow-up.
+	CodeHostFailed = "host_failed"
 )
 
 // Codes lists every code of an unjudged trial, in a fixed order.
-var Codes = []string{CodeSignIn, CodeRateLimited, CodeTimeout, CodeOtherModel, CodeSetupFailed, CodeUpdateFailed}
+var Codes = []string{CodeSignIn, CodeRateLimited, CodeTimeout, CodeOtherModel, CodeSetupFailed, CodeUpdateFailed, CodeHostFailed}
 
 // Unjudged is the error that leaves a trial unjudged: a host or a
 // condition failed in a way that says nothing of the answer.
@@ -175,8 +183,12 @@ type Summary struct {
 	Judged   int
 	NotRun   int
 	Unjudged map[string]int // by code
-	Tokens   int64          // prompt and output tokens of every chat, and what conditions spent
-	Rows     int
+	// NoModel counts the judged trials whose rows carry no model, since the
+	// host named none, or named one that is no id: a session that names no
+	// model is judged, with --model given or not.
+	NoModel int
+	Tokens  int64 // prompt and output tokens of every chat, and what conditions spent
+	Rows    int
 }
 
 // envName is a variable's name that --pass-env may take.
@@ -218,7 +230,10 @@ func redirects(name string) bool {
 // is in the value, so that a home whose name holds a space or a comma is
 // found too; or when a part of it, split at the separators of lists and
 // options, is a path in the home or one that holds it, or starts with "~".
-func reachesHome(value string, homes []string) bool {
+// A part that is a relative path is read from chatDir, the folder the chat
+// runs in, as "../../.." would be, and its links resolved as far as they
+// exist, as --work's are.
+func reachesHome(value string, homes []string, chatDir string) bool {
 	for _, home := range homes {
 		for rest := value; ; {
 			i := strings.Index(rest, home)
@@ -236,11 +251,11 @@ func reachesHome(value string, homes []string) bool {
 		return r == filepath.ListSeparator || r == '=' || r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
 	})
 	for _, part := range parts {
-		switch {
-		case strings.HasPrefix(part, "~"):
+		if strings.HasPrefix(part, "~") {
 			return true
-		case !filepath.IsAbs(part):
-			continue
+		}
+		if !filepath.IsAbs(part) {
+			part = filepath.Join(chatDir, part)
 		}
 		p := resolveOr(filepath.Clean(part))
 		if within(p, home) || within(home, p) {
@@ -284,6 +299,42 @@ type plan struct {
 	evaMD  string
 	work   string // links resolved
 	forbid []string
+	// passed are the variables passed whose values are among forbid.
+	passed []passedVar
+}
+
+// passedVar is a variable --pass-env passes.
+type passedVar struct{ name, value string }
+
+// trialRoot is the folder of the trial n of task id under condition c, in
+// the run's folder under work.
+func trialRoot(work, run, id string, c task.Condition, n int) string {
+	return filepath.Join(work, run, id, string(c), "t"+strconv.Itoa(n))
+}
+
+// checkPassed refuses a passed value that every row of the run would hold
+// as soon as it is written: the host's id, the model asked for, the
+// condition, a task's id, the commit and the rows' own names, as the
+// store matches a forbidden word. It is checked before any trial starts,
+// so that no quota is spent on rows the store would refuse. What only a
+// trial gives, the host's version and the model it names, and a trial's
+// number past the first, is checked by the store at the rows.
+func (p *plan) checkPassed(commit string, dirty bool) error {
+	one := 1
+	o := task.Outcome{AskedAgain: &one, Memory: &task.Spend{}}
+	base := results.Row{Commit: commit, Dirty: dirty, Host: string(p.host.ID), Model: p.opts.Model}
+	for _, t := range p.tasks {
+		rows, err := task.Rows(t, p.opts.Condition, 1, o, base)
+		if err != nil {
+			return err
+		}
+		for _, v := range p.passed {
+			if results.Forbidden(rows, []string{v.value}) != nil {
+				return usagef("--pass-env %s holds a value the run's rows would hold, which they may not", v.name)
+			}
+		}
+	}
+	return nil
 }
 
 // prepare checks the options and loads the tasks. It starts and writes
@@ -332,6 +383,12 @@ func prepare(o Options) (*plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	if p.work, err = checkWork(o); err != nil {
+		return nil, err
+	}
+	// The folder a trial's chat runs in, as deep under --work as any is; its
+	// names stand for those the run gives it.
+	chatDir := filepath.Join(trialRoot(p.work, "run", "task", o.Condition, 1), "workspace")
 	for i, name := range o.PassEnv {
 		switch {
 		case !envName.MatchString(name):
@@ -347,15 +404,13 @@ func prepare(o Options) (*plan, error) {
 		if !set {
 			return nil, usagef("--pass-env %s is not set", name)
 		}
-		if reachesHome(value, homes) {
+		if reachesHome(value, homes, chatDir) {
 			return nil, usagef("--pass-env %s holds a path that reaches the invoking home", name)
 		}
 		if lettersAndDigits(value) >= forbidMinimum {
 			p.forbid = append(p.forbid, value)
+			p.passed = append(p.passed, passedVar{name, value})
 		}
-	}
-	if p.work, err = checkWork(o); err != nil {
-		return nil, err
 	}
 	if p.tasks, err = task.LoadAll(o.Tasks); err != nil {
 		return nil, usagef("%v", err)
@@ -445,6 +500,9 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	if err != nil {
 		return s, err
 	}
+	if err := p.checkPassed(commit, dirty); err != nil {
+		return s, err
+	}
 	if s.Run, err = newRun(p.work, o.Clock()); err != nil {
 		return s, err
 	}
@@ -480,6 +538,9 @@ trials:
 				return s, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
 			}
 			s.Judged++
+			if r.model == "" {
+				s.NoModel++
+			}
 			s.Rows += len(rows)
 			fmt.Fprintf(out, "trial %s.t%d: solved %d, first try %d, corrections %d, rounds %d\n",
 				t.ID, n, b2i(r.outcome.Solved), b2i(r.outcome.FirstTry), r.outcome.Corrections, r.outcome.Rounds)
@@ -489,8 +550,8 @@ trials:
 	for _, c := range Codes {
 		unjudged = append(unjudged, fmt.Sprintf("%s %d", c, s.Unjudged[c]))
 	}
-	fmt.Fprintf(out, "run %s: planned %d, judged %d, not run %d, unjudged %s; tokens %d, rows %d\n",
-		s.Run, s.Planned, s.Judged, s.NotRun, strings.Join(unjudged, ", "), s.Tokens, s.Rows)
+	fmt.Fprintf(out, "run %s: planned %d, judged %d, no model %d, not run %d, unjudged %s; tokens %d, rows %d\n",
+		s.Run, s.Planned, s.Judged, s.NoModel, s.NotRun, strings.Join(unjudged, ", "), s.Tokens, s.Rows)
 	return s, nil
 }
 

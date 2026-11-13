@@ -37,6 +37,15 @@ type rig struct {
 	script fakehost.Script
 	file   string // the script's file
 	clock  time.Time
+	tmp    string // the temporary root the rig gives the driver
+}
+
+// useTempFolders makes roots the driver's temporary folders for the test.
+func useTempFolders(t *testing.T, roots ...string) {
+	t.Helper()
+	was := TempFolders
+	TempFolders = roots
+	t.Cleanup(func() { TempFolders = was })
 }
 
 func newRig(t *testing.T, facts int) *rig {
@@ -67,7 +76,10 @@ func newRig(t *testing.T, facts int) *rig {
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{t: t, base: base, clock: time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)}
+	// The test's own folders may be under /tmp, as they are when TMPDIR is:
+	// the temporary roots --work may not overlap are the rig's own.
+	r := &rig{t: t, base: base, clock: time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC), tmp: filepath.Join(base, "made-up-tmp")}
+	useTempFolders(t, r.tmp)
 	record := filepath.Join(base, "record")
 	mkdir(t, record)
 	r.script = fakehost.Script{Dir: record, Task: filepath.Join(tasks, fakehost.FixtureID), Facts: []string{fakehost.FixtureColor},

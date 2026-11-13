@@ -79,7 +79,7 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 				if got := timeless(r.rows()); !reflect.DeepEqual(got, r.wantRows(1, want, "made-up-model-7")) {
 					t.Fatalf("rows:\n%+v\nwant\n%+v", got, r.wantRows(1, want, "made-up-model-7"))
 				}
-				if s.Judged != 1 || s.Planned != 1 || s.Rows != 9 || s.Tokens != want.PromptTokens+want.OutputTokens {
+				if s.Judged != 1 || s.Planned != 1 || s.Rows != 9 || s.NoModel != 0 || s.Tokens != want.PromptTokens+want.OutputTokens {
 					t.Fatalf("summary %+v", s)
 				}
 				calls := r.calls()
@@ -252,9 +252,23 @@ func TestAPassedValueGoesNowhereElse(t *testing.T) {
 	}
 }
 
-// Each --work the card refuses is refused before anything starts: nothing
-// runs and the folder is not made. A link into /tmp is among them, and
-// nothing is written under /tmp.
+// defaultTempFolders is TempFolders as the package sets it, before any
+// test changes it.
+var defaultTempFolders = slices.Clone(TempFolders)
+
+// The temporary folders --work may not overlap are, but in tests, those
+// eva-md's hooks skip.
+func TestTempFoldersAreTheHooks(t *testing.T) {
+	if want := []string{"/tmp", "/var/tmp"}; !slices.Equal(defaultTempFolders, want) {
+		t.Fatalf("%v, want %v", defaultTempFolders, want)
+	}
+}
+
+// Each --work the card refuses is refused before anything starts, for its
+// own reason: nothing runs and the folder is not made. /tmp, /var/tmp and
+// a link into /tmp are refused by the folders the command uses, whatever
+// TMPDIR is, and nothing is written under /tmp; a root the test makes, a
+// link into it, and a folder holding it, by a root of the test's own.
 func TestWorkFoldersRefused(t *testing.T) {
 	r := newRig(t, 1)
 	home := os.Getenv("HOME")
@@ -267,31 +281,47 @@ func TestWorkFoldersRefused(t *testing.T) {
 	if err := os.Symlink(home, toHome); err != nil {
 		t.Fatal(err)
 	}
-	for name, work := range map[string]string{
-		"relative":          "work",
-		"the home":          home,
-		"in the home":       filepath.Join(home, "work"),
-		"a link to home":    filepath.Join(toHome, "work"),
-		"holding the home":  r.base,
-		"in /tmp":           filepath.Join("/tmp", tmpName),
-		"/var/tmp":          filepath.Join("/var/tmp", tmpName),
-		"a link into /tmp":  filepath.Join(toTmp, tmpName),
-		"in the tasks":      filepath.Join(r.opts.Tasks, "work"),
-		"in the repos":      filepath.Join(r.opts.Repos, "work"),
-		"in the repository": filepath.Join(r.opts.Repo, "work"),
-		"holding the tasks": filepath.Dir(r.opts.Tasks),
+	mkdir(t, r.tmp)
+	toMade := filepath.Join(r.base, "to-made-up-tmp")
+	if err := os.Symlink(r.tmp, toMade); err != nil {
+		t.Fatal(err)
+	}
+	holder := filepath.Join(r.base, "holder")
+	const temp = "overlaps a temporary folder"
+	mine := []string{r.tmp}
+	for name, c := range map[string]struct {
+		work   string
+		roots  []string
+		reason string
+	}{
+		"relative":           {"work", mine, "not an absolute path"},
+		"the home":           {home, mine, "overlaps the invoking home"},
+		"in the home":        {filepath.Join(home, "work"), mine, "overlaps the invoking home"},
+		"a link to home":     {filepath.Join(toHome, "work"), mine, "overlaps the invoking home"},
+		"holding the home":   {r.base, mine, "overlaps the invoking home"},
+		"in /tmp":            {filepath.Join("/tmp", tmpName), defaultTempFolders, temp},
+		"/var/tmp":           {filepath.Join("/var/tmp", tmpName), defaultTempFolders, temp},
+		"a link into /tmp":   {filepath.Join(toTmp, tmpName), defaultTempFolders, temp},
+		"in a made root":     {filepath.Join(r.tmp, "work"), mine, temp},
+		"a link into it":     {filepath.Join(toMade, "work"), mine, temp},
+		"holding a made one": {holder, []string{filepath.Join(holder, "made-up-tmp")}, temp},
+		"in the tasks":       {filepath.Join(r.opts.Tasks, "work"), mine, "overlaps --tasks"},
+		"in the repos":       {filepath.Join(r.opts.Repos, "work"), mine, "overlaps --repos"},
+		"in the repository":  {filepath.Join(r.opts.Repo, "work"), mine, "overlaps --repo"},
+		"holding the tasks":  {filepath.Dir(r.opts.Tasks), mine, "overlaps --tasks"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r.opts.Work = work
+			useTempFolders(t, c.roots...)
+			r.opts.Work = c.work
 			_, out, err := r.run()
 			var usage *UsageError
-			if !errors.As(err, &usage) || out != "" {
+			if !errors.As(err, &usage) || out != "" || !strings.Contains(err.Error(), c.reason) {
 				t.Fatalf("run: %v, output %q", err, out)
 			}
 			if calls := r.calls(); len(calls) != 0 {
 				t.Fatalf("the fake ran: %+v", calls)
 			}
-			for _, p := range []string{filepath.Join("/tmp", tmpName), filepath.Join("/var/tmp", tmpName), filepath.Join(home, "work"), r.opts.Out} {
+			for _, p := range []string{filepath.Join("/tmp", tmpName), filepath.Join("/var/tmp", tmpName), filepath.Join(home, "work"), filepath.Join(r.tmp, "work"), holder, r.opts.Out} {
 				if _, err := os.Lstat(p); !errors.Is(err, fs.ErrNotExist) {
 					t.Fatalf("%s was made", p)
 				}
@@ -772,6 +802,10 @@ func TestPassEnvThatReachesOutIsRefused(t *testing.T) {
 		"in a list":               {"EVAL_MADE_UP_PATH", "/made-up/bin:{home}/bin"},
 		"after an =":              {"EVAL_MADE_UP_OPTS", "--config={home}/x.toml"},
 		"by a tilde":              {"EVAL_MADE_UP_DIR", "~/.made-up"},
+		// The chat runs in <work>/<run>/<task>/<condition>/t<n>/workspace,
+		// and the rig's work folder is beside its home.
+		"climbing to the home": {"EVAL_MADE_UP_DIR", "../../../../../../home/.made-up"},
+		"climbing past it":     {"EVAL_MADE_UP_PATH", "/usr/bin:../../../../../../.."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t, 1)
@@ -787,13 +821,40 @@ func TestPassEnvThatReachesOutIsRefused(t *testing.T) {
 			}
 		})
 	}
-	// A path outside the home, and a short switch, pass.
+	// A path outside the home, a relative one that stays in the trial, and
+	// a short switch, pass.
 	r := newRig(t, 1)
 	t.Setenv("EVAL_MADE_UP_DIR", filepath.Join(r.base, "elsewhere")+string(filepath.ListSeparator)+"/usr/bin")
+	t.Setenv("EVAL_MADE_UP_REL", "../home/.config:../../../../../../elsewhere")
 	t.Setenv("EVAL_MADE_UP_SWITCH", "1")
-	r.opts.PassEnv = append(r.opts.PassEnv, "EVAL_MADE_UP_DIR", "EVAL_MADE_UP_SWITCH")
+	r.opts.PassEnv = append(r.opts.PassEnv, "EVAL_MADE_UP_DIR", "EVAL_MADE_UP_REL", "EVAL_MADE_UP_SWITCH")
 	if s, out, err := r.run(); err != nil || s.Judged != 1 {
 		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+}
+
+// A relative path in a passed value is read from where the chat really
+// runs: under --work with its links resolved. Through a link, a path that
+// climbs from the unresolved folder would end outside the home, but from
+// the resolved one it reaches the home, and is refused.
+func TestPassEnvRelativeToTheResolvedWork(t *testing.T) {
+	r := newRig(t, 1)
+	real := filepath.Join(r.base, "deep", "er", "work")
+	mkdir(t, real)
+	r.opts.Work = filepath.Join(r.base, "to-work")
+	if err := os.Symlink(real, r.opts.Work); err != nil {
+		t.Fatal(err)
+	}
+	// Eight folders up from the resolved workspace is the rig's folder.
+	t.Setenv("EVAL_MADE_UP_DIR", "../../../../../../../../home")
+	r.opts.PassEnv = append(r.opts.PassEnv, "EVAL_MADE_UP_DIR")
+	_, out, err := r.run()
+	var usage *UsageError
+	if !errors.As(err, &usage) || out != "" || !strings.Contains(err.Error(), "reaches the invoking home") {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	if calls := r.calls(); len(calls) != 0 {
+		t.Fatalf("the fake ran: %+v", calls)
 	}
 }
 
@@ -815,9 +876,26 @@ func TestReachesHome(t *testing.T) {
 			"/made-up":                     true,
 			"plain words":                  false,
 		} {
-			if got := reachesHome(value, []string{home}); got != want {
+			if got := reachesHome(value, []string{home}, "/made-up/work/run/task/off/t1/workspace"); got != want {
 				t.Errorf("home %q, value %q: %v", home, value, got)
 			}
+		}
+	}
+	// A relative path is read from the folder the chat runs in: one that
+	// stays in the trial passes, and one that climbs to the home, or past
+	// it, does not.
+	for value, want := range map[string]bool{
+		"../home/.config":                        false,
+		"sub/dir":                                false,
+		"../../../../../../elsewhere":            false,
+		"../../../../../../home":                 true,
+		"../../../../../../home/.config":         true,
+		"../../../../../..":                      true,
+		"--config=../../../../../../home/x.toml": true,
+		"/usr/bin:../../../../../../home/bin":    true,
+	} {
+		if got := reachesHome(value, []string{"/made-up/home"}, "/made-up/work/run/task/off/t1/workspace"); got != want {
+			t.Errorf("value %q: %v", value, got)
 		}
 	}
 }
@@ -839,45 +917,170 @@ func TestAPassedValueAsTheModelWritesNoRow(t *testing.T) {
 	}
 }
 
-// A call that gives no answer is never graded and writes no row: a
-// failure of the host's service, an exit having printed nothing, a CLI
-// killed by a signal, and an answer naming no session when the trial
-// needs a follow-up. Each stops the run with an error, since the closed
-// list has no code for it. A failure in the second round writes no row
-// for the first either.
-func TestCallsWithNoAnswerWriteNoRow(t *testing.T) {
+// A call that gives no answer is never graded: a failure of the host's
+// service (an overload or another 5xx), an exit having printed nothing, a
+// CLI killed by a signal, before an answer or after a whole one, and an
+// answer naming no session when the trial needs a follow-up. Each leaves
+// its trial unjudged, host_failed, with no row, in the first round or a
+// later one; the run goes on, and the next trial, whose session the fake
+// answers as usual, writes its rows exactly.
+func TestCallsWithNoAnswerAreHostFailed(t *testing.T) {
 	for _, h := range adapter.All() {
 		for name, set := range map[string]func(s *fakehost.Script){
-			"a 529":              func(s *fakehost.Script) { s.Status = 529 },
-			"a 500":              func(s *fakehost.Script) { s.Status = 500 },
-			"nothing printed":    func(s *fakehost.Script) { s.Empty = true },
-			"killed":             func(s *fakehost.Script) { s.Killed = true },
-			"no session":         func(s *fakehost.Script) { s.NoSession = true },
-			"a 529 in round two": func(s *fakehost.Script) { s.Status, s.From = 529, 2 },
-			"killed in round two": func(s *fakehost.Script) {
-				s.Killed, s.From = true, 2
+			"a 529":                  func(s *fakehost.Script) { s.Status = 529 },
+			"a 500":                  func(s *fakehost.Script) { s.Status = 500 },
+			"nothing printed":        func(s *fakehost.Script) { s.Empty = true },
+			"killed":                 func(s *fakehost.Script) { s.Killed = true },
+			"killed after answering": func(s *fakehost.Script) { s.KilledAfter = true },
+			"no session":             func(s *fakehost.Script) { s.NoSession = true },
+			"a 529 in round two":     func(s *fakehost.Script) { s.Status, s.From = 529, 2 },
+			"killed in round two":    func(s *fakehost.Script) { s.Killed, s.From = true, 2 },
+			"killed after answering in round two": func(s *fakehost.Script) {
+				s.KilledAfter, s.From = true, 2
 			},
 		} {
 			t.Run(string(h.ID)+"/"+name, func(t *testing.T) {
 				r := newRig(t, 1)
-				r.opts.Host = string(h.ID)
+				r.opts.Host, r.opts.Trials = string(h.ID), 2
 				set(&r.script)
+				r.script.Session = 1
 				s, out, err := r.run()
-				if err == nil || s.Judged != 0 || len(s.Unjudged) != 0 || strings.Contains(out, "solved") {
+				if err != nil || s.Judged != 1 || s.Unjudged[CodeHostFailed] != 1 || len(s.Unjudged) != 1 || s.Rows != 9 {
 					t.Fatalf("run: %+v %v\n%s", s, err, out)
 				}
-				if rows := r.rows(); rows != nil {
-					t.Fatalf("rows: %+v", rows)
+				if !strings.Contains(out, "trial hidden-banner.t1: unjudged, host_failed\n") ||
+					!strings.Contains(out, "trial hidden-banner.t2: solved 1, first try 0, corrections 1, rounds 2\n") ||
+					!strings.Contains(out, ", host_failed 1;") {
+					t.Fatalf("output:\n%s", out)
 				}
-				want := 1
+				want := task.Outcome{Solved: true, Corrections: 1, Rounds: 2, AgentEvents: 4, PromptTokens: 2000, CachedTokens: 1200, OutputTokens: 100, WallMs: 2000}
+				if got := timeless(r.rows()); !reflect.DeepEqual(got, r.wantRows(2, want, "fake-model-1")) {
+					t.Fatalf("rows:\n%+v\nwant\n%+v", got, r.wantRows(2, want, "fake-model-1"))
+				}
+				// The first trial's chats: one, or two when the second round
+				// failed; then the second trial's two.
+				first := 1
 				if r.script.From == 2 {
-					want = 2
+					first = 2
 				}
-				if chats := len(r.calls()) - countMode(r.calls(), "version"); chats != want {
-					t.Fatalf("%d chats, want %d", chats, want)
+				if chats := len(r.calls()) - countMode(r.calls(), "version"); chats != first+2 {
+					t.Fatalf("%d chats, want %d", chats, first+2)
 				}
 			})
 		}
+	}
+}
+
+// A CLI that a signal ends after it printed a whole answer is not graded,
+// though the answer would be solved: under the ideal record the fake lays
+// the solution and answers in its first call, then is killed.
+func TestAnAnswerThenASignalIsNotGraded(t *testing.T) {
+	for _, h := range adapter.All() {
+		t.Run(string(h.ID), func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Host, r.opts.Condition = string(h.ID), task.Oracle
+			r.script.KilledAfter = true
+			s, out, err := r.run()
+			if err != nil || s.Judged != 0 || s.Unjudged[CodeHostFailed] != 1 || strings.Contains(out, "solved") {
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
+			}
+			if rows := r.rows(); rows != nil {
+				t.Fatalf("rows: %+v", rows)
+			}
+			// What the killed call printed is counted against the ceiling.
+			if s.Tokens != r.script.Prompt+r.script.Output || countMode(r.calls(), "start") != 1 {
+				t.Fatalf("tokens %d, calls %+v", s.Tokens, r.calls())
+			}
+			// Without the signal the same answer is solved.
+			r = newRig(t, 1)
+			r.opts.Host, r.opts.Condition = string(h.ID), task.Oracle
+			if s, out, err := r.run(); err != nil || s.Judged != 1 || !strings.Contains(out, "solved 1, first try 1") {
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
+			}
+		})
+	}
+}
+
+// A session that names no model is judged, whether or not --model was
+// given: its rows carry no model, and the run counts it. One that names
+// another model than the one asked for is other_model; one that names the
+// one asked for, or any when none was asked for, is judged with it.
+func TestASessionThatNamesNoModel(t *testing.T) {
+	for _, h := range adapter.All() {
+		for name, c := range map[string]struct {
+			asked   string
+			noModel bool
+			named   string // the model the fake names, when it names one
+			model   string // the rows' model; "" for none
+			code    string // the unjudged code, or "" for judged
+		}{
+			"none named, one asked":   {"made-up-model-7", true, "", "", ""},
+			"none named, none asked":  {"", true, "", "", ""},
+			"another named":           {"made-up-model-7", false, "made-up-model-8", "", CodeOtherModel},
+			"the one asked named":     {"made-up-model-7", false, "", "made-up-model-7", ""},
+			"one named, none asked":   {"", false, "made-up-model-8", "made-up-model-8", ""},
+			"the default, none asked": {"", false, "", "fake-model-1", ""},
+		} {
+			t.Run(string(h.ID)+"/"+name, func(t *testing.T) {
+				r := newRig(t, 1)
+				r.opts.Host, r.opts.Model = string(h.ID), c.asked
+				r.script.NoModel, r.script.Model = c.noModel, c.named
+				s, out, err := r.run()
+				if err != nil {
+					t.Fatalf("run: %v\n%s", err, out)
+				}
+				if c.code != "" {
+					if s.Judged != 0 || s.Unjudged[c.code] != 1 || s.NoModel != 0 || r.rows() != nil {
+						t.Fatalf("run: %+v\n%s", s, out)
+					}
+					return
+				}
+				noModel := 0
+				if c.model == "" {
+					noModel = 1
+				}
+				if s.Judged != 1 || len(s.Unjudged) != 0 || s.NoModel != noModel || !strings.Contains(out, "judged 1, no model "+strconv.Itoa(noModel)+",") {
+					t.Fatalf("run: %+v\n%s", s, out)
+				}
+				want := task.Outcome{Solved: true, Corrections: 1, Rounds: 2, AgentEvents: 4, PromptTokens: 2000, CachedTokens: 1200, OutputTokens: 100, WallMs: 2000}
+				if got := timeless(r.rows()); !reflect.DeepEqual(got, r.wantRows(1, want, c.model)) {
+					t.Fatalf("rows:\n%+v\nwant\n%+v", got, r.wantRows(1, want, c.model))
+				}
+			})
+		}
+	}
+}
+
+// A passed value that every row of the run would hold is refused before
+// any trial starts, so that no quota is spent on rows the store would
+// refuse: the model asked for, the host's id, a task's id, the commit and
+// the rows' own words. The fake records nothing.
+func TestAPassedValueTheRowsWouldHoldIsRefused(t *testing.T) {
+	for name, value := range map[string]func(r *rig) string{
+		"the model asked for": func(r *rig) string { return r.opts.Model },
+		"the host's id":       func(r *rig) string { return "Claude_Code" },
+		"a task's id":         func(r *rig) string { return fakehost.FixtureID },
+		"the commit":          func(r *rig) string { return r.commit()[4:16] },
+		"the instrument":      func(r *rig) string { return task.Instrument },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Model = "made-up-model-7"
+			t.Setenv("EVAL_MADE_UP_VALUE", value(r))
+			r.opts.PassEnv = append(r.opts.PassEnv, "EVAL_MADE_UP_VALUE")
+			s, out, err := r.run()
+			var usage *UsageError
+			if !errors.As(err, &usage) || !strings.Contains(err.Error(), "--pass-env EVAL_MADE_UP_VALUE holds a value the run's rows would hold") ||
+				strings.Contains(err.Error(), value(r)) || s.Run != "" {
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
+			}
+			if calls := r.calls(); len(calls) != 0 {
+				t.Fatalf("the fake ran: %+v", calls)
+			}
+			if _, err := os.Lstat(r.opts.Work); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal("the work folder was made")
+			}
+		})
 	}
 }
 

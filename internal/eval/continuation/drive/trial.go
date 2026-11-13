@@ -48,7 +48,7 @@ type trialResult struct {
 // trial runs the trial n of task t.
 func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trialResult, error) {
 	tr := Trial{Task: t, Condition: p.opts.Condition, Number: n, Host: p.host, Options: p.opts}
-	root := filepath.Join(p.work, run, t.ID, string(p.opts.Condition), "t"+strconv.Itoa(n))
+	root := trialRoot(p.work, run, t.ID, p.opts.Condition, n)
 	tr.Dirs = Dirs{Root: root, Home: filepath.Join(root, "home"), Tmp: filepath.Join(root, "tmp"),
 		Bin: filepath.Join(root, "bin"), Workspace: filepath.Join(root, "workspace"), Grade: filepath.Join(root, "grade")}
 	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
@@ -242,7 +242,10 @@ func (s *session) run(ctx context.Context) (string, error) {
 		switch {
 		case r.Fail != "":
 			return r.Fail, nil
-		case s.p.opts.Model != "" && r.Model != s.p.opts.Model:
+		case s.p.opts.Model != "" && r.Model != "" && r.Model != s.p.opts.Model:
+			// A session that names another model is no measure of the one
+			// asked for; one that names none is judged, and its rows carry
+			// no model.
 			return CodeOtherModel, nil
 		}
 		if idPattern.MatchString(r.Model) {
@@ -272,7 +275,7 @@ func (s *session) run(ctx context.Context) (string, error) {
 		if id == "" {
 			// The follow-up the card gives this trial cannot be sent to the
 			// same session: the trial is no measure of the condition.
-			return "", errors.New("the host named no session to continue")
+			return CodeHostFailed, nil
 		}
 		var failing []string
 		var facts []task.Fact
@@ -334,13 +337,15 @@ func followUp(failing []string, facts []task.Fact) string {
 // call runs one headless call of the chat in the workspace, within what
 // is left of the session's time limit, and reads its output. The time it
 // took is added to the outcome. A call ended by the limit gives
-// errTimeout. A call that gives no answer is an error, which stops the
-// run and writes no row for the trial: one killed by a signal, or one
-// whose output holds no answer (a failure of the host's service, an exit
-// that printed nothing, an output with no final event). Only a failure
-// the host names and the closed list has a code for leaves the trial
-// unjudged: sign-in and rate limit. A call that exits other than 0 with an
-// answer, as at the turn bound, is graded as it stands.
+// errTimeout. A call that gives no answer leaves the trial unjudged, and
+// its report says why in Fail: sign-in and rate limit when the host says
+// so, and CodeHostFailed for any other, a CLI a signal ended among them,
+// even one that had printed an answer, since its work may be cut short,
+// or an output that holds no answer (a failure of the host's service, an
+// exit that printed nothing, an output with no final event). The tokens
+// the output names are kept, for the ceiling. A call that exits other
+// than 0 with an answer, as at the turn bound, is graded as it stands. An
+// error is the driver's own failure to run the CLI, which stops the run.
 func (s *session) call(ctx context.Context, c chat) (report, error) {
 	left := s.p.opts.SessionTimeout - s.spent
 	if left <= 0 {
@@ -372,11 +377,12 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 	}
 	if exit != nil {
 		if ws, ok := exit.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			return report{}, errors.New("the host's CLI was ended by a signal")
+			r.Fail = CodeHostFailed
+			return r, nil
 		}
 	}
 	if !r.Answered {
-		return report{}, errors.New("the host's CLI gave no answer")
+		r.Fail = CodeHostFailed
 	}
 	return r, nil
 }
