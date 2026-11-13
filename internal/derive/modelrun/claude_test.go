@@ -475,12 +475,11 @@ func TestClaudeModels(t *testing.T) {
 	}
 }
 
-// Usage is chosen count by count: modelUsage's where its entries give that
-// count and every one can be read, else the larger of modelUsage's and
-// usage's, so a modelUsage whose counts can't be read never reports less
-// than usage does. In is the input and the cache writes, CachedIn the cache
-// reads; a count that is no count adds nothing, and usage is seen only when
-// some count was read.
+// Usage is chosen count by count: the larger of modelUsage's sum and
+// usage's reading, so no spend either reports comes out lower, and none as
+// zero. In is the input and the cache writes, CachedIn the cache reads; a
+// count that is no count adds nothing, and usage is seen only when some
+// count was read.
 func TestClaudeUsage(t *testing.T) {
 	for _, tc := range []struct {
 		name, members string
@@ -488,8 +487,24 @@ func TestClaudeUsage(t *testing.T) {
 		seen          bool
 	}{
 		{"usage", `"usage":{"input_tokens":7,"cache_creation_input_tokens":3,"cache_read_input_tokens":11,"output_tokens":5}`, Usage{In: 10, CachedIn: 11, Out: 5}, true},
-		{"model usage over two models", `"usage":{"input_tokens":1000},"modelUsage":{"claude-a":{"inputTokens":7,"cacheCreationInputTokens":3,"cacheReadInputTokens":11,"outputTokens":5},` +
+		// modelUsage adds up its models, and wins where its sum is the larger.
+		{"model usage over two models", `"usage":{"input_tokens":4,"cache_read_input_tokens":2,"output_tokens":3},` +
+			`"modelUsage":{"claude-a":{"inputTokens":7,"cacheCreationInputTokens":3,"cacheReadInputTokens":11,"outputTokens":5},` +
 			`"claude-b":{"inputTokens":1,"cacheCreationInputTokens":1,"cacheReadInputTokens":1,"outputTokens":1}}`, Usage{In: 12, CachedIn: 12, Out: 6}, true},
+		// usage wins where its reading is the larger, though modelUsage's
+		// counts can all be read: a spend the host reported is never lost.
+		{"usage larger than model usage", `"usage":{"input_tokens":1000},"modelUsage":{"claude-a":{"inputTokens":7,"cacheCreationInputTokens":3,"cacheReadInputTokens":11,"outputTokens":5},` +
+			`"claude-b":{"inputTokens":1,"cacheCreationInputTokens":1,"cacheReadInputTokens":1,"outputTokens":1}}`, Usage{In: 1000, CachedIn: 12, Out: 6}, true},
+		{"model usage of 0 beside usage", `"usage":{"input_tokens":1000,"output_tokens":50},"modelUsage":{"claude-a":{"inputTokens":0,"outputTokens":0}}`,
+			Usage{In: 1000, Out: 50}, true},
+		// In holds the cache writes: an entry that leaves them out doesn't
+		// drop the ones usage gives.
+		{"model usage without the cache writes", `"usage":{"input_tokens":5,"cache_creation_input_tokens":500},"modelUsage":{"claude-a":{"inputTokens":5}}`,
+			Usage{In: 505}, true},
+		// An entry that is no object adds nothing, beside one that can be
+		// read, and usage's larger reading stands.
+		{"model usage with an entry that is no object", `"usage":{"input_tokens":50,"output_tokens":4},"modelUsage":{"claude-a":{"inputTokens":2,"outputTokens":1},"claude-b":"x"}`,
+			Usage{In: 50, Out: 4}, true},
 		{"model usage alone", `"modelUsage":{"claude-a":{"inputTokens":7,"cacheCreationInputTokens":3,"cacheReadInputTokens":11,"outputTokens":5}}`,
 			Usage{In: 10, CachedIn: 11, Out: 5}, true},
 		{"an empty model usage", `"usage":{"input_tokens":4},"modelUsage":{}`, Usage{In: 4}, true},
@@ -502,9 +517,10 @@ func TestClaudeUsage(t *testing.T) {
 		// One entry can't be read: the larger reading, count by count.
 		{"model usage with one entry that can't be read", `"usage":{"input_tokens":7,"output_tokens":5},` +
 			`"modelUsage":{"claude-a":{"inputTokens":2,"outputTokens":9},"claude-b":{"inputTokens":"5","outputTokens":1}}`, Usage{In: 7, Out: 10}, true},
-		// A count modelUsage gives in full wins, the others are usage's.
+		// A count modelUsage leaves out is usage's, and one it gives lower
+		// than usage is usage's too.
 		{"model usage that gives only some counts", `"usage":{"input_tokens":7,"cache_read_input_tokens":11,"output_tokens":50},` +
-			`"modelUsage":{"claude-a":{"outputTokens":5}}`, Usage{In: 7, CachedIn: 11, Out: 5}, true},
+			`"modelUsage":{"claude-a":{"outputTokens":5}}`, Usage{In: 7, CachedIn: 11, Out: 50}, true},
 		{"counts that are none", `"usage":{"input_tokens":-5,"cache_read_input_tokens":"9","output_tokens":1.5}`, Usage{}, false},
 		{"neither can be read", `"usage":{"input_tokens":"7"},"modelUsage":{"claude-a":{"outputTokens":"5"}}`, Usage{}, false},
 		{"counts that are 0", `"usage":{"input_tokens":0,"output_tokens":0}`, Usage{}, true},
@@ -520,6 +536,19 @@ func TestClaudeUsage(t *testing.T) {
 			res := claudeRead(claudeEnvelopeWith(tc.members), exit{started: true})
 			if res.class != ClassOK || res.usage != tc.want || res.usageSeen != tc.seen {
 				t.Fatalf("result %+v, want usage %+v seen %v", res, tc.want, tc.seen)
+			}
+		})
+	}
+	// An odd envelope is host but keeps its usage, and modelUsage read in
+	// another letter case or given twice still never lowers what usage says.
+	for name, members := range map[string]string{
+		"model usage in another letter case": `"usage":{"input_tokens":50,"output_tokens":50},"ModelUsage":{"claude-a":{"inputTokens":10,"outputTokens":5}}`,
+		"model usage given twice":            `"usage":{"input_tokens":50,"output_tokens":50},"modelUsage":{"claude-a":{"inputTokens":10,"outputTokens":5}},"modelUsage":7`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := claudeRead(claudeEnvelopeWith(members), exit{started: true})
+			if want := (Usage{In: 50, Out: 50}); res.class != ClassHost || res.usage != want || !res.usageSeen {
+				t.Fatalf("result %+v, want host with usage %+v seen", res, want)
 			}
 		})
 	}

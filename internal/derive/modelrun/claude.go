@@ -426,11 +426,11 @@ func (env *claudeEnv) readModels(raw json.RawMessage) (spend claudeSpend) {
 
 // claudeSpend is one reading of what a run spent: a usage, or the entries of
 // a modelUsage added up. Each of In, CachedIn and Out, in that order, was
-// read when some object gave a plausible count for it, and is unread when
-// some object gave one that is none, or an entry was no object of counts.
+// read when some object gave a plausible count for it; one that is none,
+// and an entry that is no object of counts, add nothing.
 type claudeSpend struct {
-	u            Usage
-	read, unread [3]bool
+	u    Usage
+	read [3]bool
 }
 
 // The keys of In, CachedIn and Out in usage, and in a model's entry of
@@ -443,17 +443,12 @@ var (
 // add adds one object of counts to the reading.
 func (s *claudeSpend) add(c claudeCounts, keys [3][]string) {
 	if !c.ok {
-		s.unread = [3]bool{true, true, true}
 		return
 	}
 	sums := [3]*int64{&s.u.In, &s.u.CachedIn, &s.u.Out}
 	for i, names := range keys {
 		for _, name := range names {
-			switch n, given := c.n[name]; {
-			case !given:
-			case n < 0:
-				s.unread[i] = true
-			default:
+			if n, given := c.n[name]; given && n >= 0 {
 				*sums[i] = claudeAdd(*sums[i], n)
 				s.read[i] = true
 			}
@@ -466,30 +461,22 @@ func (s *claudeSpend) add(c claudeCounts, keys [3][]string) {
 func (s claudeSpend) larger(o claudeSpend) claudeSpend {
 	r := claudeSpend{u: claudeLarger(s.u, o.u)}
 	for i := range r.read {
-		r.read[i], r.unread[i] = s.read[i] || o.read[i], s.unread[i] || o.unread[i]
+		r.read[i] = s.read[i] || o.read[i]
 	}
 	return r
 }
 
-// claudeSpent chooses the run's usage, count by count. modelUsage covers
-// every model call of the run, usage the main loop only, so modelUsage's
-// count wins where its entries gave it and every one could be read;
-// otherwise the count is the larger of the two readings, so a modelUsage
-// whose counts can't be read never reports less than usage does. seen says
-// some count was read.
+// claudeSpent chooses the run's usage: the larger of modelUsage's sum and
+// usage's reading, count by count. modelUsage covers every model call of
+// the run and usage the main loop only, but an entry can leave a count out
+// (the cache writes In holds) or give one that can't be read, so the larger
+// is kept and no spend either reports comes out lower, or as zero. seen
+// says some count, a 0 included, was read from either.
 func claudeSpent(models, usage claudeSpend) (u Usage, seen bool) {
-	m := [3]int64{models.u.In, models.u.CachedIn, models.u.Out}
-	o := [3]int64{usage.u.In, usage.u.CachedIn, usage.u.Out}
-	var n [3]int64
-	for i := range n {
-		if models.read[i] && !models.unread[i] {
-			n[i] = m[i]
-		} else {
-			n[i] = max(m[i], o[i])
-		}
+	for i := range models.read {
 		seen = seen || models.read[i] || usage.read[i]
 	}
-	return Usage{In: n[0], CachedIn: n[1], Out: n[2]}, seen
+	return claudeLarger(models.u, usage.u), seen
 }
 
 // claudeAdd adds two counts, each at most claudeMaxCount, and caps the sum
