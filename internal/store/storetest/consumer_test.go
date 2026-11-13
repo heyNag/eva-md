@@ -361,3 +361,46 @@ func TestFilesAreCopies(t *testing.T) {
 		t.Error("changing what Files returned changed the fake")
 	}
 }
+
+// A lost store folder comes back from the last push, and a Reopen before
+// it is restored fails and leaves the fake closed.
+func TestALostStoreComesBackFromItsPush(t *testing.T) {
+	f := newFake(t)
+	first, err := f.Apply(createTxn(1, "the cache", "the cache stays local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Push(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Lose(); !errors.Is(err, storetest.ErrBusy) {
+		t.Fatalf("Lose on an open store gave %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Lose(); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Files()) != 0 || len(f.Items()) != 0 {
+		t.Fatal("a lost store still has files")
+	}
+	if err := f.Reopen(nil); !errors.Is(err, storetest.ErrLost) {
+		t.Fatalf("Reopen of a lost store gave %v", err)
+	}
+	if _, err := f.Apply(createTxn(3, "the parser", "the parser reads one line")); !errors.Is(err, storetest.ErrClosed) {
+		t.Errorf("Apply after a failed Reopen gave %v", err)
+	}
+	if err := f.Restore(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Reopen(nil); err != nil {
+		t.Fatal(err)
+	}
+	if items := f.Items(); len(items) != 1 || items[0].ID != first.Outcomes[0].ID {
+		t.Errorf("the restored store has %d items", len(items))
+	}
+	if res, err := f.Apply(createTxn(1, "the cache", "the cache stays local")); err != nil || res.Commit != first.Commit {
+		t.Errorf("the pushed pass again gave %+v, %v", res, err)
+	}
+}

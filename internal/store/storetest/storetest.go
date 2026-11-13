@@ -74,8 +74,10 @@ func New(now func() time.Time) (*Fake, error) {
 // Reopen closes the store and opens it again on its durable part, as a
 // process's death and restart would: an unfinished pass is undone and a
 // hand edit adopted. The fault, when not nil, is called at each step of
-// Apply; a nil fault opens it with none. When the open fails, the fake
-// stays closed and every call but Close returns the model's error.
+// Apply; a nil fault opens it with none. When the open fails, as on a
+// store folder that was lost and not restored, Reopen returns the model's
+// error and the fake stays closed: Apply, Plan and Coverage return
+// ErrClosed until a Reopen succeeds.
 func (f *Fake) Reopen(fault store.Fault) error {
 	if err := f.st.Close(); err != nil {
 		return err
