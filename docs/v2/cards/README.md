@@ -70,7 +70,7 @@ Rules every card carries, so they are said once here:
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: `paths` blocks for the cards whose words name no exact paths, and a ledger of what leaves the binary and when |
+| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: DV-13's `paths` block, once DV-12b is merged, and a ledger of what leaves the binary and when |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
 | [IF-01b](IF-01b.md) | The reader's fake | merged |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | merged; owed: the fake gains `ItemsCiting`, and keeps words and `Evidence`, once ST-05 puts them in the store's interface and the model |

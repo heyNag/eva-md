@@ -28,6 +28,13 @@ The audit's register, `docs/v2/findings.md`, names 291 must-keep invariants in 1
 
 The `## Must keep` section of every spec under `docs/spec/` except `store-format.md`. New spec files, and the matching lines of `docs/spec/INDEX.md`, `docs/design.md` and `docs/verification.md`, only as item 5 needs them. `internal/spec/mustkeep_test.go` (new).
 
+```paths
+docs/spec/**
+docs/design.md
+docs/verification.md
+internal/spec/mustkeep_test.go
+```
+
 ## Must not touch
 
 The words inside any `<!-- v1 ... -->` block. `## Since the split` sections. `docs/v2/findings.md`. `docs/spec/store-format.md`, `internal/ledger/SPEC.md`. Any other Go file. If a test looks wrong or missing, say so in the report and do not fix it here.
