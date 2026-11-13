@@ -516,7 +516,7 @@ var exampleSession = func() scenario.Session {
 		turn(16, event.AuthorTyped, event.KindPrompt, "yes"),
 		turn(20, event.AuthorTool, event.KindTool, "ran go test ./thumbs (exit 0)"),
 		turn(21, event.AuthorAgent, event.KindReply, "Tests pass. Should I cache thumbnails on disk for 2 days as well?"),
-		turn(22, event.AuthorTyped, event.KindPrompt, "hold off on that for now"),
+		turn(22, event.AuthorTyped, event.KindPrompt, "let us hold off on that one"),
 	}}
 }()
 
@@ -552,6 +552,6 @@ var exampleAnswer = map[Form]string{
 
 // exampleWrong is the negative example: a hold-off cited as a yes.
 var exampleWrong = map[Form]string{
-	FormQuotes:   `{"op":"item.add","id":null,"kind":"decision","text":"Thumbnails are cached on disk for 2 days.","admit":"decision","ev":[{"e":5,"q":"Should I cache thumbnails on disk for 2 days as well?","as":"proposal"},{"e":6,"q":"hold off on that for now","as":"assent"}]}`,
+	FormQuotes:   `{"op":"item.add","id":null,"kind":"decision","text":"Thumbnails are cached on disk for 2 days.","admit":"decision","ev":[{"e":5,"q":"Should I cache thumbnails on disk for 2 days as well?","as":"proposal"},{"e":6,"q":"let us hold off on that one","as":"assent"}]}`,
 	FormSegments: `{"op":"item.add","id":null,"kind":"decision","text":"Thumbnails are cached on disk for 2 days.","admit":"decision","ev":[{"e":5,"s":2,"as":"proposal"},{"e":6,"s":1,"as":"assent"}]}`,
 }
