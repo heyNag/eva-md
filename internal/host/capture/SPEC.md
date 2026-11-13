@@ -8,7 +8,7 @@ Nothing calls it yet: v1 and the binary are unchanged and no switch is needed. L
 
 `Decode(host, raw, env) (Decoded, error)` is pure: it reads no file, clock, environment or network and writes no log. `Env.Entrypoint` is Claude Code's `CLAUDE_CODE_ENTRYPOINT`, which the caller reads.
 
-It refuses a payload over 2 MiB (`MaxPayload`, v1's limit), and one that is not one JSON object with each key once and nothing after it, or whose fields it reads (`hook_event_name`, `session_id`, `turn_id`, `prompt_id`, `agent_id`, `prompt`, `source`, `last_assistant_message`, `compact_summary`) are not strings or null. Keys are matched exactly; a null is an absent field. A key that is one of those fields (or `error`, read on StopFailure) in another letter case is refused like a key twice: v1's reader takes it for the field, so whether the payload names an agent, say, would be in doubt.
+It refuses a payload over 2 MiB (`MaxPayload`, v1's limit), and one that is not one JSON object with each key once and nothing after it, or whose fields it reads (`hook_event_name`, `session_id`, `turn_id`, `prompt_id`, `agent_id`, `prompt`, `source`, `last_assistant_message`, `compact_summary`) are not strings or null. Keys are matched exactly; a null is an absent field. A key that is one of those fields (or `error`, read on StopFailure) in another letter case is refused like a key twice: v1's reader takes it for the field, so whether the payload names an agent, say, would be in doubt. An error carries none of the payload's text: it names a key only when the key is one of those fields, and a key in another case by the field it stands for, so the hook may record it.
 
 `Decoded` holds `Event`, `Session`, `TID` (`turn_id`, else `prompt_id`, as v1), `Agent` (`agent_id`), `Rule`, the word of the rule that decided, and `Events` in order. Each event has `TID`, `Agent` and `Src.Hook` set; `Seq`, `Turn` and `Src.Key` are the writer's, which also redacts. Every event passes `event.Validate` once given a seq and a key.
 
@@ -37,13 +37,15 @@ The rules are tried in this order; the first that holds decides.
 | 3 | an agent id | `subagent` | `agent_id` | v1's list (the hook's `synthetic`); on Codex from source: a subagent's hooks carry `agent_id`, a main thread's never (note-evaluation, question 6) |
 | 4 | a source on the list | the list's author | `source` | F-016, v1's list |
 | 4 | any other non-empty source | `unknown` | `source_unlisted` | F-016, v1's list |
-| 5 | `<realtime_delegation>` after white space | section 4 | `voice`, or `wrapper` out of form | F-141, F-142, F-143, F-145, F-146; from source |
+| 5 | Codex, `<realtime_delegation>` after white space | section 4 | `voice`, or `wrapper` out of form | F-141, F-142, F-143, F-145, F-146; from source |
 | 6 | a prefix on the list, after white space, in any case | the list's author | `prefix` | F-016, v1's list |
 | 7 | any other leading tag: `<` and a letter, after white space | `unknown` | `tag` | F-016, v1's list |
 | 8 | Claude Code, an entrypoint on the program list | `program` | `entrypoint_program` | F-079, v1's list |
 | 8 | Claude Code, an entrypoint on the interactive list | `typed` | `entrypoint_interactive` | F-079, v1's list; F-016's Claude Code half, waiting for the sitting |
 | 8 | Claude Code, any other entrypoint, or none | `unknown`, with its text | `entrypoint_unknown` | F-079, waiting for the sitting |
 | 9 | any other host | `unknown` | `no_evidence` | F-121 and F-122, waiting for the sitting |
+
+Rule 5 holds on Codex only: Codex's source writes the hand-over (F-141), and Claude Code writes none. On Claude Code the form is only the prompt's shape, which whoever wrote the prompt chose, a program under an SDK's entrypoint or a person pasting it, so a prompt that begins with the wrapper falls to rule 7 and is `unknown`, under any entrypoint: no line of it is `spoken`, and no part of it a front model's or a program's.
 
 So `typed` needs all of: Claude Code, a non-empty prompt that is no builtin command, no agent id, no source, no hand-over, no listed prefix and no leading tag, and an entrypoint on the interactive list. `claude-desktop-3p` and `local-agent`, which v1's `headless_test.go` also takes for a person's chat, stay `unknown` until LG-13b has F-079.
 
@@ -68,7 +70,7 @@ A test reads v1's lists in `internal/hook/hook.go` (`synthetic`, `builtinCommand
 
 ## 4. The voice hand-over
 
-`VoiceWrapper` is `<realtime_delegation>`, equal to `inboxv1.Wrapper`, which the capture audit counts. A prompt that begins with it after white space is in form when it is exactly what Codex's source writes (note-evaluation, "How Codex's voice mode hands work to the agent", from source at 0.167.0):
+`VoiceWrapper` is `<realtime_delegation>`, equal to `inboxv1.Wrapper`, which the capture audit counts. On Codex, a prompt that begins with it after white space is in form when it is exactly what Codex's source writes (note-evaluation, "How Codex's voice mode hands work to the agent", from source at 0.167.0):
 
 ```
 <realtime_delegation>
@@ -86,7 +88,9 @@ with only space, tab, CR and LF around it, the source line optional and only `tr
 | each transcript line in order, `user: ` | `spoken`, the line after its head | F-143, waiting for the sitting |
 | each transcript line in order, `assistant: ` | `front_model`, the line after its head | F-143, waiting for the sitting |
 | any other line | `unknown`, the whole line | F-143 |
-| a `user: ` line equal to the request, or, when the host cut the request, beginning with what is left of it | `unknown`, the whole line: the host adds the request as one | from source |
+| the request as the host adds it, `user: ` and the request, over every line it runs to when the request holds a line break: each place it begins a line and ends one | `unknown`, each whole line: the host adds the request as one user line when it is not there | from source |
+| when the host cut the request: from the last line that begins with `user: ` and what is left of it to the transcript's end | `unknown`, each whole line: how far the rest ran is not known | F-146, from source |
+| when the host cut the transcript and all of it may lie in the request it added (the request cut too, or the transcript's end the request's) | `unknown`, every line | F-146, from source |
 | the first line, when the transcript begins with the cut mark `…` | `unknown`, the whole line: the host's 4 KiB cut left it short | F-146, from source |
 | then the request | `front_model`; `host` under the source `transcript_tail_flush` | F-142, waiting for the sitting |
 | a request equal to the whole transcript | `unknown`: the host's stand-in for none | from source |
@@ -94,7 +98,11 @@ with only space, tab, CR and LF around it, the source line optional and only `tr
 
 Texts are unescaped once, so `&amp;lt;` is `&lt;`. Every part is a `prompt`, and every event carries the payload's turn id: a hand-over made while the agent works shares that turn's (F-145, from source). Any other form, or any other source value, is one `prompt` by `unknown`, its text the whole prompt, marked `wrapper`, under the rule `wrapper`. A hand-over never yields `typed`; a line yields `spoken` only from a `user: ` line of a hand-over in form. A pause phrase spoken is a `spoken` line like any other: what it does is LG-24's.
 
-Two limits of the form, both on the safe side or waiting for F-143. A line break inside an utterance makes the rest of it a line of its own, unknown unless it begins with a head; so a front model's reply that held a line beginning `user: ` would be read as spoken, which the form cannot tell apart and the sitting for F-143 settles. A cut that splits an escape, leaving a bare `&` before the cut mark, puts the hand-over out of form, so it is one unknown prompt.
+A field is cut only when the host's cut made it (F-146, from source at 0.167.0): the host escapes the field, and when that is over 4 KiB keeps 4 KiB less the mark's three bytes, at the start of the request and the end of the transcript, steps back or on to a character's start, and adds the mark. So a cut request ends with `…` and holds 4,093 to 4,096 bytes as written, and a cut transcript begins with `…` and holds as many. A shorter request whose own words end in `…` was not cut: only a line equal to it is the host's, and a person's line that begins like it stays `spoken`. Lengths are measured on the fields as written, before they are unescaped.
+
+Two limits of the form, both on the safe side or waiting for F-143. A line break inside an utterance makes the rest of it a line of its own, unknown unless it begins with a head; so a front model's reply that held a line beginning `user: ` would be read as spoken, which the form cannot tell apart and the sitting for F-143 settles. Until LG-13b's sitting for F-143 settles whether an utterance can hold a line break, no consumer may let a `spoken` line carry the person's authority; if one can, a `user: ` line that follows an `assistant: ` line is to be filed `unknown`, or decided by another rule. A cut that splits an escape, leaving a bare `&` before the cut mark, puts the hand-over out of form, so it is one unknown prompt.
+
+On Codex the form is still the hook's only evidence of a hand-over: a `codex exec` program or a person that types the form is decoded as a hand-over until LG-21 checks the record's turn trigger (`realtime`).
 
 Where the request in the voice versions read is the front model's wording (F-142), it never carries the person's authority (decision 29); were F-142 refuted, only its label would change.
 
