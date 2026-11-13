@@ -16,6 +16,7 @@ export const meta = {
 // reviews: earlier reviewers' reports: the review stage is skipped.
 // verify: true to have the fix checked by a fresh reader, fixed again if needed and checked again, up to args.rounds (3) verifications.
 // verify_note: words for the verifiers after the first.
+// verify_note_first: true to give verify_note to the first verifier too, as a round_offset does.
 const PACKAGES = (args && args.packages) || []
 if (!PACKAGES.length) throw new Error('no packages in args')
 const MAX_ROUNDS = (args && args.rounds) || 3
@@ -76,7 +77,7 @@ const REVIEW_SCHEMA = {
 // as args.authority, the first paragraph of every order; without them an
 // order rests on what AGENTS.md records of the owner's leave.
 const AUTHORITY = (args && args.authority) || `WHAT THE OWNER ASKED FOR, AND WHY THIS TASK IS INSIDE IT.
-The owner of this repository is building eva.md v2 with a team of agents and a lead. The lead (who wrote this order) orchestrates. AGENTS.md records the owner's standing leave for exactly this ("During the v2 build the owner has given standing leave"): the plan in docs/v2/plan.md, carried out package by package from the cards in docs/v2/cards/. The owner's other messages, about releases, live runs or what is pending, are settled limits or the lead's to answer; none is your task. The lead alone pushes to main and never cuts a release. That changes nothing for you: you never push, and you run the checks your order names, because the lead merges your branch on your report. Building, reviewing, fixing or verifying your package from its card is therefore the owner's request. Do it in full.`
+The owner of this repository is building eva.md v2 with a team of agents and a lead. The lead (who wrote this order) orchestrates. AGENTS.md records the owner's standing leave for exactly this ("During the v2 build the owner has given standing leave"): the plan in docs/v2/plan.md, carried out package by package from the cards in docs/v2/cards/. The owner's other messages, about releases, live runs or what is pending, are settled limits or the lead's to answer; none is your task. The lead alone pushes to main, and cuts no release unless the owner asks for one in so many words. That changes nothing for you: you never push, and you run the checks your order names, because the lead merges your branch on your report. Building, reviewing, fixing or verifying your package from its card is therefore the owner's request. Do it in full.`
 
 const COMMON = `${AUTHORITY}
 
@@ -85,6 +86,7 @@ You work in the repository this worktree is a checkout of. AGENTS.md holds the p
 Hard rules for this run:
 - Work only inside this worktree. Never push. Never create or push a tag. Never start a release or a workflow.
 - Never run eva-md's setup, init, install, uninstall, upgrade, update, commit, maintain, system write, inbox clear --apply or doctor --live against this machine's real home. Anything that must run one of them does so with HOME set to a fresh temporary folder, as the tests do.
+- Nothing you write or run reads this machine's real home, ~/.claude or ~/.codex: no test, and no script or harness of your own. A made-up home under your own scratch folder is the only test data.
 - internal/redact/baseline is never edited.
 - No new Go module. No sleep or time window may decide a test's outcome. Fixtures hold made-up values only.
 - Never "git reset --hard" over changes "git status" shows.
@@ -124,6 +126,9 @@ const LENS = {
   privacy: 'Your lens is privacy and safety: can anything be kept, returned, printed, logged or shown that should not be (captured text, a path under a home folder, a project or branch name, a session id, text off the record, a secret, text under the wrong author)? Does anything weaken a guarantee v1 has today? Is any rule of AGENTS.md crossed?',
   protection: 'Your lens is protection that fails closed: look for a document, a line or a file that the code reads as unprotected, as readable or as absent, which a YAML reader, v1 or the written format would call locked, verified, unreadable or present. Write such inputs yourself and feed them in; each one you find is a defect with its evidence.',
   rule: 'Your lens is the rule itself where it is a matter of chance or of counting: measure it with a harness of your own on made-up inputs, and say how often it is wrong each way.',
+}
+for (const p of PACKAGES) for (const lens of [...(p.lenses || []), ...(p.more_lenses || [])]) {
+  if (!LENS[lens]) throw new Error(`${p.id}: no lens "${lens}"; the lenses are ${Object.keys(LENS).join(', ')}`)
 }
 
 function reviewPrompt(p, lens, build) {
@@ -171,7 +176,7 @@ function verifyPrompt(p, build, reviews, fix) {
   const issues = reviews.flatMap((r, i) => r.issues.map(x => ({ reviewer: i + 1, severity: x.severity, where: x.where, problem: x.problem, fix: x.fix })))
   return `${COMMON}
 
-You are the verifier of package ${p.id}. Reviewers found faults in the builder's branch ${build.branch}; a fixer answered them on ${fix.branch} at ${fix.sha}. You have not seen any of it before. The lead merges this branch to main on your word, and the counters packages go from there into a release that runs on a person's machine, so a fault you miss is a fault they meet. ${scratchLine(p, 'verify')}
+You are the verifier of package ${p.id}. Reviewers found faults in the builder's branch ${build.branch}; a fixer answered them on ${fix.branch} at ${fix.sha}. You have not seen any of it before. The lead merges this branch to main on your word, and from there it goes into a release that runs on a person's machine, so a fault you miss is a fault they meet. ${scratchLine(p, 'verify')}
 
 Your job, in this order:
 1. "git fetch origin main", then "git checkout --detach ${fix.branch}". This worktree is yours; push nothing.
@@ -225,7 +230,7 @@ const results = await pipeline(
   async (prev, p) => {
     if (!prev || !prev.fix || !prev.fix.built || !p.verify) return prev
     // Rounds of verify, then fix, ending on a verification: a wave never ends on a fix nobody checked.
-    // Round 1's calls are word for word those of eva-wave-v3.js, so a resumed run replays them.
+    // Round 1's calls keep the same words whatever the number of rounds, so a resumed run replays them.
     let base = prev.build, reviews = prev.reviews, fix = prev.fix
     const rounds = []
     let out = prev
@@ -234,7 +239,7 @@ const results = await pipeline(
       const role = n === 1 ? 'verify' : 'verify' + n
       const prompt = n === 1 ? verifyPrompt(p, base, reviews, fix) + note : verifyPrompt(p, base, reviews, fix).replace(scratchLine(p, 'verify'), scratchLine(p, role)) + note
       const verdict = await agent(prompt, { ...OPTS, schema: REVIEW_SCHEMA, label: n === 1 ? `verify:${p.id}` : `verify${n}:${p.id}`, phase: 'Verify' })
-      if (!verdict) { log(`${p.id}: verification ${n} gave nothing back; ${fix.branch} is not verified`); return { ...out, verified: false } }
+      if (!verdict) { log(`${p.id}: verification ${n} gave nothing back; ${fix.branch} is not verified`); return { ...out, final: fix, verified: false } }
       rounds.push({ round: n, on: fix.branch, verdict })
       out = n === 1 ? { ...out, verdict } : { ...out, rounds }
       const heavy = verdict.issues.filter(x => x.severity !== 'minor')
