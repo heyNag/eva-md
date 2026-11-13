@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/heyNag/eva-md/internal/eval/continuation/drive"
 	"github.com/heyNag/eva-md/internal/eval/continuation/drive/fakehost"
 	"github.com/heyNag/eva-md/internal/eval/results"
 )
@@ -48,8 +48,16 @@ func newContRig(t *testing.T) contRig {
 	}
 	r.setScript(t, fakehost.Script{})
 	t.Setenv(fakehost.ScriptVar, r.script)
+	// The test's folders may be under /tmp, as they are when TMPDIR is: the
+	// temporary root --work may not overlap is one of the rig's own.
+	was := drive.TempFolders
+	drive.TempFolders = []string{r.tmpRoot()}
+	t.Cleanup(func() { drive.TempFolders = was })
 	return r
 }
+
+// tmpRoot is the temporary root the rig gives the driver.
+func (r contRig) tmpRoot() string { return filepath.Join(r.base, "made-up-tmp") }
 
 // setScript writes the fake's script, with the rig's record and task.
 func (r contRig) setScript(t *testing.T, s fakehost.Script) {
@@ -103,7 +111,7 @@ func TestContinuationRun(t *testing.T) {
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 	if len(lines) != 5 || lines[0] != "plan: condition off, host codex, tasks 1, trials 2 each, sessions 2; ceilings: sessions 2, tokens 100000" ||
 		lines[2] != "trial hidden-banner.t1: solved 1, first try 0, corrections 1, rounds 2" ||
-		!strings.HasSuffix(lines[4], ": planned 2, judged 2, not run 0, unjudged sign_in 0, rate_limited 0, timeout 0, other_model 0, setup_failed 0, update_failed 0; tokens 3720, rows 18") {
+		!strings.HasSuffix(lines[4], ": planned 2, judged 2, no model 0, not run 0, unjudged sign_in 0, rate_limited 0, timeout 0, other_model 0, setup_failed 0, update_failed 0, host_failed 0; tokens 3720, rows 18") {
 		t.Fatalf("output:\n%s", out)
 	}
 	if strings.Contains(out, secret) || strings.Contains(out, r.base) || strings.Contains(out, fakehost.FixtureColor) || strings.Contains(out, fakehost.FixtureRepo) {
@@ -143,7 +151,7 @@ func TestContinuationRunRefuses(t *testing.T) {
 	for _, args := range [][]string{
 		r.args("--spend-model-quota", "--max-sessions", "1"),
 		r.args("--spend-model-quota", "--condition", "eva"),
-		r.args("--spend-model-quota", "--work", "/tmp/evamd-continuation-"+strconv.Itoa(os.Getpid())),
+		r.args("--spend-model-quota", "--work", filepath.Join(r.tmpRoot(), "work")),
 		r.args("--spend-model-quota", "--pass-env", "A=B"),
 		r.args("--spend-model-quota", "--session-timeout", "0s"),
 		r.args("--spend-model-quota", "--made-up-flag"),
@@ -158,7 +166,7 @@ func TestContinuationRunRefuses(t *testing.T) {
 	if calls := r.calls(t); len(calls) != 0 {
 		t.Fatalf("the fake ran: %+v", calls)
 	}
-	for _, p := range []string{filepath.Join(r.base, "work"), filepath.Join(r.base, "out"), "/tmp/evamd-continuation-" + strconv.Itoa(os.Getpid())} {
+	for _, p := range []string{filepath.Join(r.base, "work"), filepath.Join(r.base, "out"), r.tmpRoot()} {
 		if _, err := os.Lstat(p); !os.IsNotExist(err) {
 			t.Fatalf("%s was made", p)
 		}
@@ -175,6 +183,28 @@ func TestContinuationRunUnjudged(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.base, "out")); !os.IsNotExist(err) {
 		t.Fatal("an unjudged run wrote rows")
+	}
+}
+
+// A call with no answer leaves its trial unjudged, host_failed, and the run
+// goes on: the next trial writes its rows, and the run exits 1. A session
+// that names no model is judged, and counted.
+func TestContinuationRunGoesOnPastAHostFailure(t *testing.T) {
+	r := newContRig(t)
+	r.setScript(t, fakehost.Script{Status: 529, Session: 1, NoModel: true})
+	code, out, errOut := cmd(r.args("--spend-model-quota", "--model", "made-up-model-3")...)
+	if code != 1 || errOut != "" || !strings.Contains(out, "trial hidden-banner.t1: unjudged, host_failed\n") ||
+		!strings.Contains(out, ": planned 2, judged 1, no model 1, not run 0, ") || !strings.Contains(out, ", host_failed 1; ") {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	rows, err := results.Load(filepath.Join(r.base, "out"))
+	if err != nil || len(rows) != 9 {
+		t.Fatalf("%d rows: %v", len(rows), err)
+	}
+	for _, row := range rows {
+		if row.Scenario != "hidden-banner.t2" || row.Model != "" {
+			t.Fatalf("row %+v", row)
+		}
 	}
 }
 

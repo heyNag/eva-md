@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -32,6 +33,10 @@ func run(m *testing.M) int {
 		return 1
 	}
 	defer os.RemoveAll(home)
+	if err := telemetryOff(home); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	for name, value := range map[string]string{
 		"HOME": home, "XDG_CONFIG_HOME": filepath.Join(home, ".config"), "XDG_CACHE_HOME": filepath.Join(home, ".cache"),
 		"GOENV": "off", "GOCACHE": cache,
@@ -54,4 +59,20 @@ func TestTheTestsHaveAHomeOfTheirOwn(t *testing.T) {
 	if want := "\n" + os.Getenv("GOCACHE") + "\n"; err != nil || string(out) != want {
 		t.Errorf("go env GOENV GOCACHE gives %q, %v, want %q", out, err, want)
 	}
+}
+
+// telemetryOff turns Go's telemetry off in home, where Go keeps its mode
+// (os.UserConfigDir's folder): a go command run with that home otherwise
+// leaves a process behind that writes into it after the command ends, while
+// the tests remove it.
+func telemetryOff(home string) error {
+	config := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		config = filepath.Join(home, "Library", "Application Support")
+	}
+	dir := filepath.Join(config, "go", "telemetry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "mode"), []byte("off\n"), 0o600)
 }
