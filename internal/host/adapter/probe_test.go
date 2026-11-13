@@ -264,19 +264,66 @@ func TestProbeEndsAtItsWaitDelay(t *testing.T) {
 	dir := realDir(t)
 	pidFile := filepath.Join(dir, "child.pid")
 	fakeCLI(t, dir, "codex", "sleep 3600 &\necho $! > '"+pidFile+"'\necho 'codex-cli 0.165.0'")
-	t.Cleanup(func() {
-		if data, err := os.ReadFile(pidFile); err == nil {
-			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-				_ = syscall.Kill(pid, syscall.SIGKILL)
-			}
-		}
-	})
+	t.Cleanup(func() { killSleep(pidFile, "sleep 3600") })
 	p := probeWithin(t, Codex, dir, limits{timeout: probeTimeout, waitDelay: 100 * time.Millisecond})
 	if p.Version != "" || p.Known || p.CLI != filepath.Join(dir, "codex") {
 		t.Fatalf("a probe whose CLI left its output open: %+v", p)
 	}
 	if _, err := os.Stat(pidFile); err != nil {
 		t.Fatalf("the CLI never started its child: %v", err)
+	}
+}
+
+// killSleep kills the process pidFile names, but only while ps still names
+// its command as want, so a pid that has ended and been taken by another
+// process is never killed. It reports whether it sent the kill.
+func killSleep(pidFile, want string) bool {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return false
+	}
+	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil || strings.TrimSpace(string(out)) != want {
+		return false
+	}
+	return syscall.Kill(pid, syscall.SIGKILL) == nil
+}
+
+// The cleanup of TestProbeEndsAtItsWaitDelay kills the sleep its pid file
+// names, and nothing when the file names another process: here the test's
+// own, which a kill would end, failing the run.
+func TestKillSleepKillsOnlyThatSleep(t *testing.T) {
+	dir := realDir(t)
+	pidFile := filepath.Join(dir, "child.pid")
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if killSleep(pidFile, "sleep 3600") {
+		t.Fatal("killed the process of the test, which is not the sleep")
+	}
+
+	sleep := exec.Command("sleep", "3600")
+	if err := sleep.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sleep.Process.Kill() })
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(sleep.Process.Pid)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if killSleep(pidFile, "sleep 60") {
+		t.Fatal("killed a sleep whose command is not the one asked for")
+	}
+	if !killSleep(pidFile, "sleep 3600") {
+		t.Fatal("did not kill the sleep the pid file names")
+	}
+	err := sleep.Wait()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.Sys().(syscall.WaitStatus).Signal() != syscall.SIGKILL {
+		t.Fatalf("the sleep ended with %v; want a kill", err)
 	}
 }
 

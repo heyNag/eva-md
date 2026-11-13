@@ -253,14 +253,21 @@ func folderName(base string) string {
 	return out
 }
 
-// exitError is a git call that ran and exited non-zero.
+// exitError is a git call that ran and exited non-zero, or that a signal
+// ended, which Go reports as code -1.
 type exitError struct {
 	code    int
 	arg     string
 	notRepo bool
+	state   string // with code -1, what ended git, as "signal: killed"
 }
 
-func (e *exitError) Error() string { return fmt.Sprintf("git %s exited with %d", e.arg, e.code) }
+func (e *exitError) Error() string {
+	if e.code == -1 {
+		return fmt.Sprintf("git %s ended by %s", e.arg, e.state)
+	}
+	return fmt.Sprintf("git %s exited with %d", e.arg, e.code)
+}
 
 // git runs one read-only git command in dir with fsmonitor and hooks off and
 // no optional locks, and returns its stdout without the final newline.
@@ -286,7 +293,12 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 		}
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
-			return "", &exitError{code: ee.ExitCode(), arg: args[0], notRepo: ee.ExitCode() == 128 && strings.HasPrefix(stderr.String(), "fatal: not a git repository")}
+			e := &exitError{code: ee.ExitCode(), arg: args[0], notRepo: ee.ExitCode() == 128 && strings.HasPrefix(stderr.String(), "fatal: not a git repository")}
+			if e.code == -1 {
+				// ProcessState names only the signal, never a path or output.
+				e.state = ee.ProcessState.String()
+			}
+			return "", e
 		}
 		return "", fmt.Errorf("git %s: %w", args[0], err)
 	}
