@@ -46,7 +46,8 @@ type report struct {
 	Model string
 	// Fail is a code of the closed list when the host said it could not
 	// answer for a reason that says nothing of the task: CodeSignIn or
-	// CodeRateLimited; "" otherwise.
+	// CodeRateLimited; "" otherwise. The driver sets CodeHostFailed itself
+	// on a call that gave no answer for any other reason.
 	Fail string
 	// Answered says the output holds the end of an answer: the host's
 	// final event of a call, and no failure. A call that gives no answer,

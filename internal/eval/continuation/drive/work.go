@@ -8,9 +8,12 @@ import (
 	"strings"
 )
 
-// tempFolders are the folders eva-md's hooks skip as temporary (tempPath,
-// internal/hook), so a chat run in one would capture nothing.
-var tempFolders = []string{"/tmp", "/var/tmp"}
+// TempFolders are the folders eva-md's hooks skip as temporary (tempPath,
+// internal/hook), so a chat run in one would capture nothing, and --work
+// may not overlap one. Only tests change it: one whose own folders are
+// under /tmp, as t.TempDir's are when TMPDIR is, gives roots of its own
+// making instead. eva-eval never changes it.
+var TempFolders = []string{"/tmp", "/var/tmp"}
 
 // checkWork returns --work made absolute with its links resolved, as far
 // as it exists, or a *UsageError when it is not absolute, or overlaps the
@@ -44,7 +47,7 @@ func checkWork(o Options) (string, error) {
 			return "", usagef("--work overlaps %s", f.name)
 		}
 	}
-	for _, t := range tempFolders {
+	for _, t := range TempFolders {
 		for _, dir := range []string{t, resolveOr(t)} {
 			if within(work, dir) || within(dir, work) {
 				return "", usagef("--work overlaps a temporary folder, whose chats eva-md's hooks skip")
