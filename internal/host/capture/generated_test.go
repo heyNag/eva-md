@@ -125,7 +125,9 @@ func (g gen) outOfForm() (string, truth) {
 	breaks := []func(string) string{
 		func(s string) string { return strings.Replace(s, "  <input>", " <input>", 1) },
 		func(s string) string { return s + " typed after" },
-		func(s string) string { return strings.Replace(s, "  <input>", "  <source>made_up</source>\n  <input>", 1) },
+		func(s string) string {
+			return strings.Replace(s, "  <input>", "  <source>made_up</source>\n  <input>", 1)
+		},
 		func(s string) string { return strings.Replace(s, "  <input>", "  <input>& ", 1) },
 		func(s string) string { return strings.Replace(s, "  <input>", "  <input>a<b ", 1) },
 		func(s string) string { return strings.Replace(s, voiceClose, "", 1) },
