@@ -71,3 +71,5 @@ For DV-11b and DV-11c, which build on this package unchanged:
 For whoever writes outcomes down, DV-22 first: `Outcome.CLI` is a path and may hold a person's name. It is left out wherever paths are not kept.
 
 One of the package's tests asks whether a folder can be entered, so it fails for root, who can enter any folder, and passes for the checks' own user, as about twenty of the project's tests do.
+
+Added by the lead on 2026-11-13, from DV-11c's reviews: two changes to `runner.go` are built in a short second round under this card's line. `settle` removes repeated models with a map, not a search for each. `object` refuses an answer that gives a key twice at any depth, read with the JSON reader's own limit of 10,000 levels, so no two readers can take two answers from one.

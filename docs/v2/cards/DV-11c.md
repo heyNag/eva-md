@@ -52,3 +52,24 @@ DV-11a's files (the rig is used unchanged; a gap in it goes in the report), DV-1
 ## Read first, added by the lead on 2026-11-13
 
 DV-11a's page, under "As merged", holds four rules for this package that its builder could not have known when this page was written. Read them before the code.
+
+## As merged
+
+Merged from `pkg/dv-11c-r1` on 2026-11-13, after two reviews, one fix round and a verification that accepted it. Both reviews found that reading `modelUsage` took time that grew with the square of its keys, after the CLI had exited, where no deadline stops it: the backend now keeps at most 64 names and calls more than that `host`. The second review found that an envelope can itself say the API ran a tool (the web search and fetch counts) and that the reader ignored it: those counts are tool signs now. `SPEC.md`, section 7, holds the backend's rules.
+
+Accepted as built, beyond the card:
+
+- **A denial printed before a timeout is a tool used**, as DV-11a's rule that a tool sign outranks a timeout asks.
+- **An envelope the reader finds odd is `host`** (a key given twice, a key it reads in another letter case, a field of another type), as for Codex. It still gives its tool signs, its usage and the models it names.
+- **`ModelAnswered` is chosen among every key of `modelUsage`**, and is empty when the key with the most output is no model name or a count cannot be read: a model that cannot be named is never hidden behind one that can.
+
+The lead's rulings of 2026-11-13:
+
+1. **Output the reader cannot read as one envelope gives no tool sign.** Two envelopes, an envelope after other text, a type the reader does not know: the run is `host`, never `ok`, and keeps no answer. A denial inside such output is not recorded as a tool used, since that would take a scan of text the reader could not parse, and a reader that could not read what the host printed vouches for nothing (DV-11b's ruling). Codex's scan is of lines it could read.
+2. **With no envelope and a failed exit, stdout that holds a brace is not read as error text.** The narrower rule a reviewer offered would read the inner lines of an envelope printed over several lines, and so let the model's own words name a failure. The cost is that a plain failure that quotes a JSON body is named from stderr alone.
+
+Owed, in a short second round on this card's two files, running since the merge: when `modelUsage` names an entry none of whose counts can be read, the usage beside it in `usage` is kept, not replaced by zero, since a spend reported as zero is the unsafe way for DV-13's budget; and a test each for the cap on a summed count and for text past 8 MiB never being read as error text.
+
+Owed on DV-11a's `runner.go`, in the same round under that card's line: `settle` removes repeated models by a search for each, which grows with the square of their number (out of reach while a backend keeps 64, but the core should not lean on that); and `object` takes an answer that gives a key twice, which two readers may read two ways.
+
+For DV-02's recordings: the server tool counts come from the host's published result types and are not yet a host fact; they are recorded and checked there. A tool call the host runs with permission stays unseen on Claude Code until the stream reader is built (F-113).

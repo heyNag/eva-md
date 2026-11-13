@@ -68,7 +68,7 @@ Rules every card carries, so they are said once here:
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
 | [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | merged |
 | [DV-11b](DV-11b.md) | The runner's Codex backend | merged, with a second round for the lead's ruling that a run with no known event is never `ok` |
-| [DV-11c](DV-11c.md) | The runner's Claude Code backend | building since 2026-11-13 |
+| [DV-11c](DV-11c.md) | The runner's Claude Code backend | merged; a short second round, on its files and on DV-11a's `runner.go`, builds what its notes owe |
 | [HO-13a](HO-13a.md) | The signed release manifest, and its check in Go | not before the Stage 0 readout (decision 9); open then: one approval of a cut or two, and whether the manifest's first format carries the day it was published |
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |

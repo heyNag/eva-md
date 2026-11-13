@@ -254,6 +254,7 @@ The third round's rule is the gate's from run 160, the push that merged it, and 
 
 | Run | Commit | Verdict |
 | --- | --- | --- |
+| 160 | 995bcc2 | not judged |
 
 ## What the counters cost
 
