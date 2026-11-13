@@ -126,8 +126,9 @@ type Outcome struct {
 	Class  Class
 	Answer []byte // one JSON object; nil unless Class is ok
 	// ModelAsked is the call's Model. ModelAnswered is the model the host
-	// says answered, and ModelsSeen every model it named, sorted; neither is
-	// ever filled from ModelAsked.
+	// says answered, and ModelsSeen every model it named, sorted, each once,
+	// at most maxModelsSeen of them and ModelAnswered always among them;
+	// neither is ever filled from ModelAsked.
 	ModelAsked    string
 	ModelAnswered string
 	ModelsSeen    []string
@@ -445,15 +446,10 @@ func settle(o Outcome, res result, t tally, allowed map[Signal]bool) Outcome {
 	if o.Class == ClassCLIMissing {
 		o.CLI, o.CLIVersion = "", ""
 	}
-	for _, m := range t.models {
-		if modelName.MatchString(m) && !slices.Contains(o.ModelsSeen, m) {
-			o.ModelsSeen = append(o.ModelsSeen, m)
-		}
-	}
-	slices.Sort(o.ModelsSeen)
 	if modelName.MatchString(res.answered) {
 		o.ModelAnswered = res.answered
 	}
+	o.ModelsSeen = seenModels(o.ModelAnswered, t.models)
 	for _, s := range t.signals {
 		if allowed[s] && !slices.Contains(o.Signals, s) {
 			o.Signals = append(o.Signals, s)
@@ -463,6 +459,41 @@ func settle(o Outcome, res result, t tally, allowed map[Signal]bool) Outcome {
 		o.Signals = append(o.Signals, SignalModelUnreported)
 	}
 	return o
+}
+
+// maxModelsSeen is the most models an Outcome keeps in ModelsSeen, whatever
+// a backend gave: a call's backends are not trusted to bound their own.
+const maxModelsSeen = 64
+
+// seenModels gives the models named, each once, of a model name's shape, at
+// most maxModelsSeen of them, sorted: answered, when it is one, then the
+// others in the order first given, so the model that answered is always
+// among them. A set of the names already checked, kept or not, makes a
+// repeat's check one lookup, so the work grows with the names given alone,
+// and it stops at the bound.
+func seenModels(answered string, named []string) []string {
+	var seen []string
+	checked := map[string]bool{}
+	keep := func(m string) {
+		if checked[m] {
+			return
+		}
+		checked[m] = true
+		if modelName.MatchString(m) {
+			seen = append(seen, m)
+		}
+	}
+	if answered != "" {
+		keep(answered)
+	}
+	for _, m := range named {
+		if len(seen) >= maxModelsSeen {
+			break
+		}
+		keep(m)
+	}
+	slices.Sort(seen)
+	return seen
 }
 
 // A model name never starts with a dash, so it can't be read as a flag.
@@ -522,14 +553,106 @@ func checkRunDir(dir string) error {
 }
 
 // object returns data without surrounding space when it is one JSON object,
-// in UTF-8 throughout: json.Valid takes invalid UTF-8 in a string, which a
-// decoder later replaces without a word.
+// in UTF-8 throughout, in which no object at any depth gives a key twice:
+// json.Valid takes invalid UTF-8 in a string, which a decoder later replaces
+// without a word, and a key given twice, of which one reader keeps the first
+// value and another the last, so two readers would take two answers from
+// one.
 func object(data []byte) ([]byte, bool) {
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 || data[0] != '{' || !utf8.Valid(data) || !json.Valid(data) {
 		return nil, false
 	}
+	if ok, _ := keysOnce(data); !ok {
+		return nil, false
+	}
 	return data, true
+}
+
+// maxAnswerDepth is encoding/json's own limit of nesting, to which
+// json.Valid holds an answer before keysOnce reads it, and keysOnce holds
+// itself.
+const maxAnswerDepth = 10000
+
+// keyWork is what keysOnce did: the tokens it read and the bytes its reader
+// took. Tests read it to show the work grows with the answer's size alone.
+type keyWork struct{ tokens, bytes int }
+
+// keysOnce reports whether no object in data, one JSON value, gives a key
+// twice. It reads data once, with encoding/json's token reader, and keeps a
+// set of keys for each object open on a stack of its own, at most
+// maxAnswerDepth deep: there is no recursion, so no depth of the answer can
+// exhaust the stack, and each key's check is one lookup in its object's
+// set, so the work and the memory are bounded by data's size. Keys are
+// compared as the reader decodes them, escapes undone, in their letter case.
+func keysOnce(data []byte) (bool, keyWork) {
+	src := &countingReader{r: bytes.NewReader(data)}
+	dec := json.NewDecoder(src)
+	// A number is kept as its text: no number, however large, is an error.
+	dec.UseNumber()
+	type open struct {
+		object bool
+		keys   map[string]struct{} // made at the object's first key
+		key    bool                // the object's next token is a key
+	}
+	var (
+		stack []open
+		w     keyWork
+	)
+	for {
+		tok, err := dec.Token()
+		w.bytes = src.n
+		if err == io.EOF {
+			return len(stack) == 0, w
+		}
+		if err != nil {
+			return false, w
+		}
+		w.tokens++
+		if tok == json.Delim('}') || tok == json.Delim(']') {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if n := len(stack); n > 0 && stack[n-1].object {
+			top := &stack[n-1]
+			if top.key {
+				k, ok := tok.(string)
+				if !ok {
+					return false, w
+				}
+				if _, twice := top.keys[k]; twice {
+					return false, w
+				}
+				if top.keys == nil {
+					top.keys = map[string]struct{}{}
+				}
+				top.keys[k] = struct{}{}
+				top.key = false
+				continue
+			}
+			// This token is the pair's value, or opens it: the object's
+			// next token, once the value is read, is a key.
+			top.key = true
+		}
+		if tok == json.Delim('{') || tok == json.Delim('[') {
+			if len(stack) >= maxAnswerDepth {
+				return false, w
+			}
+			stack = append(stack, open{object: tok == json.Delim('{'), key: true})
+		}
+	}
+}
+
+// countingReader counts the bytes read through it.
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
 }
 
 func isObject(data []byte) bool {
