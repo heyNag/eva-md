@@ -112,6 +112,13 @@ func (r *rig) run() (Summary, string, error) {
 	return s, out.String(), err
 }
 
+// fresh gives the rig's next run a results folder and a work folder of
+// their own, named for name, as a second attempt at the same trials takes.
+func (r *rig) fresh(name string) {
+	r.opts.Out = filepath.Join(r.base, "out-"+name)
+	r.opts.Work = filepath.Join(r.base, "work-"+name)
+}
+
 // calls reads the fake's record.
 func (r *rig) calls() []fakehost.Call {
 	r.t.Helper()

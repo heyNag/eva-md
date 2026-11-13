@@ -456,6 +456,7 @@ func TestMaxTokens(t *testing.T) {
 		t.Fatalf("%d sessions started", starts)
 	}
 	r.opts.MaxTokens = perTrial + 1
+	r.fresh("two")
 	if s, out, err = r.run(); err != nil || s.Judged != 2 || s.NotRun != 1 || !strings.Contains(out, "trial hidden-banner.t3 and the 0 after it: not run") {
 		t.Fatalf("run: %+v %v\n%s", s, err, out)
 	}
@@ -477,6 +478,7 @@ func TestCeilingsOnAHugePlan(t *testing.T) {
 	}
 	// Two tasks of math.MaxInt trials each: the count would wrap.
 	second(t, r)
+	r.fresh("two")
 	r.opts.Trials, r.opts.MaxSessions = math.MaxInt, 1
 	s, out, err = r.run()
 	var usage *UsageError
@@ -685,6 +687,7 @@ func TestPluginLaunch(t *testing.T) {
 				t.Fatalf("no plugin: %+v %v\n%s", s, err, out)
 			}
 			install = true
+			r.fresh("two")
 			if s, out, err = r.run(); err != nil || s.Judged != 1 {
 				t.Fatalf("run: %+v %v\n%s", s, err, out)
 			}

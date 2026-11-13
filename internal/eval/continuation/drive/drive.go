@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -459,7 +460,74 @@ func prepare(o Options) (*plan, error) {
 	for _, t := range p.tasks {
 		p.forbid = append(p.forbid, task.Forbid(t)...)
 	}
+	if err := p.checkOut(); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// checkOut refuses a results folder a chat could reach, inside --work or
+// holding it, and one that holds an earlier attempt at a trial of the run:
+// a row of the continuation instrument with the run's host and condition
+// and a scenario of one of its tasks, or a record of a run with the host
+// and condition that names one of its tasks. A second attempt would mix
+// its trials with the first's, so it takes a fresh --out. A rows or runs
+// file that cannot be read is refused too. It writes nothing.
+func (p *plan) checkOut() error {
+	out, err := resolve(p.opts.Out)
+	if err != nil {
+		return usagef("--out cannot be read")
+	}
+	if within(out, p.work) || within(p.work, out) {
+		return usagef("--out overlaps --work, where a chat could reach it")
+	}
+	if info, err := os.Lstat(out); err == nil && !info.IsDir() {
+		return usagef("--out is not a folder")
+	}
+	ids := map[string]bool{}
+	for _, t := range p.tasks {
+		ids[t.ID] = true
+	}
+	host, condition := string(p.host.ID), string(p.opts.Condition)
+	again := usagef("--out holds an earlier attempt at a trial of host %s, condition %s, and one of these tasks: a second attempt takes a fresh --out", host, condition)
+	if _, err := os.Lstat(filepath.Join(out, results.FileName)); !errors.Is(err, fs.ErrNotExist) {
+		rows, err := results.Load(filepath.Join(out, results.FileName))
+		if err != nil {
+			return usagef("--out's rows cannot be read")
+		}
+		for _, r := range rows {
+			parts := strings.Split(r.Metric, ".")
+			if r.Instrument == task.Instrument && r.Host == host && len(parts) > 2 && parts[2] == condition && ids[scenarioTask(r.Scenario)] {
+				return again
+			}
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(out, RunsFile)); !errors.Is(err, fs.ErrNotExist) {
+		records, err := LoadRuns(out)
+		if err != nil {
+			return usagef("--out's runs cannot be read")
+		}
+		for _, r := range records {
+			if r.Host == host && r.Condition == condition && slices.ContainsFunc(r.Tasks, func(id string) bool { return ids[id] }) {
+				return again
+			}
+		}
+	}
+	return nil
+}
+
+// scenarioTask is the task's id of a trial's scenario, <task>.t<n>, or ""
+// for a scenario of no such form.
+func scenarioTask(scenario string) string {
+	i := strings.LastIndex(scenario, ".t")
+	if i < 0 {
+		return ""
+	}
+	n := scenario[i+2:]
+	if n == "" || strings.Trim(n, "0123456789") != "" {
+		return ""
+	}
+	return scenario[:i]
 }
 
 // invokingHomes are the invoking home as given, cleaned, and then with
