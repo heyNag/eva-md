@@ -428,7 +428,9 @@ func TestCodexStreams(t *testing.T) {
 		{name: "a tool's fields on a message", stream: threadStarted +
 			`{"type":"item.completed","item":{"type":"agent_message","text":"x","command":"ls","exit_code":0,"aggregated_output":"a"}}` + "\n" + completed,
 			output: answer, class: ClassHost},
-		{name: "a tool's fields on a known event", stream: threadStarted + `{"type":"turn.started","tool":"shell","Command":"ls"}` + "\n" + message + completed,
+		{name: "a tool's fields on a known event", stream: threadStarted + `{"type":"turn.started","tool":"shell","arguments":"ls"}` + "\n" + message + completed,
+			output: answer, class: ClassHost},
+		{name: "a tool's field in another case", stream: threadStarted + `{"type":"turn.started","Command":"ls"}` + "\n" + message + completed,
 			output: answer, class: ClassHost},
 		{name: "a tool's field deep in usage", stream: threadStarted + `{"type":"turn.completed","usage":{"input_tokens":1,"x":[{"query":"q"}]}}` + "\n",
 			output: answer, class: ClassHost},
