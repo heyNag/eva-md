@@ -247,6 +247,9 @@ func TestClaudeEnvelopes(t *testing.T) {
 		// A capped envelope is no envelope.
 		{name: "past the cap", stdout: claudeEnvelopeWith(`"pad":"` + strings.Repeat("a", claudeMaxEnvelope) + `"`), class: ClassHost},
 		{name: "past the cap, a failed exit", stdout: claudeEnvelopeWith(`"pad":"` + strings.Repeat("a", claudeMaxEnvelope) + `"`), exit: 1, class: ClassHost},
+		// Plain text past the cap is no error text either: what was cut off
+		// may be the middle of an envelope's model text.
+		{name: "plain text past the cap, a failed exit", stdout: "Not logged in\n" + strings.Repeat("a", claudeMaxEnvelope), exit: 1, class: ClassHost},
 		// What lies past the cap is unread, so an envelope followed by more
 		// than the cap can't hide a second one, here with a denial.
 		{name: "an envelope, then past the cap another", stdout: claudeSuccess + strings.Repeat(" ", claudeMaxEnvelope) +
@@ -472,9 +475,12 @@ func TestClaudeModels(t *testing.T) {
 	}
 }
 
-// Usage comes from modelUsage where it names any model, else from usage: In
-// the input and the cache writes, CachedIn the cache reads; a count that is
-// no count is 0.
+// Usage is chosen count by count: modelUsage's where its entries give that
+// count and every one can be read, else the larger of modelUsage's and
+// usage's, so a modelUsage whose counts can't be read never reports less
+// than usage does. In is the input and the cache writes, CachedIn the cache
+// reads; a count that is no count adds nothing, and usage is seen only when
+// some count was read.
 func TestClaudeUsage(t *testing.T) {
 	for _, tc := range []struct {
 		name, members string
@@ -484,10 +490,31 @@ func TestClaudeUsage(t *testing.T) {
 		{"usage", `"usage":{"input_tokens":7,"cache_creation_input_tokens":3,"cache_read_input_tokens":11,"output_tokens":5}`, Usage{In: 10, CachedIn: 11, Out: 5}, true},
 		{"model usage over two models", `"usage":{"input_tokens":1000},"modelUsage":{"claude-a":{"inputTokens":7,"cacheCreationInputTokens":3,"cacheReadInputTokens":11,"outputTokens":5},` +
 			`"claude-b":{"inputTokens":1,"cacheCreationInputTokens":1,"cacheReadInputTokens":1,"outputTokens":1}}`, Usage{In: 12, CachedIn: 12, Out: 6}, true},
+		{"model usage alone", `"modelUsage":{"claude-a":{"inputTokens":7,"cacheCreationInputTokens":3,"cacheReadInputTokens":11,"outputTokens":5}}`,
+			Usage{In: 10, CachedIn: 11, Out: 5}, true},
 		{"an empty model usage", `"usage":{"input_tokens":4},"modelUsage":{}`, Usage{In: 4}, true},
-		{"counts that are none", `"usage":{"input_tokens":-5,"cache_read_input_tokens":"9","output_tokens":1.5}`, Usage{}, true},
+		// A modelUsage that names a model but gives no count that can be
+		// read never hides what usage says was spent.
+		{"model usage whose counts can't be read", `"usage":{"input_tokens":7,"cache_read_input_tokens":11,"output_tokens":5},` +
+			`"modelUsage":{"claude-a":{"inputTokens":"7","cacheReadInputTokens":-1,"outputTokens":null}}`, Usage{In: 7, CachedIn: 11, Out: 5}, true},
+		{"model usage whose entry is no object", `"usage":{"input_tokens":7,"output_tokens":5},"modelUsage":{"claude-a":7}`, Usage{In: 7, Out: 5}, true},
+		{"model usage with an empty entry", `"usage":{"input_tokens":7,"output_tokens":5},"modelUsage":{"claude-a":{}}`, Usage{In: 7, Out: 5}, true},
+		// One entry can't be read: the larger reading, count by count.
+		{"model usage with one entry that can't be read", `"usage":{"input_tokens":7,"output_tokens":5},` +
+			`"modelUsage":{"claude-a":{"inputTokens":2,"outputTokens":9},"claude-b":{"inputTokens":"5","outputTokens":1}}`, Usage{In: 7, Out: 10}, true},
+		// A count modelUsage gives in full wins, the others are usage's.
+		{"model usage that gives only some counts", `"usage":{"input_tokens":7,"cache_read_input_tokens":11,"output_tokens":50},` +
+			`"modelUsage":{"claude-a":{"outputTokens":5}}`, Usage{In: 7, CachedIn: 11, Out: 5}, true},
+		{"counts that are none", `"usage":{"input_tokens":-5,"cache_read_input_tokens":"9","output_tokens":1.5}`, Usage{}, false},
+		{"neither can be read", `"usage":{"input_tokens":"7"},"modelUsage":{"claude-a":{"outputTokens":"5"}}`, Usage{}, false},
+		{"counts that are 0", `"usage":{"input_tokens":0,"output_tokens":0}`, Usage{}, true},
 		{"usage that is no object", `"usage":[1,2]`, Usage{}, false},
 		{"no usage", "", Usage{}, false},
+		// Each sum is capped at the largest plausible count, per object and
+		// across entries.
+		{"sums past the plausible", `"usage":{"input_tokens":1e12,"cache_creation_input_tokens":1e12},` +
+			`"modelUsage":{"claude-a":{"cacheReadInputTokens":1e12,"outputTokens":1e12},"claude-b":{"cacheReadInputTokens":1e12,"outputTokens":1e12}}`,
+			Usage{In: claudeMaxCount, CachedIn: claudeMaxCount, Out: claudeMaxCount}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res := claudeRead(claudeEnvelopeWith(tc.members), exit{started: true})

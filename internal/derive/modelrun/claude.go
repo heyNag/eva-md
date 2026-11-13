@@ -303,33 +303,21 @@ func claudeEnvelope(out *capped) (env claudeEnv, found bool) {
 	// each read: every tool count, and the larger of what each says was
 	// spent, so an odd envelope still reports its spend.
 	env.keys = map[string]bool{}
-	var fromModels, fromUsage Usage
-	var modelsSeen, usageSeen bool
+	var fromModels, fromUsage claudeSpend
 	for _, f := range fields {
 		switch {
 		case strings.EqualFold(f.key, "modelUsage"):
-			if u, named := env.readModels(f.value); named {
-				fromModels, modelsSeen = claudeLarger(fromModels, u), true
-			}
+			fromModels = fromModels.larger(env.readModels(f.value))
 		case strings.EqualFold(f.key, "usage"):
 			c := claudeReadCounts(f.value)
 			env.serverTools = env.serverTools || c.tools
 			env.odd = env.odd || c.twice
-			if c.ok {
-				u := Usage{In: c.count("input_tokens") + c.count("cache_creation_input_tokens"),
-					CachedIn: c.count("cache_read_input_tokens"), Out: c.count("output_tokens")}
-				fromUsage, usageSeen = claudeLarger(fromUsage, u), true
-			}
+			var s claudeSpend
+			s.add(c, claudeUsageKeys)
+			fromUsage = fromUsage.larger(s)
 		}
 	}
-	// modelUsage covers every model call of the run, usage the main loop
-	// only, so modelUsage wins where it names any model.
-	switch {
-	case modelsSeen:
-		env.usage, env.usageSeen = fromModels, true
-	case usageSeen:
-		env.usage, env.usageSeen = fromUsage, true
-	}
+	env.usage, env.usageSeen = claudeSpent(fromModels, fromUsage)
 	if env.tooMany {
 		// Odd, so no model is said to have answered.
 		env.odd, env.unnamed = true, true
@@ -388,26 +376,24 @@ func claudeDenied(raw json.RawMessage) bool {
 // claudeMaxModels of them across the envelope, and the one with the most
 // output tokens, the first by name on a tie, as v1's claudeModel chooses,
 // but among every name it gives: when that one's name can't be kept, or any
-// output count can't be read, the answering model is unknown. It gives the
-// usage the entries add up to, and whether it named anything; every entry is
-// read for its usage and its tool counts, past the bound too.
-func (env *claudeEnv) readModels(raw json.RawMessage) (u Usage, named bool) {
+// output count can't be read, the answering model is unknown. It gives what
+// the entries add up to; every entry is read for its usage and its tool
+// counts, past the bound too.
+func (env *claudeEnv) readModels(raw json.RawMessage) (spend claudeSpend) {
 	if raw == nil || string(raw) == "null" {
-		return u, false
+		return spend
 	}
 	fields, ok := claudeFields(raw)
 	if !ok {
 		env.unnamed = true
-		return u, false
+		return spend
 	}
 	best, most, unread := "", int64(-1), false
 	for _, f := range fields {
 		c := claudeReadCounts(f.value)
 		env.serverTools = env.serverTools || c.tools
 		env.odd = env.odd || c.twice
-		u.In += c.count("inputTokens") + c.count("cacheCreationInputTokens")
-		u.CachedIn += c.count("cacheReadInputTokens")
-		u.Out += c.count("outputTokens")
+		spend.add(c, claudeModelKeys)
 		if env.tooMany {
 			continue
 		}
@@ -435,10 +421,81 @@ func (env *claudeEnv) readModels(raw json.RawMessage) (u Usage, named bool) {
 	} else if modelName.MatchString(best) {
 		env.answered = best
 	}
-	// Usage is capped per entry by claudeCount and per sum here, so no sum
-	// overflows however many entries there are.
-	u = Usage{In: min(u.In, claudeMaxCount), CachedIn: min(u.CachedIn, claudeMaxCount), Out: min(u.Out, claudeMaxCount)}
-	return u, len(fields) > 0
+	return spend
+}
+
+// claudeSpend is one reading of what a run spent: a usage, or the entries of
+// a modelUsage added up. Each of In, CachedIn and Out, in that order, was
+// read when some object gave a plausible count for it, and is unread when
+// some object gave one that is none, or an entry was no object of counts.
+type claudeSpend struct {
+	u            Usage
+	read, unread [3]bool
+}
+
+// The keys of In, CachedIn and Out in usage, and in a model's entry of
+// modelUsage. In holds the cache writes, as DV-13's uncached input does.
+var (
+	claudeUsageKeys = [3][]string{{"input_tokens", "cache_creation_input_tokens"}, {"cache_read_input_tokens"}, {"output_tokens"}}
+	claudeModelKeys = [3][]string{{"inputTokens", "cacheCreationInputTokens"}, {"cacheReadInputTokens"}, {"outputTokens"}}
+)
+
+// add adds one object of counts to the reading.
+func (s *claudeSpend) add(c claudeCounts, keys [3][]string) {
+	if !c.ok {
+		s.unread = [3]bool{true, true, true}
+		return
+	}
+	sums := [3]*int64{&s.u.In, &s.u.CachedIn, &s.u.Out}
+	for i, names := range keys {
+		for _, name := range names {
+			switch n, given := c.n[name]; {
+			case !given:
+			case n < 0:
+				s.unread[i] = true
+			default:
+				*sums[i] = claudeAdd(*sums[i], n)
+				s.read[i] = true
+			}
+		}
+	}
+}
+
+// larger is the larger of two readings of the same spend, count by count,
+// as for a usage or a modelUsage given twice.
+func (s claudeSpend) larger(o claudeSpend) claudeSpend {
+	r := claudeSpend{u: claudeLarger(s.u, o.u)}
+	for i := range r.read {
+		r.read[i], r.unread[i] = s.read[i] || o.read[i], s.unread[i] || o.unread[i]
+	}
+	return r
+}
+
+// claudeSpent chooses the run's usage, count by count. modelUsage covers
+// every model call of the run, usage the main loop only, so modelUsage's
+// count wins where its entries gave it and every one could be read;
+// otherwise the count is the larger of the two readings, so a modelUsage
+// whose counts can't be read never reports less than usage does. seen says
+// some count was read.
+func claudeSpent(models, usage claudeSpend) (u Usage, seen bool) {
+	m := [3]int64{models.u.In, models.u.CachedIn, models.u.Out}
+	o := [3]int64{usage.u.In, usage.u.CachedIn, usage.u.Out}
+	var n [3]int64
+	for i := range n {
+		if models.read[i] && !models.unread[i] {
+			n[i] = m[i]
+		} else {
+			n[i] = max(m[i], o[i])
+		}
+		seen = seen || models.read[i] || usage.read[i]
+	}
+	return Usage{In: n[0], CachedIn: n[1], Out: n[2]}, seen
+}
+
+// claudeAdd adds two counts, each at most claudeMaxCount, and caps the sum
+// there, so no sum overflows however many entries there are.
+func claudeAdd(a, b int64) int64 {
+	return min(a+b, claudeMaxCount)
 }
 
 // claudeCounts is one object of counts: usage, or a model's entry in
@@ -448,11 +505,6 @@ type claudeCounts struct {
 	n     map[string]int64 // each count, -1 for one that is no plausible count, the larger for a key given twice
 	twice bool             // a key given twice
 	tools bool             // a count of tools the API ran, other than none
-}
-
-// count is a count, 0 when it is absent or no plausible count.
-func (c claudeCounts) count(key string) int64 {
-	return max(c.n[key], 0)
 }
 
 // claudeReadCounts reads an object of counts, and gives one that is not ok
