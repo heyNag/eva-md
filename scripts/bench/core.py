@@ -751,15 +751,51 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
             "not_compared": skipped, "metrics": metrics}
 
 
+def samples_by_run(gate):
+    """A gate.json's samples, each role's by run, in its runs' order. The
+    first rule's gate.json kept each role's samples pooled: they are split
+    into its runs by the sample counts each run's report gives
+    ("<figure>_samples")."""
+    by_role = {}
+    for role, value in gate["samples"].items():
+        if isinstance(value, list):
+            by_role[role] = [dict(run) for run in value]
+            continue
+        cut, runs = {name: 0 for name in value}, []
+        for entry in gate["runs"]:
+            if entry["binary"] != role:
+                continue
+            run = {}
+            for name, values in value.items():
+                n = entry["report"].get(name+"_samples") or 0
+                if n:
+                    run[name] = values[cut[name]:cut[name]+n]
+                cut[name] += n
+            runs.append(run)
+        if any(cut[name] != len(values) for name, values in value.items()):
+            raise ValueError("the samples of %s do not add up to its runs' counts" % role)
+        by_role[role] = runs
+    return by_role
+
+
+def ceilings_of(gate):
+    """A gate.json's ceilings: the first rule's kept them only in its
+    decision's metrics."""
+    if "ceilings" in gate:
+        return gate["ceilings"]
+    return {name: m["ceiling_ms"] for name, m in gate["decision"]["metrics"].items()}
+
+
 def redecide(gate):
     """The verdict worked out again by this rule from a gate.json: its
     samples by run, its ceilings, its scenarios' failures and the scenario
     that gave each figure. One this rule wrote (its decision's "rule" is
     RULE) is worked out by the parameters it recorded, so exactly to the
-    verdict it printed; an earlier rule's, by this rule's own."""
+    verdict it printed; an earlier rule's, by this rule's own, the first
+    rule's too, whose samples samples_by_run splits into runs."""
     d = gate["decision"]
     if d.get("rule") != RULE:
-        return decide(gate["samples"], gate["ceilings"], gate["scenario_failures"], gate["rounds"],
+        return decide(samples_by_run(gate), ceilings_of(gate), gate.get("scenario_failures"), gate["rounds"],
                       sources=gate.get("figure_scenarios"))
     return decide(gate["samples"], gate["ceilings"], gate["scenario_failures"], gate["rounds"], d["threshold"],
                   d["seed"], d["draws"], d["whole"], d["noise_quantile"], d["noisy_figures"], gate.get("figure_scenarios"),

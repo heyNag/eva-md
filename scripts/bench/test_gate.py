@@ -522,6 +522,22 @@ CEILINGS3 = {"capture": 100, "prompt": 100, "startup": 600, "session_end": 400, 
              "process": None}
 
 
+def tailed3(rise, off, seed=0, tails=(("old", 1), ("new_again", 2))):
+    """capture at three rounds, 5% spread, the new binary rise times as
+    slow, with one round (both binaries' third runs of their first role)
+    off times as slow, and a long tail (40 of 100 samples 2.5 times as
+    slow) in the runs tails names, by default one of old and one of
+    new_again: its p95 is too noisy to judge, its median is not."""
+    old, new = [1.0]*6, [rise]*6
+    old[2] *= off
+    new[2] *= off
+    out = runs3("capture", {"old": tuple(old), "new": tuple(new)}, spread=0.05, seed=seed)
+    for role, k in tails:
+        run = out[role][k]["capture"]
+        run[:40] = [v*2.5 for v in run[:40]]
+    return out
+
+
 class ThreeRounds(unittest.TestCase):
     """The rule at the default rounds, three: each binary runs six times."""
 
@@ -640,6 +656,94 @@ class ThreeRounds(unittest.TestCase):
         self.assertFalse(any("median" in f for f in d["failures"]), d["failures"])
         self.assertEqual(d["median_threshold"], core.MEDIAN_THRESHOLD+0.01)
 
+    def test_a_median_above_its_threshold_but_not_its_noise_is_unsettled(self):
+        # capture's p95 is too noisy (tailed3), so it is judged on its
+        # median alone; one round of both binaries is 15% slower, which only
+        # the controls see, so the median's noise is above 1. A rise of 1.2
+        # puts the median's lower bound above 1.15 but not above 1.15 times
+        # that noise: unsettled, so the gate is not judged, neither failed
+        # nor passed.
+        d = core.decide(tailed3(1.2, 1.15), {"capture": None})
+        m = d["metrics"]["capture"]
+        self.assertEqual((m["judged_on"], d["too_noisy"], d["too_noisy_to_judge"], d["machine_too_noisy"]),
+                         (["median"], ["capture"], [], False))
+        self.assertTrue(1.0 < m["median_noise"] and core.MEDIAN_THRESHOLD < m["median_ratio_low"] <= core.MEDIAN_THRESHOLD*m["median_noise"], m)
+        self.assertEqual((d["verdict"], d["failures"], m["reasons"]), ("not judged", [], []))
+        self.assertEqual(m["unsettled"], ["median ratio's lower bound %.3f is above 1.15, but not above 1.15 times the controls' %.3f" % (
+            m["median_ratio_low"], m["median_noise"])])
+        self.assertEqual(d["unsettled"], ["capture: " + m["unsettled"][0]])
+        # The same samples with the median's noise at 1 (the quantile 0,
+        # the smallest bound, which is below 1): the same bound fails.
+        d = core.decide(tailed3(1.2, 1.15), {"capture": None}, quantile=0)
+        self.assertEqual((d["metrics"]["capture"]["median_noise"], d["metrics"]["capture"]["median_ratio_low"]), (1.0, m["median_ratio_low"]))
+        self.assertEqual(d["verdict"], "fail")
+        self.assertTrue(any(f.startswith("capture: median ratio's lower bound") for f in d["failures"]), d["failures"])
+        # And without the round's load, where the median's noise is about
+        # 1, the rise fails by the median.
+        d = core.decide(tailed3(1.2, 1.0), {"capture": None})
+        self.assertEqual((d["verdict"], d["metrics"]["capture"]["judged_on"]), ("fail", ["median"]))
+
+    def test_the_unsettled_band_starts_just_above_the_threshold(self):
+        # judge's edges, exactly: a bound at the threshold settles nothing;
+        # just above it, with noise above 1, it is unsettled; above the
+        # threshold times the noise, it fails.
+        for what in ("p95", "median"):
+            self.assertEqual(core.judge(1.15, 1.1, 1.15, what), ([], []))
+            fails, unsettled = core.judge(1.1501, 1.1, 1.15, what)
+            self.assertEqual((fails, len(unsettled)), ([], 1))
+            self.assertTrue(unsettled[0].startswith("%s ratio's lower bound 1.150 is above 1.15, but not above" % what), unsettled)
+            self.assertEqual(core.judge(1.15*1.1, 1.1, 1.15, what), ([], ["%s ratio's lower bound 1.265 is above 1.15, but not above "
+                                                                          "1.15 times the controls' 1.100" % what]))
+            fails, unsettled = core.judge(1.2651, 1.1, 1.15, what)
+            self.assertEqual((len(fails), unsettled), (1, []))
+            fails, unsettled = core.judge(1.1501, 1.0, 1.15, what)
+            self.assertEqual((len(fails), unsettled), (1, []))
+        # In decide: a median bound just above 1.15, under 1.01 times it,
+        # and a noise above 1.01: unsettled.
+        d = core.decide(tailed3(1.18, 1.1), {"capture": None})
+        m = d["metrics"]["capture"]
+        self.assertTrue(core.MEDIAN_THRESHOLD < m["median_ratio_low"] < 1.01*core.MEDIAN_THRESHOLD < core.MEDIAN_THRESHOLD*m["median_noise"], m)
+        self.assertEqual((d["verdict"], m["judged_on"], len(m["unsettled"])), ("not judged", ["median"], 1))
+
+    def test_a_ceiling_is_not_read_when_the_p95_is_too_noisy(self):
+        # capture's p95 is too noisy, and the new binary's p95 is past a
+        # ceiling the old one's is not (the tail is in two of its runs and
+        # one of the old one's): the ceiling goes with the p95, so the
+        # figure is judged on its median alone, and passes.
+        s = tailed3(1.1, 1.0, tails=(("old", 1), ("new", 0), ("new_again", 2)))
+        d = core.decide(s, {"capture": None})
+        m = d["metrics"]["capture"]
+        self.assertEqual((d["verdict"], m["judged_on"]), ("pass", ["median"]))
+        ceiling = round((m["p95_base_ms"]+m["p95_low_ms"])/2, 1)
+        self.assertTrue(m["p95_base_ms"] < ceiling < m["p95_low_ms"], m)
+        d = core.decide(s, {"capture": ceiling})
+        self.assertEqual((d["verdict"], d["failures"], d["metrics"]["capture"]["reasons"]), ("pass", [], []))
+        # With the p95 judged (a noise quantile that leaves it at most 1.15,
+        # here the smallest bound), the same ceiling fails it.
+        d = core.decide(s, {"capture": ceiling}, quantile=0)
+        self.assertEqual(d["verdict"], "fail")
+        self.assertIn("passed the ceiling of %g ms" % ceiling, " ".join(d["failures"]))
+
+    def test_a_median_noise_at_the_threshold_is_still_judged(self):
+        # At two rounds, with every sample of a run one value: the first
+        # roles' runs of each binary at 12.5 and the rest at 10. The split
+        # of the first roles against the again roles, and those with three
+        # slow runs on a side, put the medians 1.25 apart, exactly (12.5/10
+        # and 1/(10/12.5)), and none further; the threshold is given as
+        # 1.25, which has an exact binary fraction. A noise of 1.25 is
+        # judged; 1.26 is not. (The p95's controls put the slow runs on
+        # one side only in the split of whole roles, so its noise is the
+        # third largest of the rest, and it is judged in both.)
+        def parts(slow):
+            return {role: [{"capture": [float(v)]*100} for v in ((slow, slow) if role in ("old", "new") else (10, 10))]
+                    for role in core.ROLES}
+        d = decide(parts(12.5), {"capture": None}, threshold=1.25, median_threshold=1.25)
+        m = d["metrics"]["capture"]
+        self.assertEqual((m["median_noise"], m["judged_on"], d["failures"], m["unsettled"]), (1.25, ["p95", "median"], [], []))
+        d = decide(parts(12.6), {"capture": None}, threshold=1.25, median_threshold=1.25)
+        m = d["metrics"]["capture"]
+        self.assertEqual((m["median_noise"], m["judged_on"], d["too_noisy_to_judge"]), (1.26, ["p95"], []))
+
     def test_the_record_keeps_the_bounds_the_verdict_read(self):
         d = core.decide(figures3({"new": (1.3,)*6}, only="capture"), CEILINGS3)
         m = d["metrics"]["capture"]
@@ -648,6 +752,17 @@ class ThreeRounds(unittest.TestCase):
         self.assertGreater(m["median_ratio_low"], core.MEDIAN_THRESHOLD*m["median_noise"])
         self.assertTrue(1.2 < m["median_ms"]/m["median_base_ms"] < 1.4, m)
         self.assertEqual(d["rule"], 3)
+        # Each is the one the verdict read: the median's bound is the
+        # median's, not the p95's, and the medians are the samples'.
+        runs = core.by_run(figures3({"new": (1.3,)*6}, only="capture"), 3)
+        o = [v for r in runs["old"] for v in r["capture"]]
+        n = [v for r in runs["new"] for v in r["capture"]]
+        self.assertEqual(m["median_ratio_low"], round(core.ratio_low(o, n, q=core.MEDIAN), 3))
+        self.assertEqual(m["ratio_low"], round(core.ratio_low(o, n), 3))
+        self.assertNotEqual(m["median_ratio_low"], m["ratio_low"])
+        self.assertEqual((m["median_base_ms"], m["median_ms"]), (round(core.nearest_rank(o, 0.5), 3), round(core.nearest_rank(n, 0.5), 3)))
+        self.assertEqual((m["p95_base_ms"], m["p95_ms"]), (round(core.nearest_rank(o), 3), round(core.nearest_rank(n), 3)))
+        self.assertNotEqual(core.nearest_rank(o, 0.5), core.nearest_rank(o, 0.6))
 
     def test_an_earlier_rules_gate_is_worked_out_by_this_rule(self):
         # A gate.json the second rule wrote has no "rule", and its quick
@@ -657,6 +772,19 @@ class ThreeRounds(unittest.TestCase):
                "decision": {"verdict": "not judged", "threshold": 1.15, "seed": core.SEED, "draws": 40, "whole": 300,
                             "noise_quantile": 0.5, "noisy_figures": 9, "quick": 1.5}}
         self.assertEqual(core.redecide(old), core.decide(s, {"capture": None}, {}, 2))
+        # The first rule's kept each role's samples pooled, and its
+        # ceilings only in its decision's metrics: its runs' reports give
+        # each run's count, which split them into runs again.
+        first = {"samples": {role: {"capture": [v for run in runs for v in run["capture"]]} for role, runs in s.items()},
+                 "runs": [{"round": r, "binary": role, "report": {"capture_samples": 100}} for r, role in core.schedule(2)],
+                 "scenario_failures": {}, "rounds": 2,
+                 "decision": {"verdict": "not judged", "metrics": {"capture": {"ceiling_ms": 100}}}}
+        self.assertEqual(core.samples_by_run(first), s)
+        self.assertEqual(core.ceilings_of(first), {"capture": 100})
+        self.assertEqual(core.redecide(first), core.decide(s, {"capture": 100}, {}, 2))
+        first["runs"][0]["report"]["capture_samples"] = 99
+        with self.assertRaisesRegex(ValueError, "the samples of old do not add up to its runs' counts"):
+            core.redecide(first)
         # One this rule wrote is worked out by what it recorded.
         d = core.decide(s, {"capture": None}, {}, 2, quick=1.5, median_threshold=1.05)
         again = core.redecide(dict(old, decision=d))
@@ -964,14 +1092,13 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["verdict"], d["failures"]), ("pass", []))
 
     def test_a_ceiling_is_passed_whatever_the_noise_below_the_threshold(self):
-        # The new binary's runs differ by 7%, so its noise is about 1.07
-        # (and less than QUICK lies between its runs): the rise is too
-        # small for the ratio, of the p95 or the median, but every run is
-        # past the ceiling.
-        d = decide(self.constant([95]*4, [101, 108, 101, 108]), {"capture": 100})
+        # The new binary's runs differ by 10%, so its noise is about 1.1:
+        # the rise is too small for the ratio, of the p95 or the median,
+        # but every run is past the ceiling.
+        d = decide(self.constant([95]*4, [101, 111, 101, 111]), {"capture": 100})
         m = d["metrics"]["capture"]
         self.assertTrue(1.05 < m["noise"] <= 1.15, m["noise"])
-        self.assertEqual(m["reasons"], ["p95 108.0 ms, at least 108.0 ms, passed the ceiling of 100 ms"])
+        self.assertEqual(m["reasons"], ["p95 111.0 ms, at least 111.0 ms, passed the ceiling of 100 ms"])
         self.assertEqual(d["verdict"], "fail")
 
 
@@ -1342,6 +1469,29 @@ class Compare(unittest.TestCase):
         self.assertTrue(out.endswith("latency gate: not judged (a figure's runs differed by more than 1.15 in its p95 and in its median, "
                                      "too much to judge it: run the gate again)\n"), out)
 
+    def test_a_figure_judged_on_its_median_and_unsettled_says_so(self):
+        # tailed3's capture, through the gate at its default rounds: its p95
+        # is too noisy, its median judges it, and its rise is above 1.15
+        # but not above 1.15 times the median's noise. It is not one too
+        # noisy to judge, so the reason printed is the unsettled rise's.
+        parts = tailed3(1.2, 1.15)
+        order = {b: [role for _, role in core.schedule(core.ROUNDS) if core.BINARY[role] == b] for b in ("old", "new")}
+
+        def figures(which, k):
+            role = order[which][k-1]
+            return parts[role][order[which][:k-1].count(role)]["capture"]
+        self.scenario(figures)
+        code, out, report = self.gate()
+        d = report["decision"]
+        self.assertEqual(report["samples"], parts)
+        self.assertEqual((code, report["verdict"], d["too_noisy"], d["too_noisy_to_judge"], d["machine_too_noisy"]),
+                         (0, "not judged", ["capture"], [], False), out)
+        self.assertEqual(d["metrics"]["capture"]["judged_on"], ["median"])
+        self.assertTrue(out.endswith("latency gate: not judged (a figure rose, but no more than 1.15 times what the machine put "
+                                     "between runs: run the gate again)\n"), out)
+        self.assertIn("judged on median", out)
+        self.assertEqual(core.redecide(report), d)
+
     def test_two_noisy_figures_say_the_machine_was_too_noisy(self):
         # Each binary's run index is k counted over both scenarios.
         at = (("old", 4), ("new", 1))
@@ -1558,8 +1708,9 @@ class Simulation(unittest.TestCase):
         self.assertEqual(sorted(sim.CHANGES), sorted(["all-x1.2", "all-x1.3", "all-x1.5", "all-x2", "all-x3", "capture+20ms",
                                                       "unchanged", "capture-varies", "all-x1.3-in-3"] +
                                                      ["%s-x%s" % (name, x) for name, *_ in sim.FIGURES for x in ("1.3", "1.5", "2", "3")]))
-        self.assertEqual(sorted(sim.LOADS), ["drift", "heavy", "light", "new-3", "new-3-mild", "new-4", "new-all-mild", "new-but-1-mild",
-                                             "new-pair", "none", "round", "runs"])
+        self.assertEqual(sorted(sim.LOADS), ["drift", "heavy", "light", "new-3", "new-3-mild", "new-3-mild-each", "new-4", "new-all-mild",
+                                             "new-all-mild-each", "new-but-1-mild", "new-but-1-mild-each", "new-pair", "none", "round",
+                                             "runs"])
         # A change falls on the new binary's runs alone.
         base = sim.made_up(random.Random(2))
         x = sim.one(base, sim.LOADS["none"], sim.CHANGES["all-x1.5"], random.Random(3))
@@ -1601,11 +1752,33 @@ class Simulation(unittest.TestCase):
             self.assertEqual(len(runs), 4, runs)
             self.assertEqual(len({k // 4 for k, _ in runs}), 1, runs)
             self.assertEqual(sorted(role for _, role in runs), sorted(core.ROLES))
-            # The new binary's runs: three, all but one, all.
+            # The new binary's runs: three, all but one, all, by one factor
+            # they share, or by one each draws.
             for load, count in (("new-3-mild", 3), ("new-but-1-mild", 2*core.ROUNDS-1), ("new-all-mild", 2*core.ROUNDS)):
-                runs = self.loaded_runs(load, seed)
-                self.assertEqual(len(runs), count, (load, runs))
-                self.assertTrue(all(core.BINARY[role] == "new" for _, role in runs), (load, runs))
+                for each in ("", "-each"):
+                    runs = self.loaded_runs(load+each, seed)
+                    self.assertEqual(len(runs), count, (load+each, runs))
+                    self.assertTrue(all(core.BINARY[role] == "new" for _, role in runs), (load+each, runs))
+                    factor = sim.LOADS[load+each](random.Random(seed))
+                    factors = [factor(k+0.5) for k, _ in runs]
+                    self.assertTrue(all(1.1 <= f <= 1.3 for f in factors), factors)
+                    self.assertEqual(len(set(factors)), count if each else 1, (load+each, factors))
+
+    def test_the_spread_of_the_made_up_base(self):
+        # --common and --own-scale widen the made-up base's runs: each run's
+        # common factor, and each figure's own.
+        def spread(runs):
+            medians = [math.log(core.nearest_rank(run["capture"], 0.5)) for run in runs]
+            mean = sum(medians)/len(medians)
+            return math.sqrt(sum((m-mean)**2 for m in medians)/len(medians))
+        quiet = [spread(sim.made_up(random.Random(seed))) for seed in range(40)]
+        try:
+            sim.set_spread(0.06, 2.4)
+            wide = [spread(sim.made_up(random.Random(seed))) for seed in range(40)]
+        finally:
+            sim.set_spread(0.025, 1.0)
+        self.assertGreater(sorted(wide)[20], 1.5*sorted(quiet)[20])
+        self.assertEqual((sim.COMMON, sim.OWN_SCALE), (0.025, 1.0))
 
     def test_more_rounds(self):
         # The made-up base at two rounds, as the second round measured it,
