@@ -136,26 +136,50 @@ const listRequest = `{"id":1,"method":"initialize","params":{"clientInfo":{"name
 // hooksList is what hooks/list gives, by hook key: its trust word.
 func hooksList(t *testing.T, f *Fake) map[string]string {
 	t.Helper()
+	result := hooksListResult(t, f)
+	trust := map[string]string{}
+	for _, d := range result.Data {
+		for _, hook := range d.Hooks {
+			wantWireEvent(t, hook.Key, hook.EventName)
+			trust[hook.Key] = hook.TrustStatus
+		}
+	}
+	return trust
+}
+
+// listResult is hooks/list's result, as internal/health/hosts.go reads it,
+// with each hook's key.
+type listResult struct {
+	Errors   []json.RawMessage
+	Warnings []json.RawMessage
+	Data     []struct {
+		Errors   []json.RawMessage
+		Warnings []json.RawMessage
+		Hooks    []struct {
+			Key         string
+			EventName   string
+			PluginID    string `json:"pluginId"`
+			Enabled     bool   `json:"enabled"`
+			TrustStatus string `json:"trustStatus"`
+		} `json:"hooks"`
+	} `json:"data"`
+}
+
+// hooksListResult asks Codex's app server for its hooks, as the doctor does,
+// and gives the reply to hooks/list.
+func hooksListResult(t *testing.T, f *Fake) listResult {
+	t.Helper()
 	out, err := f.RunStdin(context.Background(), []byte(listRequest), Codex, "--no-daemon", "app-server", "--stdio")
 	if err != nil {
 		t.Fatal(err)
 	}
-	trust := map[string]string{}
+	var result listResult
+	found := false
 	s := bufio.NewScanner(bytes.NewReader(out))
 	for s.Scan() {
 		var reply struct {
 			ID     int
-			Result struct {
-				Data []struct {
-					Hooks []struct {
-						Key         string
-						EventName   string
-						PluginID    string `json:"pluginId"`
-						Enabled     bool
-						TrustStatus string `json:"trustStatus"`
-					}
-				}
-			}
+			Result json.RawMessage
 		}
 		if err := json.Unmarshal(s.Bytes(), &reply); err != nil {
 			t.Fatal(err)
@@ -163,13 +187,34 @@ func hooksList(t *testing.T, f *Fake) map[string]string {
 		if reply.ID != 2 {
 			continue
 		}
-		for _, d := range reply.Result.Data {
-			for _, hook := range d.Hooks {
-				trust[hook.Key] = hook.TrustStatus
+		if err := json.Unmarshal(reply.Result, &result); err != nil {
+			t.Fatal(err)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("hooks/list gave no reply: %q", out)
+	}
+	return result
+}
+
+// wireEvents are the events these tests declare, as the app server's wire
+// spells them: in camelCase, which internal/health/hosts.go reads.
+var wireEvents = map[string]string{"SessionStart": "sessionStart", "Stop": "stop"}
+
+// wantWireEvent checks a hook's eventName is its key's event as the wire
+// spells it.
+func wantWireEvent(t *testing.T, key, eventName string) {
+	t.Helper()
+	for _, segment := range strings.Split(key, ":") {
+		if wire, ok := wireEvents[segment]; ok {
+			if eventName != wire {
+				t.Errorf("%s is listed with eventName %q, want %q", key, eventName, wire)
 			}
+			return
 		}
 	}
-	return trust
+	t.Errorf("%s, eventName %q, names no event the tests declare", key, eventName)
 }
 
 // fire fires event on the host's CLI and gives each hook's result by key.

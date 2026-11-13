@@ -58,6 +58,14 @@ func TestPolicyFlags(t *testing.T) {
 			}
 		}
 	}
+	// marketAddFailsWith checks that adding the host's own marketplace, which
+	// the policy blocks, fails.
+	marketAddFailsWith := func(want string) check {
+		return func(t *testing.T, h *host) {
+			t.Helper()
+			failsWith(want, "plugin", "marketplace", "add", h.market, "--json")(t, h)
+		}
+	}
 	managedKey := "managed:SessionStart:0"
 	cases := []struct {
 		name    string
@@ -75,6 +83,7 @@ func TestPolicyFlags(t *testing.T) {
 			prints("\nplugins stable false\n", "features list"),
 			prints("\nhooks stable true\n", "features list"),
 			failsWith("plugins are turned off by your administrator", "plugin", "add", "eva-md@eva-md", "--json"),
+			marketAddFailsWith("plugins are turned off by your administrator"),
 			prints(`{"available":[],"installed":[]}`, "plugin", "list", "--json", "--marketplace=eva-md"),
 			listed(managedKey),
 		}},
@@ -87,11 +96,13 @@ func TestPolicyFlags(t *testing.T) {
 		}},
 		{"codex blocked marketplace", Codex, Policy{BlockedMarketplace: "eva-md"}, true, []check{
 			failsWith("marketplace eva-md is blocked by your administrator", "plugin", "add", "eva-md@eva-md", "--json"),
+			marketAddFailsWith("marketplace eva-md is blocked by your administrator"),
 			prints(`"enabled":false`, "plugin", "list", "--json", "--marketplace=eva-md"),
 			listed(managedKey),
 		}},
 		{"claude blocked marketplace", Claude, Policy{BlockedMarketplace: "eva-md"}, true, []check{
 			failsWith("marketplace eva-md is blocked by your administrator", "plugin", "install", "eva-md@eva-md", "--scope", "user", "--json"),
+			marketAddFailsWith("marketplace eva-md is blocked by your administrator"),
 			prints(`"enabled":false`, "plugin", "list", "--json"),
 			lacks(`"enabled":true`, "plugin", "list", "--json"),
 		}},

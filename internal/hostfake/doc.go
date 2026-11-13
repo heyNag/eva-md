@@ -14,6 +14,15 @@
 // and an administrator's policy, and FailNext makes a command fail before or
 // after it takes effect, or stall until its context ends.
 //
+// Run fails as the written CLI does, with an *ExitError that holds the exit
+// code and stderr, and gives what the command printed on stdout even then.
+// A caller's own runner fails otherwise: install's native runner gives no
+// output and an error of install's own type, which is the only one it reads
+// a host's wording from, such as Codex 0.166.0's missing-folder failure. So
+// a caller that uses Run in place of its runner maps an *ExitError to its
+// own error type, as internal/install's tests on this fake do; one that
+// passes Run as it is loses whatever it reads from a host's stderr.
+//
 // What the fake does, and where each behaviour and wording comes from.
 // Research sections are those of docs/v2/working-papers/research/; hosts.md
 // is docs/v2/working-papers/design/hosts.md; F-numbers are the facts of
@@ -77,7 +86,11 @@
 //     binary behind an unchanged command keeps trust (hosts.md 14 fact 2;
 //     F-153).
 //   - Before 0.164.0 a plugin hook's approval is bound to its declaration
-//     only (codex-surface 1.7, changelog 0.164.0).
+//     only (codex-surface 1.7, changelog 0.164.0): Approve stores no content
+//     hash and nothing hashes the copy, so a symlink in it stops no hook.
+//     From 0.164.0 an approval made before it, which holds no content hash,
+//     reads as modified, and its hook fails as for a changed copy, until
+//     Approve runs again. The fake's own choice.
 //   - Only Approve grants trust. No command does, and
 //     --dangerously-bypass-hook-trust, on any command, is refused (exit 2)
 //     and recorded (codex-surface 1.7; AGENTS.md: never grant Codex hook

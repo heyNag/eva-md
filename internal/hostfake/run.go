@@ -31,7 +31,11 @@ func (e *ExitError) Error() string {
 // Run answers one command of cli, claude or codex, or a path whose last
 // element is one, as install's runner does, with nothing on stdin. It gives
 // what the command printed on stdout, and on a failure an *ExitError, or for
-// a stalled command an error that wraps its context's.
+// a stalled command an error that wraps its context's. It fails as the
+// written CLI does, not as a caller's runner does: a caller that reads a
+// host's wording from its own error type, as install reads Codex's
+// missing-folder failure from its hostError, maps an *ExitError to that type
+// first, or it loses what it reads (see the package documentation).
 func (f *Fake) Run(ctx context.Context, cli string, args ...string) ([]byte, error) {
 	return f.RunStdin(ctx, nil, cli, args...)
 }

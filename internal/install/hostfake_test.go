@@ -22,7 +22,9 @@ func init() { hostfake.Main() }
 
 // The tests here run v1's install flows on the fake hosts, whose Codex
 // binds hook approval to the plugin's copy, and check that install's
-// NeedsTrust agrees with what the fake's hooks/list says.
+// NeedsTrust agrees with what the fake's hooks/list says. install is given
+// the fake's Run through asNative, so that it fails as install's own
+// runner does.
 
 // onFakeHosts makes a home as newHome does, with setup's config, and a fake
 // whose root is outside the home.
@@ -44,6 +46,25 @@ func onFakeHosts(t *testing.T) (Options, *hostfake.Fake) {
 	return Options{Dirs: dirs, Binary: scriptBinary(t, "1"), Host: "all"}, hostfake.New(root)
 }
 
+// asNative is the fake's Run as install's own runner fails: a command that
+// failed gives no output and a hostError, whose diagnostics are what the
+// fake printed on stderr, as native gives. install reads Codex's
+// missing-folder failure from a hostError alone, so the fake's ExitError,
+// passed on as it is, would hide it.
+func asNative(f *hostfake.Fake) runner {
+	return func(ctx context.Context, cli string, args ...string) ([]byte, error) {
+		out, err := f.Run(ctx, cli, args...)
+		var e *hostfake.ExitError
+		if errors.As(err, &e) {
+			return nil, &hostError{msg: "install: " + commandDescription(cli, args) + " failed", diagnostics: e.Stderr}
+		}
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+}
+
 // scriptBinary is a stand-in for the eva-md binary, outside the home, that
 // a fired hook can run: it reads the payload and prints a reply naming its
 // build.
@@ -62,8 +83,15 @@ const fakeListRequest = `{"id":1,"method":"initialize","params":{"clientInfo":{"
 {"id":2,"method":"hooks/list","params":{"cwds":["/made-up/project"]}}
 `
 
+// codexWireEvents are the events of eva-md's Codex plugin as the app
+// server's wire spells them, in camelCase: the names
+// internal/health/hosts.go accepts.
+var codexWireEvents = []string{"sessionStart", "userPromptSubmit", "postToolUse", "stop", "preCompact", "interrupt", "sessionEnd"}
+
 // codexTrust is what the fake's hooks/list says of eva-md's Codex hooks, by
-// event.
+// event. It reads the reply as internal/health/hosts.go does, and fails
+// the test on what the doctor would reject: an error or a warning, or an
+// eva-md hook whose event is not one of codexWireEvents or is listed twice.
 func codexTrust(t *testing.T, f *hostfake.Fake) map[string]string {
 	t.Helper()
 	out, err := f.RunStdin(context.Background(), []byte(fakeListRequest), "codex", "--no-daemon", "app-server", "--stdio")
@@ -71,30 +99,52 @@ func codexTrust(t *testing.T, f *hostfake.Fake) map[string]string {
 		t.Fatal(err)
 	}
 	trust := map[string]string{}
+	found := false
 	s := bufio.NewScanner(bytes.NewReader(out))
 	for s.Scan() {
 		var reply struct {
 			ID     int
 			Result struct {
-				Data []struct {
-					Hooks []struct {
+				Errors   []json.RawMessage
+				Warnings []json.RawMessage
+				Data     []struct {
+					Errors   []json.RawMessage
+					Warnings []json.RawMessage
+					Hooks    []struct {
 						EventName   string
 						PluginID    string `json:"pluginId"`
 						TrustStatus string `json:"trustStatus"`
-					}
-				}
+					} `json:"hooks"`
+				} `json:"data"`
 			}
 		}
 		if err := json.Unmarshal(s.Bytes(), &reply); err != nil {
 			t.Fatal(err)
 		}
+		if reply.ID != 2 {
+			continue
+		}
+		found = true
+		if len(reply.Result.Errors)+len(reply.Result.Warnings) > 0 {
+			t.Errorf("hooks/list reports diagnostics: %s", s.Bytes())
+		}
 		for _, d := range reply.Result.Data {
+			if len(d.Errors)+len(d.Warnings) > 0 {
+				t.Errorf("hooks/list reports diagnostics: %s", s.Bytes())
+			}
 			for _, h := range d.Hooks {
-				if reply.ID == 2 && h.PluginID == "eva-md@eva-md" {
-					trust[h.EventName] = h.TrustStatus
+				if h.PluginID != "eva-md@eva-md" {
+					continue
 				}
+				if _, seen := trust[h.EventName]; seen || !slices.Contains(codexWireEvents, h.EventName) {
+					t.Errorf("hooks/list lists eva-md's hook for event %q, which the doctor rejects as unexpected or duplicate", h.EventName)
+				}
+				trust[h.EventName] = h.TrustStatus
 			}
 		}
+	}
+	if !found {
+		t.Fatalf("hooks/list gave no reply: %q", out)
 	}
 	return trust
 }
@@ -176,7 +226,7 @@ func fakeCalls(t *testing.T, f *hostfake.Fake) []hostfake.Call {
 // valid.
 func TestFirstInstallOnTheFakeHosts(t *testing.T) {
 	opts, f := onFakeHosts(t)
-	result, err := runInstall(context.Background(), opts, f.Run)
+	result, err := runInstall(context.Background(), opts, asNative(f))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +265,7 @@ func TestFirstInstallOnTheFakeHosts(t *testing.T) {
 // review and keeps Codex's hooks trusted; they run the new binary.
 func TestBinaryOnlyReinstallKeepsCodexTrust(t *testing.T) {
 	opts, f := onFakeHosts(t)
-	if _, err := runInstall(context.Background(), opts, f.Run); err != nil {
+	if _, err := runInstall(context.Background(), opts, asNative(f)); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.Approve("codex"); err != nil {
@@ -223,7 +273,7 @@ func TestBinaryOnlyReinstallKeepsCodexTrust(t *testing.T) {
 	}
 	before := len(fakeCalls(t, f))
 	opts.Binary = scriptBinary(t, "2")
-	result, err := runInstall(context.Background(), opts, f.Run)
+	result, err := runInstall(context.Background(), opts, asNative(f))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,13 +316,13 @@ func TestUpgradeFrom2026_11_5OnTheFakeHosts(t *testing.T) {
 	}
 	wantCodexTrust(t, f, hostfake.Trusted, false)
 	for _, host := range []string{"claude", "codex"} {
-		if s, err := inspect(ctx, dirs, host, f.Run); err != nil || !s.Valid {
+		if s, err := inspect(ctx, dirs, host, asNative(f)); err != nil || !s.Valid {
 			t.Fatalf("2026.11.5 on the fake %s: %+v, %v", host, s, err)
 		}
 	}
 
 	opts := Options{Dirs: dirs, Binary: scriptBinary(t, "current"), Host: "all"}
-	result, err := upgrade(t, opts, f.Run)
+	result, err := upgrade(t, opts, asNative(f))
 	if err != nil {
 		t.Fatalf("the install over 2026.11.5 failed: %v", err)
 	}
@@ -284,7 +334,7 @@ func TestUpgradeFrom2026_11_5OnTheFakeHosts(t *testing.T) {
 		t.Errorf("Codex's hook after the upgrade: %s (%s)", r.Status, r.Reason)
 	}
 	wantRanBuild(t, fired(t, f, "claude"), "current")
-	if s, err := inspect(ctx, dirs, "claude", f.Run); err != nil || !s.Valid {
+	if s, err := inspect(ctx, dirs, "claude", asNative(f)); err != nil || !s.Valid {
 		t.Errorf("Claude Code after the upgrade: %+v, %v", s, err)
 	}
 }
@@ -293,13 +343,13 @@ func TestUpgradeFrom2026_11_5OnTheFakeHosts(t *testing.T) {
 // eva-md hook, fires none, and NeedsTrust is false.
 func TestUninstallOnTheFakeHosts(t *testing.T) {
 	opts, f := onFakeHosts(t)
-	if _, err := runInstall(context.Background(), opts, f.Run); err != nil {
+	if _, err := runInstall(context.Background(), opts, asNative(f)); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.Approve("codex"); err != nil {
 		t.Fatal(err)
 	}
-	result, err := uninstall(context.Background(), opts.Dirs, true, f.Run)
+	result, err := uninstall(context.Background(), opts.Dirs, true, asNative(f))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,9 +362,72 @@ func TestUninstallOnTheFakeHosts(t *testing.T) {
 		if err != nil || len(results) != 0 {
 			t.Errorf("%s fired %+v after uninstall: %v", host, results, err)
 		}
-		if s, err := inspect(context.Background(), opts.Dirs, host, f.Run); err != nil || s.Installed || s.Marketplace {
+		if s, err := inspect(context.Background(), opts.Dirs, host, asNative(f)); err != nil || s.Installed || s.Marketplace {
 			t.Errorf("%s after uninstall: %+v, %v", host, s, err)
 		}
+	}
+	if _, err := os.Stat(f.CachePath("eva-md", "eva-md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Codex's copy is still there: %v", err)
+	}
+}
+
+// With eva-md's Codex marketplace folder deleted, the fake fails as Codex
+// 0.166.0 does, and install reads it as v1 does, through its runner and
+// through the written CLIs alike: Inspect says the folder is missing,
+// install stops there, and uninstall clears the registration and the copy.
+func TestMissingCodexMarketplaceFolderOnTheFakeHosts(t *testing.T) {
+	ctx := context.Background()
+	opts, f := onFakeHosts(t)
+	if _, err := runInstall(ctx, opts, asNative(f)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Approve("codex"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(marketplacePath(opts.Dirs.Share, "codex")); err != nil {
+		t.Fatal(err)
+	}
+	wantMissing := func(how string, s Status, err error) {
+		t.Helper()
+		if err != nil || !s.Marketplace || !s.FolderMissing || s.Installed || s.Reason != "eva-md's marketplace folder is missing" {
+			t.Errorf("Codex with its marketplace folder deleted, %s: %+v, %v", how, s, err)
+		}
+	}
+	s, err := inspect(ctx, opts.Dirs, "codex", asNative(f))
+	wantMissing("through install's runner", s, err)
+
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := f.WriteCLIs(bin); err != nil {
+		t.Fatal(err)
+	}
+	path := os.Getenv("PATH")
+	t.Setenv("PATH", bin)
+	s, err = Inspect(ctx, opts.Dirs, "codex")
+	wantMissing("through the written CLIs", s, err)
+	t.Setenv("PATH", path)
+
+	before := len(fakeCalls(t, f))
+	if _, err := runInstall(ctx, opts, asNative(f)); err == nil || !strings.Contains(err.Error(), "its folder is missing") {
+		t.Errorf("install with Codex's marketplace folder deleted: %v", err)
+	}
+	if found := registrations(fakeCalls(t, f)[before:]); len(found) != 0 {
+		t.Errorf("the refused install registered %v", found)
+	}
+
+	preview, err := uninstall(ctx, opts.Dirs, false, asNative(f))
+	if err != nil || !slices.Contains(preview.Actions, "codex: the eva-md plugin and its marketplace registration, whose folder is missing") {
+		t.Fatalf("uninstall's preview: %+v, %v", preview.Actions, err)
+	}
+	result, err := uninstall(ctx, opts.Dirs, true, asNative(f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := inspect(ctx, opts.Dirs, "codex", asNative(f)); err != nil || s.Marketplace || s.Installed || s.FolderMissing {
+		t.Errorf("Codex after uninstall: %+v, %v", s, err)
+	}
+	trust := codexTrust(t, f)
+	if len(trust) != 0 || needsReview(trust) != result.NeedsTrust {
+		t.Errorf("after uninstall the fake lists %v, NeedsTrust %t", trust, result.NeedsTrust)
 	}
 	if _, err := os.Stat(f.CachePath("eva-md", "eva-md")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Codex's copy is still there: %v", err)
@@ -329,7 +442,7 @@ func TestHooksForcedOffOnTheFakeHosts(t *testing.T) {
 	if err := f.SetPolicy("codex", hostfake.Policy{CodexHooksOff: true}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runInstall(context.Background(), opts, f.Run)
+	result, err := runInstall(context.Background(), opts, asNative(f))
 	if !errors.Is(err, ErrHooksOff) {
 		t.Fatalf("install with Codex's hooks forced off: %v", err)
 	}

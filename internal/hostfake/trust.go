@@ -261,6 +261,11 @@ func trust(st *state, h loaded, c contents) (word, skip, failure string) {
 	if !contentBound(st) {
 		return Trusted, "", ""
 	}
+	// An approval made before 0.164.0 holds no content hash, so from
+	// 0.164.0 the copy no longer matches it.
+	if rec.Content == "" {
+		return Modified, "", "plugin contents changed; hook approval required"
+	}
 	hash, err := c.of(h.Root)
 	if err != nil {
 		return Modified, "", "plugin contents could not be hashed: " + err.Error()
@@ -318,9 +323,11 @@ func camel(event string) string {
 
 // Approve stands for the person's review of cli's hooks in the host: on
 // Codex, each hook of each installed plugin is approved as its copy is now,
-// its declaration and its plugin's contents. It fails, approving nothing,
-// when a copy's contents can't be hashed. Claude Code asks for no approval,
-// so there it does nothing. No command the fake answers approves.
+// its declaration and, from 0.164.0, its plugin's contents; before 0.164.0
+// an approval holds the declaration's hash alone. It fails, approving
+// nothing, when a plugin's hooks file can't be read or, from 0.164.0, a
+// copy's contents can't be hashed. Claude Code asks for no approval, so
+// there it does nothing. No command the fake answers approves.
 func (f *Fake) Approve(cli string) error {
 	if err := checkCLI(cli); err != nil {
 		return err
@@ -334,16 +341,21 @@ func (f *Fake) Approve(cli string) error {
 			return errs[0]
 		}
 		c := contents{}
+		bound := contentBound(st)
 		records := map[string]trustRecord{}
 		for _, h := range hooks {
 			if h.Managed {
 				continue
 			}
-			hash, err := c.of(h.Root)
-			if err != nil {
-				return fmt.Errorf("hostfake: approve %s: %w", h.Plugin.id(), err)
+			rec := trustRecord{Decl: declHash(h.Hook)}
+			if bound {
+				hash, err := c.of(h.Root)
+				if err != nil {
+					return fmt.Errorf("hostfake: approve %s: %w", h.Plugin.id(), err)
+				}
+				rec.Content = hash
 			}
-			records[h.Key] = trustRecord{Decl: declHash(h.Hook), Content: hash}
+			records[h.Key] = rec
 		}
 		for key, rec := range records {
 			st.Trust[key] = rec
