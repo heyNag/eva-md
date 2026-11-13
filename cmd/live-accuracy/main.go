@@ -132,6 +132,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 		if err := checkTrace(*trace); err != nil {
 			return usage(errOut, err.Error())
 		}
+		if insideWorkTree(*trace) {
+			return usage(errOut, "--trace must name a folder outside the git work tree it is run from, where the host's raw output could be committed")
+		}
 	}
 	// The recording first, so a folder it cannot be made in leaves nothing
 	// made and nothing called.
@@ -142,6 +145,24 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 			fmt.Fprintf(errOut, "live-accuracy: could not make the recording: %v\n", err)
 			return 1
 		}
+	}
+	// Then the trace, which reads the CLI's version: a trace that cannot be
+	// made leaves nothing made, the recording included, and no runner made.
+	var tr *tracer
+	if *trace != "" {
+		var err error
+		tr, err = createTrace(*trace, traceRun{V: traceVersion, Host: *host, Effort: *effort, Model: *model, CLIVersion: cliVersion(ctx, *host, *cli),
+			EvaMD: buildOf(), TimeoutRefused: *timeoutRefused, Day: time.Now().UTC().Format(time.DateOnly)})
+		if err != nil {
+			fmt.Fprintf(errOut, "live-accuracy: could not make the trace: %v\n", err)
+			if rec != nil {
+				rec.close()
+				os.Remove(*record)
+			}
+			return 1
+		}
+	}
+	if rec != nil {
 		defer func() {
 			if err := rec.close(); err != nil {
 				fmt.Fprintf(errOut, "live-accuracy: could not close the recording: %v\n", err)
@@ -152,21 +173,14 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 	if *pages != "" {
 		if err := os.MkdirAll(*pages, 0o755); err != nil {
 			fmt.Fprintf(errOut, "live-accuracy: could not make the pages folder: %v\n", err)
+			tr.discard()
 			return 1
 		}
 	}
 	// The trace ends with end.json however the run ends from here: stopped
 	// unless the run is judged.
-	var tr *tracer
 	outcome, stoppedBy := outcomeStopped, stoppedError
-	if *trace != "" {
-		var err error
-		tr, err = createTrace(*trace, traceRun{V: traceVersion, Host: *host, Effort: *effort, Model: *model, CLIVersion: cliVersion(ctx, *host, *cli),
-			EvaMD: buildOf(), TimeoutRefused: *timeoutRefused, Day: time.Now().UTC().Format(time.DateOnly)})
-		if err != nil {
-			fmt.Fprintf(errOut, "live-accuracy: could not make the trace: %v\n", err)
-			return 1
-		}
+	if tr != nil {
 		defer func() {
 			if err := tr.end(outcome, stoppedBy); err != nil {
 				fmt.Fprintf(errOut, "live-accuracy: could not end the trace: %v\n", err)
@@ -228,8 +242,11 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 	})
 	if err != nil {
 		var stopped *live.Stopped
+		var fellBack *fallbackStop
 		switch {
-		case errors.As(err, &stopped):
+		case errors.As(err, &stopped) && errors.As(err, &fellBack):
+			stoppedBy = stoppedFallback
+		case stopped != nil:
 			stoppedBy = stopped.Reason
 		case ctx.Err() != nil:
 			stoppedBy = stoppedInterrupted
@@ -389,7 +406,7 @@ func (c caller) ask(ctx context.Context, s *accuracy.Script, n int, b update.Bat
 	if res.Reason != "" {
 		fmt.Fprintf(c.log, "live-accuracy: %s after %.1f s\n", res.Reason, took)
 		if fellBack {
-			return res, &live.Stopped{History: s.Name, Pass: n, Reason: c.host + " rejected the model " + model + ", and its default model's run then failed: " + res.Reason}
+			return res, &fallbackStop{&live.Stopped{History: s.Name, Pass: n, Reason: c.host + " rejected the model " + model + ", and its default model's run then failed: " + res.Reason}}
 		}
 		return res, nil
 	}
@@ -402,11 +419,18 @@ func (c caller) ask(ctx context.Context, s *accuracy.Script, n int, b update.Bat
 	}
 	fmt.Fprintf(c.log, "live-accuracy: answered in %.1f s, %s\n", took, effort)
 	if fellBack {
-		return res, &live.Stopped{History: s.Name, Pass: n, Reason: c.host + " rejected the model " + model + " and answered with its default model"}
+		return res, &fallbackStop{&live.Stopped{History: s.Name, Pass: n, Reason: c.host + " rejected the model " + model + " and answered with its default model"}}
 	}
 	c.efforts[res.Effort]++
 	return res, nil
 }
+
+// fallbackStop is the stop of a run whose host answered with its default
+// model in place of the one asked for: the live run's stop, as the
+// terminal names it, which the trace's end.json names model_fallback.
+type fallbackStop struct{ *live.Stopped }
+
+func (f *fallbackStop) Unwrap() error { return f.Stopped }
 
 // history prints one script's metrics after its last pass, then what the
 // run missed in it, each refused answer among them, and the page it ended

@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"testing"
@@ -45,15 +47,27 @@ func costed(answer func(n int) (update.Result, error)) func(n int) (update.Resul
 // each attempt its Result reports, as the real runner does. At the call
 // interrupt, it gives the tap one attempt, ends the run's context and
 // fails as the real runner does when its context ends.
+// Before its taps, call slow lasts at least hold, so its line's ms is at
+// least hold whatever the machine's speed, and beforeTap, when set, is
+// called with the call's number.
 type tapRunner struct {
 	*fakeRunner
 	interrupt int
 	cancel    func()
+	slow      int
+	hold      time.Duration
+	beforeTap func(n int)
 }
 
 func (f tapRunner) Run(ctx context.Context, r update.Request) (update.Result, error) {
 	res, err := f.fakeRunner.Run(ctx, r)
 	n := len(f.requests)
+	if n == f.slow {
+		time.Sleep(f.hold)
+	}
+	if f.beforeTap != nil {
+		f.beforeTap(n)
+	}
 	if n == f.interrupt {
 		r.Tap(rawOut(n, 1), rawErr(n, 1))
 		f.cancel()
@@ -251,9 +265,10 @@ func TestTraceOfARun(t *testing.T) {
 		out, err string
 		code     int
 	}
+	const slow, hold = 7, 30 * time.Millisecond
 	runWith := func(t *testing.T, extra ...string) ran {
 		t.Helper()
-		runner := tapRunner{fakeRunner: &fakeRunner{t: t, tmp: tmp, answer: costed(mixed)}}
+		runner := tapRunner{fakeRunner: &fakeRunner{t: t, tmp: tmp, answer: costed(mixed)}, slow: slow, hold: hold}
 		var out, errOut bytes.Buffer
 		args := append([]string{"--host", "codex", "--effort", "high", "--model", "gpt-test", "--spend-model-quota", "--cli", codex}, extra...)
 		code := run(context.Background(), args, &out, &errOut, func(string) update.Runner { return runner })
@@ -264,8 +279,12 @@ func TestTraceOfARun(t *testing.T) {
 	}
 	dir := t.TempDir()
 	trace, alone := filepath.Join(dir, "trace"), filepath.Join(dir, "alone")
+	// A folder that is there and empty, open to others, is made private.
+	must(t, os.Mkdir(alone, 0o755))
+	must(t, os.Chmod(alone, 0o755))
 	before := time.Now()
 	with := runWith(t, "--trace", trace, "--record", filepath.Join(dir, "answers.jsonl"), "--pages", filepath.Join(dir, "pages"))
+	wall := time.Since(before)
 	plain := runWith(t)
 	if with != plain || with.code != 1 {
 		t.Fatalf("with the trace:\n%+v\nwithout:\n%+v", with, plain)
@@ -289,7 +308,12 @@ func TestTraceOfARun(t *testing.T) {
 			l := passes[n]
 			n++
 			want, _ := costed(mixed)(n)
-			if l.Script != i+1 || l.Pass != p+1 || l.MS < 0 || l.TokensIn != 100*n || l.TokensOut != n || l.Attempts != want.Attempts || l.EffortUsed != want.Effort ||
+			// A call's ms lies within the run's wall time, and the call that
+			// lasts at least hold says so.
+			if l.MS < 0 || l.MS > wall.Milliseconds() || n == slow && l.MS < hold.Milliseconds() {
+				t.Errorf("line %d: ms %d, the run took %d ms", n, l.MS, wall.Milliseconds())
+			}
+			if l.Script != i+1 || l.Pass != p+1 || l.TokensIn != 100*n || l.TokensOut != n || l.Attempts != want.Attempts || l.EffortUsed != want.Effort ||
 				l.ModelReported != "gpt-test-reported" || l.ModelNote != "" || l.Degraded != want.Degraded || l.Reason != want.Reason {
 				t.Errorf("line %d: %+v", n, l)
 			}
@@ -327,6 +351,8 @@ func TestTraceOfARun(t *testing.T) {
 	if alone1 != plain || alone2 != plain {
 		t.Errorf("a run with one of the flags printed another report or progress")
 	}
+	private(t, trace)
+	private(t, alone)
 	run2, passes2, end2, raw2 := readTrace(t, alone)
 	for i := range passes2 {
 		passes2[i].MS = passes[i].MS
@@ -348,6 +374,32 @@ func TestTraceOfARun(t *testing.T) {
 	}
 }
 
+// private fails the test unless the trace folder, its raw folder and
+// every file in them are private to their owner: 0700 and 0600.
+func private(t *testing.T, dir string) {
+	t.Helper()
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		want := fs.FileMode(0o600)
+		if d.IsDir() {
+			want = 0o700
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s has mode %v, want %v", path, got, want)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -359,42 +411,72 @@ func readFile(t *testing.T, path string) string {
 
 // A run that stops keeps the trace of every pass up to and with the one
 // that stopped it, raw output included, and ends it with end.json, which
-// says why: a host failure's reason, an interrupt, or an error the
-// terminal names.
+// says why: a host failure's reason, model_fallback for an answer from the
+// host's default model, whose line is written, an interrupt, or an error
+// the terminal names, such as a raw file that cannot be written. The
+// terminal says what it said without a trace.
 func TestTraceOfAStoppedRun(t *testing.T) {
+	answered := update.Result{Output: []byte(empty), Effort: "max"}
 	for _, tc := range []struct {
 		name      string
 		answer    func(n int) (update.Result, error)
 		interrupt int
+		breakRaw  int // the call before whose taps the raw folder is replaced by a file
 		lines     int
 		stopped   string
+		stderr    string // how the terminal's last line ends
 	}{
 		{"a rate limit at pass 5", func(n int) (update.Result, error) {
 			if n == 5 {
 				return update.Result{Reason: update.ReasonRateLimit}, nil
 			}
-			return update.Result{Output: []byte(empty), Effort: "max"}, nil
-		}, 0, 5, update.ReasonRateLimit},
+			return answered, nil
+		}, 0, 0, 5, update.ReasonRateLimit, fmt.Sprintf(", pass %d: rate_limit; the run stopped before it could be judged\n", nth(5).pass)},
+		{"an answer from the default model at pass 3", func(n int) (update.Result, error) {
+			if n == 3 {
+				res := answered
+				res.ModelNote = update.NoteFallback + "claude-test"
+				return res, nil
+			}
+			return answered, nil
+		}, 0, 0, 3, "model_fallback", fmt.Sprintf(", pass %d: claude-code rejected the model claude-test and answered with its default model; the run stopped before it could be judged\n", nth(3).pass)},
 		{"an interrupt at pass 3", func(n int) (update.Result, error) {
-			return update.Result{Output: []byte(empty), Effort: "max"}, nil
-		}, 3, 2, "interrupted"},
+			return answered, nil
+		}, 3, 0, 2, "interrupted", ": context canceled\n"},
 		{"a request that cannot run at pass 4", func(n int) (update.Result, error) {
 			if n == 4 {
 				return update.Result{}, errors.New("update: the batch is empty")
 			}
-			return update.Result{Output: []byte(empty), Effort: "max"}, nil
-		}, 0, 3, "error"},
+			return answered, nil
+		}, 0, 0, 3, "error", ": update: the batch is empty\n"},
+		{"a raw file that cannot be written at pass 4", func(n int) (update.Result, error) {
+			return answered, nil
+		}, 0, 4, 3, "error", ": not a directory\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmp := isolate(t)
+			// The fake runner runs nothing, and no CLI of the machine's runs
+			// for the version.
+			t.Setenv("PATH", t.TempDir())
 			trace := filepath.Join(t.TempDir(), "trace")
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			runner := tapRunner{fakeRunner: &fakeRunner{t: t, tmp: tmp, answer: costed(tc.answer)}, interrupt: tc.interrupt, cancel: cancel}
+			if tc.breakRaw != 0 {
+				runner.beforeTap = func(n int) {
+					if n == tc.breakRaw {
+						must(t, os.RemoveAll(filepath.Join(trace, "raw")))
+						must(t, os.WriteFile(filepath.Join(trace, "raw"), nil, 0o600))
+					}
+				}
+			}
 			var out, errOut bytes.Buffer
 			code := run(ctx, []string{"--host", "claude-code", "--spend-model-quota", "--trace", trace}, &out, &errOut, func(string) update.Runner { return runner })
-			if code != 1 || strings.Contains(out.String(), "target") {
+			if code != 1 || strings.Contains(out.String(), "target") || !strings.HasSuffix(errOut.String(), tc.stderr) {
 				t.Fatalf("exit %d\n%s\n%s", code, out.String(), errOut.String())
+			}
+			if tc.breakRaw != 0 && !strings.Contains(errOut.String(), "live-accuracy: the run stopped: could not write the trace: ") {
+				t.Errorf("stderr %q", errOut.String())
 			}
 			_, passes, end, raw := readTrace(t, trace)
 			if len(passes) != tc.lines || end != (traceEnd{Outcome: "stopped", Passes: tc.lines, Stopped: tc.stopped}) {
@@ -404,12 +486,18 @@ func TestTraceOfAStoppedRun(t *testing.T) {
 			if k := nth(5); tc.stopped == update.ReasonRateLimit && (last.Reason != update.ReasonRateLimit || last.Refused != "" || last.Script != k.script || last.Pass != k.pass) {
 				t.Errorf("the fifth line %+v", last)
 			}
+			if tc.stopped == "model_fallback" && (last.ModelNote != update.NoteFallback+"claude-test" || last.Reason != "" || last.Refused != "") {
+				t.Errorf("the third line %+v", last)
+			}
 			want := 0
 			for _, p := range passes {
 				want += 2 * p.Attempts
 			}
-			if tc.interrupt != 0 {
+			switch {
+			case tc.interrupt != 0:
 				want += 2 // the interrupted call's one attempt
+			case tc.breakRaw != 0:
+				want = 0 // the raw folder is a file now
 			}
 			if len(raw) != want {
 				t.Errorf("%d raw files, want %d: %v", len(raw), want, slices.Sorted(func(yield func(string) bool) {
@@ -433,6 +521,9 @@ func TestTraceOfAStoppedRun(t *testing.T) {
 // the fifth pass as before.
 func TestTimeoutRefused(t *testing.T) {
 	tmp := isolate(t)
+	// The fake runner runs nothing, and no CLI of the machine's runs for the
+	// version.
+	t.Setenv("PATH", t.TempDir())
 	timedOut := costed(func(n int) (update.Result, error) {
 		if n == 5 {
 			return update.Result{Reason: update.ReasonTimeout}, nil
@@ -517,6 +608,9 @@ func TestTraceRefusals(t *testing.T) {
 		{"a folder holding the recording", func(dir string) []string {
 			return []string{"--trace", filepath.Join(dir, "out"), "--record", filepath.Join(dir, "out", "answers.jsonl")}
 		}, "--trace must name a folder of its own, apart from --pages and --record"},
+		{"a folder in the pages folder", func(dir string) []string {
+			return []string{"--trace", filepath.Join(dir, "out", "trace"), "--pages", filepath.Join(dir, "out")}
+		}, "--trace must name a folder of its own, apart from --pages and --record"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tmp := isolate(t)
@@ -555,6 +649,148 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A --trace in the git work tree the command is run from, as go run runs
+// it from the checkout, is refused before anything is made or called,
+// named directly or through a link, from the top of the tree or a folder
+// in it; one beside the tree is not.
+func TestTraceInsideTheWorkTree(t *testing.T) {
+	for _, tc := range []struct {
+		name, cwd, trace string
+		refused          bool
+	}{
+		{"in the tree", "repo/cmd", "repo/trace", true},
+		{"the tree's own folder, from its top", "repo", "repo/cmd", true},
+		{"through a link to the tree", "repo/cmd", "alias/trace", true},
+		{"beside the tree", "repo/cmd", "beside/trace", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := isolate(t)
+			t.Setenv("PATH", t.TempDir())
+			dir := t.TempDir()
+			must(t, os.MkdirAll(filepath.Join(dir, "repo", ".git"), 0o700))
+			must(t, os.MkdirAll(filepath.Join(dir, "repo", "cmd"), 0o700))
+			must(t, os.Symlink(filepath.Join(dir, "repo"), filepath.Join(dir, "alias")))
+			t.Chdir(filepath.Join(dir, tc.cwd))
+			trace := filepath.Join(dir, tc.trace)
+			before := leftIn(t, dir)
+			var out, errOut bytes.Buffer
+			if !tc.refused {
+				runner := tapRunner{fakeRunner: &fakeRunner{t: t, tmp: tmp}}
+				if code := run(context.Background(), []string{"--host", "claude-code", "--spend-model-quota", "--trace", trace}, &out, &errOut, func(string) update.Runner { return runner }); code != 1 || len(runner.requests) != 21 {
+					t.Fatalf("exit %d after %d calls\n%s", code, len(runner.requests), errOut.String())
+				}
+				if _, passes, _, _ := readTrace(t, trace); len(passes) != 21 {
+					t.Fatalf("%d lines", len(passes))
+				}
+				return
+			}
+			code := run(context.Background(), []string{"--host", "claude-code", "--spend-model-quota", "--trace", trace}, &out, &errOut, noRunner(t))
+			if code != 2 || out.Len() != 0 || !strings.HasPrefix(errOut.String(), "live-accuracy: --trace must name a folder outside the git work tree it is run from, ") {
+				t.Fatalf("exit %d, out %q, err %q", code, out.String(), errOut.String())
+			}
+			if left := leftIn(t, dir); !slices.Equal(left, before) {
+				t.Fatalf("the refused run changed %q to %q", before, left)
+			}
+		})
+	}
+}
+
+// A trace that cannot be made, under a link to nothing, stops the run
+// before any runner is made, and leaves nothing made: neither the
+// recording nor the pages folder. A pages folder that cannot be made,
+// once the trace is, takes the trace away again, and an empty folder the
+// trace was to fill gets its mode back.
+func TestATraceThatCannotBeMade(t *testing.T) {
+	t.Run("the trace", func(t *testing.T) {
+		tmp := isolate(t)
+		t.Setenv("PATH", t.TempDir())
+		dir := t.TempDir()
+		must(t, os.Symlink(filepath.Join(dir, "gone"), filepath.Join(dir, "link")))
+		var out, errOut bytes.Buffer
+		args := []string{"--host", "claude-code", "--spend-model-quota", "--trace", filepath.Join(dir, "link", "trace"),
+			"--record", filepath.Join(dir, "answers.jsonl"), "--pages", filepath.Join(dir, "pages")}
+		if code := run(context.Background(), args, &out, &errOut, noRunner(t)); code != 1 || out.Len() != 0 || !strings.HasPrefix(errOut.String(), "live-accuracy: could not make the trace: ") {
+			t.Fatalf("exit %d, out %q, err %q", code, out.String(), errOut.String())
+		}
+		if left := leftIn(t, dir); !slices.Equal(left, []string{"link"}) {
+			t.Errorf("the run left %q", left)
+		}
+		if left := leftIn(t, tmp); len(left) != 0 {
+			t.Errorf("the run left %q", left)
+		}
+		// The recording can be made again.
+		if _, err := os.Lstat(filepath.Join(dir, "answers.jsonl")); err == nil {
+			t.Errorf("the recording is still there")
+		}
+	})
+	for _, made := range []bool{true, false} {
+		t.Run(fmt.Sprintf("the pages folder, the trace's folder made %v", made), func(t *testing.T) {
+			tmp := isolate(t)
+			t.Setenv("PATH", t.TempDir())
+			dir := t.TempDir()
+			must(t, os.Symlink(filepath.Join(dir, "gone"), filepath.Join(dir, "link")))
+			trace := filepath.Join(dir, "new", "trace")
+			want := []string{"link"}
+			if !made {
+				trace = filepath.Join(dir, "trace")
+				must(t, os.Mkdir(trace, 0o755))
+				must(t, os.Chmod(trace, 0o755))
+				want = append(want, "trace")
+			}
+			var out, errOut bytes.Buffer
+			args := []string{"--host", "claude-code", "--spend-model-quota", "--trace", trace, "--pages", filepath.Join(dir, "link", "pages")}
+			if code := run(context.Background(), args, &out, &errOut, noRunner(t)); code != 1 || out.Len() != 0 || !strings.HasPrefix(errOut.String(), "live-accuracy: could not make the pages folder: ") {
+				t.Fatalf("exit %d, out %q, err %q", code, out.String(), errOut.String())
+			}
+			if left := leftIn(t, dir); !slices.Equal(left, want) {
+				t.Errorf("the run left %q", left)
+			}
+			if !made {
+				if info, err := os.Stat(trace); err != nil || info.Mode().Perm() != 0o755 {
+					t.Errorf("the trace's folder: %v, %v", info.Mode(), err)
+				}
+			}
+			if left := leftIn(t, tmp); len(left) != 0 {
+				t.Errorf("the run left %q", left)
+			}
+		})
+	}
+}
+
+// run.json's eva_md is the build's vcs.revision and vcs.modified: the
+// commit, or "" when the build has none, and dirty only when modified is
+// "true".
+func TestBuildFrom(t *testing.T) {
+	settings := func(kv ...string) *debug.BuildInfo {
+		info := &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "-buildmode", Value: "exe"}, {Key: "GOOS", Value: "made-up"}}}
+		for i := 0; i < len(kv); i += 2 {
+			info.Settings = append(info.Settings, debug.BuildSetting{Key: kv[i], Value: kv[i+1]})
+		}
+		return info
+	}
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	for _, tc := range []struct {
+		info *debug.BuildInfo
+		ok   bool
+		want traceBuild
+	}{
+		{settings("vcs", "git", "vcs.revision", commit, "vcs.time", "2026-11-13T00:00:00Z", "vcs.modified", "true"), true, traceBuild{Commit: commit, Dirty: true}},
+		{settings("vcs.revision", commit, "vcs.modified", "false"), true, traceBuild{Commit: commit}},
+		{settings("vcs.revision", commit), true, traceBuild{Commit: commit}},
+		{settings("vcs.modified", "true"), true, traceBuild{Dirty: true}},
+		{settings(), true, traceBuild{}},
+		{settings("vcs.revision", commit), false, traceBuild{}},
+		{nil, false, traceBuild{}},
+	} {
+		if got := buildFrom(tc.info, tc.ok); got != tc.want {
+			t.Errorf("%+v, %v: %+v, want %+v", tc.info, tc.ok, got, tc.want)
+		}
+	}
+	if got := buildOf(); got != buildFrom(debug.ReadBuildInfo()) {
+		t.Errorf("buildOf %+v", got)
 	}
 }
 

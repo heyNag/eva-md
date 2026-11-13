@@ -34,11 +34,20 @@ import (
 // command was built from, "" when the build does not say, and whether the
 // tree had changes; day is the run's UTC date. A pass line's fields are the
 // runner's Result's, ms the call's wall time, and refused why the run
-// counts the answer refused, or "". No JSON file holds a path, a time of
-// day or anything else of the machine. The raw files hold what the host
-// printed, as it printed it: model names, host ids and whatever its errors
-// say, such as a plan or a rate limit's reset time. A trace is handed over
-// privately and never committed as written.
+// counts the answer refused, or "". end.json's passes counts the lines
+// passes.jsonl holds, which is the passes the live run counts but for a
+// pass the host answered with its default model: the run stops on it, and
+// its line is still written, for its model_note. stopped is a code: a
+// runner's reason, such as rate_limit or timeout, model_fallback for that
+// stop, interrupted when the run's context ended, or error for anything
+// else, which the terminal names. No JSON file holds a path, a time of day
+// or anything else of the machine. The raw files hold what the host
+// printed, as it printed it: model names, host, session and thread ids,
+// the model's reasoning, paths under the home folder, which name the
+// account, and whatever its errors say, such as a plan or a rate limit's
+// reset time. The folder and every file in it are private to their owner,
+// and the folder must lie outside the git work tree the command is run
+// from. A trace is handed over privately and never committed as written.
 //
 // This file holds the format and its writer. It imports neither the suite
 // nor its live run, which only main.go may import.
@@ -103,9 +112,15 @@ const (
 	stoppedError       = "error"
 )
 
+// Why a run stopped, in end.json, when the host answered with its default
+// model in place of the one asked for; the pass's model_note names it.
+const stoppedFallback = "model_fallback"
+
 // tracer writes a trace as the run goes.
 type tracer struct {
 	dir                      string
+	made                     string      // the topmost folder createTrace made, "" when dir was there
+	mode                     fs.FileMode // the mode of dir when it was there
 	passes                   *os.File
 	lines, refused, timeouts int
 }
@@ -133,27 +148,128 @@ func overlaps(a, b string) bool {
 	if aerr != nil || berr != nil {
 		return false
 	}
-	under := func(p, dir string) bool {
-		rel, err := filepath.Rel(dir, p)
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-	}
 	return under(a, b) || under(b, a)
 }
 
+// insideWorkTree says whether dir lies in the git work tree that holds the
+// current folder, the checkout go run is run from: a trace left there is
+// one git add from a commit, and marks every later build from it as
+// changed.
+func insideWorkTree(dir string) bool {
+	wd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	wd = resolved(wd)
+	for top := wd; ; top = filepath.Dir(top) {
+		if _, err := os.Lstat(filepath.Join(top, ".git")); err == nil {
+			return under(resolved(dir), top)
+		}
+		if filepath.Dir(top) == top {
+			return false
+		}
+	}
+}
+
+// resolved is path made absolute, with the links of the part of it that
+// exists resolved, so two names of one folder compare equal.
+func resolved(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	rest := ""
+	for p := abs; ; p = filepath.Dir(p) {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(real, rest)
+		}
+		if filepath.Dir(p) == p {
+			return abs
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+	}
+}
+
+// under says whether path is dir or lies under it.
+func under(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// firstMissing is the topmost of dir and the folders above it that does
+// not exist, which MkdirAll would make, or "" when dir exists.
+func firstMissing(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
+	top := ""
+	for p := abs; ; p = filepath.Dir(p) {
+		if _, err := os.Lstat(p); !errors.Is(err, fs.ErrNotExist) {
+			return top
+		}
+		top = p
+		if filepath.Dir(p) == p {
+			return top
+		}
+	}
+}
+
 // createTrace makes the trace folder, private to its owner, with its raw
-// folder, and writes run.
-func createTrace(dir string, run traceRun) (*tracer, error) {
-	if err := os.MkdirAll(filepath.Join(dir, "raw"), 0o700); err != nil {
+// folder, and writes run. A folder that was there, which checkTrace found
+// empty, is made private too. When it fails, it removes what it made.
+func createTrace(dir string, run traceRun) (_ *tracer, err error) {
+	t := &tracer{dir: dir, made: firstMissing(dir)}
+	defer func() {
+		if err != nil {
+			t.discard()
+		}
+	}()
+	if t.made == "" {
+		info, err := os.Stat(dir)
+		if err != nil {
+			return nil, err
+		}
+		t.mode = info.Mode().Perm()
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.Mkdir(filepath.Join(dir, "raw"), 0o700); err != nil {
 		return nil, err
 	}
 	if err := writeSynced(filepath.Join(dir, "run.json"), run); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "passes.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
+	if t.passes, err = os.OpenFile(filepath.Join(dir, "passes.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
 		return nil, err
 	}
-	return &tracer{dir: dir, passes: f}, nil
+	return t, nil
+}
+
+// discard removes what createTrace made, when the run stops before it
+// starts: the folders it made, or, in a folder that was there and empty,
+// what it wrote there, and the folder gets its mode back.
+func (t *tracer) discard() {
+	if t == nil {
+		return
+	}
+	if t.passes != nil {
+		t.passes.Close()
+	}
+	if t.made != "" {
+		os.RemoveAll(t.made)
+		return
+	}
+	for _, name := range []string{"raw", "run.json", "passes.jsonl"} {
+		os.RemoveAll(filepath.Join(t.dir, name))
+	}
+	if t.mode != 0 {
+		os.Chmod(t.dir, t.mode)
+	}
 }
 
 // raw writes what the CLI printed on one attempt of a pass, numbered from 1.
@@ -225,9 +341,13 @@ func passLine(script, n int, res update.Result, took time.Duration, refused stri
 // buildOf is the commit the command was built from, "" when the build
 // does not say, and whether the tree it was built from had changes.
 func buildOf() traceBuild {
+	return buildFrom(debug.ReadBuildInfo())
+}
+
+// buildFrom is buildOf from the build's information, when ok.
+func buildFrom(info *debug.BuildInfo, ok bool) traceBuild {
 	var b traceBuild
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
+	if !ok || info == nil {
 		return b
 	}
 	for _, s := range info.Settings {
