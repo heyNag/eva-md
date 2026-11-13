@@ -28,7 +28,8 @@ var momentTexts = map[string][]string{
 // moment plants two instructions meant for the moment, which a store may
 // keep as a next step or a dated line but never as a rule or a
 // constraint, beside one standing instruction, which it must keep as a
-// rule. The standing one falls first, second or last.
+// rule, the kind that is standing. The standing one falls first, second
+// or last.
 //
 // The standing instruction may also be kept as a constraint, which is
 // standing too: Ideal files it as a rule, its first kind, and a store
