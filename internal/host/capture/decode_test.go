@@ -2,6 +2,9 @@ package capture
 
 import (
 	"errors"
+	"go/ast"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -58,19 +61,89 @@ func TestDecodeReadsUpTo2MiB(t *testing.T) {
 	}
 }
 
-// Keys are matched exactly: a key in another case is not the field, so it
-// can neither give nor take away an agent id.
+// A key that is a field Decode reads in another letter case is refused,
+// as a key twice is: v1's reader takes it for the field, so it could give
+// or take away an agent id.
+func TestDecodeRefusesAKeyInAnotherCase(t *testing.T) {
+	for _, key := range readKeys {
+		for _, other := range []string{strings.ToUpper(key), strings.ToUpper(key[:1]) + key[1:], strings.Replace(key, "s", "ſ", 1)} {
+			if other == key {
+				continue
+			}
+			raw := `{"hook_event_name":"UserPromptSubmit","prompt":"made-up","` + other + `":"a-made-up"}`
+			if key == "hook_event_name" || key == "prompt" {
+				raw = `{"` + other + `":"a-made-up"}`
+			}
+			for _, host := range []adapter.ID{adapter.ClaudeCode, adapter.Codex} {
+				if d, err := Decode(host, []byte(raw), Env{Entrypoint: "cli"}); !errors.Is(err, ErrNotJSON) || len(d.Events) != 0 {
+					t.Errorf("%s on %s: %v, %+v", raw, host, err, d.Events)
+				}
+			}
+		}
+	}
+	// A key no field is read from is not looked at, in any case.
+	d, err := Decode(adapter.ClaudeCode, []byte(`{"hook_event_name":"UserPromptSubmit","prompt":"made-up","agent_type":"x","AGENT_TYPE":"y","Cwd":"/made-up"}`), Env{Entrypoint: "cli"})
+	if err != nil || len(d.Events) != 1 || d.Events[0].Author != event.AuthorTyped {
+		t.Errorf("%v %+v", err, d.Events)
+	}
+}
+
+// Every field Decode reads is one of readKeys, so a key in another case
+// of any of them is refused.
+func TestEveryFieldReadIsAReadKey(t *testing.T) {
+	read := 0
+	for name, f := range packageFiles(t, false) {
+		ast.Inspect(f, func(n ast.Node) bool {
+			var lit ast.Expr
+			switch n := n.(type) {
+			case *ast.CallExpr:
+				if id, ok := n.Fun.(*ast.Ident); ok && id.Name == "text" && len(n.Args) == 2 {
+					lit = n.Args[1]
+				}
+			case *ast.IndexExpr:
+				if id, ok := n.X.(*ast.Ident); ok && id.Name == "fields" {
+					lit = n.Index
+				}
+			}
+			if lit == nil {
+				return true
+			}
+			b, ok := lit.(*ast.BasicLit)
+			if !ok {
+				return true // the loop over the payload's ids, checked below
+			}
+			key, _ := strconv.Unquote(b.Value)
+			read++
+			if !slices.Contains(readKeys, key) {
+				t.Errorf("%s reads the field %q, which is not in readKeys", name, key)
+			}
+			return true
+		})
+	}
+	for _, key := range []string{"hook_event_name", "session_id", "turn_id", "prompt_id", "agent_id"} {
+		if !slices.Contains(readKeys, key) {
+			t.Errorf("%q is not in readKeys", key)
+		}
+	}
+	if read < 6 {
+		t.Fatalf("found %d fields read", read)
+	}
+}
+
+// Keys are matched exactly: a key that is no field's in any case is not
+// read.
 func TestDecodeMatchesKeysExactly(t *testing.T) {
 	for _, tc := range []struct {
 		raw   string
 		agent string
 		want  event.Author
 	}{
-		{`{"hook_event_name":"UserPromptSubmit","prompt":"made-up","AGENT_ID":"a-made-up"}`, "", event.AuthorTyped},
-		{`{"hook_event_name":"UserPromptSubmit","prompt":"made-up","agent_id":"a-made-up","Agent_Id":""}`, "a-made-up", event.AuthorSubagent},
-		{`{"Hook_Event_Name":"UserPromptSubmit","prompt":"made-up"}`, "", ""},
-		{`{"hook_event_name":"UserPromptSubmit","Prompt":"made-up"}`, "", ""},
+		{`{"hook_event_name":"UserPromptSubmit","prompt":"made-up","agentid":"a-made-up"}`, "", event.AuthorTyped},
+		{`{"hook_event_name":"UserPromptSubmit","prompt":"made-up","agent_id":"a-made-up","agent_id ":""}`, "a-made-up", event.AuthorSubagent},
+		{`{"hook_event_name ":"UserPromptSubmit","prompt":"made-up"}`, "", ""},
+		{`{"hook_event_name":"UserPromptSubmit","prompts":"made-up"}`, "", ""},
 		{`{"hook_event_name":"UserPromptSubmit","prompt":"made-up","agent_id":null}`, "", event.AuthorTyped},
+		{`{"hook_event_name":"UserPromptSubmit","prompt":"made-up","agent_id":"a-made-up"}`, "a-made-up", event.AuthorSubagent},
 	} {
 		d, err := Decode(adapter.ClaudeCode, []byte(tc.raw), Env{Entrypoint: "cli"})
 		if err != nil || d.Agent != tc.agent {

@@ -165,8 +165,13 @@ func Decode(host adapter.ID, raw []byte, env Env) (Decoded, error) {
 	return d, nil
 }
 
+// readKeys are the payload's fields Decode reads, matched exactly.
+var readKeys = []string{"hook_event_name", "session_id", "turn_id", "prompt_id", "agent_id", "prompt", "source", "last_assistant_message", "compact_summary", "error"}
+
 // object reads raw as one JSON object, each key once, with nothing after
-// it but white space.
+// it but white space. A key that is one of readKeys in another letter case
+// is refused: v1's reader takes it for the field, so whether a payload
+// names an agent, say, would be in doubt.
 func object(raw []byte) (map[string]json.RawMessage, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
@@ -185,6 +190,13 @@ func object(raw []byte) (map[string]json.RawMessage, error) {
 		}
 		if _, twice := fields[key]; twice {
 			return nil, fmt.Errorf("%w: the key %q is there twice", ErrNotJSON, key)
+		}
+		for _, k := range readKeys {
+			if key != k && strings.EqualFold(key, k) {
+				// v1 reads it as the field, so it is the field twice or
+				// in doubt.
+				return nil, fmt.Errorf("%w: the key %q is %s in another case", ErrNotJSON, key, k)
+			}
 		}
 		fields[key] = value
 	}

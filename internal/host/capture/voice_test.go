@@ -48,6 +48,8 @@ func TestHandOverForm(t *testing.T) {
 		{"empty transcript", strings.Replace(good, "user: made-up\nassistant: made-up reply", "", 1), false},
 		{"bare ampersand", handOverText("", "this & that", ""), false},
 		{"unknown escape", handOverText("", "a &quot; b", ""), false},
+		{"a cut that splits an escape", handOverText("", "a &l…", ""), false},
+		{"a cut after an escape", handOverText("", "a &lt;…", "…t; b\nuser: c"), true},
 		{"ampersand in the transcript", handOverText("", "made-up", "user: &nbsp;"), false},
 		{"bare <", handOverText("", "a < b", ""), false},
 		{"bare >", handOverText("", "a > b", ""), false},

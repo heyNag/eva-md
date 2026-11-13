@@ -8,7 +8,7 @@ Nothing calls it yet: v1 and the binary are unchanged and no switch is needed. L
 
 `Decode(host, raw, env) (Decoded, error)` is pure: it reads no file, clock, environment or network and writes no log. `Env.Entrypoint` is Claude Code's `CLAUDE_CODE_ENTRYPOINT`, which the caller reads.
 
-It refuses a payload over 2 MiB (`MaxPayload`, v1's limit), and one that is not one JSON object with each key once and nothing after it, or whose fields it reads (`hook_event_name`, `session_id`, `turn_id`, `prompt_id`, `agent_id`, `prompt`, `source`, `last_assistant_message`, `compact_summary`) are not strings or null. Keys are matched exactly; a null is an absent field.
+It refuses a payload over 2 MiB (`MaxPayload`, v1's limit), and one that is not one JSON object with each key once and nothing after it, or whose fields it reads (`hook_event_name`, `session_id`, `turn_id`, `prompt_id`, `agent_id`, `prompt`, `source`, `last_assistant_message`, `compact_summary`) are not strings or null. Keys are matched exactly; a null is an absent field. A key that is one of those fields (or `error`, read on StopFailure) in another letter case is refused like a key twice: v1's reader takes it for the field, so whether the payload names an agent, say, would be in doubt.
 
 `Decoded` holds `Event`, `Session`, `TID` (`turn_id`, else `prompt_id`, as v1), `Agent` (`agent_id`), `Rule`, the word of the rule that decided, and `Events` in order. Each event has `TID`, `Agent` and `Src.Hook` set; `Seq`, `Turn` and `Src.Key` are the writer's, which also redacts. Every event passes `event.Validate` once given a seq and a key.
 
@@ -93,6 +93,8 @@ with only space, tab, CR and LF around it, the source line optional and only `tr
 | an empty request, or an empty line | no event | |
 
 Texts are unescaped once, so `&amp;lt;` is `&lt;`. Every part is a `prompt`, and every event carries the payload's turn id: a hand-over made while the agent works shares that turn's (F-145, from source). Any other form, or any other source value, is one `prompt` by `unknown`, its text the whole prompt, marked `wrapper`, under the rule `wrapper`. A hand-over never yields `typed`; a line yields `spoken` only from a `user: ` line of a hand-over in form. A pause phrase spoken is a `spoken` line like any other: what it does is LG-24's.
+
+Two limits of the form, both on the safe side or waiting for F-143. A line break inside an utterance makes the rest of it a line of its own, unknown unless it begins with a head; so a front model's reply that held a line beginning `user: ` would be read as spoken, which the form cannot tell apart and the sitting for F-143 settles. A cut that splits an escape, leaving a bare `&` before the cut mark, puts the hand-over out of form, so it is one unknown prompt.
 
 Where the request in the voice versions read is the front model's wording (F-142), it never carries the person's authority (decision 29); were F-142 refuted, only its label would change.
 
