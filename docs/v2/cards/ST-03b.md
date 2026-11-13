@@ -35,3 +35,16 @@ Everything else, ST-03a's other files included; a fault found in them is reporte
 - **Generated pages.** 10,000 pages from a seeded generator (the seed is logged) with the fields, `Extra` keys and value types that `internal/update/wiki.go`, `internal/wikiinit/init.go`, `internal/knowledgepage/page.go` and `internal/systempage/write.go` set, saved as `okfadapter.Serialize` writes them, with a `generated` line, and read by both: every field equal, `Body` byte for byte. Values include colons, `#`, quotes, brackets, leading spaces, non-ASCII text, `true`, `null`, numbers and dates.
 - The difference table holds, and no fixture or generated page that v1 reads as locked (`okfadapter.IsLocked`) or verified (`okfadapter.IsVerified`) reads as unprotected through the codec.
 - No error text names the library.
+
+## As merged
+
+Merged from `pkg/st-03b-r3` on 2026-11-12, after a review, three fix rounds and three verifications; the last read sixty pages of its own through v1's library and through `ReadV1` and accepted. The lead's rulings:
+
+- **`verified: {}` keeps no verified mark**, as the format's section 6 says, and the spec's differences name it among those that protect less than v1.
+- **Fourteen differences protect less than v1 did**, each named in the codec's spec, section 12, and in the oracle's list. Five are an empty `verified`. `ReadV1` refuses the other nine outright: they are keys the codec's own `Protection` does not read as a lock or a verified mark, such as `locked :true`, a no-break space before `locked`, or a quote that never closes. ST-07 decides what a migrated page with any of them keeps.
+- **Three lines of the spec outside its new section are accepted**: `ReadV1` in section 2's list, `ErrUnreadable` in the sentence on errors, and the removal of section 11's line that left v1's pages to this card. The spec is 24,572 bytes, four under its limit: a new sentence in it needs others cut.
+- **`internal/store/codec/v1oracle/oracle_test.go`** is accepted outside the card's list, since the codec's own files may not name the library.
+
+For ST-03a's code, found here and owed as a card of its own before ST-05 reads a page through the codec: `Protection` misses a key that v1's reading took for a lock or a verified mark when Unicode white space stands before the key or before its colon, when the key is quoted with such a space inside or around the quotes, or when a quote on a `verified` line never closes or runs on. It should read a key that trims, by Unicode white space, to `locked` or `verified` as that mark. Its `yamlUnescape` also reads three escapes as a plain space where YAML reads another character, and `TestNoLibraryName` leaves `ErrUnreadable` out of its list.
+
+Owed, small: no test covers the refusal of a plain value that ends in a colon with a comment after it (`writer: Tide: # x`); one difference file with its row closes it.

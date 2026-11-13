@@ -1,0 +1,92 @@
+The shapes TestOracle found where the current rules alone keep a secret that
+the baseline rules, and so v1, remove, as secrets of a class whose name starts
+with oracle_gap_. No rule is changed for them here (card LG-12): TestOracle
+holds the current rules to the baseline on every other class, and fails when a
+gap class has no violation left, so a rule change that closes one (LG-26)
+moves its cases to the class of their shape. Until then the switch
+redaction_current_rules_only keeps these secrets. See README.md for the format.
+
+Each class is a shape of code that the current rules keep on purpose (the
+exceptions plainCode in redact.go lists) and the baseline rules remove. A
+secret can take any of them, so each is a gap; oracleGapShapes in
+oracle_test.go names them all, with an example of each exception. Each has a
+near class in oracle_near.txt, held to the baseline, so an exception that
+widens past its shape fails the oracle.
+
+regex_value: the value of a secret-looking key that reads as a regular
+expression literal: it starts with '/', holds a metacharacter such as '+', and
+ends with '/' and perhaps flags. A base64 key can start with '/'.
+
+yaml_alias: a password made of words after a '*', which reads as a YAML
+alias, the value of a key after ':' with nothing after it on the line.
+
+name_index: a password made of words, as a name, a member path or an
+instance variable, followed by an index, a literal or a block, as in
+hunterTwo[x9]. The baseline rules leave the index and remove the name.
+
+type_annotation: any value of letters and digits, random ones too, followed
+by what reads as an assignment or a union of types, as in a type annotation:
+" = <value>" or " | <name>".
+
+=== secret oracle_gap_regex_value yaml key with a value that starts with a slash
+SECRET_KEY: '⟦/Qm7Rt2+Wx9¦Lp4Zk8Vn3Bc/n⟧'
+
+=== secret oracle_gap_regex_value yaml key with no space after the colon
+db_password:'⟦/Hv3Kd8+Pz1Ty¦6Wq0Ln5Rb/u⟧'
+
+=== secret oracle_gap_regex_value key with spaces around the equals sign and no flags
+SecretKey = '⟦/kaR4Wfn+P2tY¦JmoCLEQzsdVb/⟧'
+
+=== secret oracle_gap_regex_value aws secret access key shorter than the aws rule takes
+aws_secret_access_key = '⟦/Zp3Lc7+Mt1Qx¦5Bv9Nk2Rh6Jw/g⟧'
+
+=== secret oracle_gap_regex_value indented yaml token
+service:
+  access_token: '⟦/Tp6Mw1+Rg4Ls¦8Ny3Bk7Ch/i⟧'
+
+=== secret oracle_gap_yaml_alias password of two words and a digit after a star
+password: '⟦*Summer2¦Winter⟧'
+
+=== secret oracle_gap_yaml_alias indented yaml secret
+db:
+  password: '⟦*Blue7¦Moon⟧'
+  port: 5432
+
+=== secret oracle_gap_yaml_alias client secret of two words and digits
+client_secret: '⟦*Orange4¦Tiger9⟧'
+
+=== secret oracle_gap_yaml_alias passphrase of words joined by underscores
+secret: '⟦*correct_horse¦_battery⟧'
+
+=== secret oracle_gap_yaml_alias token with no space after the colon
+api_token:'⟦*Falcon3¦Harbor⟧'
+
+=== secret oracle_gap_name_index two words before an index
+password: '⟦hunter¦Two⟧'[x9]
+
+=== secret oracle_gap_name_index member path before an index
+password: '⟦Summer.¦Winter⟧'[2]
+
+=== secret oracle_gap_name_index instance variable before an index after a spaced equals sign
+db_password = '⟦@maple_¦copper⟧'[i]
+
+=== secret oracle_gap_name_index two words before a literal
+api_key: '⟦canyon¦River⟧'{ab}
+
+=== secret oracle_gap_name_index member path before a block
+secret: '⟦Walnut.¦Cobalt⟧' { x }
+
+=== secret oracle_gap_type_annotation random token before an assignment
+password: '⟦Xk9mP2¦vLq7Rt⟧' = 1
+
+=== secret oracle_gap_type_annotation random token before a union with none
+secret: '⟦aB3dE5¦fG7hJ2⟧' | None
+
+=== secret oracle_gap_type_annotation chained assignment
+api_key = '⟦Qw8Er4¦Ty6Ui2Op⟧' = None
+
+=== secret oracle_gap_type_annotation token with no space after the colon
+ACCESS_TOKEN:'⟦Lm3Nb7¦Vc1Xz5Kj⟧' = x
+
+=== secret oracle_gap_type_annotation indented token before a union
+  client_secret: '⟦Hg5Fd2¦Sa8Qw4Er⟧' | str

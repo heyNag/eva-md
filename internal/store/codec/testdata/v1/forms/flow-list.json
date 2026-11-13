@@ -1,0 +1,20 @@
+{
+  "type": "knowledge",
+  "title": "Tide feed",
+  "description": "",
+  "status": "",
+  "stale_after": "",
+  "generated": null,
+  "verified": null,
+  "sources": null,
+  "extra": {
+    "aliases": [
+      "tide",
+      "harbour feed",
+      2,
+      true,
+      "a, b"
+    ]
+  },
+  "body": "\n# Body\n\nSome text.\n"
+}

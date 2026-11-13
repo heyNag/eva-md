@@ -77,7 +77,7 @@ func probe(ctx context.Context, id ID, env Env, lim limits) ProbeResult {
 	if run == nil {
 		run = native(lim.waitDelay)
 	}
-	result.CLI = cliPath(h.Names.CLI, lookPath)
+	result.CLI = h.FindCLI(lookPath)
 	if result.CLI == "" {
 		return result
 	}
@@ -86,12 +86,18 @@ func probe(ctx context.Context, id ID, env Env, lim limits) ProbeResult {
 	return result
 }
 
-// cliPath is the CLI as lookPath finds it, by absolute path, or "". Its
-// folder's symlinks are resolved, as install's cliPath does, since a folder
-// a version manager puts on PATH for one shell is gone once that shell
-// exits; the CLI keeps its own name.
-func cliPath(cli string, lookPath func(string) (string, error)) string {
-	path, err := lookPath(cli)
+// FindCLI is the host's CLI as lookPath finds it, by absolute path, or ""
+// when lookPath finds none; a nil lookPath is exec.LookPath. It runs
+// nothing: Probe finds the CLI this way, then reads its version. The CLI's
+// folder's symlinks are resolved, since a folder a version manager puts on
+// PATH for one shell, as fnm does, is gone once that shell exits; the CLI
+// keeps its own name, which the update job checks, in the folder that holds
+// what its #! line names.
+func (h Host) FindCLI(lookPath func(file string) (string, error)) string {
+	if lookPath == nil {
+		lookPath = exec.LookPath
+	}
+	path, err := lookPath(h.Names.CLI)
 	if err != nil {
 		return ""
 	}

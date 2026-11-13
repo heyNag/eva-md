@@ -263,7 +263,7 @@ def real_install(run):
         h.hook("codex", "SessionStart", "ri-first", source="startup")
         h.take_sweep()
         starts = []
-        for i in range(20):
+        for i in range(run.loops(20)):
             output, elapsed = h.hook("codex", "SessionStart", "ri-start-%d" % i, source="startup")
             if not all(m in context(output) for m in marks):
                 raise RuntimeError("a chat start at the real install's shape did not brief the project's thread")

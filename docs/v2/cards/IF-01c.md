@@ -11,7 +11,7 @@ ST-05, the store core, is large and on the critical path. Before it lands, DV-23
 1. **The store's fake**, `internal/store/storetest`, in memory, over ST-02's reference model in `internal/store/conformance`. It adds no behaviour of its own: every outcome is the model's.
    - `New(now func() time.Time) (*Fake, error)` opens the model with no fault.
    - `*Fake` is a `store.Store`, with a compile-time assertion.
-   - It also offers `Files()`, `History()`, `Items()` and `HandEdit(path, Edit)`, as ST-02's harness defines them.
+   - It also offers `Files()`, `History()`, `Items()`, `SessionFile(session)` and `HandEdit(path, Edit)`, on an item's file or a session's, as ST-02's harness defines them.
    - `Reopen(fault store.Fault) error` closes the fake and opens it again on the durable part, as a process's death and restart would. A nil fault opens it with none.
 2. **The retrieval core's fake**, `internal/eval/retrieval/retrievaltest`, which reads no set file:
    - `New(answers map[string][]string) *Fake` is a `retrieval.System`, with a compile-time assertion.

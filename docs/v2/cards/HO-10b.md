@@ -31,3 +31,11 @@ Existing test files in `internal/install` and `cmd/eva-md`, which pass unchanged
 - Each moved quirk's function passes on its fixture, and the inputs on which install's and the doctor's features rules differ are pinned by a test.
 - The events test of item 4 passes, and fails when an event is removed from the adapter's list for one host.
 - The diff of `templates.go` changes no line inside the event list's entries, which a reviewer checks.
+
+## As merged
+
+Merged from `pkg/ho-10b-r1` on 2026-11-12, after a review that accepted it with three notes on tests, a fix round that added them and changed no code, and a closing verification with no finding. The verifier ran 26 install, uninstall and setup scenarios with the branch's binary and `main`'s, in made-up homes with fake host CLIs, and found every line printed, every exit code, every argument passed to a host and every file written the same.
+
+The lead's ruling: the comparison `h.ID == adapter.Codex` in `templates.go`, for the event list and the form of the hook command, stays until HO-11 rebuilds the hook list. `MCPManifest` and `render` keep v1's handling of a name that is no host.
+
+The latency gate could not judge on the build machine, which was busy each time; the code a hook runs gained only lookups in the adapter. CI's macOS latency job on the merge is the run of record.

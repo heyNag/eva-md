@@ -18,6 +18,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/paths"
+	"github.com/heyNag/eva-md/internal/redact"
 )
 
 // Notice modes.
@@ -96,7 +97,10 @@ func Load(file string) (Config, error) {
 }
 
 // LoadContext is Load with cancellation checks and bounded, regular-file reads.
-func LoadContext(ctx context.Context, file string) (Config, error) {
+// Whatever config it returns, Default() included, sets whether redaction
+// runs the baseline rules (see RedactionCurrentRulesOnly).
+func LoadContext(ctx context.Context, file string) (c Config, err error) {
+	defer func() { redact.SetBaselineAtRunTime(!RedactionCurrentRulesOnly.On(c)) }()
 	data, err := readTOML(ctx, file)
 	if err != nil {
 		return Default(), fmt.Errorf("config: %w", err)
@@ -104,7 +108,7 @@ func LoadContext(ctx context.Context, file string) (Config, error) {
 	// Decoding into Default() keeps the defaults of absent keys, so an
 	// explicit daily_cap = 0 or reminder_every = 0 stays 0 and an absent
 	// updates, commits, mcp or recall stays true.
-	c := Default()
+	c = Default()
 	md, err := toml.Decode(string(data), &c)
 	if err != nil {
 		return Default(), errors.New("config: invalid TOML")

@@ -16,7 +16,7 @@ import (
 
 func init() {
 	register(command{name: "audit", file: "audit.go", place: 135,
-		synopsis: []string{"eva-md audit capture [--session ID | --last N]"},
+		synopsis: []string{"eva-md audit capture [--session ID | --last N]", "eva-md audit shapes"},
 		run: func(ctx context.Context, args []string, _ io.Reader, out, errOut io.Writer) int {
 			return runAudit(ctx, args, out, errOut)
 		}})
@@ -26,10 +26,13 @@ func init() {
 // session with the host's own record of it and prints numbers only. It
 // reads the inbox, the recovery records and the transcripts they name, and
 // writes nothing. --session audits one session, by its id or a ref, and
-// --last the newest N.
+// --last the newest N. eva-md audit shapes is in shapes.go.
 func runAudit(ctx context.Context, args []string, out, errOut io.Writer) int {
+	if len(args) >= 2 && args[1] == "shapes" {
+		return runShapes(ctx, args, out, errOut, shapesTimeout)
+	}
 	if len(args) < 2 || args[1] != "capture" {
-		return usage(errOut, "audit takes capture: eva-md audit capture [--session ID | --last N]")
+		return usage(errOut, "audit takes capture or shapes: eva-md audit capture [--session ID | --last N] | eva-md audit shapes")
 	}
 	var o audit.Options
 	f := flag.NewFlagSet("audit capture", flag.ContinueOnError)

@@ -1,0 +1,122 @@
+This file holds one case for each provider token format the current rules
+know, planted in a line of text. See README.md for the format.
+
+=== secret provider anthropic key in an env line
+ANTHROPIC_API_KEY='⟦sk-¦ant-api03-¦L_7GPmpRpcTGWuLTHy7s¦4wpqrLxrhReq8jF8cLqu⟧'
+
+=== secret provider openai project key in prose
+I set the key to '⟦sk-¦proj-¦FVrTWkliCesHliabti4eUHAI¦YPn9ARhrmdDxbCvo1m4EyzoV⟧' for the eval run.
+
+=== secret provider openai plain key in a header
+curl https://api.openai.example/v1/models -H "X-Key: '⟦sk¦-¦3gTDS3I1NqSjkiVrnkIU¦vcQafkWv3i1NsWwpojZyp6hiQGqL⟧'"
+
+=== secret provider openai service account key
+the service account key is '⟦sk-¦svcacct-¦POkCmTlz6BaY69bE4d3a¦BAYQ5TM1SDxbrVNlj43v⟧'
+
+=== secret provider openai admin key in yaml
+openai:
+  admin: '⟦sk-¦admin-¦6EZSgHtPZI9ZXEKujmvb¦5XppjTs1IJL0AvGkm1ZB⟧'
+
+=== secret provider 1password service account token
+export OP_SERVICE_ACCOUNT='⟦op¦s_¦9zSv2C0r2hZA_hHEl4d_hQ5w_EfY4QAT¦jjw2JBlxfKdEPIf23CIj9RooL-qcJuJU⟧'
+
+=== secret provider github ghp token
+set the remote, then use '⟦ghp¦_¦aH2fRm9HlsvCGSXnLQ¦7Qh1O4MZgoolzW3AHU⟧' as the password
+
+=== secret provider github gho token
+set the remote, then use '⟦gho¦_¦RpBjnHUf5gE05bU72m¦3TrU4eYVcZAnS857eQ⟧' as the password
+
+=== secret provider github ghu token
+set the remote, then use '⟦ghu¦_¦DmKj6VHrvj9XNByEyu¦c8WlYKJMJfFG25L3mN⟧' as the password
+
+=== secret provider github ghs token
+set the remote, then use '⟦ghs¦_¦TvLkao2xiQfhu2gebI¦9VCLmi2kHQkVT85K0J⟧' as the password
+
+=== secret provider github ghr token
+set the remote, then use '⟦ghr¦_¦Xzqp0fIF6Qu7WphXaO¦N00O0gmKBBBtDvOYK0⟧' as the password
+
+=== secret provider github fine-grained token
+GITHUB_PAT github¦_pat_'⟦9WpNzvYwBf4eTRB8u1R805¦_¦8cA6bi3Rghp4MtXVUp5miyxMhImFFe¦qtE29wYtJ1FIWR5m8HOr7bBO9kdr6⟧'
+
+=== secret provider gitlab glpat token
+the runner uses '⟦glpat¦-¦OsZpQRPSkd¦stWpxAToWZ⟧' to fetch
+
+=== secret provider gitlab gldt token
+the runner uses '⟦gldt¦-¦MDBh-LX0Rv¦qUTlHd4v9P⟧' to fetch
+
+=== secret provider gitlab glrt token
+the runner uses '⟦glrt¦-¦cKyB3VOqfW¦sWih4rhK9I⟧' to fetch
+
+=== secret provider gitlab glptt token
+the runner uses '⟦glptt¦-¦QEQXvWIg4m¦RoDkpXMAda⟧' to fetch
+
+=== secret provider gitlab gloas token
+the runner uses '⟦gloas¦-¦npAQnOnfE8¦sl4J7ftfq1⟧' to fetch
+
+=== secret provider slack webhook
+post the alert to https://hooks.slack.com/services/'⟦TFLYFNYJA¦/BA1R3YKQV/¦43sw8hxKvsbY¦52LdAtmE1jT5⟧' when it fails
+
+=== secret provider telegram bot token in a url
+GET https://api.telegram.org/bot'⟦181124224¦:¦2Lb6Lz3-_RwNy6gqI¦kwrOHOyO0tyDZqeMZo⟧'/getUpdates
+
+=== secret provider discord webhook
+webhook: https://discord.com/api/webhooks/169313642348587130/'⟦3Nl2765luEY2jYCbJwBSwIYr1JcYD6-JE6¦fJKLxPURG7IiHZKOkwWhWA7WtcCqiKecJ4⟧'
+
+=== secret provider slack xoxb token
+SLACK_BOT '⟦xoxb¦-¦89594997820-370879656436-¦r7X9AWSIIMHN¦uAC8lfecAdEN⟧'
+
+=== secret provider slack xoxp token
+SLACK_BOT '⟦xoxp¦-¦53780623612-809354660394-¦Vp7uzK2VcwM6¦bZzwr01aG26D⟧'
+
+=== secret provider slack xoxa token
+SLACK_BOT '⟦xoxa¦-¦11804340640-363385821415-¦5wl1AsIJzaWn¦vk1RMtwcJJtH⟧'
+
+=== secret provider slack app token
+app level token '⟦xa¦pp-1-¦A01LE9Q984D-¦6082435128209-¦0e4528aa3a703d580a79ab02e9bdd47b⟧'
+
+=== secret provider aws AKIA key id
+aws_access_key_id = '⟦AK¦IA¦O14P7ZD0¦543IWP7F⟧'
+
+=== secret provider aws ASIA key id
+aws_access_key_id = '⟦AS¦IA¦5YIMUD5V¦X6JY85VU⟧'
+
+=== secret provider aws secret access key
+aws_secret_access_key = '⟦X8+tCcMdbP7TqgsYM3sl¦dNGR32YBnvzdLBYLH8qX⟧'
+region = eu-west-1
+
+=== secret provider google api key
+maps key: '⟦AI¦za¦QcR_5S44dRNnwUym_¦s8f1pJUxxGiaR6Dmq8⟧'
+
+=== secret provider stripe live secret key
+charge with '⟦sk¦_live_¦CezQp15scFHs¦oUeXm611dLnc⟧'
+
+=== secret provider stripe test restricted key
+restricted: '⟦rk¦_test_¦KBV8Rpu7t6Df¦JLAUuKiCW0z3⟧'
+
+=== secret provider huggingface token
+HF login with '⟦hf¦_¦GYvUunfOZr0sHRiFC¦70lLSKK7JRdp8aC6w⟧'
+
+=== secret provider npm token in npmrc
+//registry.npmjs.example/:_authToken='⟦npm¦_¦Pr0J2iYY8qNA9FUJcV¦aC5KFsdFvfoZchF6Pm⟧'
+
+=== secret provider pypi token
+upload with password '⟦pypi-¦AgE¦XTMpAk8MQLHpMXgIXeAnGcaMH2ZJlQrC5aO¦WyqQ0C1OfrmyKjCkoIfoaLUHDpklfXzznAb⟧'
+
+=== secret provider vault service token
+VAULT_TOKEN='⟦hv¦s.¦IEJvQj0j41fetGfIaYFrNMGoG_I6a2Fq6MqSVUFRAIUoieB4¦HtAxjOfJaorb4_abWqzTaNb_jPh24wGLA6PeAzjjsatLTD0⟧'
+
+=== secret provider vault batch token
+batch token '⟦hv¦b.¦I-hb3iDBnrWSQauGnyGM6Mmce6Aby3MW1HuilQWvJrYC9-¦h_LB07E0ggIEaSqVWIadUKV3BlXXcfc88dgt6Cb6VK4xkd⟧'
+
+=== secret provider digitalocean token
+doctl auth init -t '⟦do¦p_v1_¦18fc23a7b0f5e51933a25b4006e1ee41¦8de4d34aa947f75c709bce555b126536⟧'
+
+=== secret provider sendgrid key
+SENDGRID '⟦S¦G.¦c5vK7qKh_fDC0d1L57CKEJ¦.¦gu1SFSV45mjXV7DZ1h14kcO7KIqeskvXjs5qG4P5T-y⟧'
+
+=== secret provider shopify access token
+X-Shopify-Access: '⟦shp¦at_¦cdcabfa0a9f537772e4df8d2c9b03966⟧'
+
+=== secret provider docker personal access token
+docker login -u acme --password-stdin <<< '⟦dckr¦_pat_¦QiLlwwRWcbtbO¦8trbjG9TUVMgEi⟧'
+

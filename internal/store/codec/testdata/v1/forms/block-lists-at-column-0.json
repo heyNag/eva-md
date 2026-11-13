@@ -1,0 +1,27 @@
+{
+  "type": "knowledge",
+  "title": "Tide feed",
+  "description": "",
+  "status": "",
+  "stale_after": "",
+  "generated": null,
+  "verified": null,
+  "sources": [
+    {
+      "id": "",
+      "resource": "s:1",
+      "title": "one",
+      "author": "",
+      "last_modified": "",
+      "usage_count": 0,
+      "extra": null
+    }
+  ],
+  "extra": {
+    "repos": [
+      "tide-tables",
+      "harbour"
+    ]
+  },
+  "body": "\n# Body\n\nSome text.\n"
+}

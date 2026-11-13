@@ -54,6 +54,8 @@ func (f Fault) String() string {
 type Report struct {
 	Faults []Fault
 	// Protected lists each file that refuses the operations aimed at it.
+	// A file at a path the layout rejects is not read, so it is not
+	// listed: its path fault is its report.
 	Protected map[string]Protection
 	// Unacknowledged lists the hand-edited files whose edit carries no
 	// authority yet.

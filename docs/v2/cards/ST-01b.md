@@ -32,3 +32,7 @@ What the codec's existing exported functions do, and what `Set`, `Delete`, `SetB
 - A `## ` line inside fenced code is not a section for the checker, and a `# ` line does not end one: a test for each.
 - Every test of the checker that passed before passes, or the report says why its expectation was wrong and what YAML reads for its input.
 - A reviewer's own mutations of the checker's use of the codec (protection ignored, an unreadable document passed, a section read from fenced code) are each noticed by a test.
+
+## As merged
+
+Merged from `pkg/st-01b-r1` on 2026-11-12, after two reviews, a fix round and a verification that accepted it after a full check. The lead's rulings: a document at a path the layout rejects stays unread, as in the old checker, and `internal/store/codec/SPEC.md` section 10 says so; the new fault on a session, a project record or a disagreement whose protection comes only from a line the codec reads as no key stays, one fault for each key. The spec's line on who calls the codec now names the checker; ST-03b, built beside this, changes the same file, and the lead joins the two at its merge.
