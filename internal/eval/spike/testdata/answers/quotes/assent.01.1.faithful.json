@@ -1,0 +1,8 @@
+{"ops": [
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should the importer write its checkpoints to the marrow_ckpt table?", "admit": null, "ev": [{"e": 4, "q": "Should the importer write its checkpoints to the marrow_ckpt table instead of files?", "as": "proposal"}]},
+  {"op": "item.add", "id": null, "kind": "procedure", "text": "Run importer verify --strict-rows as a dry run before every import.", "admit": "command", "ev": [{"e": 6, "q": "Shall I add a dry run, importer verify --strict-rows, before every import?", "as": "proposal"}, {"e": 7, "q": "yes", "as": "assent"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should the importer's queue be renamed to harvest-intake?", "admit": null, "ev": [{"e": 8, "q": "I suggest we rename the importer's queue to harvest-intake.", "as": "proposal"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should the importer skip the rows the orphan-sweep check flags?", "admit": null, "ev": [{"e": 12, "q": "Should the importer skip the rows the orphan-sweep check flags?", "as": "proposal"}]},
+  {"op": "item.add", "id": null, "kind": "decision", "text": "Every rejected row is logged to rejects.jsonl in the run folder.", "admit": "decision", "ev": [{"e": 16, "q": "How about logging every rejected row to rejects.jsonl in the run folder?", "as": "proposal"}, {"e": 17, "q": "Yes, do that.", "as": "assent"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should the importer's date parsing switch to lenient-iso mode?", "admit": null, "ev": [{"e": 18, "q": "I could switch the importer's date parsing to lenient-iso mode.", "as": "proposal"}]}
+], "nothing": null}

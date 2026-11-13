@@ -1,0 +1,4 @@
+{"ops": [
+  {"op": "item.add", "id": null, "kind": "decision", "text": "The CI runner image is pinned to tidewater-22.", "admit": "decision", "ev": [{"e": 6, "q": "I can pin the runner image to tidewater-22", "as": "proposal"}, {"e": 7, "q": "Yes to the first one.", "as": "assent"}]},
+  {"op": "item.add", "id": null, "kind": "decision", "text": "CI turns on the flakehunter retry plugin.", "admit": "decision", "ev": [{"e": 6, "q": "I can also turn on the flakehunter retry plugin", "as": "proposal"}, {"e": 7, "q": "Leave the second alone.", "as": "assent"}]}
+], "nothing": null}

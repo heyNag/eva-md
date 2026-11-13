@@ -1,0 +1,3 @@
+{"ops": [
+  {"op": "item.add", "id": null, "kind": "decision", "text": "If BenchmarkBrief in scripts/benchmark.py passes 300 ms, switch to the streaming parser, CONDOR-8.", "admit": "decision", "ev": [{"e": 1, "s": 1, "as": "said"}]}
+], "nothing": null}
