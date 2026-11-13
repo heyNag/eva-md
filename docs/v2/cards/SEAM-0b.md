@@ -24,16 +24,6 @@ The per-event capture in `capture` (the switch on the event), the brief, the poi
 
 `internal/hook/handlers.go` (new), `internal/hook/handlers_test.go` (new), and in `internal/hook` only these: `hook.go`, `resume.go` (the catch-up call), `trigger.go`, `maintain.go`, `spawn.go`.
 
-```paths
-internal/hook/handlers.go
-internal/hook/handlers_test.go
-internal/hook/hook.go
-internal/hook/resume.go
-internal/hook/trigger.go
-internal/hook/maintain.go
-internal/hook/spawn.go
-```
-
 ## Must not touch
 
 Every path outside `internal/hook`. `pointers.go` and `recall.go`. What a hook stores in the inbox, writes to a marker or a heartbeat, or returns to the host; which jobs it starts and when; the trigger thresholds; any plugin byte or hook declaration.

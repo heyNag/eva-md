@@ -20,11 +20,6 @@ Two new packages that no release contains. Neither non-test file imports `intern
 
 `internal/eval/score/**` and `internal/eval/v1page/**` (both new), with their test data.
 
-```paths
-internal/eval/score/**
-internal/eval/v1page/**
-```
-
 ## Must not touch
 
 Everything else. `internal/eval/scenario` (EV-14a's), `internal/eval/results`, `internal/update/**` and `internal/threadpage/**` are read, never edited. Tests may import `internal/threadpage` and `internal/update/accuracy`; non-test files may not, and `TestOnlyItImportsTheSuite` passes unchanged.
