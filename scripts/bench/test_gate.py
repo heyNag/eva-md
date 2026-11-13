@@ -1433,7 +1433,8 @@ class MissedLimits(unittest.TestCase):
         self.assertEqual(self.read([('{"a": 1}', 289.0)]*25), (list(range(25)), ""))
 
     # A stand-in that writes its arguments, as the benchmark's does, but
-    # drops its DROP-th call, the warm-up being the first.
+    # drops its DROP-th call, the warm-up being the first. The calls are
+    # those the padded inbox's hooks make of it.
     DROPPING = ('#!/bin/sh\nn=$(cat "$HOME/calls" 2>/dev/null || echo 0)\nn=$((n+1))\necho "$n" > "$HOME/calls"\n'
                 '[ "$n" = "$DROP" ] || echo "$*" >> "$HOME/spawned"\n')
 
@@ -1446,8 +1447,8 @@ class MissedLimits(unittest.TestCase):
             standin.write_text(self.DROPPING); standin.chmod(0o700)
             env = dict(os.environ, HOME=d, DROP=str(drop))
             calls = [["warm-up"], ["maintain"], ["update", "--sweep=2026-11-13"]]
-            calls += [["update", "--session", "codex:m1-spawn", "--trigger", "stop_size"]]*30
-            calls += [["update", "--session", "claude-code:m1-end-%d" % i, "--trigger", "session_end"] for i in range(30)]
+            calls += [["update", "--session", "codex:m1-spawn"]]*30
+            calls += [["update", "--session", "claude-code:m1-end-%d" % i] for i in range(30)]
             for args in calls:
                 subprocess.run([str(standin)] + args, env=env, check=True, timeout=self.GUARD)
             return (Path(d)/"spawned").read_text().splitlines()[1:]
@@ -1461,8 +1462,7 @@ class MissedLimits(unittest.TestCase):
         message = str(e.exception)
         self.assertEqual(message, "the hooks started the stand-in 61 times, not 62, with 0 of the hooks that start it past their limit: "
                          "Stop 29 of 30 (1 short), SessionEnd 30 of 30, maintain 1 of 1, the sweep 1 of 1; seen: maintain: 1, "
-                         "update --session claude-code:m#-end-# --trigger session_end: 30, "
-                         "update --session codex:m#-spawn --trigger stop_size: 29, update --sweep=#-#-#: 1")
+                         "update --session claude-code:m#-end-#: 30, update --session codex:m#-spawn: 29, update --sweep=#-#-#: 1")
         with self.assertRaisesRegex(RuntimeError, r"Stop 30 of 30, SessionEnd 29 of 30 \(1 short\)"):
             bench.check_starts(self.started(40), bench.start_groups([40.0]*30, [60.0]*30))
 
@@ -1480,13 +1480,12 @@ class MissedLimits(unittest.TestCase):
     def test_a_start_of_no_kind_asked_for_fails(self):
         lines = self.started(0)
         for extra, why in (("maintain", r"maintain 2 of 1 \(1 too many\)"), ("maintain --push-only", "1 of no kind asked for"),
-                           ("update --session codex:m1-spawn --trigger stop_size", r"Stop 31 of 30 \(1 too many\)")):
+                           ("update --session codex:m1-spawn", r"Stop 31 of 30 \(1 too many\)")):
             with self.assertRaisesRegex(RuntimeError, why):
                 bench.check_starts(lines + [extra], bench.start_groups([290.0]*30, [60.0]*30))
 
     def test_a_kind_replaces_digits(self):
-        self.assertEqual(bench.kind("update --session claude-code:m1-end-17 --trigger session_end"),
-                         "update --session claude-code:m#-end-# --trigger session_end")
+        self.assertEqual(bench.kind("update --session claude-code:m1-end-17"), "update --session claude-code:m#-end-#")
         self.assertEqual(bench.kind("update --sweep=2026-11-13"), "update --sweep=#-#-#")
 
 
