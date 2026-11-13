@@ -45,7 +45,7 @@ Rules every card carries, so they are said once here:
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | ready once DV-03b's second round is merged |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
-| [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | ready; it replaces the card for a pilot's own driver (the ruling below the table) |
+| [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | building since 2026-11-13; it replaces the card for a pilot's own driver (the ruling below the table) |
 | [EV-03c](EV-03c.md) | The pilot's report, over the continuation's rows, and the pilot's README | after EV-17g, which fixes the run record it reads |
 | [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | merged, ahead of DV-13; ST-04b carries one of the two small things its notes owe, and the other waits for a card that changes `trace.go` |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; ST-04b adds the figure for false additions over all negatives of a half |
@@ -58,7 +58,7 @@ Rules every card carries, so they are said once here:
 | [LG-22a](LG-22a.md) | The project registry's types, the project id as a function of a key, and its fake | ready; LG-22's first part, with no caller |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
-| [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | building since 2026-11-13 |
+| [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | merged |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | ready |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | ready |

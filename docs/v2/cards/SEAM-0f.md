@@ -58,3 +58,15 @@ The card's checker left these to the lead.
 - `-cpu=1` stands for the one processor the lead's note asked for, and the run under load keeps the default, which is how the failure was seen.
 - The builder runs the first command once and the reviewer the second, whatever else the machine is doing: a busy machine is what the card is about. Neither waits for a quiet one.
 - A test of `lateBeat`'s own window waits for a card that changes the hook's code; none owes it today.
+
+## As merged
+
+Merged from `pkg/seam-0f-r1` on 2026-11-13, after a review that accepted it with two small points, a fix round for them and a verification that accepted it. Two test files changed and nothing else.
+
+What was run, on a machine at five to seven times its CPUs throughout: the package's tests 20 times with one processor, plain and under the race detector, by the builder; 20 times again under a busy loop on every CPU, by the reviewer; and each scratch change of the card, by the builder and again by the reviewer and the verifier, each failing its test with the test's own message. The cause was shown as the card asked: with the late record's own window made nothing, the old test fails every time and the new one passes.
+
+Beyond the card, from the review: the late record's time is held between the moment the test ends the capture's time and Run's return, not only away from the fixed time; and the test also holds and waits for a goroutine the capture starts, which today's capture never does.
+
+Known and left, each for a card that changes the hook's code: nothing bounds the late record's own window from above; and `awaitNoCapture`, which the three other tests use, waits for the capture's own frame only, so a write from a goroutine the capture started would get past them. A seam in the hook that lets a test hold the heartbeat's writes would close both.
+
+`AGENTS.md` and the wave's notes no longer need to name `TestLateRunRecordsItsTime` as a failure of a busy machine: after this merge a failure of it is a finding.

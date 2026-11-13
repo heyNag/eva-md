@@ -9,6 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -52,11 +55,17 @@ func TestHeartbeatRecordsEachRunsTime(t *testing.T) {
 }
 
 // A run whose capture ran out of time is recorded as failed once its output
-// is written, with the time it took from Run's start, and with whether its
-// transcript lies elsewhere, here in a folder CODEX_HOME moved. The capture
-// Run gave up on writes no heartbeat of its own: its time is up. The test
-// ends the capture's time itself, once the capture is seen waiting for the
-// inbox's lock, so no clock decides the outcome.
+// is written, with the time it took from Run's start, at the moment the
+// system's clock gives, and with whether its transcript lies elsewhere, here
+// in a folder CODEX_HOME moved. The capture Run gave up on writes no
+// heartbeat of its own: its time is up. The test ends the capture's time
+// itself, once the capture is seen waiting for the inbox's lock, so no
+// clock decides the outcome. From then on the capture's next call of the
+// env's clock is for its own heartbeat, and the test holds every such call,
+// from capture or from a goroutine it started, until Run has returned, and
+// waits for both to end, so the two writes come in a fixed order: a capture
+// heartbeat that ignored its ended time would be written after the late
+// run's record, and seen as a second run.
 func TestLateRunRecordsItsTime(t *testing.T) {
 	env, p := setup(t)
 	p.Event = "Stop"
@@ -69,34 +78,145 @@ func TestLateRunRecordsItsTime(t *testing.T) {
 	}
 	release := holdInbox(t, env, "codex", p.Session)
 	defer release()
+	// Slack keeps busySlack. Run's waits are the test's to end and recovery
+	// is a stub, so the one limit it still lengthens is the late run's
+	// record's own, a real 100 ms that a busy machine can spend before the
+	// record is written.
 	held := env
-	held.Slack = 0
 	held.recoverTranscript = func(context.Context, paths.Dirs, string, string) (int, error) { return 0, nil }
-	held.elapsed = func(time.Time) time.Duration { return 290 * time.Millisecond }
+	// The capture Run gave up on measures its time too, from its own
+	// goroutine.
+	var mu sync.Mutex
+	var starts []time.Time
+	held.elapsed = func(started time.Time) time.Duration {
+		mu.Lock()
+		defer mu.Unlock()
+		starts = append(starts, started)
+		return 290 * time.Millisecond
+	}
+	fixed := env.Now()
+	ended, returned := make(chan struct{}), make(chan struct{})
+	held.Now = func() time.Time {
+		select {
+		case <-ended:
+			if inCapture() {
+				select {
+				case <-returned:
+				case <-time.After(hangGuard):
+				}
+			}
+		default:
+		}
+		return fixed
+	}
 	waits := make(chan heldWait, 3)
 	held.withDeadline = holdWaits(waits)
-	returned := make(chan struct{})
+	before := time.Now()
 	go func() {
 		defer close(returned)
 		Run(context.Background(), "codex", bytes.NewReader(data), io.Discard, held)
 	}()
 	nextWait(t, waits, "its wait for the payload")
 	work := nextWait(t, waits, "its wait for the capture")
+	asked := time.Now()
 	early := "a Stop held up by the inbox's lock returned before its deadline"
 	awaitParked(t, returned, inboxWait, "/internal/hook.capture(", "the capture was not seen waiting for the inbox's lock", early)
 	awaitParked(t, returned, runWait, "/hook."+t.Name()+".", "Run was not seen waiting for the capture", early)
+	close(ended)
+	// The late run's record is written once Run's wait for the capture has
+	// ended and before Run returns, so its time falls between the two.
+	ending := time.Now().Round(0)
 	work.end()
 	mustReturn(t, "a Stop held up by the inbox's lock, past its deadline,", func() { <-returned })
+	recorded := time.Now().Round(0)
 	release()
 	awaitNoCapture(t, "the capture Run gave up on")
-	if runs := beatRuns(t, env, "codex", "Stop"); len(runs) != 1 || !runs[0].Failed || runs[0].DurationMS != 290 {
-		t.Fatalf("runs=%+v", runs)
+	awaitNoneStartedByCapture(t, "the capture Run gave up on")
+	mu.Lock()
+	measured := append([]time.Time(nil), starts...)
+	mu.Unlock()
+	if len(measured) == 0 {
+		t.Fatal("the late run's time was not measured")
+	}
+	for _, started := range measured {
+		if started.Before(before) || started.After(asked) {
+			t.Fatalf("a run's time was measured from %v, not from Run's start, between %v and %v", started, before, asked)
+		}
+	}
+	file := filepath.Join(env.Dirs.State, "heartbeats", "codex", "Stop.json")
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the late run left no heartbeat: %v", err)
+	}
+	runs := beatRuns(t, env, "codex", "Stop")
+	switch {
+	case len(runs) != 1:
+		t.Fatalf("the heartbeat holds %d runs, want the late run's record alone: %+v", len(runs), runs)
+	case !runs[0].Failed:
+		t.Fatalf("the late run is not recorded as failed: %+v", runs[0])
+	case runs[0].DurationMS != 290:
+		t.Fatalf("the late run took %v ms, want 290: %+v", runs[0].DurationMS, runs[0])
+	case runs[0].At == fixed.Format(time.RFC3339Nano):
+		t.Fatalf("the late run was recorded at the env's fixed time %s, not the system clock's", runs[0].At)
+	}
+	if at, err := time.Parse(time.RFC3339Nano, runs[0].At); err != nil || at.Before(ending) || at.After(recorded) {
+		t.Fatalf("the late run was recorded at %s, not when it was written, between %s and %s (%v)",
+			runs[0].At, ending.Format(time.RFC3339Nano), recorded.Format(time.RFC3339Nano), err)
 	}
 	var beat struct {
 		Elsewhere bool `json:"transcript_elsewhere"`
 	}
-	if data, err := os.ReadFile(filepath.Join(env.Dirs.State, "heartbeats", "codex", "Stop.json")); err != nil || json.Unmarshal(data, &beat) != nil || !beat.Elsewhere {
+	if data, err := os.ReadFile(file); err != nil || json.Unmarshal(data, &beat) != nil || !beat.Elsewhere {
 		t.Fatalf("the late run's heartbeat doesn't say the transcript is elsewhere: %s %v", data, err)
+	}
+}
+
+// inCapture reports whether the calling goroutine is running capture, or was
+// started by capture or one of its closures, as a heartbeat written from a
+// goroutine of the capture's own would be.
+func inCapture() bool {
+	buf := make([]byte, 16<<10)
+	for {
+		n := runtime.Stack(buf, false)
+		if n < len(buf) {
+			stack := string(buf[:n])
+			return strings.Contains(stack, captureFrame) || startedByCapture(stack)
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+}
+
+// capturedBy begins the line of a goroutine's stack that names capture, or
+// a closure of it, as the function whose go statement started it.
+const capturedBy = "created by github.com/heyNag/eva-md/internal/hook.capture"
+
+// startedByCapture reports whether stacks, one goroutine's or all of them,
+// hold a goroutine that capture or one of its closures started. capture
+// starts none today; one that wrote the capture's heartbeat would outlive
+// capture's frame, which awaitNoCapture waits on.
+func startedByCapture(stacks string) bool {
+	for line := range strings.Lines(stacks) {
+		rest, ok := strings.CutPrefix(line, capturedBy)
+		if ok && (strings.HasPrefix(rest, " in goroutine") || strings.HasPrefix(rest, ".func")) {
+			return true
+		}
+	}
+	return false
+}
+
+// awaitNoneStartedByCapture waits until no goroutine capture started is
+// left, and fails the test, naming the capture by what, if one is left
+// after hangGuard.
+func awaitNoneStartedByCapture(t *testing.T, what string) {
+	t.Helper()
+	guard := time.After(hangGuard)
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for startedByCapture(stacks()) {
+		select {
+		case <-guard:
+			t.Fatalf("a goroutine %s started was still running after %v", what, hangGuard)
+		case <-tick.C:
+		}
 	}
 }
 

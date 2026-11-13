@@ -690,9 +690,11 @@ func TestDeadlinesAndNoLateCapture(t *testing.T) {
 		t.Fatalf("a Stop past its deadline wrote %q, want {}", out.String())
 	}
 	release()
-	// A second invocation waits for the session lock, which the capture Run
-	// gave up on holds until it fails. Only its reply may appear once the
-	// inbox's lock is free.
+	// The capture Run gave up on still writes after it lets the session's
+	// lock go, so the test waits for the capture itself to return, not for
+	// the lock, before a second invocation. Only the second one's reply may
+	// appear once the inbox's lock is free.
+	awaitNoCapture(t, "the capture Run gave up on")
 	reply = "new reply"
 	invoke(t, "codex", p, env)
 	rows := records(t, env)
@@ -886,6 +888,9 @@ func TestSessionStartBudgetAndMarkerErrors(t *testing.T) {
 	work.end()
 	mustReturn(t, "a SessionStart held up by the session's lock, past its deadline,", func() { <-returned })
 	release()
+	// A capture that ignored its ended time would take the lock now and
+	// store its event only after the check below: wait for it to return.
+	awaitNoCapture(t, "the SessionStart's capture Run gave up on")
 	if rows := records(t, env); len(rows) != 0 {
 		t.Fatalf("a SessionStart past its deadline stored %#v", rows)
 	}
@@ -1032,8 +1037,11 @@ func TestCancelledCallbacksCannotWriteLater(t *testing.T) {
 			}
 			close(unblock)
 			<-returned
-			// Run another event to wait for the same session lock and flush any
-			// still-unwinding worker; the canceled payload must never appear.
+			// returned closes while the capture still runs, and in the getenv
+			// case it holds no lock yet that would order it before the next
+			// event, so the test waits for the capture itself to return. Then
+			// another event runs; the cancelled payload must never appear.
+			awaitNoCapture(t, "the capture whose callback ran out of time")
 			env.Getenv = os.Getenv
 			env.Now = time.Now
 			p.Reply = nil
