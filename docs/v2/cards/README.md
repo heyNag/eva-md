@@ -46,7 +46,7 @@ Rules every card carries, so they are said once here:
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
 | [EV-03b](EV-03b.md) | The pilot's driver | ready to build, since EV-03a is merged; the live run waits for the owner's leave, a ceiling and decision 28's keys |
 | [EV-03c](EV-03c.md) | The pilot's report and its README | ready, since EV-03a is merged; beside EV-03b |
-| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | building since 2026-11-13; merges before DV-13 |
+| [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | merged, ahead of DV-13; two small tests are owed by the package that next changes `cmd/live-accuracy` |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; owed as a small follow-up: a figure for false additions over all negatives of a half, since the plan's bound of 1.9% needs 160 of them and no one class has that many |
 | [DV-12a](DV-12a.md) | The worker, its wake marks and its journal | merged |
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
@@ -84,7 +84,7 @@ Rules every card carries, so they are said once here:
 | [EV-14c](EV-14c.md) | Six new families, half held out | merged; owed before its figures are put in a gate: a card for the scorer, which reads an agreement as a statement and cannot ask a hedge of one kind of filing alone |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | merged |
-| [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | ready, since EV-17a is merged |
+| [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | building since 2026-11-13 |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost | after EV-17b; real runs after EV-17d and decision 28's keys |
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; owed, on a card that owns the release workflow: a check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03) |

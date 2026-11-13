@@ -56,3 +56,24 @@ Everything else. `cmd/live-accuracy/main_test.go`, `cmd/live-accuracy/record.go`
 - `--trace` to a folder that holds a file exits 2 and calls nothing.
 - Without the new flags the command prints and does exactly what it did; with `--record`, `--pages` and `--trace` together, each writes what it writes alone.
 - No new module; only eva's name in any output.
+
+## As merged
+
+Merged from `pkg/dv-02a-r1` on 2026-11-13, after two reviews, one fix round and a verification that accepted it. Both reviews found the same major fault: the example in docs/verification.md wrote the recording and the trace into the checkout, one `git add` from a commit of the host's raw output. The fix moved the example out of the checkout, and the command now refuses a `--trace` inside the git work tree it is run from.
+
+What the runner gained: `update.Request` has an optional `Tap`, called once after each attempt with copies of what the CLI printed. Nothing but the live run sets it, and `TestOnlyTheLiveRunSetsATap` reads every non-test file of the module to hold that. With no tap the runners do what they did.
+
+Accepted as built, each asked of the lead by the builder or the fixer:
+
+- **The refusal of a `--trace` inside the work tree stays,** though the card does not ask for it. It is what keeps a host's raw output away from a commit when the instructions are not followed.
+- **`--trace` with `--replay` is refused.** A replay calls nothing, so it has no cost and no raw output to keep.
+- **`end.json`'s `passes` counts the lines the trace wrote.** It differs from the run's own count only when the run stops on an answer from the host's default model, whose line is written for its model note. The stop's code is `model_fallback`.
+
+After the merge the lead corrected the instructions in docs/verification.md, on the verifier's four small points: each example makes its folder first, since `--record` does not make one and the first command of a sitting would have failed; the earlier example keeps its recording and pages outside the checkout too, a folder a run; and the text no longer says that a pages folder that cannot be made leaves nothing of the recording, since it leaves an empty file, as it did before this package.
+
+Owed, for the package that next changes `cmd/live-accuracy`:
+
+- A test of `createTrace` removing what it made when it fails part way.
+- Whether a pages folder that cannot be made takes the recording away too, with `--record` added to the test's two pages cases.
+
+The latency gate was not judged for this merge: the machine was at ten times its CPUs. The change to what a release builds is one optional field and a check for it on the update runner's path, which no hook runs; CI's `latency` artifact for the push is the reading.
