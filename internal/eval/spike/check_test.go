@@ -659,6 +659,26 @@ func TestGrounding(t *testing.T) {
 			t.Errorf("%q citing the whole entry: code %q", c.text, j.Code)
 		}
 	}
+	// A version cut short of its suffix is a changed value; a number
+	// joined to a word is still that number.
+	versions := "Pin the client to 1.2.3-beta, the router to 10.0.0.1-x and Go to 1.26-rc1, for a 2.5-hour run."
+	vin := renderSession(t, FormQuotes, versions)
+	for _, c := range []struct {
+		text string
+		ok   bool
+	}{
+		{"Pin the client to 1.2.3.", false},
+		{"Pin the client to 1.2.3-beta.", true},
+		{"Point the router at 10.0.0.1.", false},
+		{"Use Go 1.26.", false},
+		{"Use Go 1.26-rc1.", true},
+		{"The run takes 2.5 hours.", true},
+	} {
+		j := judgeOne(vin, nil, add("constraint", c.text, sq(1, versions, "said")), FormQuotes)
+		if j.Accepted() != c.ok || (!c.ok && j.Code != "ungrounded") {
+			t.Errorf("%q citing the whole entry: code %q", c.text, j.Code)
+		}
+	}
 }
 
 // TestGroundTokens: the tokens that must be grounded, and where a token is
@@ -734,6 +754,23 @@ func TestGroundTokens(t *testing.T) {
 		{"3/4 done", "3", false},
 		{"a 30-", "30", true},
 		{"a 30-- dash", "30", true},
+		// A number has at most one point: a version or an address of more
+		// goes on at a hyphen and a letter, so one cut short of its
+		// suffix is not found; nor is a version whose suffix holds a digit.
+		{"pin 1.2.3-beta", "1.2.3", false},
+		{"pin 2.0.0-rc.1", "2.0.0", false},
+		{"pin 2.0.0-rc.1", "2.0", false},
+		{"host 10.0.0.1-x", "10.0.0.1", false},
+		{"Go 1.26-rc1", "1.26", false},
+		{"Go 1.26-rc1", "1.26-rc1", true},
+		{"pin 1.2.3-beta", "1.2.3-beta", true},
+		{"pin 1.2.3 now", "1.2.3", true},
+		{"a 2.5-hour run", "2.5", true},
+		{"a 1,500.5-page book", "1,500.5", true},
+		{"a 30-second2 timeout", "30", false},
+		// Known false findings, as CHECK.md lists them.
+		{"pin 2.0-beta", "2.0", true},
+		{"set 5-a", "5", true},
 	} {
 		if holds(c.words, c.tok) != c.ok {
 			t.Errorf("holds(%q, %q) = %v", c.words, c.tok, !c.ok)

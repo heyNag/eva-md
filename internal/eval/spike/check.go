@@ -615,30 +615,53 @@ func mustGround(tok string) bool {
 // underscore, a range's dash and a time's colon.
 const joiners = ".,/_-:"
 
-// numeric reports a token made of digits alone, with a sign before them or
-// points or thousands marks among them: a number, not a path or a name.
+// numeric reports a token made of digits alone, with a sign before them,
+// thousands marks among them or one decimal point: a number, not a path, a
+// name, or a version or an address of more than one point.
 func numeric(tok string) bool {
-	digits := false
+	digits, points := false, 0
 	for i, r := range tok {
 		switch {
 		case unicode.IsDigit(r):
 			digits = true
-		case r == '.' || r == ',':
+		case r == '.':
+			points++
+		case r == ',':
 		case i == 0 && (r == '-' || r == '+' || r == '−'):
 		default:
 			return false
 		}
 	}
-	return digits
+	return digits && points <= 1
+}
+
+// wordAfter reports whether s starts with a letter and the run of letters
+// and digits it starts holds no digit: a word such as "second" or "day",
+// not a suffix such as "rc1" that is part of a version.
+func wordAfter(s string) bool {
+	r, _ := utf8.DecodeRuneInString(s)
+	if !unicode.IsLetter(r) {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case unicode.IsDigit(r):
+			return false
+		case !unicode.IsLetter(r):
+			return true
+		}
+	}
+	return true
 }
 
 // holds reports whether words hold tok whole: at a place where the value
 // goes on neither before nor after it. It goes on where a letter or a
 // digit stands right next to it, or a joiner with a letter or a digit
-// beyond, but for a number, which a hyphen or a slash and then a letter
-// end, as in 30-second or 3/day; and before a token that starts with a
-// digit, where a minus sign or a point stands right before it. So 5 is not
-// held by 15, 5.5, 1,500, 4-5, 5-6, -5 or .5, 1.2 not by 1.2.3, 6 not by
+// beyond, but for a number, which a hyphen or a slash and then a word of
+// letters alone end, as in 30-second or 3/day; and before a token that
+// starts with a digit, where a minus sign or a point stands right before
+// it. So 5 is not held by 15, 5.5, 1,500, 4-5, 5-6, -5 or .5, 1.2 not by
+// 1.2.3, 1.2.3 not by 1.2.3-beta, 1.26 not by 1.26-rc1, 6 not by
 // PELICAN-6, and scripts/bench not by scripts/bench/out; 5 is held by
 // "5.", "5, then" and "5-minute".
 func holds(words, tok string) bool {
@@ -657,7 +680,7 @@ func holds(words, tok string) bool {
 		a1, m1 := utf8.DecodeRuneInString(words[end:])
 		a2, _ := utf8.DecodeRuneInString(words[end+m1:])
 		goesOnBefore := n1 > 0 && (alnum(b1) || joiner(b1) && at-n1 > 0 && alnum(b2) || digit && (b1 == '-' || b1 == '.'))
-		ends := number && (a1 == '-' || a1 == '/') && unicode.IsLetter(a2)
+		ends := number && (a1 == '-' || a1 == '/') && wordAfter(words[end+m1:])
 		goesOnAfter := m1 > 0 && (alnum(a1) || joiner(a1) && end+m1 < len(words) && alnum(a2) && !ends)
 		if !goesOnBefore && !goesOnAfter {
 			return true
