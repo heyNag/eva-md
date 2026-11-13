@@ -238,7 +238,8 @@ func decodeStrict(data []byte, v any) error {
 		case errors.As(err, &typ):
 			return fmt.Errorf("the field %s has the wrong type", typ.Field)
 		case strings.HasPrefix(err.Error(), "json: unknown field "):
-			return errors.New(strings.TrimPrefix(err.Error(), "json: "))
+			// The field's name is the file's own text, so it is not given.
+			return errors.New("it has an unknown field")
 		}
 		return errors.New("it does not decode")
 	}
@@ -323,11 +324,29 @@ func (t *Task) checkValues(string) (string, string) {
 	if len(t.Facts) == 0 {
 		return ruleValues, "the task has no fact"
 	}
-	seen := map[string]bool{}
+	// A message names a fact or a test by its id, so before any does, no
+	// id may hold a word Forbid gives; a value too short to be one is
+	// refused below, by a message that names its fact.
+	words := slices.DeleteFunc(Forbid(*t), func(w string) bool { return shape(w) != "" })
 	for _, f := range t.Facts {
 		switch {
 		case !idPattern.MatchString(f.ID):
 			return ruleValues, "a fact's id is not an id"
+		case holds(f.ID, words):
+			return ruleValues, "a fact's id holds a value or a repository's name"
+		}
+	}
+	for _, test := range t.Tests {
+		switch {
+		case !idPattern.MatchString(test.ID):
+			return ruleTests, "a test's id is not an id"
+		case holds(test.ID, words):
+			return ruleTests, "a test's id holds a value or a repository's name"
+		}
+	}
+	seen := map[string]bool{}
+	for _, f := range t.Facts {
+		switch {
 		case seen[f.ID]:
 			return ruleValues, "fact " + f.ID + " is listed twice"
 		case strings.TrimSpace(f.Statement) == "":

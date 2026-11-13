@@ -50,10 +50,11 @@ func copyPilotTasks(t *testing.T, ids ...string) string {
 	return dst
 }
 
-// eva-eval pilot check passes every committed task, one line each, and
-// exits 0.
+// eva-eval pilot check, run from the repository's root with no flag,
+// reads the committed tasks, passes every one, one line each, and exits 0.
 func TestPilotCheckPassesTheCommittedTasks(t *testing.T) {
-	code, out, errOut := cmd("pilot", "check", "--tasks", pilotTasks(t))
+	t.Chdir(moduleRoot(t))
+	code, out, errOut := cmd("pilot", "check")
 	want := "d01 hidden ok\nd02 hidden ok\nd03 hidden ok\nd04 hidden ok\nd05 hidden ok\n" +
 		"h01 handoff ok\nh02 handoff ok\nh03 handoff ok\nh04 handoff ok\nh05 handoff ok\n"
 	if code != 0 || out != want || errOut != "" {

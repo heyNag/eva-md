@@ -3,9 +3,13 @@ package task
 import (
 	"encoding/json"
 	"errors"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -157,6 +161,125 @@ func TestTheCommittedTasks(t *testing.T) {
 	}
 }
 
+// pythonStdlib are the modules of Python's standard library a task may
+// import: a short list, so a task that wants another adds it here.
+var pythonStdlib = []string{
+	"argparse", "collections", "csv", "dataclasses", "datetime", "decimal", "functools", "io", "itertools",
+	"json", "math", "os", "pathlib", "re", "shutil", "string", "subprocess", "sys", "tempfile", "textwrap",
+	"typing", "unittest",
+}
+
+var (
+	pyImport = regexp.MustCompile(`^\s*import\s+(.+)$`)
+	pyFrom   = regexp.MustCompile(`^\s*from\s+(\S+)\s+import\b`)
+)
+
+// The tasks use the standard library alone: no Go file imports a module on
+// a host (its go.mod requires none, which the go.mod rule holds), and every
+// Python module imported is in pythonStdlib or a module of the repository's
+// own, in any of its trees. A task that imported anything else would pass
+// on a machine where it is installed and fail on one where it is not.
+func TestTheTasksUseTheStandardLibraryOnly(t *testing.T) {
+	tasks, err := Load(committed(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goFiles, pyFiles := 0, 0
+	for _, task := range tasks {
+		for _, repo := range task.Repos {
+			own := map[string]bool{}
+			var files []string
+			for _, tree := range []string{treeRepos, treeHidden, treeSolution, treeDecoy} {
+				root := filepath.Join(task.Dir, tree, repo)
+				err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+					if errors.Is(err, os.ErrNotExist) && path == root {
+						return filepath.SkipDir
+					}
+					if err != nil || d.IsDir() {
+						return err
+					}
+					if rel, _ := filepath.Rel(root, path); filepath.Ext(rel) == ".py" {
+						own[strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]] = true
+						own[strings.TrimSuffix(filepath.Base(rel), ".py")] = true
+					}
+					files = append(files, path)
+					return nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, path := range files {
+				rel, _ := filepath.Rel(task.Dir, path)
+				switch filepath.Ext(path) {
+				case ".go":
+					goFiles++
+					f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, imp := range f.Imports {
+						p, _ := strconv.Unquote(imp.Path.Value)
+						if first, _, _ := strings.Cut(p, "/"); strings.Contains(first, ".") {
+							t.Errorf("%s %s imports a module on a host", task.ID, rel)
+						}
+					}
+				case ".py":
+					pyFiles++
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, line := range strings.Split(string(data), "\n") {
+						var mods []string
+						if m := pyFrom.FindStringSubmatch(line); m != nil {
+							mods = append(mods, m[1])
+						} else if m := pyImport.FindStringSubmatch(line); m != nil {
+							for _, part := range strings.Split(m[1], ",") {
+								if fields := strings.Fields(part); len(fields) > 0 {
+									mods = append(mods, fields[0])
+								}
+							}
+						}
+						for _, mod := range mods {
+							top, _, _ := strings.Cut(mod, ".")
+							if top != "" && !own[top] && !slices.Contains(pythonStdlib, top) {
+								t.Errorf("%s %s imports %s, which is neither the standard library's nor the repository's", task.ID, rel, top)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if goFiles < 10 || pyFiles < 10 {
+		t.Fatalf("read %d Go files and %d Python files; the walk read the wrong folders", goFiles, pyFiles)
+	}
+}
+
+// The Python import patterns find the modules a line imports, so the
+// check above can fail.
+func TestTheImportPatterns(t *testing.T) {
+	for line, want := range map[string]string{
+		"import requests":                "requests",
+		"    import yaml as y":           "yaml",
+		"from numpy.linalg import norm":  "numpy.linalg",
+		"import os, requests":            "os, requests",
+		"from . import agenda":           ".",
+		"# a comment that says import x": "",
+	} {
+		got := ""
+		if m := pyFrom.FindStringSubmatch(line); m != nil {
+			got = m[1]
+		} else if m := pyImport.FindStringSubmatch(line); m != nil {
+			got = m[1]
+		}
+		if !strings.HasPrefix(got, want) || (want == "" && got != "") {
+			t.Errorf("%q gives %q, want %q", line, got, want)
+		}
+	}
+}
+
 // eva-md's Go version, which no task's go.mod may pass, is the one its
 // go.mod names.
 func TestEvaGoIsTheModulesGo(t *testing.T) {
@@ -191,6 +314,9 @@ func TestLoadRefusesEachRule(t *testing.T) {
 		{"an unknown field", "h01", ruleFormat, func(t *testing.T, dir string) {
 			raw(t, dir, func(s string) string { return strings.Replace(s, `"v": 1,`, `"v": 1, "voice": true,`, 1) })
 		}},
+		{"an unknown field named for a value", "h01", ruleFormat, func(t *testing.T, dir string) {
+			raw(t, dir, func(s string) string { return strings.Replace(s, `"v": 1,`, `"v": 1, "widestword": true,`, 1) })
+		}},
 		{"something after the object", "h01", ruleFormat, func(t *testing.T, dir string) {
 			raw(t, dir, func(s string) string { return s + "{}" })
 		}},
@@ -212,6 +338,10 @@ func TestLoadRefusesEachRule(t *testing.T) {
 		{"no fact", "h01", ruleValues, edited(func(k *Task) { k.Facts = nil })},
 		{"a fact with no value", "h01", ruleValues, edited(func(k *Task) { k.Facts[0].Values = nil })},
 		{"a fact listed twice", "h01", ruleValues, edited(func(k *Task) { k.Facts[1].ID = k.Facts[0].ID })},
+		{"a fact's id that holds a value", "h01", ruleValues, edited(func(k *Task) { renameFact(k, "f1", "widestword-1") })},
+		{"a fact's id that holds a repository's name", "h01", ruleValues, edited(func(k *Task) { renameFact(k, "f2", "quillmark") })},
+		{"a test's id that holds a value", "h01", ruleTests, edited(func(k *Task) { k.Tests[2].ID = "uniqtally" })},
+		{"a test's id that is not an id", "h01", ruleTests, edited(func(k *Task) { k.Tests[0].ID = "T 1" })},
 		{"a value of five letters", "h01", ruleValues, edited(func(k *Task) { k.Facts[0].Values = []string{"widest"[:5]} })},
 		{"a value of hex digits", "h01", ruleValues, edited(func(k *Task) { k.Facts[0].Values = []string{"BEEF-1234"} })},
 		{"a value inside a metric", "h01", ruleValues, edited(func(k *Task) { k.Facts[0].Values = []string{"First_Try"} })},
@@ -298,6 +428,29 @@ func TestLoadRefusesEachRule(t *testing.T) {
 				t.Errorf("the message %q holds a value or a repository's name", e.Error())
 			}
 		})
+	}
+}
+
+// renameFact gives a fact a new id, in every turn and test that names it.
+func renameFact(k *Task, from, to string) {
+	for i := range k.Facts {
+		if k.Facts[i].ID == from {
+			k.Facts[i].ID = to
+		}
+	}
+	for i := range k.History {
+		for j, id := range k.History[i].Plants {
+			if id == from {
+				k.History[i].Plants[j] = to
+			}
+		}
+	}
+	for i := range k.Tests {
+		for j, id := range k.Tests[i].Facts {
+			if id == from {
+				k.Tests[i].Facts[j] = to
+			}
+		}
 	}
 }
 
