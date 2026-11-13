@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000542",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000542.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": " \n\t<realtime_delegation>\n  <input>Go ahead.</input>\n  <transcript_delta>user: Go ahead.</transcript_delta>\n</realtime_delegation>\r\n",
+ "turn_id": "turn-42"
+}

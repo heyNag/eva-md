@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000602",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000602.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<realtime_delegation>\n  <input>made-up hand-over request</input>\n  <transcript_delta>user: made-up words</transcript_delta>\n</realtime_delegation>",
+ "prompt_id": "prompt-602"
+}

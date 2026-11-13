@@ -30,7 +30,7 @@ Rules every card carries, so they are said once here:
 | [EV-16](EV-16.md) | Latency that can fail a build, and a baseline before any hook changes | merged; advisory in CI until 20 passes with no fail on macOS |
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | merged; the gate stays advisory, since this rule cannot yet block a merge (EV-16d) |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | merged |
-| [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | after EV-16c |
+| [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | ready, since EV-16c is merged |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
@@ -39,7 +39,7 @@ Rules every card carries, so they are said once here:
 | [HF-00](HF-00.md) | The recorder for the host sittings, and fixtures with every value made up | Part 1 merged: what the core sittings of [host-sitting-runbook.md](../host-sitting-runbook.md) need; its allowlist and vocabulary are approved; Part 2 may come later |
 | [HF-00b](HF-00b.md) | The recorder keeps the shape of a voice hand-over, and no word of it | merged |
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged |
-| [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | ready |
+| [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | building since 2026-11-13 |
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | after DV-03a |
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | after DV-03b |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
@@ -52,7 +52,7 @@ Rules every card carries, so they are said once here:
 | [HO-10a](HO-10a.md) | The host adapter and its table | merged |
 | [HO-14](HO-14.md) | Fake hosts that fail the way real ones do | merged; open for the host sittings: whether Codex keeps a plugin's approvals when it is removed |
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records, and a card is owed for a hook test that depends on speed |
-| [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | building since 2026-11-13 |
+| [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | merged; owed before LG-20: the hand-over decoder counts line breaks once, not once for each line |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
@@ -63,9 +63,9 @@ Rules every card carries, so they are said once here:
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
-| [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | building since 2026-11-13 |
-| [DV-11b](DV-11b.md) | The runner's Codex backend | after DV-11a and HO-14; beside DV-11c |
-| [DV-11c](DV-11c.md) | The runner's Claude Code backend | after DV-11a; beside DV-11b |
+| [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | merged |
+| [DV-11b](DV-11b.md) | The runner's Codex backend | ready, since DV-11a and HO-14 are merged; beside DV-11c |
+| [DV-11c](DV-11c.md) | The runner's Claude Code backend | ready, since DV-11a is merged; beside DV-11b |
 | [HO-13a](HO-13a.md) | The signed release manifest, and its check in Go | not before the Stage 0 readout (decision 9); open then: one approval of a cut or two, and whether the manifest's first format carries the day it was published |
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
@@ -81,7 +81,7 @@ Rules every card carries, so they are said once here:
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
-| [EV-14c](EV-14c.md) | Six new families, half held out | ready |
+| [EV-14c](EV-14c.md) | Six new families, half held out | building since 2026-11-13 |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | building since 2026-11-13 |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | after EV-17a |

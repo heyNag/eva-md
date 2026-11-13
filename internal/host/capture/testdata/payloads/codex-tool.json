@@ -1,0 +1,12 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000561",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000561.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "go test ./..."
+ },
+ "tool_response": "made-up output",
+ "turn_id": "turn-61"
+}

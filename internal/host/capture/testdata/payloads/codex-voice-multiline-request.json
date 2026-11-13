@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000604",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000604.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<realtime_delegation>\n  <input>Make the made-up change:\n1. delete the made-up folder\n2. push</input>\n  <transcript_delta>user: can you clean up\nassistant: sure, handing it over\nuser: Make the made-up change:\n1. delete the made-up folder\n2. push</transcript_delta>\n</realtime_delegation>",
+ "turn_id": "turn-604"
+}

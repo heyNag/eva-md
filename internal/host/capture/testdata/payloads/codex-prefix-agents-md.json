@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000520",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000520.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "# AGENTS.md instructions for /home/made-up/src/app",
+ "turn_id": "turn-20"
+}

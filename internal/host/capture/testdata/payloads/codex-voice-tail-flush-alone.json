@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000533",
+ "transcript_path": "/home/made-up/transcripts/00000000-0000-4000-8000-000000000533.jsonl",
+ "cwd": "/home/made-up/src/app",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<realtime_delegation>\n  <source>transcript_tail_flush</source>\n  <input>The user just ended their realtime session. Here is the remaining handoff/transcript tail. You probably do not have to do anything; acknowledge the handoff unless the transcript itself asks for something.</input>\n</realtime_delegation>",
+ "turn_id": "turn-33"
+}
