@@ -1,0 +1,6 @@
+{"ops": [
+  {"op": "next.done", "id": "h1", "kind": null, "text": "The parser is written and its tests pass.", "admit": null, "ev": [{"e": 1, "q": "Bash go test ./internal/parser/... (exit 0)", "as": "result"}, {"e": 2, "q": "The parser is finished and its tests pass.", "as": "report"}]},
+  {"op": "ask.answer", "id": "h3", "kind": null, "text": "Pages hold hidden ids.", "admit": null, "ev": [{"e": 3, "q": "Yes, pages hold hidden ids.", "as": "said"}]},
+  {"op": "item.add", "id": null, "kind": "decision", "text": "Pages hold hidden ids.", "admit": "decision", "ev": [{"e": 3, "q": "Yes, pages hold hidden ids.", "as": "said"}]},
+  {"op": "note", "id": null, "kind": "did", "text": "The parser tests pass.", "admit": null, "ev": [{"e": 1, "q": "Bash go test ./internal/parser/... (exit 0)", "as": "result"}]}
+], "nothing": null}

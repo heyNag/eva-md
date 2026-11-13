@@ -1,0 +1,3 @@
+{"ops": [
+  {"op": "item.add", "id": null, "kind": "decision", "text": "Pages are stored as YAML, OSPREY-Y.", "admit": "decision", "ev": [{"e": 1, "q": "Store pages as YAML, OSPREY-Y.", "as": "said"}]}
+], "nothing": null}
