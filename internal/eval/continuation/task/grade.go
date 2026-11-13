@@ -37,14 +37,21 @@ const waitDelay = 10 * time.Second
 // exist or be an empty folder that neither holds the workspace nor is in
 // it, lays the hidden/ overlay of the task in taskDir over the copy, and
 // runs each test in its repository's copy within its time limit. A test
-// passes when it exits 0; one that fails or runs out of time fails. A
-// runner that is not installed, or a ctx that ends, is an error. It never
+// passes when it exits 0; one that fails or runs out of time fails, and so
+// does one that what the chat left cannot run: its repository's folder
+// missing, or its runner, given as a path in the repository, missing or
+// not runnable (see runTest). A runner that is not installed on the
+// machine, or a ctx that ends, is an error. A workspace given by a link is
+// graded from where the link leads. It never
 // writes the workspace. Tests run in an environment built from nothing
 // (see testEnv), with a home and a temporary folder of their own in
 // scratch, so no secret of the caller's reaches the code under test and
 // nothing is fetched.
 func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Grading, error) {
-	if err := apart(workspace, scratch); err != nil {
+	// The workspace is copied from where its links lead, so that one given
+	// by a link is copied whole, not as the link alone.
+	workspace, err := apart(workspace, scratch)
+	if err != nil {
 		return Grading{}, fmt.Errorf("task %s: %w", t.ID, err)
 	}
 	if err := emptyDir(scratch); err != nil {
@@ -57,7 +64,7 @@ func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Gra
 		}
 	}
 	if err := copyTree(workspace, cp); err != nil {
-		return Grading{}, fmt.Errorf("task %s: copying the workspace: %w", t.ID, err)
+		return Grading{}, fmt.Errorf("task %s: copying the workspace: %w", t.ID, pathless(err))
 	}
 	hidden := t
 	hidden.Dir = taskDir
@@ -82,18 +89,19 @@ func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Gra
 	return g, nil
 }
 
-// apart returns an error when one of the folders a and b is, or is inside,
-// the other, links resolved.
-func apart(a, b string) error {
-	a, errA := resolve(a)
-	b, errB := resolve(b)
-	if err := errors.Join(errA, errB); err != nil {
-		return err
+// apart returns the workspace ws made absolute with its links resolved, or
+// an error when it and the grading folder scratch overlap: when one is, or
+// is inside, the other, links resolved.
+func apart(ws, scratch string) (string, error) {
+	ws, errW := resolve(ws)
+	scratch, errS := resolve(scratch)
+	if err := errors.Join(errW, errS); err != nil {
+		return "", pathless(err)
 	}
-	if within(a, b) || within(b, a) {
-		return errors.New("the grading folder and the workspace overlap")
+	if within(ws, scratch) || within(scratch, ws) {
+		return "", errors.New("the grading folder and the workspace overlap")
 	}
-	return nil
+	return ws, nil
 }
 
 // resolve returns p made absolute with its links resolved, as far as it
@@ -160,22 +168,39 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// runTest runs the test x in dir with the environment env and reports
-// whether it passed. A runner named with no slash is looked up on env's
-// PATH; one with a slash is a file, relative to dir when not absolute.
+// runTest runs the test x in dir, its repository's folder in the copy,
+// with the environment env and reports whether it passed.
+//
+// What the chat may have changed fails the test and is never an error, so
+// that a driver never drops or repeats a trial for what the chat did: a
+// repository folder the copy lacks, or holds as a link or a file, and a
+// runner given as a path relative to the repository (a file of the copy)
+// that is missing or cannot be started. A runner named with no slash is
+// looked up on env's PATH, and one given as an absolute path is used as it
+// is; either, when missing, is an error, as the machine lacks it.
 func runTest(ctx context.Context, x Test, dir string, env []string) (bool, error) {
+	if info, err := os.Lstat(dir); err != nil || !info.IsDir() {
+		return false, nil
+	}
 	runner := x.Run[0]
-	if !strings.Contains(runner, "/") {
+	inRepo := false
+	switch {
+	case !strings.Contains(runner, "/"):
 		found, err := lookPath(runner, env)
 		if err != nil {
 			return false, errors.New("its runner is not installed")
 		}
 		runner = found
-	} else if !filepath.IsAbs(runner) {
+	case filepath.IsAbs(runner):
+		if info, err := os.Stat(runner); err != nil || info.IsDir() {
+			return false, errors.New("its runner is not installed")
+		}
+	default:
+		inRepo = true
 		runner = filepath.Join(dir, runner)
-	}
-	if info, err := os.Stat(runner); err != nil || info.IsDir() {
-		return false, errors.New("its runner is not installed")
+		if info, err := os.Stat(runner); err != nil || info.IsDir() {
+			return false, nil
+		}
 	}
 	tctx, cancel := context.WithTimeout(ctx, time.Duration(x.Limit())*time.Second)
 	defer cancel()
@@ -196,10 +221,10 @@ func runTest(ctx context.Context, x Test, dir string, env []string) (bool, error
 		return false, ctx.Err()
 	case err == nil:
 		return true, nil
-	case errors.As(err, &exit), tctx.Err() != nil:
+	case errors.As(err, &exit), tctx.Err() != nil, inRepo:
 		return false, nil
 	}
-	return false, fmt.Errorf("running it: %w", err)
+	return false, fmt.Errorf("running it: %w", pathless(err))
 }
 
 // lookPath finds the executable name on the PATH env gives.

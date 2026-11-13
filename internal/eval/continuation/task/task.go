@@ -122,7 +122,11 @@ type Test struct {
 	ID   string `json:"id"`
 	Repo string `json:"repo"`
 	// Run is the argv, run with no shell in the repository's copy, that
-	// runs this one test with its language's runner.
+	// runs this one test with its language's runner. A runner may exit 0
+	// when it finds no test to run (go test -run with a pattern that names
+	// none does), and such a test passes on every state; Check catches it
+	// only for a test that encodes a fact in a hidden-decision task, so a
+	// task's author makes sure each test can fail.
 	Run []string `json:"run"`
 	// Facts are the ids of the facts it encodes.
 	Facts []string `json:"facts,omitempty"`
@@ -417,7 +421,7 @@ func (t Task) checkOverlays() error {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("overlay %s: %w", o, err)
+			return fmt.Errorf("overlay %s: %w", o, pathless(err))
 		}
 		switch {
 		case !info.IsDir():
@@ -427,40 +431,61 @@ func (t Task) checkOverlays() error {
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return fmt.Errorf("overlay %s: %w", o, err)
+			return fmt.Errorf("overlay %s: %w", o, pathless(err))
 		}
 		for _, e := range entries {
 			if !slices.Contains(t.Repos, e.Name()) {
 				return fmt.Errorf("overlay %s: it holds something other than the task's repositories", o)
 			}
 			if err := walkOverlay(filepath.Join(dir, e.Name()), nil); err != nil {
-				return fmt.Errorf("overlay %s/%s: %w", o, e.Name(), err)
+				return fmt.Errorf("overlay %s, %s: %w", o, repoLabel(t, e.Name()), err)
 			}
 		}
 	}
 	return nil
 }
 
+// repoLabel names the repository name of task t in a message by its place
+// in the task's list, never by its name, which no message may hold.
+func repoLabel(t Task, name string) string {
+	return fmt.Sprintf("repository %d", slices.Index(t.Repos, name)+1)
+}
+
+// pathless returns err without the path an fs.PathError or os.LinkError
+// carries, which may hold a repository's name, or nil for nil.
+func pathless(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return fmt.Errorf("%s: %w", pe.Op, pe.Err)
+	}
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return fmt.Errorf("%s: %w", le.Op, le.Err)
+	}
+	return err
+}
+
 // walkOverlay walks the overlay folder root, checking each path in it, and
-// calls file, if not nil, with the slash path of each regular file.
+// calls file, if not nil, with the slash path of each regular file. Its
+// errors carry no path.
 func walkOverlay(root string, file func(rel string) error) error {
 	info, err := os.Lstat(root)
 	if err != nil {
-		return err
+		return pathless(err)
 	}
 	if !info.IsDir() {
 		return errors.New("it is a link or not a folder")
 	}
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return pathless(err)
 		}
 		if p == root {
 			return nil
 		}
 		rel, err := filepath.Rel(root, p)
 		if err != nil {
-			return err
+			return errors.New("it holds a path outside it")
 		}
 		rel = filepath.ToSlash(rel)
 		if err := overlayPath(rel); err != nil {
@@ -475,7 +500,7 @@ func walkOverlay(root string, file func(rel string) error) error {
 			return errors.New("it holds something that is neither a folder nor a file")
 		}
 		if file != nil {
-			return file(rel)
+			return pathless(file(rel))
 		}
 		return nil
 	})

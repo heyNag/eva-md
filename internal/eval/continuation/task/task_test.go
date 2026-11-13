@@ -1,8 +1,10 @@
 package task
 
 import (
+	"errors"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -248,15 +250,41 @@ func TestValidateOverlays(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			dir := copyFixture(t, c.fixture)
-			if _, err := Load(dir); err != nil {
+			x, err := Load(dir)
+			if err != nil {
 				t.Fatalf("the copy before the change: %v", err)
 			}
 			c.change(t, dir)
-			_, err := Load(dir)
+			_, err = Load(dir)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("Load = %v, want an error saying %q", err, c.want)
 			}
+			for _, w := range append(Forbid(x), "tallybook") {
+				if strings.Contains(strings.ToLower(err.Error()), strings.ToLower(w)) {
+					t.Fatalf("the error names a value or repository name: %v", err)
+				}
+			}
 		})
+	}
+}
+
+func TestPathless(t *testing.T) {
+	dir := tempDir(t)
+	_, err := os.Lstat(filepath.Join(dir, "ledgerkit", "x.go"))
+	got := pathless(err)
+	if strings.Contains(got.Error(), "ledgerkit") || !errors.Is(got, fs.ErrNotExist) {
+		t.Fatalf("pathless(%v) = %v, want the error without its path", err, got)
+	}
+	err = os.Symlink("a", dir)
+	if got := pathless(err); err == nil || strings.Contains(got.Error(), dir) || !errors.Is(got, fs.ErrExist) {
+		t.Fatalf("pathless(%v) = %v, want the error without its paths", err, got)
+	}
+	if pathless(nil) != nil {
+		t.Fatal("pathless(nil) is not nil")
+	}
+	plain := errors.New("no path")
+	if pathless(plain) != plain {
+		t.Fatal("pathless changed an error that carries no path")
 	}
 }
 

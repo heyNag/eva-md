@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -22,6 +23,11 @@ const (
 	stubPass  = "stub-pass"
 	stubFail  = "stub-fail"
 	stubBlock = "stub-block"
+	// stub-group <pid file> <exit|block> starts a stub-child, writes the
+	// child's pid to the pid file once the child runs, then exits 0 or
+	// blocks until it is killed.
+	stubGroup = "stub-group"
+	stubChild = "stub-child" // prints its pid, then blocks until it is killed
 )
 
 func TestMain(m *testing.M) {
@@ -32,15 +38,58 @@ func TestMain(m *testing.M) {
 		case stubFail:
 			os.Exit(1)
 		case stubBlock:
-			// Blocks until it is killed: nothing ever sends SIGUSR1.
-			c := make(chan os.Signal, 1)
-			signal.Notify(c, syscall.SIGUSR1)
-			<-c
-			os.Exit(0)
+			block()
+		case stubGroup:
+			if len(os.Args) != 4 {
+				os.Exit(2)
+			}
+			os.Exit(groupStub(os.Args[2], os.Args[3]))
+		case stubChild:
+			fmt.Println(os.Getpid())
+			block()
 		}
 	}
 	testgitenv.Clear()
 	os.Exit(run(m))
+}
+
+// block blocks until the process is killed: nothing ever sends SIGUSR1.
+func block() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGUSR1)
+	<-c
+	os.Exit(0)
+}
+
+// groupStub is the stub-group runner: it starts a stub-child, which stays
+// in the stub's process group, waits until the child has said its pid,
+// writes it to
+// pidFile whole (by a rename), and then exits 0 or, when then is "block",
+// blocks until it is killed.
+func groupStub(pidFile, then string) int {
+	child := exec.Command(os.Args[0], stubChild)
+	out, err := child.StdoutPipe()
+	if err != nil {
+		return 2
+	}
+	if err := child.Start(); err != nil {
+		return 2
+	}
+	var pid int
+	if _, err := fmt.Fscan(out, &pid); err != nil {
+		return 2
+	}
+	tmp := pidFile + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strconv.Itoa(pid)), 0o644); err != nil {
+		return 2
+	}
+	if err := os.Rename(tmp, pidFile); err != nil {
+		return 2
+	}
+	if then == "block" {
+		block()
+	}
+	return 0
 }
 
 // run gives the package's tests a made-up home and git configuration, and

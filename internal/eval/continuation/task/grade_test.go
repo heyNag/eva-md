@@ -1,13 +1,20 @@
 package task
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // prepared builds the fixture task's workspace with the overlay o laid over
@@ -246,10 +253,191 @@ func TestGradeRunnerByPath(t *testing.T) {
 	if err != nil || !g.Solved() {
 		t.Fatalf("a runner relative to the repository: %+v, %v", g, err)
 	}
-	x.Tests[0].Run = []string{"bin/none", stubPass}
+	x.Tests[0].Run = []string{filepath.Join(tempDir(t), "none"), stubPass}
 	if _, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade")); err == nil || !strings.Contains(err.Error(), "not installed") {
-		t.Fatalf("a missing runner by path: %v", err)
+		t.Fatalf("a missing runner by an absolute path: %v", err)
 	}
+}
+
+// TestGradeFailsWhatTheChatBroke holds Grade to failing, never erring on,
+// a test that what the chat left cannot run, so that a driver never drops
+// or repeats a trial for it.
+func TestGradeFailsWhatTheChatBroke(t *testing.T) {
+	cases := []struct {
+		name   string
+		change func(t *testing.T, x *Task, ws string)
+	}{
+		{"a repository folder the workspace lacks", func(t *testing.T, x *Task, ws string) {
+			x.Workdir = WorkdirOutside
+		}},
+		{"a repository that is a file", func(t *testing.T, x *Task, ws string) {
+			x.Workdir = WorkdirOutside
+			write(t, ws, "ledgerkit", "x\n")
+		}},
+		{"a repository that is a link out of the workspace", func(t *testing.T, x *Task, ws string) {
+			x.Workdir = WorkdirOutside
+			if err := os.Symlink(tempDir(t), filepath.Join(ws, "ledgerkit")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a runner in the repository that is missing", func(t *testing.T, x *Task, ws string) {
+			x.Tests[0].Run = []string{"bin/none", stubPass}
+		}},
+		{"a runner in the repository that is a folder", func(t *testing.T, x *Task, ws string) {
+			mkdir(t, filepath.Join(ws, "bin", "run"))
+			x.Tests[0].Run = []string{"bin/run", stubPass}
+		}},
+		{"a runner in the repository that cannot be started", func(t *testing.T, x *Task, ws string) {
+			write(t, ws, "bin/run", "not a program\n")
+			x.Tests[0].Run = []string{"bin/run", stubPass}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			x, ws := stubTask(t, stubPass)
+			c.change(t, &x, ws)
+			g, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade"))
+			want := Grading{Fail: []Failure{{stubPass, nil}}}
+			if err != nil || !reflect.DeepEqual(g, want) {
+				t.Fatalf("Grade = %+v, %v, want %+v and no error", g, err, want)
+			}
+		})
+	}
+}
+
+func TestGradeThroughALink(t *testing.T) {
+	x, ws := prepared(t, "control-max", OverlaySolution)
+	link := filepath.Join(tempDir(t), "link")
+	if err := os.Symlink(ws, link); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshot(t, ws)
+	g, err := Grade(context.Background(), x, x.Dir, link, filepath.Join(tempDir(t), "grade"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Grading{Pass: []string{"max-largest", "max-empty"}}); !reflect.DeepEqual(g, want) {
+		t.Fatalf("Grade through a link = %+v, want %+v", g, want)
+	}
+	if after := snapshot(t, ws); !slices.Equal(before, after) {
+		t.Fatal("Grade through a link changed the workspace")
+	}
+}
+
+// hangGuard bounds how long a test waits for what should come at once.
+const hangGuard = 60 * time.Second
+
+// TestGradeKillsWhatATestLeaves holds Grade to killing every process a
+// test started, in the test's process group, whether the test ends by
+// itself or is killed: go test, for one, runs its test binary as a child.
+func TestGradeKillsWhatATestLeaves(t *testing.T) {
+	t.Run("a test that ends by itself", func(t *testing.T) {
+		x, ws := stubTask(t, stubPass)
+		pidFile := filepath.Join(tempDir(t), "pid")
+		x.Tests[0].Run = []string{os.Args[0], stubGroup, pidFile, "exit"}
+		g, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade"))
+		if err != nil || !g.Solved() {
+			t.Fatalf("Grade = %+v, %v", g, err)
+		}
+		pid, ok := readPid(t, pidFile)
+		if !ok {
+			t.Fatal("the stub passed without writing its child's pid")
+		}
+		waitGone(t, pid)
+	})
+	t.Run("a test that is killed", func(t *testing.T) {
+		x, ws := stubTask(t, stubPass)
+		pidFile := filepath.Join(tempDir(t), "pid")
+		x.Tests[0].Run = []string{os.Args[0], stubGroup, pidFile, "block"}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		taskDir, scratch := tempDir(t), filepath.Join(tempDir(t), "grade")
+		done := make(chan error, 1)
+		go func() {
+			_, err := Grade(ctx, x, taskDir, ws, scratch)
+			done <- err
+		}()
+		guard := time.After(hangGuard)
+		tick := time.NewTicker(10 * time.Millisecond)
+		defer tick.Stop()
+		var pid int
+		for {
+			p, ok := readPid(t, pidFile)
+			if ok {
+				pid = p
+				break
+			}
+			select {
+			case err := <-done:
+				t.Fatalf("Grade ended before the stub's child ran: %v", err)
+			case <-guard:
+				t.Fatal("the stub's child never ran")
+			case <-tick.C:
+			}
+		}
+		cancel()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("a grading whose context ended gave a result")
+			}
+		case <-time.After(hangGuard):
+			t.Fatal("Grade did not return once its context ended")
+		}
+		waitGone(t, pid)
+	})
+}
+
+// readPid reads the pid the stub-group runner wrote, if it has, and kills
+// that process when the test ends, should Grade have left it.
+func readPid(t *testing.T, pidFile string) (int, bool) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil || pid <= 1 {
+		t.Fatalf("the stub wrote %q as its child's pid", data)
+	}
+	t.Cleanup(func() {
+		if !gone(pid) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	return pid, true
+}
+
+// waitGone waits, within the hang guard, until the process pid is gone.
+func waitGone(t *testing.T, pid int) {
+	t.Helper()
+	guard := time.After(hangGuard)
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for !gone(pid) {
+		select {
+		case <-guard:
+			t.Fatalf("process %d, which a test started, outlived the grading", pid)
+		case <-tick.C:
+		}
+	}
+}
+
+// gone reports whether the process pid has ended: it no longer exists, or
+// on Linux it is a zombie no one has reaped yet.
+func gone(pid int) bool {
+	if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		return true
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	i := bytes.LastIndexByte(data, ')')
+	return i >= 0 && i+2 < len(data) && data[i+2] == 'Z'
 }
 
 func TestGradeNeverWritesThroughALink(t *testing.T) {

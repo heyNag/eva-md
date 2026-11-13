@@ -32,16 +32,16 @@ func Prepare(ctx context.Context, t Task, reposDir, dst string) error {
 	for _, name := range t.Repos {
 		root := repoRoot(t, dst, name)
 		if err := os.MkdirAll(root, 0o755); err != nil {
-			return fmt.Errorf("task %s: %w", t.ID, err)
+			return fmt.Errorf("task %s: %s: %w", t.ID, repoLabel(t, name), pathless(err))
 		}
 		if err := layOver(filepath.Join(reposDir, name), root); err != nil {
-			return fmt.Errorf("task %s: repository %s: %w", t.ID, name, err)
+			return fmt.Errorf("task %s: %s: %w", t.ID, repoLabel(t, name), err)
 		}
 		if err := layOverlay(t, OverlayStart, name, root); err != nil {
 			return fmt.Errorf("task %s: %w", t.ID, err)
 		}
 		if err := commit(ctx, root); err != nil {
-			return fmt.Errorf("task %s: repository %s: %w", t.ID, name, err)
+			return fmt.Errorf("task %s: %s: %w", t.ID, repoLabel(t, name), err)
 		}
 	}
 	return nil
@@ -78,7 +78,7 @@ func layOverlay(t Task, o, name, root string) error {
 		return nil
 	}
 	if err := layOver(src, root); err != nil {
-		return fmt.Errorf("overlay %s/%s: %w", o, name, err)
+		return fmt.Errorf("overlay %s, %s: %w", o, repoLabel(t, name), err)
 	}
 	return nil
 }
@@ -87,10 +87,10 @@ func layOverlay(t Task, o, name, root string) error {
 // under root, replacing whatever stands at that path or on the way to it,
 // a link among them, so that nothing is written through a link out of
 // root. src may hold only folders and regular files, at clean paths out of
-// git's own folder.
+// git's own folder. Its errors carry no path.
 func layOver(src, root string) error {
 	if err := realDir(root); err != nil {
-		return err
+		return pathless(err)
 	}
 	return walkOverlay(src, func(rel string) error {
 		return writeOver(root, rel, filepath.Join(src, filepath.FromSlash(rel)))
