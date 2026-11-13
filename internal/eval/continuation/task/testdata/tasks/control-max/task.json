@@ -1,0 +1,49 @@
+{
+  "id": "control-max",
+  "family": "control",
+  "repos": ["ledgerkit"],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "The monthly report adds up each team's amounts with ledgerkit's Sum and prints them with Format. We've agreed that the line holding the grand total is labelled harrowgate from now on, so finance can find it.",
+      "plants": ["f-label"]
+    },
+    {
+      "by": "agent",
+      "text": "The report itself is not in this repository, so nothing changes in ledgerkit for the label: Sum gives the total and Format writes it, and whoever prints the line puts harrowgate before it."
+    },
+    {
+      "by": "user",
+      "text": "Fine. While you're in there, is Sum safe with an empty list? The report sometimes has a team with no amounts at all, and I don't want it to fall over at the end of the month.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Yes: Sum starts from zero and adds nothing for an empty or nil list, so it returns 0, and TestSum already checks Sum(nil). No change is needed."
+    }
+  ],
+  "facts": [
+    {
+      "id": "f-label",
+      "statement": "The monthly report labels its grand total line harrowgate.",
+      "values": ["harrowgate"]
+    }
+  ],
+  "prompt": "Add Max(amounts []int) (int, bool) to ledgerkit: the largest amount, and false when there is none.",
+  "note": "Nothing from the last chat bears on Max. The monthly report's grand total line is labelled harrowgate, outside this repository.",
+  "tests": [
+    {
+      "id": "max-largest",
+      "repo": "ledgerkit",
+      "run": ["go", "test", "-count=1", "-run", "^TestMaxLargest$", "."]
+    },
+    {
+      "id": "max-empty",
+      "repo": "ledgerkit",
+      "run": ["go", "test", "-count=1", "-run", "^TestMaxEmpty$", "."]
+    }
+  ],
+  "max_turns": 20,
+  "max_rounds": 2
+}

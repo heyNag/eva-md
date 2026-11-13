@@ -1,0 +1,50 @@
+{
+  "id": "hidden-parse",
+  "family": "hidden",
+  "repos": ["ledgerkit"],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "Can you check that Format in ledgerkit writes negative amounts with the minus sign before the units, as -3.50 and not as 3.-50? A report printed one the wrong way last week."
+    },
+    {
+      "by": "agent",
+      "text": "Format takes the sign off first and writes it before the units, so -350 becomes -3.50; TestFormat already checks that case. The odd report must have formatted the amount somewhere else."
+    },
+    {
+      "by": "user",
+      "text": "Good. Next week we'll add parsing, so here is the decision now: quillspar is the service that reads ledgerkit's errors, and it matches on its own name, so every error Parse returns must start with quillspar: and nothing else.",
+      "plants": ["f-prefix"]
+    },
+    {
+      "by": "agent",
+      "text": "Noted: every error from the coming Parse will start with quillspar: so that the quillspar service matches it. Nothing else changes today; Sum and Format stay as they are."
+    }
+  ],
+  "facts": [
+    {
+      "id": "f-prefix",
+      "statement": "Every error Parse returns starts with quillspar: because the quillspar service that reads them matches on its own name.",
+      "values": ["quillspar"],
+      "name": true
+    }
+  ],
+  "prompt": "Add Parse(s string) (int, error) to ledgerkit: the reverse of Format, reading text such as 12.05 or -3.50 into cents, with an error for text it cannot read.",
+  "note": "When Parse is added, every error it returns must start with quillspar: since the quillspar service that reads ledgerkit's errors matches on its own name.",
+  "tests": [
+    {
+      "id": "parse-reads",
+      "repo": "ledgerkit",
+      "run": ["go", "test", "-count=1", "-run", "^TestParseReads$", "."]
+    },
+    {
+      "id": "parse-errors",
+      "repo": "ledgerkit",
+      "run": ["go", "test", "-count=1", "-run", "^TestParseErrors$", "."],
+      "facts": ["f-prefix"]
+    }
+  ],
+  "max_turns": 30,
+  "max_rounds": 3
+}
