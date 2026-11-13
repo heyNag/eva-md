@@ -14,12 +14,13 @@ import (
 
 // The Claude Code backend: v1's run (internal/update/claude.go), its single
 // JSON envelope classified from the envelope's own fields first. A refused
-// tool call in permission_denials is tool_used beside any answer; every model
-// modelUsage names is kept, with the one that wrote the most; an envelope
+// tool call in permission_denials, and a count of tools the API ran itself in
+// usage or modelUsage, is tool_used beside any answer; every model modelUsage
+// names is kept, up to a bound, with the one that wrote the most; an envelope
 // printed before a timeout gives its usage; and what nothing names is host,
 // never the chat's fault. The stream reader the design wants waits on a host
-// fact not yet recorded (host-facts F-113), so an allowed tool call is seen
-// only through permission_denials until then.
+// fact not yet recorded (host-facts F-113), so an allowed tool call claude
+// runs itself is seen only through permission_denials until then.
 
 func init() {
 	register(adapter.ClaudeCode, backend{
@@ -100,12 +101,16 @@ func claudeResult(e exit, out *capped, effort string) result {
 	}
 	env, found := claudeEnvelope(out)
 	if found {
-		// A refused tool call taints the run whatever ended it, a timeout
-		// too, as the core ranks a tool sign above a timeout.
-		res.toolSign = env.denied
-		res.models, res.signals = env.models, env.signals
+		// A refused tool call, or one the API ran itself, taints the run
+		// whatever ended it, a timeout too, as the core ranks a tool sign
+		// above a timeout.
+		res.toolSign = env.denied || env.serverTools
+		res.models, res.signals = env.models(), env.signals()
+		// What was spent is kept on every class, an odd envelope's too; the
+		// model said to answer only where the reader can vouch for it.
+		res.usage, res.usageSeen = env.usage, env.usageSeen
 		if !env.odd {
-			res.answered, res.usage, res.usageSeen = env.answered, env.usage, env.usageSeen
+			res.answered = env.answered
 		}
 	}
 	d := &claudeDiag{effort: effort}
@@ -124,11 +129,12 @@ func claudeResult(e exit, out *capped, effort string) result {
 			res.class, res.refused = d.class()
 			res.again = d.refusesStrictMCP() && res.class == ClassHost
 		}
-	case env.denied:
+	case res.toolSign:
 		res.class = ClassToolUsed
 	case env.odd:
-		// A key given twice, a known key in another letter case, or a field
-		// of a type it never has: an envelope this reader can't vouch for.
+		// A key given twice, a known key in another letter case, a field of
+		// a type it never has, or too many models: an envelope this reader
+		// can't vouch for.
 	case env.subtype == "error_max_structured_output_retries":
 		res.class = ClassAnswerInvalid
 	case claudeStatus(env.status) != "":
@@ -176,25 +182,32 @@ func claudeStatus(status int64) Class {
 // claudeEnv is what claudeEnvelope read from the envelope's fields.
 type claudeEnv struct {
 	// odd: an envelope this reader can't vouch for: a key given twice, in
-	// the envelope or its modelUsage, a key it reads in another letter case,
-	// or a subtype or is_error of a type that field never has. Its denials
-	// and the models it names are read; its class is host, and its usage
-	// and answering model are not kept.
-	odd      bool
-	denied   bool // permission_denials, in any letter case, lists anything
-	subtype  string
-	isError  bool
-	status   int64 // api_error_status, 0 when it is none
-	result   json.RawMessage
-	errors   json.RawMessage
-	apiError json.RawMessage
-	answer   json.RawMessage // structured_output
-	// models are the names modelUsage gives that a model flag could take,
-	// and answered the one that wrote the most output, "" when that one's
-	// name can't be kept.
-	models    []string
+	// the envelope, its modelUsage or an object of counts, a key it reads in
+	// another letter case, a subtype or is_error of a type that field never
+	// has, or a modelUsage naming more than claudeMaxModels. Its tool signs,
+	// usage and the models it names are read; its class is host, and its
+	// answering model is not kept.
+	odd    bool
+	denied bool // permission_denials, in any letter case, lists anything
+	// serverTools: usage or a model's counts say the API itself ran a tool,
+	// such as a web search, for the run.
+	serverTools bool
+	subtype     string
+	isError     bool
+	status      int64 // api_error_status, 0 when it is none
+	result      json.RawMessage
+	errors      json.RawMessage
+	apiError    json.RawMessage
+	answer      json.RawMessage // structured_output
+	// keys are the names every modelUsage gives, at most claudeMaxModels+1
+	// of them; tooMany says there were more. answered is the one that wrote
+	// the most output, "" when that one's name can't be kept or a count
+	// can't be read. unnamed says a name can't be kept, a count can't be
+	// read, or a modelUsage is not an object.
+	keys      map[string]bool
+	tooMany   bool
+	unnamed   bool
 	answered  string
-	signals   []Signal
 	usage     Usage
 	usageSeen bool
 }
@@ -202,6 +215,18 @@ type claudeEnv struct {
 // claudeKeys are the envelope's keys this reader reads.
 var claudeKeys = []string{"type", "subtype", "is_error", "result", "errors", "structured_output",
 	"usage", "modelUsage", "permission_denials", "api_error_status", "api_error"}
+
+// claudeMaxModels bounds the names one envelope's modelUsage may give. A run
+// names one model, or a few; an envelope that names more is odd, and none of
+// its names is kept, so what the host printed can't make the outcome, or
+// the time spent reading it, grow with it.
+const claudeMaxModels = 64
+
+// claudeServerToolKeys are the counts, in usage or a model's entry in
+// modelUsage, of tools the API ran itself, such as a web search: any such
+// count but none is a tool used.
+var claudeServerToolKeys = []string{"server_tool_use", "serverToolUse", "web_search_requests", "webSearchRequests",
+	"web_fetch_requests", "webFetchRequests"}
 
 // claudeField is one key of a JSON object and its value, in the order given.
 type claudeField struct {
@@ -274,10 +299,39 @@ func claudeEnvelope(out *capped) (env claudeEnv, found bool) {
 	if !found {
 		return claudeEnv{}, false
 	}
+	// Usage and modelUsage, in any letter case and however often given, are
+	// each read: every tool count, and the larger of what each says was
+	// spent, so an odd envelope still reports its spend.
+	env.keys = map[string]bool{}
+	var fromModels, fromUsage Usage
+	var modelsSeen, usageSeen bool
 	for _, f := range fields {
-		if strings.EqualFold(f.key, "modelUsage") {
-			env.readModels(f.value)
+		switch {
+		case strings.EqualFold(f.key, "modelUsage"):
+			if u, named := env.readModels(f.value); named {
+				fromModels, modelsSeen = claudeLarger(fromModels, u), true
+			}
+		case strings.EqualFold(f.key, "usage"):
+			c := claudeReadCounts(f.value)
+			env.serverTools = env.serverTools || c.tools
+			env.odd = env.odd || c.twice
+			if c.ok {
+				u := Usage{In: c.count("input_tokens") + c.count("cache_creation_input_tokens"),
+					CachedIn: c.count("cache_read_input_tokens"), Out: c.count("output_tokens")}
+				fromUsage, usageSeen = claudeLarger(fromUsage, u), true
+			}
 		}
+	}
+	// modelUsage covers every model call of the run, usage the main loop
+	// only, so modelUsage wins where it names any model.
+	switch {
+	case modelsSeen:
+		env.usage, env.usageSeen = fromModels, true
+	case usageSeen:
+		env.usage, env.usageSeen = fromUsage, true
+	}
+	if env.tooMany {
+		env.odd, env.unnamed, env.answered = true, true, ""
 	}
 	if s, ok := exact["subtype"]; ok && json.Unmarshal(s, &env.subtype) != nil {
 		env.odd = true
@@ -285,11 +339,38 @@ func claudeEnvelope(out *capped) (env claudeEnv, found bool) {
 	if raw, ok := exact["is_error"]; ok && json.Unmarshal(raw, &env.isError) != nil {
 		env.odd = true
 	}
-	env.status = claudeCount(claudeNumber(exact["api_error_status"]))
+	env.status, _ = claudeCount(claudeNumber(exact["api_error_status"]))
 	env.result, env.errors, env.apiError = exact["result"], exact["errors"], exact["api_error"]
 	env.answer = exact["structured_output"]
-	env.readUsage(exact["modelUsage"], exact["usage"])
 	return env, true
+}
+
+// models are the names modelUsage gave that a model flag could take, sorted,
+// none when it gave too many.
+func (env *claudeEnv) models() []string {
+	if env.tooMany {
+		return nil
+	}
+	var models []string
+	for k := range env.keys {
+		if modelName.MatchString(k) {
+			models = append(models, k)
+		}
+	}
+	slices.Sort(models)
+	return models
+}
+
+// signals are what the models modelUsage named call for.
+func (env *claudeEnv) signals() []Signal {
+	var signals []Signal
+	if env.unnamed {
+		signals = append(signals, SignalClaudeModelUnnamed)
+	}
+	if len(env.keys) > 1 {
+		signals = append(signals, SignalClaudeSeveralModels)
+	}
+	return signals
 }
 
 // claudeDenied reports whether permission_denials lists anything: whatever
@@ -302,75 +383,135 @@ func claudeDenied(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &denials) != nil || len(denials) > 0
 }
 
-// readModels reads one modelUsage: every model it names that a model flag
-// could take, and the one with the most output tokens, the first by name on
-// a tie, as v1's claudeModel chooses, but among every model it names: when
-// that one's name can't be kept, the answering model is unknown.
-func (env *claudeEnv) readModels(raw json.RawMessage) {
+// readModels reads one modelUsage: the names it gives, at most
+// claudeMaxModels of them across the envelope, and the one with the most
+// output tokens, the first by name on a tie, as v1's claudeModel chooses,
+// but among every name it gives: when that one's name can't be kept, or any
+// output count can't be read, the answering model is unknown. It gives the
+// usage the entries add up to, and whether it named anything; every entry is
+// read for its usage and its tool counts, past the bound too.
+func (env *claudeEnv) readModels(raw json.RawMessage) (u Usage, named bool) {
 	if raw == nil || string(raw) == "null" {
-		return
+		return u, false
 	}
 	fields, ok := claudeFields(raw)
 	if !ok {
-		env.signals = append(env.signals, SignalClaudeModelUnnamed)
-		return
+		env.unnamed = true
+		return u, false
 	}
-	names := map[string]bool{}
-	best, most := "", int64(-1)
+	best, most, unread := "", int64(-1), false
 	for _, f := range fields {
-		if names[f.key] {
+		c := claudeReadCounts(f.value)
+		env.serverTools = env.serverTools || c.tools
+		env.odd = env.odd || c.twice
+		u.In += c.count("inputTokens") + c.count("cacheCreationInputTokens")
+		u.CachedIn += c.count("cacheReadInputTokens")
+		u.Out += c.count("outputTokens")
+		if env.tooMany {
+			continue
+		}
+		if env.keys[f.key] {
 			env.odd = true
 		}
-		names[f.key] = true
-		if !modelName.MatchString(f.key) {
-			env.signals = append(env.signals, SignalClaudeModelUnnamed)
-		} else if !slices.Contains(env.models, f.key) {
-			env.models = append(env.models, f.key)
+		env.keys[f.key] = true
+		if len(env.keys) > claudeMaxModels {
+			env.tooMany = true
+			continue
 		}
-		n := claudeCount(claudeTokens(f.value)["outputTokens"])
+		if !modelName.MatchString(f.key) {
+			env.unnamed = true
+		}
+		n, read := c.n["outputTokens"]
+		if !read || n < 0 {
+			unread = true
+		}
 		if n > most || n == most && f.key < best {
 			best, most = f.key, n
 		}
 	}
-	if len(names) > 1 || len(env.models) > 1 {
-		env.signals = append(env.signals, SignalClaudeSeveralModels)
-	}
-	if modelName.MatchString(best) {
+	if unread {
+		env.unnamed = true
+	} else if modelName.MatchString(best) {
 		env.answered = best
 	}
+	// Usage is capped per entry by claudeCount and per sum here, so no sum
+	// overflows however many entries there are.
+	u = Usage{In: min(u.In, claudeMaxCount), CachedIn: min(u.CachedIn, claudeMaxCount), Out: min(u.Out, claudeMaxCount)}
+	return u, len(fields) > 0
 }
 
-// readUsage reads the token counts: from modelUsage, which covers every model
-// call of the run, when it names any, else from usage, which covers the main
-// loop only. In is the input and the cache writes, CachedIn the cache reads.
-func (env *claudeEnv) readUsage(modelUsage, usage json.RawMessage) {
-	if fields, ok := claudeFields(modelUsage); ok && len(fields) > 0 {
-		for _, f := range fields {
-			u := claudeTokens(f.value)
-			env.usage.In += claudeCount(u["inputTokens"]) + claudeCount(u["cacheCreationInputTokens"])
-			env.usage.CachedIn += claudeCount(u["cacheReadInputTokens"])
-			env.usage.Out += claudeCount(u["outputTokens"])
+// claudeCounts is one object of counts: usage, or a model's entry in
+// modelUsage.
+type claudeCounts struct {
+	ok    bool             // an object
+	n     map[string]int64 // each count, -1 for one that is no plausible count, the larger for a key given twice
+	twice bool             // a key given twice
+	tools bool             // a count of tools the API ran, other than none
+}
+
+// count is a count, 0 when it is absent or no plausible count.
+func (c claudeCounts) count(key string) int64 {
+	return max(c.n[key], 0)
+}
+
+// claudeReadCounts reads an object of counts, and gives one that is not ok
+// for anything else.
+func claudeReadCounts(raw json.RawMessage) (c claudeCounts) {
+	fields, ok := claudeFields(raw)
+	if !ok {
+		return c
+	}
+	c.ok, c.n = true, make(map[string]int64, len(fields))
+	for _, f := range fields {
+		if slices.ContainsFunc(claudeServerToolKeys, func(k string) bool { return strings.EqualFold(k, f.key) }) && claudeToolCount(f.value) {
+			c.tools = true
 		}
-		env.usageSeen = true
-		return
+		n, ok := claudeCount(claudeNumber(f.value))
+		if !ok {
+			n = -1
+		}
+		if old, twice := c.n[f.key]; twice {
+			c.twice, n = true, max(n, old)
+		}
+		c.n[f.key] = n
 	}
-	u := claudeTokens(usage)
-	if u == nil {
-		return
-	}
-	env.usage.In = claudeCount(u["input_tokens"]) + claudeCount(u["cache_creation_input_tokens"])
-	env.usage.CachedIn = claudeCount(u["cache_read_input_tokens"])
-	env.usage.Out = claudeCount(u["output_tokens"])
-	env.usageSeen = true
+	return c
 }
 
-// claudeTokens decodes an object of counts, and gives nil for anything else.
-func claudeTokens(raw json.RawMessage) map[string]any {
-	var u map[string]any
-	if json.Unmarshal(raw, &u) != nil {
-		return nil
+// claudeToolCount reports whether a count of tools the API ran says any
+// ran: anything but null, 0, or an object of only those. A value that can't
+// be read counts as a tool.
+func claudeToolCount(raw json.RawMessage) bool {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return true
 	}
-	return u
+	return claudeAny(v)
+}
+
+// claudeAny walks a decoded value, which encoding/json has already held to
+// 10,000 levels.
+func claudeAny(v any) bool {
+	switch v := v.(type) {
+	case nil:
+		return false
+	case float64:
+		return v != 0
+	case map[string]any:
+		for _, child := range v {
+			if claudeAny(child) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// claudeLarger is the larger of two readings of the same spend, count by
+// count.
+func claudeLarger(a, b Usage) Usage {
+	return Usage{In: max(a.In, b.In), CachedIn: max(a.CachedIn, b.CachedIn), Out: max(a.Out, b.Out)}
 }
 
 // claudeNumber decodes a JSON number, and gives nil for anything else.
@@ -382,14 +523,17 @@ func claudeNumber(raw json.RawMessage) any {
 	return v
 }
 
-// claudeCount reads a token count or a status, and gives 0 for anything
+// claudeMaxCount is the largest plausible token count or status.
+const claudeMaxCount = 1e12
+
+// claudeCount reads a token count or a status; ok is false for anything
 // that isn't a plausible one.
-func claudeCount(v any) int64 {
+func claudeCount(v any) (n int64, ok bool) {
 	f, ok := v.(float64)
-	if !ok || f < 0 || f > 1e12 || f != math.Trunc(f) {
-		return 0
+	if !ok || f < 0 || f > claudeMaxCount || f != math.Trunc(f) {
+		return 0, false
 	}
-	return int64(f)
+	return int64(f), true
 }
 
 // claudeText decodes a JSON string, and gives "" for anything else.
@@ -401,11 +545,17 @@ func claudeText(raw json.RawMessage) string {
 	return s
 }
 
-// claudeMessage reads error text given as a string, and otherwise keeps the
-// raw JSON, to classify only.
+// claudeMessage reads error text given as a string, or as a list of
+// strings, each on a line of its own, so that each is read apart: an MCP
+// server's line is dropped without claude's beside it. Any other shape keeps
+// its raw JSON, to classify only.
 func claudeMessage(raw json.RawMessage) string {
 	if s := claudeText(raw); s != "" {
 		return s
+	}
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return strings.Join(list, "\n")
 	}
 	return string(raw)
 }

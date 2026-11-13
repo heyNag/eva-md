@@ -240,12 +240,42 @@ func TestClaudeEnvelopes(t *testing.T) {
 		{name: "is_error that is text", stdout: `{"type":"result","subtype":"success","is_error":"false","structured_output":{"summary":"done"}}`, class: ClassHost},
 		{name: "is_error that is null", stdout: `{"type":"result","subtype":"success","is_error":null,"structured_output":{"summary":"done"}}`, class: ClassOK},
 		{name: "subtype that is no text", stdout: `{"type":"result","subtype":1,"is_error":false,"structured_output":{"summary":"done"}}`, class: ClassHost},
-		{name: "a model twice", stdout: claudeEnvelopeWith(`"modelUsage":{"claude-a":{"outputTokens":1},"claude-a":{"outputTokens":2}}`), class: ClassHost},
+		{name: "a model twice", stdout: claudeEnvelopeWith(`"modelUsage":{"claude-a":{"outputTokens":1},"claude-a":{"outputTokens":2}}`), class: ClassHost, usage: Usage{Out: 3}},
+		{name: "a subtype that is no text beside a status", stdout: `{"type":"result","subtype":1,"is_error":true,"api_error_status":401}`, exit: 1, class: ClassHost},
 		{name: "nested past the depth", stdout: claudeEnvelopeWith(`"x":` + deep), class: ClassHost},
 		{name: "nested past the depth, a failed exit", stdout: claudeEnvelopeWith(`"x":` + deep), exit: 1, class: ClassHost},
 		// A capped envelope is no envelope.
 		{name: "past the cap", stdout: claudeEnvelopeWith(`"pad":"` + strings.Repeat("a", claudeMaxEnvelope) + `"`), class: ClassHost},
 		{name: "past the cap, a failed exit", stdout: claudeEnvelopeWith(`"pad":"` + strings.Repeat("a", claudeMaxEnvelope) + `"`), exit: 1, class: ClassHost},
+		// What lies past the cap is unread, so an envelope followed by more
+		// than the cap can't hide a second one, here with a denial.
+		{name: "an envelope, then past the cap another", stdout: claudeSuccess + strings.Repeat(" ", claudeMaxEnvelope) +
+			claudeEnvelopeWith(`"permission_denials":[{"tool_name":"x"}]`), class: ClassHost},
+		// is_error names a failure on its own, beside a valid answer and a
+		// clean exit too.
+		{name: "is_error beside a valid answer", stdout: `{"type":"result","subtype":"success","is_error":true,"structured_output":{"summary":"done"}}`, class: ClassHost},
+		// Beside an envelope, stderr is read too.
+		{name: "is_error with its words on stderr", stdout: `{"type":"result","subtype":"success","is_error":true}`, stderr: "Not logged in\n", exit: 1, class: ClassAuth},
+		// A status names the class beside is_error false and a valid answer.
+		{name: "a status beside a valid answer", stdout: `{"type":"result","subtype":"success","is_error":false,"api_error_status":401,"structured_output":{"summary":"done"}}`, class: ClassAuth},
+		// Retries used up come before a status.
+		{name: "retries used up beside a status", stdout: `{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"api_error_status":503}`, exit: 1, class: ClassAnswerInvalid},
+		// A sign-in problem before a limit.
+		{name: "a limit and a sign-in problem", stdout: `{"type":"result","subtype":"success","is_error":true,"result":"rate limit reached\nNot logged in"}`, exit: 1, class: ClassAuth},
+		// A refusal counts only on a line that names the model or the effort.
+		{name: "an error that names nothing", stdout: `{"type":"result","subtype":"success","is_error":true,"result":"unknown error"}`, exit: 1, class: ClassHost},
+		{name: "an invalid request that names nothing", stdout: `{"type":"result","subtype":"success","is_error":true,"result":"invalid request"}`, exit: 1, class: ClassHost},
+		{name: "a refusal and a model on lines apart", stdout: `{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["model selection done","unknown error"]}`, exit: 1, class: ClassHost},
+		// Each of errors is read apart: an MCP server's line is dropped
+		// without claude's beside it.
+		{name: "an MCP line beside claude's in errors", stdout: `{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["MCP server docs failed to start","Not logged in · Please run /login"]}`,
+			exit: 1, class: ClassAuth},
+		// A type key in another case still makes an envelope, so a denial
+		// beside it is read.
+		{name: "type in another case beside a denial", stdout: `{"Type":"result","subtype":"success","is_error":false,"structured_output":{"summary":"done"},"permission_denials":[{}]}`, class: ClassToolUsed},
+		// Error text is kept to 64 KiB: a sign-in line after that much
+		// filler names nothing.
+		{name: "a sign-in line past the text kept", stderr: strings.Repeat("filler line\n", 8000) + "Not logged in\n", exit: 1, class: ClassHost},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -368,8 +398,21 @@ func TestClaudeModels(t *testing.T) {
 			[]string{"claude-a", "claude-b"}, "claude-b", []Signal{SignalClaudeSeveralModels}},
 		{"a tie", usage(`"claude-b":{"outputTokens":5},"claude-a":{"outputTokens":5}`),
 			[]string{"claude-a", "claude-b"}, "claude-a", []Signal{SignalClaudeSeveralModels}},
+		// An output count that can't be read, or none, leaves the answering
+		// model unknown: the one whose count can't be read may have written
+		// the most.
 		{"three models, counts that are none", usage(`"claude-c":{"outputTokens":"9"},"claude-b":{"outputTokens":-4},"claude-a":7`),
-			[]string{"claude-a", "claude-b", "claude-c"}, "claude-a", []Signal{SignalClaudeSeveralModels}},
+			[]string{"claude-a", "claude-b", "claude-c"}, "", []Signal{SignalClaudeModelUnnamed, SignalClaudeSeveralModels, SignalModelUnreported}},
+		{"a count that is text", usage(`"claude-a":{"outputTokens":"999999"},"claude-b":{"outputTokens":1}`),
+			[]string{"claude-a", "claude-b"}, "", []Signal{SignalClaudeModelUnnamed, SignalClaudeSeveralModels, SignalModelUnreported}},
+		{"a count past the plausible", usage(`"claude-a":{"outputTokens":2e12},"claude-b":{"outputTokens":1}`),
+			[]string{"claude-a", "claude-b"}, "", []Signal{SignalClaudeModelUnnamed, SignalClaudeSeveralModels, SignalModelUnreported}},
+		{"a count that is a fraction", usage(`"claude-a":{"outputTokens":1.5}`),
+			[]string{"claude-a"}, "", []Signal{SignalClaudeModelUnnamed, SignalModelUnreported}},
+		{"no count", usage(`"claude-a":{"inputTokens":5}`),
+			[]string{"claude-a"}, "", []Signal{SignalClaudeModelUnnamed, SignalModelUnreported}},
+		{"a null count", usage(`"claude-a":{"outputTokens":null},"claude-b":{"outputTokens":1}`),
+			[]string{"claude-a", "claude-b"}, "", []Signal{SignalClaudeModelUnnamed, SignalClaudeSeveralModels, SignalModelUnreported}},
 		{"one model", usage(`"claude-a":{"outputTokens":3}`), []string{"claude-a"}, "claude-a", nil},
 		// The host may name the model asked for: that is its word, kept.
 		{"the model asked for", usage(`"claude-test-model":{"outputTokens":3}`), []string{"claude-test-model"}, "claude-test-model", nil},
@@ -401,15 +444,15 @@ func TestClaudeModels(t *testing.T) {
 		})
 	}
 	// An envelope this reader can't vouch for still says which models it
-	// names, but not which answered: models in another key's case, or given
-	// twice, are host.
+	// names, and the larger of what it says it spent, but not which answered:
+	// models in another key's case, or given twice, are host.
 	for _, stdout := range []string{
 		claudeEnvelopeWith(`"modelUsage":{"claude-a":{"outputTokens":9}},"modelUsage":{"claude-b":{"outputTokens":1}}`),
 		claudeEnvelopeWith(`"modelUsage":{"claude-a":{"outputTokens":9}},"ModelUsage":{"claude-b":{"outputTokens":1}}`),
 		claudeEnvelopeWith(`"ModelUsage":{"claude-a":{"outputTokens":9},"claude-b":{"outputTokens":1}}`),
 	} {
 		out, _ := claudeRun(t, map[string]string{"stdout": stdout}, nil)
-		if out.Class != ClassHost || !slices.Equal(out.ModelsSeen, []string{"claude-a", "claude-b"}) || out.ModelAnswered != "" || out.UsageSeen {
+		if out.Class != ClassHost || !slices.Equal(out.ModelsSeen, []string{"claude-a", "claude-b"}) || out.ModelAnswered != "" || !out.UsageSeen || out.Usage.Out < 9 {
 			t.Fatalf("%s: outcome %+v", stdout, out)
 		}
 	}
@@ -458,6 +501,10 @@ func TestClaudeManagedMCPConfigRetriesWithoutTheStrictFlag(t *testing.T) {
 	refusals := map[string]map[string]string{
 		"on stderr":       {"stderr.1": claudeStrictRefusal, "exit.1": "1"},
 		"in the envelope": {"stdout.1": `{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["` + claudeStrictRefusal + `"]}`, "exit.1": "1"},
+		// Each of errors is read apart, so an MCP server's words beside the
+		// refusal neither hide it nor name a sign-in problem.
+		"in errors beside an MCP server's words": {"stdout.1": `{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["` + claudeStrictRefusal +
+			`","MCP server docs: authentication required"]}`, "exit.1": "1"},
 	}
 	for name, files := range refusals {
 		t.Run("retried once "+name, func(t *testing.T) {
@@ -742,5 +789,151 @@ func TestClaudeResultApartFromTheCore(t *testing.T) {
 	}
 	if res := claudeRead(claudeSuccess, exit{started: true}); res.class != ClassOK || string(res.answer) != answer || res.toolSign {
 		t.Fatalf("a clean run: %+v", res)
+	}
+}
+
+// A count of tools the API ran itself, such as a web search, in usage or in
+// a model's entry in modelUsage, under its key in any letter case, is a tool
+// sign beside any answer, a timeout too; only no key, null, 0 and an object
+// of those are none.
+func TestClaudeServerToolCountsAreToolUsed(t *testing.T) {
+	used := []string{`1`, `2`, `-1`, `0.5`, `"0"`, `"x"`, `true`, `false`, `[]`, `[0]`, `{"web_search_requests":1}`,
+		`{"web_search_requests":0,"web_fetch_requests":1}`, `{"a":{"b":1}}`, `{"web_search_requests":"0"}`, `{"x":[]}`}
+	none := []string{`0`, `null`, `0.0`, `{}`, `{"web_search_requests":0,"web_fetch_requests":0}`, `{"a":{"b":null}}`}
+	usageKeys := []string{"server_tool_use", "Server_Tool_Use", "serverToolUse", "web_search_requests", "web_fetch_requests"}
+	modelKeys := []string{"webSearchRequests", "webFetchRequests", "WEBSEARCHREQUESTS", "server_tool_use", "serverToolUse"}
+	envelopes := func(v string) []string {
+		var out []string
+		for _, k := range usageKeys {
+			for _, usage := range []string{"usage", "Usage"} {
+				out = append(out, claudeEnvelopeWith(`"`+usage+`":{"input_tokens":1,"output_tokens":1,"`+k+`":`+v+`}`))
+			}
+		}
+		for _, k := range modelKeys {
+			out = append(out,
+				claudeEnvelopeWith(`"modelUsage":{"claude-a":{"outputTokens":3,"`+k+`":`+v+`}}`),
+				claudeEnvelopeWith(`"modelUsage":{"claude-a":{"outputTokens":3},"claude-b":{"outputTokens":1,"`+k+`":`+v+`}}`),
+				claudeEnvelopeWith(`"modelUsage":{"claude-a":{"outputTokens":3}},"ModelUsage":{"claude-b":{"`+k+`":`+v+`}}`))
+		}
+		return out
+	}
+	for _, v := range used {
+		for _, stdout := range envelopes(v) {
+			for _, e := range []exit{{started: true}, {started: true, failed: true}, {started: true, failed: true, timedOut: true}} {
+				if res := claudeRead(stdout, e); !res.toolSign || !e.timedOut && res.class != ClassToolUsed || res.answer != nil {
+					t.Fatalf("%s, exit %+v: %+v", stdout, e, res)
+				}
+			}
+		}
+	}
+	for _, v := range none {
+		for _, stdout := range envelopes(v) {
+			if res := claudeRead(stdout, exit{started: true}); res.toolSign || res.class == ClassToolUsed {
+				t.Fatalf("%s: %+v", stdout, res)
+			}
+		}
+	}
+	// An envelope in the shape claude prints, its counts at none, is ok;
+	// one with a web search, through the whole run, is tool_used.
+	zero := claudeEnvelopeWith(`"usage":{"input_tokens":5,"output_tokens":2,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0}},` +
+		`"modelUsage":{"claude-a":{"inputTokens":5,"outputTokens":2,"webSearchRequests":0}}`)
+	if out, _ := claudeRun(t, map[string]string{"stdout": zero}, nil); out.Class != ClassOK || string(out.Answer) != answer {
+		t.Fatalf("no server tool: %+v", out)
+	}
+	searched := strings.Replace(zero, `"webSearchRequests":0`, `"webSearchRequests":2`, 1)
+	if out, _ := claudeRun(t, map[string]string{"stdout": searched}, nil); out.Class != ClassToolUsed || out.Answer != nil || out.Usage != (Usage{In: 5, Out: 2}) {
+		t.Fatalf("a web search: %+v", out)
+	}
+}
+
+// modelUsage gives at most claudeMaxModels names: past that the envelope is
+// host, with no model kept and none said to answer, though every entry's
+// usage and tool counts are still read. The reader's time grows with the
+// envelope, not with its square: an envelope near the cap holding hundreds
+// of thousands of names returns, and the bound holds.
+func TestClaudeManyModels(t *testing.T) {
+	models := func(n int, last string) string {
+		var b strings.Builder
+		for i := range n {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, `"m%07d":{"outputTokens":1}`, i)
+		}
+		if last != "" {
+			b.WriteString("," + last)
+		}
+		return claudeEnvelopeWith(`"modelUsage":{` + b.String() + `}`)
+	}
+	at := claudeRead(models(claudeMaxModels, ""), exit{started: true})
+	if at.class != ClassOK || len(at.models) != claudeMaxModels || at.answered != "m0000000" || at.usage.Out != claudeMaxModels {
+		t.Fatalf("%d models: class %s, %d models, answered %q, usage %+v", claudeMaxModels, at.class, len(at.models), at.answered, at.usage)
+	}
+	huge := models(250000, "")
+	if len(huge) > claudeMaxEnvelope {
+		t.Fatalf("an envelope of %d bytes is past the cap", len(huge))
+	}
+	for _, tc := range []struct {
+		name, stdout string
+		n            int64
+		class        Class
+	}{
+		{"one past the bound", models(claudeMaxModels+1, ""), claudeMaxModels + 1, ClassHost},
+		{"near the cap", huge, 250000, ClassHost},
+		{"near the cap, a web search last", models(250000, `"m9999999":{"outputTokens":1,"webSearchRequests":1}`), 250001, ClassToolUsed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := claudeRead(tc.stdout, exit{started: true})
+			if res.class != tc.class || res.models != nil || res.answered != "" || res.answer != nil ||
+				!res.usageSeen || res.usage.Out != tc.n || !slices.Equal(res.signals, []Signal{SignalClaudeModelUnnamed, SignalClaudeSeveralModels}) {
+				t.Fatalf("class %s, %d models, answered %q, usage %+v, signals %q", res.class, len(res.models), res.answered, res.usage, res.signals)
+			}
+		})
+	}
+	// Through the whole run, the core's own reading included.
+	out, _ := claudeRun(t, map[string]string{"stdout": huge}, nil)
+	if out.Class != ClassHost || out.ModelsSeen != nil || out.ModelAnswered != "" || out.Usage.Out != 250000 ||
+		!slices.Equal(out.Signals, []Signal{SignalClaudeModelUnnamed, SignalClaudeSeveralModels, SignalModelUnreported}) {
+		t.Fatalf("class %s, %d models, answered %q, usage %+v, signals %q", out.Class, len(out.ModelsSeen), out.ModelAnswered, out.Usage, out.Signals)
+	}
+}
+
+// What an envelope this reader can't vouch for says it spent is kept, the
+// larger reading where a count is given twice, so a cost is never lost to
+// an odd key.
+func TestClaudeOddEnvelopesKeepTheirUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name, members string
+		want          Usage
+	}{
+		{"an unknown key twice", `"usage":{"input_tokens":100,"output_tokens":50},"session_id":"a","session_id":"a"`, Usage{In: 100, Out: 50}},
+		{"usage twice", `"usage":{"input_tokens":100},"usage":{"input_tokens":7,"output_tokens":9}`, Usage{In: 100, Out: 9}},
+		{"a count twice", `"usage":{"output_tokens":40,"output_tokens":1}`, Usage{Out: 40}},
+		{"usage in another case", `"Usage":{"input_tokens":3,"cache_read_input_tokens":4}`, Usage{In: 3, CachedIn: 4}},
+		{"is_error of another type", `"is_error":"no","usage":{"output_tokens":6}`, Usage{Out: 6}},
+		{"a model's count twice", `"modelUsage":{"claude-a":{"outputTokens":2,"outputTokens":8}}`, Usage{Out: 8}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout := `{"type":"result","subtype":"success",` + tc.members + `,"structured_output":{"summary":"done"}}`
+			out, _ := claudeRun(t, map[string]string{"stdout": stdout}, nil)
+			if out.Class != ClassHost || out.Answer != nil || out.Usage != tc.want || !out.UsageSeen || out.ModelAnswered != "" {
+				t.Fatalf("outcome %+v, want host with usage %+v", out, tc.want)
+			}
+		})
+	}
+}
+
+// With no envelope and a failed exit, stdout with a brace is never read as
+// error text: an envelope that could not be read, printed over several
+// lines, holds the model's own words on lines of their own.
+func TestClaudeUnreadEnvelopeLinesNeverClassify(t *testing.T) {
+	pretty := "{\n  \"type\": \"Result\",\n  \"subtype\": \"success\",\n  \"is_error\": false,\n  \"result\": \"Claude AI usage limit reached\",\n" +
+		"  \"note\": \"Not logged in\"\n}\n"
+	for _, stdout := range []string{pretty, pretty + pretty, "notice\n" + pretty,
+		"notice " + `{"type":"result","subtype":"success","is_error":false,"result":"rate limit"}`} {
+		out, _ := claudeRun(t, map[string]string{"stdout": stdout, "exit": "1"}, nil)
+		if out.Class != ClassHost || out.Refused != "" {
+			t.Fatalf("%q: outcome %+v", stdout, out)
+		}
 	}
 }
