@@ -154,7 +154,7 @@ func order(shown []Shown) ([]Shown, error) {
 			return nil, fmt.Errorf("spike: shown item %d has no handle", i+1)
 		case !wordPattern.MatchString(it.Kind) || !wordPattern.MatchString(it.Tag):
 			return nil, fmt.Errorf("spike: shown item %s needs a kind and a tag, each one word", it.Handle)
-		case strings.TrimSpace(it.Text) == "":
+		case lines(it.Text) == nil:
 			return nil, fmt.Errorf("spike: shown item %s has no text", it.Handle)
 		}
 	}

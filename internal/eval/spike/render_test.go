@@ -376,6 +376,7 @@ func TestRenderRefuses(t *testing.T) {
 		{"kind of two words", FormQuotes, []Shown{{Handle: "h1", Kind: "a decision", Tag: "stated", Text: "x"}}},
 		{"no tag", FormQuotes, []Shown{{Handle: "h1", Kind: "decision", Text: "x"}}},
 		{"no text", FormQuotes, []Shown{{Handle: "h1", Kind: "decision", Tag: "stated", Text: " \n "}}},
+		{"no text once cleaned", FormQuotes, []Shown{{Handle: "h1", Kind: "decision", Tag: "stated", Text: "\x07​"}}},
 	} {
 		if _, err := Render(s, c.shown, c.form); err == nil {
 			t.Errorf("%s: no error", c.name)

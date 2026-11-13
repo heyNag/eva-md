@@ -114,7 +114,7 @@ func (s Script) checkPlant(p Plant, answered map[string]bool) error {
 	}
 	for _, sl := range f.Slots {
 		for _, v := range append([]string{sl.Value}, sl.Forms...) {
-			if strings.Contains(letters(answer.Text), letters(v)) {
+			if k := letters(v); k != "" && strings.Contains(letters(answer.Text), k) {
 				return fmt.Errorf("the %s repeats the value it answers", p.Mode)
 			}
 		}
