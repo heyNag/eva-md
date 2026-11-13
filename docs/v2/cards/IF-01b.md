@@ -35,6 +35,11 @@ The package `internal/ledger/ledgertest`, built on eva-md's ledger packages and 
 
 `internal/ledger/ledgertest/**` (new) and `internal/ledger/inboxv1/conform_test.go` (new).
 
+```paths
+internal/ledger/ledgertest/**
+internal/ledger/inboxv1/conform_test.go
+```
+
 ## Must not touch
 
 Everything else. The rest of `internal/ledger`, `internal/inbox` and `docs/v2/contract-matrix.md` are read only. The lead changes the reader's row of the matrix from `waits: IF-01b` to the package at the merge.
