@@ -320,9 +320,10 @@ func (s *codexStream) result(e exit, output, effort string) result {
 		res.signals = append(res.signals, SignalCodexLineSkipped)
 	}
 	switch {
-	case e.missing || e.timedOut || s.invalid:
 	case s.toolUsed:
+		// A tool taints the run whatever ended it, a timeout too.
 		res.class = ClassToolUsed
+	case e.missing || e.timedOut || s.invalid:
 	default:
 		s.diag.note(string(e.stderr))
 		answer, ok := codexReadOutput(output)

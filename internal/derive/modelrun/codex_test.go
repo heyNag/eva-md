@@ -806,6 +806,26 @@ func TestCodexEveryToolItemIsATool(t *testing.T) {
 	}
 }
 
+// The reader's own result, apart from the core: a tool is tool_used, with
+// the tool sign, whatever ended the run; a line it can't vouch for is host,
+// with no answer read; neither is ever ok.
+func TestCodexResultPutsTheToolFirst(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "output.json")
+	if err := os.WriteFile(output, []byte(answer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []exit{{started: true}, {started: true, failed: true}, {started: true, failed: true, timedOut: true}} {
+		tool, _ := codexRead(codexItem("item.started", "command_execution")+codexClean, 0)
+		if res := tool.result(e, output, ""); res.class != ClassToolUsed || !res.toolSign || res.answer != nil || res.usage != (Usage{}) {
+			t.Errorf("a tool, exit %+v: %+v", e, res)
+		}
+		odd, _ := codexRead(codexClean+`{"type":"turn.plan_updated"}`+"\n", 0)
+		if res := odd.result(e, output, ""); res.class != ClassHost || res.toolSign || res.answer != nil || res.usage != codexCleanUsage {
+			t.Errorf("an unknown event, exit %+v: %+v", e, res)
+		}
+	}
+}
+
 // The probe step keeps only the features of codexOff and codexTools the
 // list names, and a list that can't be read gives codexOff, not to be kept.
 func TestCodexProbeStep(t *testing.T) {
