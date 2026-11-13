@@ -26,9 +26,10 @@ import (
 // repository's HEAD, for the ledger's counted-at, each of the ledger's rows
 // and figures as they count today, each figure that is not today's with
 // the line to write, and the ledger's faults. It exits 1 on a difference
-// or a fault, whatever size's own check says, 0 otherwise, and 2 for a
-// usage error, a ledger it cannot read or a repository without v1's
-// history.
+// or a fault, and, once the cut-over has merged, on a size over the
+// ceiling; before then size's net figure fails nothing. It exits 0
+// otherwise, and 2 for a usage error, a ledger it cannot read or a
+// repository without v1's history.
 func init() {
 	register(instrument{
 		name:     "paths",
@@ -136,10 +137,19 @@ func ledgerCommand(ctx context.Context, repo, file string, out, errOut io.Writer
 	if err != nil {
 		return fail(errOut, err)
 	}
+	return ledgerVerdict(out, file, string(head[:12]), size, ledger)
+}
+
+// ledgerVerdict prints size's report, then the ledger's, and gives the
+// exit code: 1 on a difference or a fault of the ledger, on a fault of the
+// deletes blocks size found, and, once the cut-over has merged and the
+// ceiling is plain, on a size over it; 0 otherwise. Before the cut-over
+// the net figure is reported and fails nothing (plan section 7).
+func ledgerVerdict(out io.Writer, file, head string, size guard.Size, ledger guard.Ledger) int {
 	fmt.Fprint(out, size.Report())
-	fmt.Fprintf(out, "Ledger %s, counted at %s; HEAD is %s.\n", file, ledger.CountedAt, head[:12])
+	fmt.Fprintf(out, "Ledger %s, counted at %s; HEAD is %s.\n", file, ledger.CountedAt, head)
 	fmt.Fprint(out, ledger.Report())
-	if !ledger.Holds() {
+	if !ledger.Holds() || len(size.Faults) > 0 || (size.Plain && !size.Holds()) {
 		return 1
 	}
 	return 0

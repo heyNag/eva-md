@@ -136,20 +136,55 @@ func TestSizeLedgerCommandUsage(t *testing.T) {
 	write(t, filepath.Join(repo, "go.mod"), "module example.com/app\n\ngo 1.22\n")
 	gitIn(t, repo, "init", "--quiet")
 	commitAll(t, repo, "a history without v1's commit")
+	// A ledger in a folder that is no repository is read, and then v1's
+	// files cannot be listed.
+	notRepo := t.TempDir()
+	write(t, filepath.Join(notRepo, "docs", "v2", "size-ledger.md"), "# A made-up ledger\n")
 	for name, c := range map[string]struct {
 		args []string
 		says string
 	}{
-		"a missing ledger":          {[]string{"size", "--repo", repo, "--ledger", "docs/v2/none.md"}, "none.md"},
-		"a ledger that is a folder": {[]string{"size", "--repo", repo, "--ledger", "docs/v2"}, "docs/v2"},
-		"no v1 history":             {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md"}, guard.V1},
-		"no repository":             {[]string{"size", "--repo", t.TempDir(), "--ledger", "docs/v2/size-ledger.md"}, "size-ledger.md"},
-		"an unknown flag":           {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md", "--fast"}, "-fast"},
-		"an argument":               {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md", "extra"}, "size [--repo dir] [--ledger file]"},
-		"no file to the flag":       {[]string{"size", "--repo", repo, "--ledger"}, "-ledger"},
+		"a missing ledger":            {[]string{"size", "--repo", repo, "--ledger", "docs/v2/none.md"}, "none.md"},
+		"a ledger that is a folder":   {[]string{"size", "--repo", repo, "--ledger", "docs/v2"}, "docs/v2"},
+		"no v1 history":               {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md"}, guard.V1},
+		"no ledger at the repository": {[]string{"size", "--repo", t.TempDir(), "--ledger", "docs/v2/size-ledger.md"}, "size-ledger.md"},
+		"no repository":               {[]string{"size", "--repo", notRepo, "--ledger", "docs/v2/size-ledger.md"}, guard.V1},
+		"an unknown flag":             {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md", "--fast"}, "-fast"},
+		"an argument":                 {[]string{"size", "--repo", repo, "--ledger", "docs/v2/size-ledger.md", "extra"}, "size [--repo dir] [--ledger file]"},
+		"no file to the flag":         {[]string{"size", "--repo", repo, "--ledger"}, "-ledger"},
 	} {
 		if code, out, errOut := cmd(c.args...); code != 2 || out != "" || !strings.Contains(errOut, c.says) {
 			t.Errorf("%s: %d %q %q", name, code, out, errOut)
+		}
+	}
+}
+
+// size --ledger prints size's report, then the ledger's, and exits 1 on a
+// difference or a fault of the ledger, on a fault of the deletes blocks,
+// and on a size over the ceiling only once the cut-over has made it plain.
+func TestSizeLedgerVerdict(t *testing.T) {
+	under, over := guard.Size{Built: 10, Ceiling: 20}, guard.Size{Built: 30, Ceiling: 20}
+	plain := func(s guard.Size) guard.Size { s.Plain = true; return s }
+	holds := guard.Ledger{CountedAt: "0123456789ab"}
+	for name, c := range map[string]struct {
+		size   guard.Size
+		ledger guard.Ledger
+		code   int
+	}{
+		"both hold":                            {under, holds, 0},
+		"over the ceiling before the cut-over": {over, holds, 0},
+		"under the ceiling after it":           {plain(under), holds, 0},
+		"over the ceiling after it":            {plain(over), holds, 1},
+		"a difference": {under, guard.Ledger{CountedAt: "0123456789ab", Differences: []guard.Difference{
+			{Text: "row x.go: says 1, counts 2", Write: "| `x.go` | 2 |"}}}, 1},
+		"a fault of the ledger":        {under, guard.Ledger{CountedAt: "0123456789ab", Faults: []string{"row x.go: the path does not exist"}}, 1},
+		"a fault of the deletes block": {guard.Size{Built: 10, Ceiling: 20, Faults: []string{"AA-1: a made-up fault"}}, holds, 1},
+	} {
+		var out strings.Builder
+		code := ledgerVerdict(&out, "docs/v2/size-ledger.md", "fedcba987654", c.size, c.ledger)
+		want := c.size.Report() + "Ledger docs/v2/size-ledger.md, counted at 0123456789ab; HEAD is fedcba987654.\n" + c.ledger.Report()
+		if code != c.code || out.String() != want {
+			t.Errorf("%s: %d, want %d\n%s\nwant\n%s", name, code, c.code, out.String(), want)
 		}
 	}
 }
