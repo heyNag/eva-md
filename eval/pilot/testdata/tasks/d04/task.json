@@ -1,0 +1,77 @@
+{
+  "v": 1,
+  "id": "d04",
+  "family": "hidden",
+  "lang": "python",
+  "repos": [
+    "veltmoor"
+  ],
+  "workdir": "repo",
+  "history": [
+    {
+      "by": "user",
+      "text": "veltmoor's counters have to survive a restart, so they need a state file. I tried this once already on another branch and it went badly, so listen first.",
+      "plants": []
+    },
+    {
+      "by": "agent",
+      "text": "Go ahead. My first thought would have been JSON, a dict of name to count, since the standard library reads and writes it in two lines.",
+      "plants": []
+    },
+    {
+      "by": "user",
+      "text": "That's exactly what I tried, and the sync tool that copies state files between hosts choked on it: it only understands its own line format. So the file is plain lines: a first line #brisolde-state 2, then name=count, one counter a line, sorted by name. No JSON.",
+      "plants": [
+        "f1"
+      ]
+    },
+    {
+      "by": "agent",
+      "text": "Understood. The state file is plain text the sync tool can read: the header line #brisolde-state 2, then one name=count line per counter, sorted by name, and load refuses a file without that header. save and load are still stubs that raise NotImplementedError; I'll fill them in next time.",
+      "plants": [
+        "f1"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "statement": "JSON was tried for the state file and the sync tool choked on it. The state file is plain lines: the header #brisolde-state 2, then name=count per counter, sorted by name.",
+      "values": [
+        "brisolde"
+      ],
+      "name": false
+    }
+  ],
+  "prompt": "Make veltmoor's counters survive a restart: fill in save and load so they write and read a state file.",
+  "note": "Hand-over for veltmoor. A failed approach: JSON state files broke the sync tool. Decided format: first line \"#brisolde-state 2\", then name=count per counter, sorted by name; load refuses a file without the header.",
+  "tests": [
+    {
+      "id": "t1",
+      "repo": "veltmoor",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_round_trip"
+      ],
+      "facts": []
+    },
+    {
+      "id": "t2",
+      "repo": "veltmoor",
+      "run": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_hidden.HiddenTests.test_state_file_format"
+      ],
+      "facts": [
+        "f1"
+      ]
+    }
+  ],
+  "max_turns": 40,
+  "max_rounds": 3,
+  "minutes": 20
+}
