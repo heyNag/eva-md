@@ -110,7 +110,12 @@ func (f *Fake) serve(ctx context.Context, stdin io.Reader, stdout, stderr io.Wri
 		return 1, fmt.Errorf("hostfake: %s stalled: %w", command, ctx.Err())
 	}
 	if appServer && code == 0 {
-		return f.appServer(stdin, stdout), nil
+		code = f.appServer(stdin, stdout)
+		if when == After && code == 0 {
+			fmt.Fprintf(stderr, "hostfake: %s failed after it took effect\n", command)
+			code = 1
+		}
+		return code, nil
 	}
 	stdout.Write(out.Bytes())
 	stderr.Write(diag.Bytes())
@@ -165,6 +170,10 @@ func parseArgs(args []string) (cmdArgs, error) {
 func (f *Fake) answer(st *state, cli string, args []string, out, diag *bytes.Buffer) int {
 	if cli == Codex {
 		args = stripNoDaemon(args)
+	}
+	if cli == Claude && slices.Contains(args, "-p") || cli == Codex && len(args) > 0 && args[0] == "exec" {
+		fmt.Fprintf(diag, "hostfake: %s runs no model\n", cli)
+		return 2
 	}
 	a, err := parseArgs(args)
 	if err != nil {
@@ -276,10 +285,6 @@ func (f *Fake) answer(st *state, cli string, args []string, out, diag *bytes.Buf
 		return emit(map[string]any{"pluginId": id, "removed": true})
 	case words == "plugin list" && a.json:
 		return f.list(st, cli, a.market, policy, diag, emit)
-	}
-	if cli == Claude && slices.Contains(args, "-p") || cli == Codex && len(args) > 0 && args[0] == "exec" {
-		fmt.Fprintf(diag, "hostfake: %s runs no model\n", cli)
-		return 2
 	}
 	fmt.Fprintf(diag, "hostfake: %s does not answer %q\n", cli, strings.Join(args, " "))
 	return 2

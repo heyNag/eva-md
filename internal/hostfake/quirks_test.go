@@ -130,6 +130,21 @@ func TestRegistrationQuirks(t *testing.T) {
 	}
 }
 
+// A headless run is refused: the fake runs no model.
+func TestHeadlessRunsAreRefused(t *testing.T) {
+	f := New(realTemp(t))
+	for cli, args := range map[string][]string{
+		Claude: {"-p", "--safe-mode", "--tools", "", "made-up prompt"},
+		Codex:  {"--no-daemon", "exec", "--ephemeral", "--json", "made-up prompt"},
+	} {
+		_, err := f.Run(context.Background(), cli, args...)
+		var e *ExitError
+		if !errors.As(err, &e) || e.Code != 2 || e.Stderr != "hostfake: "+cli+" runs no model\n" {
+			t.Errorf("%s %v gave %v, %q", cli, args, err, stderrOf(err))
+		}
+	}
+}
+
 // A copy without .codex-plugin/plugin.json loads no hooks.
 func TestCodexLoadsHooksOnlyWithItsManifest(t *testing.T) {
 	h := newHost(t, Codex)

@@ -50,6 +50,11 @@ func CodexContentHash(dir string) (string, error) {
 		rel  string
 		path string
 	}
+	if info, err := os.Lstat(dir); err != nil {
+		return "", err
+	} else if !info.IsDir() {
+		return "", fmt.Errorf("unsupported plugin entry type: %s is not a folder", filepath.Base(dir))
+	}
 	var files []file
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

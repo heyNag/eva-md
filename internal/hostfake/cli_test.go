@@ -132,6 +132,9 @@ func TestRunAndTheWrittenCLIsAgree(t *testing.T) {
 		{do: func() { both(func(f *Fake) error { return f.SetPolicy(Codex, Policy{CodexHooksOff: true}) }) }},
 		cmd(0, Codex, "features", "list"),
 		list,
+		{do: func() { both(func(f *Fake) error { return f.FailNext("codex --no-daemon app-server", After) }) }},
+		{stdin: listRequest, cli: Codex, args: []string{"--no-daemon", "app-server", "--stdio"}, code: 1},
+		list,
 	}
 	for _, s := range steps {
 		if s.do != nil {

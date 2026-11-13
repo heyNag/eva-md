@@ -272,4 +272,11 @@ func TestCodexContentHash(t *testing.T) {
 	if got, _ := CodexContentHash(dir); got != base {
 		t.Fatal("the folder was not restored")
 	}
+	link := filepath.Join(realTemp(t), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CodexContentHash(link); err == nil {
+		t.Error("a plugin folder that is a symlink was hashed")
+	}
 }
