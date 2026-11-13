@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -491,5 +492,74 @@ func TestGradeStopsWithItsContext(t *testing.T) {
 	_, err := Grade(ctx, task, workspace(t, task, ""), filepath.Join(t.TempDir(), "scratch"), time.Hour)
 	if !errors.Is(err, context.Canceled) || !strings.HasPrefix(err.Error(), "task d04: test t1: ") {
 		t.Errorf("Grade with an ended context: %v", err)
+	}
+}
+
+// telemetryMode is where go reads its telemetry mode under home when no
+// XDG_CONFIG_HOME is set, as os.UserConfigDir finds it.
+func telemetryMode(home string) string {
+	config := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		config = filepath.Join(home, "Library", "Application Support")
+	}
+	return filepath.Join(config, "go", "telemetry", "mode")
+}
+
+// Grade turns Go's telemetry off in the home it gives go, before any test
+// runs: a stub go that exits 0 only when that home holds the mode off
+// passes under Grade, and the same stub run with a home that lacks it
+// fails.
+func TestGradeTurnsGoTelemetryOff(t *testing.T) {
+	rel, err := filepath.Rel("/made-up-home", telemetryMode("/made-up-home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	stub := filepath.Join(bin, "go")
+	writeFile(t, stub, "#!/bin/sh\n"+
+		"if [ \"$1\" = env ]; then echo /made-up-cache; exit 0; fi\n"+
+		"read -r mode < \"$HOME/"+filepath.ToSlash(rel)+"\" || exit 3\n"+
+		"[ \"$mode\" = off ] || exit 4\n")
+	if err := os.Chmod(stub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	without := exec.Command(stub, "test")
+	without.Env = []string{"HOME=" + t.TempDir()}
+	if err := without.Run(); err == nil {
+		t.Fatal("the stub passes with a home that has no telemetry mode")
+	}
+
+	t.Setenv("PATH", bin)
+	task := synthetic(t, LangGo, map[string]string{"go.mod": "module synthrepo\n\ngo 1.22\n"},
+		map[string]string{"x_test.go": "package synthrepo\n"}, []string{"go", "test", "-count=1", "-run", "^TestX$", "."})
+	failed, err := grade(t, task, filepath.Join(task.Dir, treeRepos, "synthrepo"), filepath.Join(t.TempDir(), "scratch"), time.Hour)
+	if err != nil || len(failed) != 0 {
+		t.Errorf("the stub under Grade: %v, %v", failed, err)
+	}
+}
+
+// With the real go, the home Grade gives it holds nothing of Go's
+// telemetry but the mode, off, once a test has run: go counted nothing
+// there, so it started nothing to upload a count.
+func TestGradeLeavesNoTelemetryInItsHome(t *testing.T) {
+	task := synthetic(t, LangGo, map[string]string{"go.mod": "module synthrepo\n\ngo 1.22\n", "x.go": "package synthrepo\n"},
+		map[string]string{"x_test.go": "package synthrepo\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n"},
+		[]string{"go", "test", "-count=1", "-run", "^TestX$", "."})
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	failed, err := grade(t, task, filepath.Join(task.Dir, treeRepos, "synthrepo"), scratch, time.Hour)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("Grade: %v, %v", failed, err)
+	}
+	mode := telemetryMode(filepath.Join(scratch, "home"))
+	if data, err := os.ReadFile(mode); err != nil || string(data) != "off\n" {
+		t.Errorf("the mode: %q, %v", data, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(mode))
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if err != nil || !slices.Equal(names, []string{"mode"}) {
+		t.Errorf("Go's telemetry folder holds %v, %v; want the mode alone", names, err)
 	}
 }
