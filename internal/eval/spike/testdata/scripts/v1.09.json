@@ -1,0 +1,123 @@
+{
+  "scenario": {
+    "id": "v1.09",
+    "family": "v1",
+    "name": "the two-session acceptance",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "00000d4e-2222-4000-8000-000000000000",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-13T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "How should we rotate the logs?"
+          },
+          {
+            "at": "2026-01-13T10:02:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "We could rotate logs daily, DOTTEREL-D, or weekly, DOTTEREL-W.",
+            "plants": [
+              "f1",
+              "f2"
+            ]
+          }
+        ]
+      },
+      {
+        "host": "claude-code",
+        "session": "00000d4f-2222-4000-8000-000000000001",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-14T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "ok, the second one.",
+            "plants": [
+              "f3"
+            ]
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "open"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "DOTTEREL-D"
+          },
+          {
+            "class": "phrase",
+            "value": "daily"
+          }
+        ],
+        "until": {
+          "session": "00000d4f-2222-4000-8000-000000000001",
+          "seq": 1
+        },
+        "must": "store"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "DOTTEREL-W"
+          },
+          {
+            "class": "phrase",
+            "value": "weekly"
+          }
+        ],
+        "until": {
+          "session": "00000d4f-2222-4000-8000-000000000001",
+          "seq": 1
+        },
+        "must": "store"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "DOTTEREL-W"
+          },
+          {
+            "class": "phrase",
+            "value": "weekly"
+          }
+        ],
+        "supersedes": "f2",
+        "must": "store"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      },
+      {
+        "session": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,599 @@
+{
+  "scenario": {
+    "id": "bounds.01",
+    "family": "bounds",
+    "name": "more settings stated in one chat than an answer may hold",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "b0d50001-4444-4000-8000-000000000001",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-03-10T09:00:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Here are the relay settings we agreed. Keep every one of them:\n- relay_dial_timeout is 450 ms\n- relay_idle_timeout is 90 s\n- relay_max_frames is 4096\n- relay_backlog is 128\n- relay_retry_limit is 7\n- relay_buffer_kib is 640\n- relay_heartbeat is 15 s\n- relay_shutdown_grace is 30 s\n- relay_peer_cap is 48\n- relay_route_cache is 2000\n- relay_drain_batch is 256\n- relay_window is 64\n- relay_log_sample is 25",
+            "plants": [
+              "f1",
+              "f2",
+              "f3",
+              "f4",
+              "f5",
+              "f6",
+              "f7",
+              "f8",
+              "f9",
+              "f10",
+              "f11",
+              "f12",
+              "f13"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:01:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Noted, all 13 relay settings."
+          },
+          {
+            "at": "2026-03-10T09:02:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Here are the scheduler settings we agreed. Keep every one of them:\n- sched_tick is 250 ms\n- sched_queue_depth is 512\n- sched_lease is 45 s\n- sched_workers is 12\n- sched_retry_backoff is 800 ms\n- sched_stale_after is 6 h\n- sched_batch is 96\n- sched_jitter is 120 ms\n- sched_history is 14 days\n- sched_priority_levels is 5\n- sched_spill_mib is 300\n- sched_lock_ttl is 20 s\n- sched_max_inflight is 40",
+            "plants": [
+              "f14",
+              "f15",
+              "f16",
+              "f17",
+              "f18",
+              "f19",
+              "f20",
+              "f21",
+              "f22",
+              "f23",
+              "f24",
+              "f25",
+              "f26"
+            ]
+          },
+          {
+            "at": "2026-03-10T09:03:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Noted, all 13 scheduler settings."
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_dial_timeout"
+          },
+          {
+            "class": "quantity",
+            "value": "450 ms"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_idle_timeout"
+          },
+          {
+            "class": "quantity",
+            "value": "90 s"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_max_frames"
+          },
+          {
+            "class": "int",
+            "value": "4096"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f4",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_backlog"
+          },
+          {
+            "class": "int",
+            "value": "128"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f5",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_retry_limit"
+          },
+          {
+            "class": "int",
+            "value": "7"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f6",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_buffer_kib"
+          },
+          {
+            "class": "int",
+            "value": "640"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f7",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_heartbeat"
+          },
+          {
+            "class": "quantity",
+            "value": "15 s"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f8",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_shutdown_grace"
+          },
+          {
+            "class": "quantity",
+            "value": "30 s"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f9",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_peer_cap"
+          },
+          {
+            "class": "int",
+            "value": "48"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f10",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_route_cache"
+          },
+          {
+            "class": "int",
+            "value": "2000"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f11",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_drain_batch"
+          },
+          {
+            "class": "int",
+            "value": "256"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f12",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_window"
+          },
+          {
+            "class": "int",
+            "value": "64"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f13",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "relay_log_sample"
+          },
+          {
+            "class": "int",
+            "value": "25"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f14",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_tick"
+          },
+          {
+            "class": "quantity",
+            "value": "250 ms"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f15",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_queue_depth"
+          },
+          {
+            "class": "int",
+            "value": "512"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f16",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_lease"
+          },
+          {
+            "class": "quantity",
+            "value": "45 s"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f17",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_workers"
+          },
+          {
+            "class": "int",
+            "value": "12"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f18",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_retry_backoff"
+          },
+          {
+            "class": "quantity",
+            "value": "800 ms"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f19",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_stale_after"
+          },
+          {
+            "class": "quantity",
+            "value": "6 h"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f20",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_batch"
+          },
+          {
+            "class": "int",
+            "value": "96"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f21",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_jitter"
+          },
+          {
+            "class": "quantity",
+            "value": "120 ms"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f22",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_history"
+          },
+          {
+            "class": "quantity",
+            "value": "14 days"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f23",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_priority_levels"
+          },
+          {
+            "class": "int",
+            "value": "5"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f24",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_spill_mib"
+          },
+          {
+            "class": "int",
+            "value": "300"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f25",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_lock_ttl"
+          },
+          {
+            "class": "quantity",
+            "value": "20 s"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f26",
+        "kinds": [
+          "decision",
+          "constraint",
+          "fact"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sched_max_inflight"
+          },
+          {
+            "class": "int",
+            "value": "40"
+          }
+        ],
+        "must": "store"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  }
+}

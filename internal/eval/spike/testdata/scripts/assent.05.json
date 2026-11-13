@@ -1,0 +1,387 @@
+{
+  "scenario": {
+    "id": "assent.05",
+    "family": "assent",
+    "name": "typed answers to proposals about the log pipeline",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "5a110005-3333-4000-8000-000000000005",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-03-06T14:00:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let's go over the log pipeline today. Propose changes one at a time and I'll answer each."
+          },
+          {
+            "at": "2026-03-06T14:01:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I route the app logs through the brooklet shipper?",
+            "plants": [
+              "f1"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:02:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "maybe"
+          },
+          {
+            "at": "2026-03-06T14:03:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could keep older logs in the tundra-cold tier. Shall I?",
+            "plants": [
+              "f2"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:04:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "I'd rather we didn't change that."
+          },
+          {
+            "at": "2026-03-06T14:05:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I can add request ids with the threadmark middleware, and I can also sample debug logs with the sievelog filter. Shall I do both?",
+            "plants": [
+              "f3",
+              "f4"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:06:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "ok for the first part, but no to the other."
+          },
+          {
+            "at": "2026-03-06T14:07:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should errors go to the redflag-stream as well?",
+            "plants": [
+              "f5"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:08:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let me think about it."
+          },
+          {
+            "at": "2026-03-06T14:09:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I switch the log format to the plume-json layout?",
+            "plants": [
+              "f6"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:10:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Not this one, we tried something like it before and reverted it."
+          },
+          {
+            "at": "2026-03-06T14:11:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I run logcheck --rotate-dry before each rotation?",
+            "plants": [
+              "f7"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:12:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Yes, do that."
+          },
+          {
+            "at": "2026-03-06T14:13:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "How about an alert when the logs-lag gauge climbs?",
+            "plants": [
+              "f8"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:14:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "not sure yet, ask me again tomorrow"
+          },
+          {
+            "at": "2026-03-06T14:15:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should we drop the syslog bridge for the wrenrelay?",
+            "plants": [
+              "f9"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:16:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "no"
+          },
+          {
+            "at": "2026-03-06T14:17:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could index logs with the fernsearch backend. Shall I?",
+            "plants": [
+              "f10"
+            ]
+          },
+          {
+            "at": "2026-03-06T14:18:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Hmm, possibly. Park it for now."
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "brooklet"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "tundra-cold"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "threadmark"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f4",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sievelog"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f5",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "redflag-stream"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f6",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "plume-json"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f7",
+        "kinds": [
+          "procedure"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "--rotate-dry"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f8",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "logs-lag"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f9",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "wrenrelay"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f10",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "fernsearch"
+          }
+        ],
+        "must": "not_with_authority"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  },
+  "plants": [
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 3,
+      "mode": "hedge",
+      "proposal": 2,
+      "fact": "f1"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 5,
+      "mode": "refusal",
+      "proposal": 4,
+      "fact": "f2"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 7,
+      "mode": "assent",
+      "proposal": 6,
+      "fact": "f3"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 7,
+      "mode": "refusal",
+      "proposal": 6,
+      "fact": "f4"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 9,
+      "mode": "hedge",
+      "proposal": 8,
+      "fact": "f5"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 11,
+      "mode": "refusal",
+      "proposal": 10,
+      "fact": "f6"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 13,
+      "mode": "assent",
+      "proposal": 12,
+      "fact": "f7"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 15,
+      "mode": "hedge",
+      "proposal": 14,
+      "fact": "f8"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 17,
+      "mode": "refusal",
+      "proposal": 16,
+      "fact": "f9"
+    },
+    {
+      "session": "5a110005-3333-4000-8000-000000000005",
+      "seq": 19,
+      "mode": "hedge",
+      "proposal": 18,
+      "fact": "f10"
+    }
+  ]
+}

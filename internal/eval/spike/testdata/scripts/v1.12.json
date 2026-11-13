@@ -1,0 +1,99 @@
+{
+  "scenario": {
+    "id": "v1.12",
+    "family": "v1",
+    "name": "an assistant's suggestion that survives as a proposal",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "00001b1f-2222-4000-8000-000000000000",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-13T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Use flock for the session lock in internal/session/lock.go, SKUA-0.",
+            "plants": [
+              "f1"
+            ]
+          }
+        ]
+      },
+      {
+        "host": "claude-code",
+        "session": "00001b20-2222-4000-8000-000000000001",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-14T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "What else should we harden?"
+          },
+          {
+            "at": "2026-01-14T10:02:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Add a watchdog that restarts stuck update jobs, EGRET-5. And use flock for the session lock again.",
+            "plants": [
+              "f2"
+            ]
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "SKUA-0"
+          },
+          {
+            "class": "ident",
+            "value": "flock"
+          },
+          {
+            "class": "path",
+            "value": "internal/session/lock.go"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "EGRET-5"
+          },
+          {
+            "class": "phrase",
+            "value": "watchdog"
+          }
+        ],
+        "must": "store"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      },
+      {
+        "session": 1
+      }
+    ]
+  }
+}

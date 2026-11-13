@@ -1,0 +1,115 @@
+{
+  "scenario": {
+    "id": "v1.01",
+    "family": "v1",
+    "name": "an assistant's suggestion against the user's decision",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "claude-code",
+        "session": "00001b1f-2222-4000-8000-000000000000",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-01-13T10:01:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Use flock for the per-session lock, KESTREL-41.",
+            "plants": [
+              "f1"
+            ]
+          },
+          {
+            "at": "2026-01-13T10:02:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could switch the lock to a pid file instead, PIDGEON-7.",
+            "plants": [
+              "f2"
+            ]
+          },
+          {
+            "at": "2026-01-13T10:03:00+01:00",
+            "author": "eva",
+            "kind": "control",
+            "op": "off"
+          },
+          {
+            "at": "2026-01-13T10:04:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Between us, the budget is SHRIKE-99.",
+            "plants": [
+              "f3"
+            ]
+          },
+          {
+            "at": "2026-01-13T10:05:00+01:00",
+            "author": "eva",
+            "kind": "control",
+            "op": "on"
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "KESTREL-41"
+          },
+          {
+            "class": "ident",
+            "value": "flock"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "PIDGEON-7"
+          },
+          {
+            "class": "phrase",
+            "value": "pid file"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "fact",
+          "constraint"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "SHRIKE-99"
+          }
+        ],
+        "must": "not_store"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  }
+}

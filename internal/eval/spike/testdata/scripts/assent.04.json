@@ -1,0 +1,401 @@
+{
+  "scenario": {
+    "id": "assent.04",
+    "family": "assent",
+    "name": "typed answers to proposals about the deploy scripts",
+    "split": "tuning",
+    "seed": 0,
+    "sessions": [
+      {
+        "host": "codex",
+        "session": "5a110004-3333-4000-8000-000000000004",
+        "branch": "main",
+        "turns": [
+          {
+            "at": "2026-03-05T14:00:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Let's go over the deploy scripts today. Propose changes one at a time and I'll answer each."
+          },
+          {
+            "at": "2026-03-05T14:01:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I move the deploy scripts to the rookdeploy runner?",
+            "plants": [
+              "f1"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:02:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "no thanks, leave it as it is"
+          },
+          {
+            "at": "2026-03-05T14:03:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could add a canary stage named lantern-canary before production. Shall I?",
+            "plants": [
+              "f2"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:04:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Could be worth it later, not now."
+          },
+          {
+            "at": "2026-03-05T14:05:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I run deploy preflight --with-rollback-plan before every release?",
+            "plants": [
+              "f3"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:06:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "sure"
+          },
+          {
+            "at": "2026-03-05T14:07:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should failed deploys page the owl-rota schedule?",
+            "plants": [
+              "f4"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:08:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "I'll check with the others first."
+          },
+          {
+            "at": "2026-03-05T14:09:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I suggest we keep release bundles in the stonecellar store. OK?",
+            "plants": [
+              "f5"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:10:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Yes, I see why, but no: keep what we have."
+          },
+          {
+            "at": "2026-03-05T14:11:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "How about a freeze window called quiet-harbor on Fridays?",
+            "plants": [
+              "f6"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:12:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Perhaps. What would it cost us?"
+          },
+          {
+            "at": "2026-03-05T14:13:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should deploys verify signatures with the sigwarden tool?",
+            "plants": [
+              "f7"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:14:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "yeah, I get the idea, but let's not do that"
+          },
+          {
+            "at": "2026-03-05T14:15:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Shall I tag every deploy with the build's mintstamp?",
+            "plants": [
+              "f8"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:16:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "yes"
+          },
+          {
+            "at": "2026-03-05T14:17:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "I could roll back on its own with the undertow policy. Want that?",
+            "plants": [
+              "f9"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:18:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Good question; let's decide after the release."
+          },
+          {
+            "at": "2026-03-05T14:19:00+01:00",
+            "author": "agent",
+            "kind": "reply",
+            "text": "Should we retire the old ship-it.sh script?",
+            "plants": [
+              "f10"
+            ]
+          },
+          {
+            "at": "2026-03-05T14:20:00+01:00",
+            "author": "typed",
+            "kind": "prompt",
+            "text": "Please don't. That would break the nightly job."
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f1",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "rookdeploy"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f2",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "lantern-canary"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f3",
+        "kinds": [
+          "procedure"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "--with-rollback-plan"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f4",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "owl-rota"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f5",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "stonecellar"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f6",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "quiet-harbor"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f7",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "sigwarden"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f8",
+        "kinds": [
+          "decision"
+        ],
+        "authority": "user",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "mintstamp"
+          }
+        ],
+        "must": "store"
+      },
+      {
+        "id": "f9",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "undertow"
+          }
+        ],
+        "must": "not_with_authority"
+      },
+      {
+        "id": "f10",
+        "kinds": [
+          "open",
+          "decision"
+        ],
+        "authority": "other",
+        "slots": [
+          {
+            "class": "ident",
+            "value": "ship-it.sh"
+          }
+        ],
+        "must": "not_with_authority"
+      }
+    ],
+    "passes": [
+      {
+        "session": 0
+      }
+    ]
+  },
+  "plants": [
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 3,
+      "mode": "refusal",
+      "proposal": 2,
+      "fact": "f1"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 5,
+      "mode": "hedge",
+      "proposal": 4,
+      "fact": "f2"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 7,
+      "mode": "assent",
+      "proposal": 6,
+      "fact": "f3"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 9,
+      "mode": "hedge",
+      "proposal": 8,
+      "fact": "f4"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 11,
+      "mode": "refusal",
+      "proposal": 10,
+      "fact": "f5"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 13,
+      "mode": "hedge",
+      "proposal": 12,
+      "fact": "f6"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 15,
+      "mode": "refusal",
+      "proposal": 14,
+      "fact": "f7"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 17,
+      "mode": "assent",
+      "proposal": 16,
+      "fact": "f8"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 19,
+      "mode": "hedge",
+      "proposal": 18,
+      "fact": "f9"
+    },
+    {
+      "session": "5a110004-3333-4000-8000-000000000004",
+      "seq": 21,
+      "mode": "refusal",
+      "proposal": 20,
+      "fact": "f10"
+    }
+  ]
+}
