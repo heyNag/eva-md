@@ -22,8 +22,9 @@ const (
 // allowed are the eva-md packages a non-test file of the spike may import.
 var allowed = []string{module + "/internal/eval/scenario", module + "/internal/ledger/event", module + "/internal/host/adapter"}
 
-// importers lists the Go files of the tree that import the spike, test
-// files included, outside the spike's own folders and cmd/eva-eval, and
+// importers lists the Go files of the tree that import the spike or a
+// package under it, test files included, outside the spike's own folders
+// and cmd/eva-eval, and
 // how many files it read. Every file counts, whatever its build tags;
 // folders Go itself skips are skipped.
 func importers(fsys fs.FS) ([]string, int, error) {
@@ -54,7 +55,7 @@ func importers(fsys fs.FS) ([]string, int, error) {
 		}
 		read++
 		for _, spec := range f.Imports {
-			if ip, _ := strconv.Unquote(spec.Path.Value); ip == module+"/"+self {
+			if ip, _ := strconv.Unquote(spec.Path.Value); ip == module+"/"+self || strings.HasPrefix(ip, module+"/"+self+"/") {
 				out = append(out, p)
 			}
 		}
@@ -152,6 +153,7 @@ func TestTheImportChecksCanFail(t *testing.T) {
 		"internal/d/testdata/d.go":               {Data: imp(self)},
 		".claude/worktrees/w/x/x.go":             {Data: imp(self)},
 		"internal/e/e.go":                        {Data: imp(self + "/arm")},
+		"internal/f/f.go":                        {Data: imp("internal/eval/spikes")},
 		self + "/ok.go":                          {Data: []byte("package spike\n\nimport (\n\t\"strings\"\n\t_ \"" + allowed[0] + "\"\n\t_ \"" + allowed[2] + "\"\n)\n")},
 		self + "/bad.go":                         {Data: []byte("package spike\n\nimport (\n\t\"fmt\"\n\t_ \"" + module + "/internal/redact\"\n)\n")},
 		self + "/root.go":                        {Data: []byte("package spike\n\nimport _ \"" + module + "\"\n")},
@@ -166,7 +168,7 @@ func TestTheImportChecksCanFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := []string{"cmd/eva-eval/nested/not-the-command.go", "cmd/eva-md/main.go", "internal/a/a.go", "internal/b/b_test.go",
-		"internal/c/c.go", "internal/eval/spikes/s.go"}; !slices.Equal(got, want) {
+		"internal/c/c.go", "internal/e/e.go", "internal/eval/spikes/s.go"}; !slices.Equal(got, want) {
 		t.Errorf("the importers check found %v, want %v", got, want)
 	}
 	out, _, err := outsideImports(fsys, self)

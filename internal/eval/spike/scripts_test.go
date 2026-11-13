@@ -108,7 +108,8 @@ func plantsOf(t *testing.T, scripts []Script) []planted {
 }
 
 // TestAssentFamilyCounts: across the family, at least 24 refusals in 8
-// wordings, 24 hedges in 8 and 12 assents in 5; at least 4 one-word
+// wordings, 24 hedges in 8 and 12 assents in 5, the wordings counted among
+// the answers to a single proposal; at least 4 one-word
 // refusals and 4 that open with a word of assent; at least 4 replies that
 // propose two things, one taken and one refused. Every fact the agent's
 // replies plant is answered once, no refusal or hedge repeats its value,
@@ -124,7 +125,12 @@ func TestAssentFamilyCounts(t *testing.T) {
 		if wordings[p.Mode] == nil {
 			wordings[p.Mode] = map[string]bool{}
 		}
-		wordings[p.Mode][p.answer.Text] = true
+		// A wording counts only where it answers one proposal alone, so the
+		// answers to two proposals cannot make up for a list of wordings
+		// that has shrunk.
+		if !p.proposalPlantsTwo {
+			wordings[p.Mode][p.answer.Text] = true
+		}
 		w := words(p.answer.Text)
 		if p.Mode == ModeRefusal && len(w) == 1 {
 			oneWord++
