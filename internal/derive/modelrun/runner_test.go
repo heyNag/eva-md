@@ -1152,6 +1152,98 @@ func TestSettle(t *testing.T) {
 	}
 }
 
+// checkModels holds an outcome's models to section 4's invariants: sorted,
+// each once, each of a model name's shape, at most maxModelsSeen, and the
+// model that answered among them.
+func checkModels(t *testing.T, out Outcome) {
+	t.Helper()
+	if !slices.IsSorted(out.ModelsSeen) || len(slices.Compact(slices.Clone(out.ModelsSeen))) != len(out.ModelsSeen) || len(out.ModelsSeen) > maxModelsSeen {
+		t.Fatalf("models seen %q: not sorted, a name twice, or past %d", out.ModelsSeen, maxModelsSeen)
+	}
+	for _, m := range out.ModelsSeen {
+		if !modelName.MatchString(m) {
+			t.Fatalf("models seen %q hold %q", out.ModelsSeen, m)
+		}
+	}
+	if out.ModelAnswered != "" && !slices.Contains(out.ModelsSeen, out.ModelAnswered) {
+		t.Fatalf("the model that answered, %q, is not among those seen, %q", out.ModelAnswered, out.ModelsSeen)
+	}
+}
+
+// settle keeps each model once, however often a backend names it, and at
+// most maxModelsSeen of them: the one that answered, then the others in the
+// order first given.
+func TestSettleKeepsEachModelOnceAndBoundsThem(t *testing.T) {
+	base := Outcome{CLI: "/x/cli", Billing: BillingPlan}
+	t.Run("many repeats", func(t *testing.T) {
+		var names []string
+		for i := range 200000 {
+			names = append(names, fmt.Sprintf("model-%d", i%10))
+			if i%1000 == 0 {
+				names = append(names, "not a model", "--flag", "")
+			}
+		}
+		var tl tally
+		tl.attempts = 2
+		tl.add(result{models: names[:len(names)/2]})
+		res := result{class: ClassOK, answer: []byte(answer), models: names[len(names)/2:], answered: "model-3"}
+		tl.add(res)
+		out := settle(base, res, tl, nil)
+		checkModels(t, out)
+		want := []string{"model-0", "model-1", "model-2", "model-3", "model-4", "model-5", "model-6", "model-7", "model-8", "model-9"}
+		if !slices.Equal(out.ModelsSeen, want) || out.ModelAnswered != "model-3" {
+			t.Fatalf("models seen %d, answered %q, want %q and model-3", len(out.ModelsSeen), out.ModelAnswered, want)
+		}
+	})
+	t.Run("past the bound", func(t *testing.T) {
+		// 200 names, the highest first, each three times over, then the one
+		// that answered, last of all.
+		var names []string
+		for range 3 {
+			for i := 199; i >= 0; i-- {
+				names = append(names, fmt.Sprintf("model-%03d", i))
+			}
+		}
+		res := result{class: ClassOK, answer: []byte(answer), models: names, answered: "model-answered"}
+		var tl tally
+		tl.attempts = 1
+		tl.add(res)
+		out := settle(base, res, tl, nil)
+		checkModels(t, out)
+		var want []string
+		for i := 199; i > 199-(maxModelsSeen-1); i-- {
+			want = append(want, fmt.Sprintf("model-%03d", i))
+		}
+		want = append(want, "model-answered")
+		slices.Sort(want)
+		if !slices.Equal(out.ModelsSeen, want) || out.ModelAnswered != "model-answered" {
+			t.Fatalf("models seen %q, answered %q, want %q", out.ModelsSeen, out.ModelAnswered, want)
+		}
+	})
+	t.Run("names that are no model take no place", func(t *testing.T) {
+		names := []string{}
+		for i := range 2 * maxModelsSeen {
+			names = append(names, fmt.Sprintf("not a model %d", i), fmt.Sprintf("-flag-%d", i))
+		}
+		names = append(names, "model-a", "model-b", "model-a")
+		res := result{class: ClassHost, models: names, answered: "not a model"}
+		var tl tally
+		tl.attempts = 1
+		tl.add(res)
+		out := settle(base, res, tl, nil)
+		checkModels(t, out)
+		if !slices.Equal(out.ModelsSeen, []string{"model-a", "model-b"}) || out.ModelAnswered != "" {
+			t.Fatalf("models seen %q, answered %q", out.ModelsSeen, out.ModelAnswered)
+		}
+	})
+	t.Run("none named", func(t *testing.T) {
+		out := settle(base, result{class: ClassOK, answer: []byte(answer)}, tally{attempts: 1}, nil)
+		if out.ModelsSeen != nil || out.ModelAnswered != "" {
+			t.Fatalf("no model named: %q %q", out.ModelsSeen, out.ModelAnswered)
+		}
+	})
+}
+
 // puppetDoing is the puppet with attempt in place of its own.
 func puppetDoing(t *testing.T, attempt func(ctx context.Context, a *attempt) (result, error)) *runner {
 	t.Helper()

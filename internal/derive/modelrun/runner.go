@@ -126,8 +126,9 @@ type Outcome struct {
 	Class  Class
 	Answer []byte // one JSON object; nil unless Class is ok
 	// ModelAsked is the call's Model. ModelAnswered is the model the host
-	// says answered, and ModelsSeen every model it named, sorted; neither is
-	// ever filled from ModelAsked.
+	// says answered, and ModelsSeen every model it named, sorted, each once,
+	// at most maxModelsSeen of them and ModelAnswered always among them;
+	// neither is ever filled from ModelAsked.
 	ModelAsked    string
 	ModelAnswered string
 	ModelsSeen    []string
@@ -445,15 +446,10 @@ func settle(o Outcome, res result, t tally, allowed map[Signal]bool) Outcome {
 	if o.Class == ClassCLIMissing {
 		o.CLI, o.CLIVersion = "", ""
 	}
-	for _, m := range t.models {
-		if modelName.MatchString(m) && !slices.Contains(o.ModelsSeen, m) {
-			o.ModelsSeen = append(o.ModelsSeen, m)
-		}
-	}
-	slices.Sort(o.ModelsSeen)
 	if modelName.MatchString(res.answered) {
 		o.ModelAnswered = res.answered
 	}
+	o.ModelsSeen = seenModels(o.ModelAnswered, t.models)
 	for _, s := range t.signals {
 		if allowed[s] && !slices.Contains(o.Signals, s) {
 			o.Signals = append(o.Signals, s)
@@ -463,6 +459,41 @@ func settle(o Outcome, res result, t tally, allowed map[Signal]bool) Outcome {
 		o.Signals = append(o.Signals, SignalModelUnreported)
 	}
 	return o
+}
+
+// maxModelsSeen is the most models an Outcome keeps in ModelsSeen, whatever
+// a backend gave: a call's backends are not trusted to bound their own.
+const maxModelsSeen = 64
+
+// seenModels gives the models named, each once, of a model name's shape, at
+// most maxModelsSeen of them, sorted: answered, when it is one, then the
+// others in the order first given, so the model that answered is always
+// among them. A set of the names already checked, kept or not, makes a
+// repeat's check one lookup, so the work grows with the names given alone,
+// and it stops at the bound.
+func seenModels(answered string, named []string) []string {
+	var seen []string
+	checked := map[string]bool{}
+	keep := func(m string) {
+		if checked[m] {
+			return
+		}
+		checked[m] = true
+		if modelName.MatchString(m) {
+			seen = append(seen, m)
+		}
+	}
+	if answered != "" {
+		keep(answered)
+	}
+	for _, m := range named {
+		if len(seen) >= maxModelsSeen {
+			break
+		}
+		keep(m)
+	}
+	slices.Sort(seen)
+	return seen
 }
 
 // A model name never starts with a dash, so it can't be read as a flag.
