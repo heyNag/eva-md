@@ -62,6 +62,7 @@ func TestCheckFindsEachClauseBroken(t *testing.T) {
 		clause ledgertest.Clause
 		key    ledger.Key
 		seq    int64
+		says   string // what the fault says, where cases of one clause differ only in it
 	}
 	// onA changes keyA's n-th read and every later one, from the first
 	// when n is 1.
@@ -128,28 +129,28 @@ func TestCheckFindsEachClauseBroken(t *testing.T) {
 		"two events that are not copies with one key": {read: onA(1, func(_ *event.Session, ev []event.Event) []event.Event { ev[2].Copy = 0; return ev }),
 			clause: ledgertest.ClauseCopies, key: keyA, seq: 3},
 		"a copy of a withheld event": {read: onA(1, func(_ *event.Session, ev []event.Event) []event.Event { return append(ev, offRecordCopy()) }),
-			clause: ledgertest.ClauseCopies, key: keyA, seq: 7},
+			clause: ledgertest.ClauseCopies, key: keyA, seq: 7, says: "holds nothing but its place"},
 		"an event keyed by another place": {read: onA(1, func(_ *event.Session, ev []event.Event) []event.Event { return append(ev, otherPlace()) }),
-			clause: ledgertest.ClauseCopies, key: keyA, seq: 7},
+			clause: ledgertest.ClauseCopies, key: keyA, seq: 7, says: "another place"},
 
 		"a second listing without a session": {list: func(n int, keys []ledger.Key) []ledger.Key {
 			if n >= 2 {
 				return keys[:1]
 			}
 			return keys
-		}, clause: ledgertest.ClauseResolve, key: keyB},
+		}, clause: ledgertest.ClauseResolve, key: keyB, says: "does not list it"},
 		"a second listing with another session": {list: func(n int, keys []ledger.Key) []ledger.Key {
 			if n >= 2 {
 				return append(keys, keyC)
 			}
 			return keys
-		}, clause: ledgertest.ClauseResolve, key: keyC},
+		}, clause: ledgertest.ClauseResolve, key: keyC, says: "the first does not"},
 		"a second listing with a session twice": {list: func(n int, keys []ledger.Key) []ledger.Key {
 			if n >= 2 {
 				return append(keys, keyA)
 			}
 			return keys
-		}, clause: ledgertest.ClauseResolve, key: keyA},
+		}, clause: ledgertest.ClauseResolve, key: keyA, says: "twice"},
 		"a second read that fails": {read: func(n int, k ledger.Key, _ *event.Session, events []event.Event) ([]event.Event, error) {
 			if k == keyA && n == 2 {
 				return nil, madeUp
@@ -201,6 +202,9 @@ func TestCheckFindsEachClauseBroken(t *testing.T) {
 		msg := err.Error()
 		if !strings.Contains(msg, string(c.clause)) || !strings.Contains(msg, c.key.Session) || c.seq != 0 && !strings.Contains(msg, "#"+strconv.FormatInt(c.seq, 10)) {
 			t.Errorf("%s: %q does not name the clause, the session and the seq", name, msg)
+		}
+		if !strings.Contains(msg, c.says) {
+			t.Errorf("%s: %q does not say %q", name, msg, c.says)
 		}
 	}
 
@@ -293,7 +297,7 @@ func (r renamed) Read(ctx context.Context, k ledger.Key) (event.Session, []event
 func TestCheckFindsAnEventNoReferenceNames(t *testing.T) {
 	err := ledgertest.Check(context.Background(), renamed{mustNew(t, sessions()...)})
 	var f *ledgertest.Fault
-	if !errors.As(err, &f) || f.Clause != ledgertest.ClauseResolve || f.Key != unnamable || f.Seq != 1 {
+	if !errors.As(err, &f) || f.Clause != ledgertest.ClauseResolve || f.Key != unnamable || f.Seq != 1 || !strings.Contains(err.Error(), "no reference names it") {
 		t.Fatalf("%v", err)
 	}
 }
