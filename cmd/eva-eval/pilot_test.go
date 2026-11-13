@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,10 @@ func init() { pilotCheckLimit = time.Hour }
 // pilot command that runs go. Go's build cache is the one exception
 // (AGENTS.md): it is found first, with go env as go test itself finds it,
 // and kept through GOCACHE, and GOENV=off keeps go from reading a
-// settings file of the person running the tests.
+// settings file of the person running the tests. Go's telemetry is off in
+// the home, as in guardGo's: a go command otherwise leaves a process behind
+// that writes into the home after the command ends, while the test removes
+// it (CI's macOS job failed on that once).
 func pilotHome(t *testing.T) {
 	t.Helper()
 	out, err := exec.Command("go", "env", "GOCACHE").Output()
@@ -31,6 +35,11 @@ func pilotHome(t *testing.T) {
 	}
 	isolate(t)
 	home := os.Getenv("HOME")
+	config := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		config = filepath.Join(home, "Library", "Application Support")
+	}
+	write(t, filepath.Join(config, "go", "telemetry", "mode"), "off\n")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 	t.Setenv("GOENV", "off")
