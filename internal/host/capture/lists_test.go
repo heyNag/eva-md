@@ -4,12 +4,16 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/heyNag/eva-md/internal/ledger/event"
 )
 
 // root is the repository's root, from this package's folder.
@@ -122,6 +126,77 @@ func TestEveryEntryIsInTheV1ListItNames(t *testing.T) {
 		if e.Author == "program" && !slices.Contains(literals(t, hookGo, []string{"headless"}), e.Value) {
 			t.Errorf("the program's entrypoint %q is not on v1's list", e.Value)
 		}
+	}
+}
+
+// wantAuthors is the author of every entry of the one list, written apart
+// from lists.go: a program's are messages from another session, teammate
+// messages, automation and the SDKs' entrypoints (ledger 3.6); a person's
+// typing only the interactive entrypoints.
+var wantAuthors = map[string]event.Author{
+	// Sources.
+	"scheduled": event.AuthorHost, "scheduled_task": event.AuthorHost, "scheduler": event.AuthorHost,
+	"cron": event.AuthorHost, "loop": event.AuthorHost, "background": event.AuthorHost, "system": event.AuthorHost,
+	"subagent": event.AuthorSubagent, "agent": event.AuthorAgent,
+	"other_session": event.AuthorProgram, "session_message": event.AuthorProgram, "automation": event.AuthorProgram,
+	// Prefixes.
+	"<teammate-message": event.AuthorProgram, "[message from ": event.AuthorProgram,
+	"<task-notification>": event.AuthorHost, "<system-reminder>": event.AuthorHost,
+	"<local-command-stdout>": event.AuthorHost, "<local-command-stderr>": event.AuthorHost,
+	"<command-name>": event.AuthorHost, "<command-message>": event.AuthorHost, "<command-args>": event.AuthorHost,
+	"## memory writing agent": event.AuthorHost, "/loop ": event.AuthorHost,
+	"# agents.md instructions": event.AuthorHost, "<environment_context>": event.AuthorHost,
+	"<permissions instructions>": event.AuthorHost, "/clear": event.AuthorHost, "/compact": event.AuthorHost,
+	"<bash-input>": event.AuthorHost, "<bash-stdout>": event.AuthorHost, "<bash-stderr>": event.AuthorHost,
+	"[request interrupted by user": event.AuthorHost,
+	// Entrypoints.
+	"sdk-cli": event.AuthorProgram, "sdk-ts": event.AuthorProgram, "sdk-py": event.AuthorProgram,
+	"cli": event.AuthorTyped, "claude-desktop": event.AuthorTyped, "claude-vscode": event.AuthorTyped,
+}
+
+// Every entry gives the author written above, and SPEC.md's table of the
+// one list gives each value it names the same author, so an author changed
+// on the list alone is noticed.
+func TestEveryEntryGivesItsAuthor(t *testing.T) {
+	kinds := map[string][]Entry{"source": sources, "prefix": prefixes, "entrypoint": entrypoints}
+	n := 0
+	for kind, list := range kinds {
+		for _, e := range list {
+			n++
+			want, ok := wantAuthors[e.Value]
+			if !ok {
+				t.Errorf("the %s %q has no author written in the test", kind, e.Value)
+			} else if e.Author != want {
+				t.Errorf("the %s %q gives %s, want %s", kind, e.Value, e.Author, want)
+			}
+		}
+	}
+	if n != len(wantAuthors) {
+		t.Errorf("the lists hold %d entries, the test %d", n, len(wantAuthors))
+	}
+	data, err := os.ReadFile("SPEC.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, table, _ := strings.Cut(string(data), "### The one list")
+	table, _, _ = strings.Cut(table, "\n## ")
+	named := 0
+	for _, row := range strings.Split(table, "\n") {
+		cells := strings.Split(row, "|")
+		if len(cells) < 3 || !strings.Contains(cells[1], "`") {
+			continue
+		}
+		author := event.Author(strings.Trim(strings.TrimSpace(cells[2]), "`"))
+		values := regexp.MustCompile("`([^`]+)`").FindAllStringSubmatch(cells[1], -1)
+		for _, v := range values {
+			named++
+			if want, ok := wantAuthors[v[1]]; !ok || want != author {
+				t.Errorf("SPEC.md gives %q the author %s; the test %s", v[1], author, want)
+			}
+		}
+	}
+	if named < 20 {
+		t.Fatalf("SPEC.md's table of the one list names %d values", named)
 	}
 }
 
