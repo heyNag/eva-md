@@ -62,10 +62,11 @@ func Label(a event.Author) string {
 	return string(a)
 }
 
-// handlePattern is a handle the store mints, and words that may stand as a
-// shown item's kind or tag.
+// handlePattern is a handle a shown item may have: it starts with a letter,
+// so that "[12]" or "[4.1]" can only be an entry or a segment. wordPattern
+// is a word that may stand as a shown item's kind or tag.
 var (
-	handlePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
+	handlePattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,31}$`)
 	wordPattern   = regexp.MustCompile(`^[a-z][a-z_.]{0,31}$`)
 )
 
@@ -173,13 +174,16 @@ func order(shown []Shown) ([]Shown, error) {
 }
 
 // writeText writes head and text's first line on one line, and each later
-// line indented.
+// line indented. An empty first line leaves the head alone on its line,
+// with no space after it.
 func writeText(b *bytes.Buffer, head string, text []string) {
 	b.WriteString(head)
 	for i, l := range text {
 		switch {
 		case i == 0:
-			b.WriteString(" " + l)
+			if l != "" {
+				b.WriteString(" " + l)
+			}
 		case l == "":
 			b.WriteString("\n")
 		default:
@@ -221,11 +225,17 @@ const sentenceEnds = ".!?…。！？"
 
 // segments splits text's lines into segments: at each line break, and
 // after a sentence-ending mark that ends its line or precedes white space.
-// Each segment is trimmed; an empty one is dropped.
+// Each segment is trimmed; an empty one is dropped. A segment cut from the
+// middle of a line that starts with a bracket is marked, as lines marks a
+// line, since it is shown on a line of its own; a line's first segment
+// carries the line's own mark.
 func segments(text []string) []string {
 	var out []string
-	add := func(s string) {
+	add := func(s string, midLine bool) {
 		if s = strings.TrimSpace(s); s != "" {
+			if midLine && strings.HasPrefix(s, "[") {
+				s = Mark + s
+			}
 			out = append(out, s)
 		}
 	}
@@ -234,11 +244,11 @@ func segments(text []string) []string {
 		start := 0
 		for i, r := range runes {
 			if strings.ContainsRune(sentenceEnds, r) && (i+1 == len(runes) || unicode.IsSpace(runes[i+1])) {
-				add(string(runes[start : i+1]))
+				add(string(runes[start:i+1]), start > 0)
 				start = i + 1
 			}
 		}
-		add(string(runes[start:]))
+		add(string(runes[start:]), start > 0)
 	}
 	return out
 }
