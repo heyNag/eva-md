@@ -15,7 +15,10 @@
 // --record writes each pass's answer to a recording as the run goes (see
 // record.go), --replay answers each pass from one, calling nothing, and
 // --pages writes each script's page after its last pass, which the
-// evaluation's fidelity command scores.
+// evaluation's fidelity command scores. --trace writes what each pass cost,
+// the versions and what the host printed into a folder as the run goes (see
+// trace.go), and --timeout-refused counts a pass that timed out as a
+// refused answer and goes on, where a timeout otherwise stops the run.
 //
 //	go run ./cmd/live-accuracy --host claude-code --spend-model-quota
 package main
@@ -69,6 +72,8 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 	record := f.String("record", "", "write each pass's answer to this file, which must not exist yet, as the run goes")
 	replay := f.String("replay", "", "answer each pass from this recording, made with the same --host and --model; calls nothing and needs no --spend-model-quota; without --effort, the report says the effort is as recorded")
 	pages := f.String("pages", "", "write each script's page after its last pass into this folder, new or empty, as v1.NN.md")
+	trace := f.String("trace", "", "write the run's trace into this folder, new or empty, as the run goes: each pass's cost, the versions, and what the host printed")
+	timeoutRefused := f.Bool("timeout-refused", false, "count a pass that timed out as a refused answer and go on, where a timeout otherwise stops the run; a replay counts a recorded timeout the same way")
 	if err := f.Parse(args); err != nil {
 		return 2
 	}
@@ -86,6 +91,10 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 		return usage(errOut, "--record and --replay can't be used together")
 	case *replay != "" && (*cli != "" || *ignore):
 		return usage(errOut, "--replay runs no CLI, so it takes no --cli or --codex-ignore-user-config")
+	case *replay != "" && *trace != "":
+		return usage(errOut, "--replay runs no CLI, so it has no trace to write")
+	case *trace != "" && (*pages != "" && overlaps(*trace, *pages) || *record != "" && overlaps(*trace, *record)):
+		return usage(errOut, "--trace must name a folder of its own, apart from --pages and --record")
 	}
 	// The effort, the model and the CLI as the runner would refuse them, or
 	// pass over a CLI for the one on PATH, before anything is made or called.
@@ -119,6 +128,11 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 			return usage(errOut, err.Error())
 		}
 	}
+	if *trace != "" {
+		if err := checkTrace(*trace); err != nil {
+			return usage(errOut, err.Error())
+		}
+	}
 	// The recording first, so a folder it cannot be made in leaves nothing
 	// made and nothing called.
 	var rec *recorder
@@ -141,6 +155,25 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 			return 1
 		}
 	}
+	// The trace ends with end.json however the run ends from here: stopped
+	// unless the run is judged.
+	var tr *tracer
+	outcome, stoppedBy := outcomeStopped, stoppedError
+	if *trace != "" {
+		var err error
+		tr, err = createTrace(*trace, traceRun{V: traceVersion, Host: *host, Effort: *effort, Model: *model, CLIVersion: cliVersion(ctx, *host, *cli),
+			EvaMD: buildOf(), TimeoutRefused: *timeoutRefused, Day: time.Now().UTC().Format(time.DateOnly)})
+		if err != nil {
+			fmt.Fprintf(errOut, "live-accuracy: could not make the trace: %v\n", err)
+			return 1
+		}
+		defer func() {
+			if err := tr.end(outcome, stoppedBy); err != nil {
+				fmt.Fprintf(errOut, "live-accuracy: could not end the trace: %v\n", err)
+				code = 1
+			}
+		}()
+	}
 	efforts := map[string]int{}
 	var ask live.Ask
 	if answers != nil {
@@ -158,11 +191,17 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 				code = 1
 			}
 		}()
-		c := caller{host: *host, effort: *effort, model: *model, cli: *cli, ignore: *ignore, home: home, runner: newRunner(*host), log: errOut, efforts: efforts}
+		c := caller{host: *host, effort: *effort, model: *model, cli: *cli, ignore: *ignore, home: home, runner: newRunner(*host), log: errOut, efforts: efforts,
+			trace: tr, index: index, timeoutRefused: *timeoutRefused}
 		ask = c.ask
 	}
 	if rec != nil {
 		ask = recorded(ask, rec, index)
+	}
+	// After the recording, which keeps a timeout as the runner gave it.
+	timeouts := 0
+	if *timeoutRefused {
+		ask = timingOut(ask, &timeouts)
 	}
 	// A page that cannot be written stops the run before its next pass, so
 	// a live run spends no call on pages it cannot keep.
@@ -189,13 +228,23 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 	})
 	if err != nil {
 		var stopped *live.Stopped
-		if !errors.As(err, &stopped) {
+		switch {
+		case errors.As(err, &stopped):
+			stoppedBy = stopped.Reason
+		case ctx.Err() != nil:
+			stoppedBy = stoppedInterrupted
+		}
+		if stopped == nil {
 			err = fmt.Errorf("the run stopped: %w", err)
 		}
 		fmt.Fprintf(errOut, "live-accuracy: %v\n", err)
 		return 1
 	}
-	if code = summary(out, *host, res, efforts); pageErr != nil {
+	outcome, stoppedBy = outcomeMissed, ""
+	if res.Tally.Meets() {
+		outcome = outcomeMet
+	}
+	if code = report(out, *host, res, efforts, timeouts, *timeoutRefused); pageErr != nil {
 		// The last script's page, which no pass came after.
 		fmt.Fprintf(errOut, "live-accuracy: %v\n", pageErr)
 		code = 1
@@ -222,9 +271,23 @@ func keepingPages(ask live.Ask, pageErr *error) live.Ask {
 }
 
 func usage(w io.Writer, msg string) int {
-	fmt.Fprintln(w, "live-accuracy: "+msg+"; usage: live-accuracy --host claude-code|codex --spend-model-quota [--effort level] [--model name] [--cli path] [--codex-ignore-user-config] [--record file] [--pages dir], "+
-		"or live-accuracy --host claude-code|codex --replay file [--effort level] [--model name] [--pages dir]")
+	fmt.Fprintln(w, "live-accuracy: "+msg+"; usage: live-accuracy --host claude-code|codex --spend-model-quota [--effort level] [--model name] [--cli path] [--codex-ignore-user-config] [--record file] [--pages dir] [--trace dir] [--timeout-refused], "+
+		"or live-accuracy --host claude-code|codex --replay file [--effort level] [--model name] [--pages dir] [--timeout-refused]")
 	return 2
+}
+
+// timingOut is ask, which gives a pass that timed out as one whose answer
+// the runner refused as invalid, so the run counts it refused and goes on,
+// as it does for an invalid answer, and counts it in *n.
+func timingOut(ask live.Ask, n *int) live.Ask {
+	return func(ctx context.Context, s *accuracy.Script, pass int, b update.Batch, page threadpage.Page) (update.Result, error) {
+		res, err := ask(ctx, s, pass, b, page)
+		if err == nil && res.Reason == update.ReasonTimeout {
+			*n++
+			res.Reason = update.ReasonInvalidOutput
+		}
+		return res, err
+	}
 }
 
 // recorded is ask, writing each answer it gives to rec, script by its
@@ -275,6 +338,9 @@ type caller struct {
 	runner                   update.Runner
 	log                      io.Writer
 	efforts                  map[string]int // the answers at each effort the host used, "" for none
+	trace                    *tracer        // nil without --trace
+	index                    map[*accuracy.Script]int
+	timeoutRefused           bool // --timeout-refused, which the trace's refused follows
 }
 
 // ask runs the host's update command on the pass's batch, with the
@@ -282,7 +348,9 @@ type caller struct {
 // run's home, as the update job's runModel does. A run on the host's
 // default model in place of the one asked for, which the host rejected,
 // stops the run, whether its answer came, was refused or failed: its
-// answers would be judged as the other model's.
+// answers would be judged as the other model's. With a trace, what the CLI
+// printed on each attempt and the call's line are written to it, before a
+// run that stops here stops.
 func (c caller) ask(ctx context.Context, s *accuracy.Script, n int, b update.Batch, page threadpage.Page) (update.Result, error) {
 	dir, err := os.MkdirTemp(c.home, "run-")
 	if err != nil {
@@ -290,13 +358,33 @@ func (c caller) ask(ctx context.Context, s *accuracy.Script, n int, b update.Bat
 	}
 	defer os.RemoveAll(dir)
 	fmt.Fprintf(c.log, "live-accuracy: %s, pass %d of %d: asking %s\n", s.Name, n, len(s.Passes), c.host)
+	req := update.Request{Host: c.host, Model: c.model, Effort: c.effort, Rules: update.Rules, Input: b.Input,
+		Schema: update.Schema(page), RunDir: dir, CLI: c.cli, IgnoreUserConfig: c.ignore}
+	attempt := 0
+	var tapErr error
+	if c.trace != nil {
+		req.Tap = func(stdout, stderr []byte) {
+			attempt++
+			if tapErr == nil {
+				tapErr = c.trace.raw(c.index[s], n, attempt, stdout, stderr)
+			}
+		}
+	}
 	start := time.Now()
-	res, err := c.runner.Run(ctx, update.Request{Host: c.host, Model: c.model, Effort: c.effort, Rules: update.Rules, Input: b.Input,
-		Schema: update.Schema(page), RunDir: dir, CLI: c.cli, IgnoreUserConfig: c.ignore})
+	res, err := c.runner.Run(ctx, req)
+	if err == nil && tapErr != nil {
+		err = fmt.Errorf("could not write the trace: %w", tapErr)
+	}
 	if err != nil {
 		return res, err
 	}
-	took := time.Since(start).Seconds()
+	elapsed := time.Since(start)
+	if c.trace != nil {
+		if err := c.trace.pass(passLine(c.index[s], n, res, elapsed, refusedWhy(res, b, page, c.timeoutRefused))); err != nil {
+			return res, fmt.Errorf("could not write the trace: %w", err)
+		}
+	}
+	took := elapsed.Seconds()
 	model, fellBack := strings.CutPrefix(res.ModelNote, update.NoteFallback)
 	if res.Reason != "" {
 		fmt.Fprintf(c.log, "live-accuracy: %s after %.1f s\n", res.Reason, took)
@@ -343,6 +431,12 @@ func history(out io.Writer, h live.History) {
 // its answers came at each effort the host used, most first, and returns
 // the exit code: 0 when the run meets the target.
 func summary(out io.Writer, host string, res live.Result, efforts map[string]int) int {
+	return report(out, host, res, efforts, 0, false)
+}
+
+// report is summary, which with --timeout-refused also says how many of
+// the refused answers timed out.
+func report(out io.Writer, host string, res live.Result, efforts map[string]int, timeouts int, timeoutRefused bool) int {
 	t := res.Tally
 	fmt.Fprintf(out, "\nOn %s, against the target in docs/design.md: every enforceable obligation met, no speaker or date error, and at most %d content obligations missed.\n", host, accuracy.MaxContentMissed)
 	fmt.Fprintf(out, "  enforceable obligations missed: %d\n", len(t.Enforceable))
@@ -350,6 +444,9 @@ func summary(out io.Writer, host string, res live.Result, efforts map[string]int
 	fmt.Fprintf(out, "  date errors: %d\n", len(t.Date))
 	fmt.Fprintf(out, "  content obligations missed: %d\n", len(t.Content))
 	fmt.Fprintf(out, "  answers refused: %d of %d\n", res.Refused, res.Passes)
+	if timeoutRefused {
+		fmt.Fprintf(out, "  answers timed out: %d\n", timeouts)
+	}
 	used := slices.Collect(maps.Keys(efforts))
 	slices.SortFunc(used, func(a, b string) int { return cmp.Or(efforts[b]-efforts[a], strings.Compare(a, b)) })
 	for _, e := range used {
