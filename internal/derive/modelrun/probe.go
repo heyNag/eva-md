@@ -69,9 +69,14 @@ func (r *runner) Probe(ctx context.Context) (Caps, error) {
 }
 
 // env is the options' Env with a LookPath that gives the CLI install
-// recorded while it is still an executable file of the CLI's name.
+// recorded while it is still an executable file of the CLI's name, and,
+// when it has no Run, the sealed run, so the CLI is never started with
+// more of the environment than a call gets.
 func (r *runner) env() adapter.Env {
 	env := r.opts.Env
+	if env.Run == nil {
+		env.Run = r.sealedRun
+	}
 	look := env.LookPath
 	if look == nil {
 		look = exec.LookPath
@@ -161,18 +166,13 @@ func (r *runner) fill(ctx context.Context, cli string, key stepKey, e *stepEntry
 }
 
 // step runs the backend's probe step under its own limit, through the
-// options' Env.Run when set, else as a sealed run in a private folder.
+// options' Env.Run when set, else as a sealed run.
 func (r *runner) step(ctx context.Context, cli string) ([]string, bool) {
 	ctx, cancel := probeStepTimer(ctx, probeStepTimeout)
 	defer cancel()
+	envRun := r.env().Run
 	run := func(ctx context.Context, args ...string) ([]byte, error) {
-		var out []byte
-		var err error
-		if r.opts.Env.Run != nil {
-			out, err = r.opts.Env.Run(ctx, cli, args...)
-		} else {
-			out, err = r.sealedStep(ctx, cli, args)
-		}
+		out, err := envRun(ctx, cli, args...)
 		if err != nil || len(out) > maxList {
 			return nil, errStep
 		}
@@ -181,11 +181,14 @@ func (r *runner) step(ctx context.Context, cli string) ([]string, bool) {
 	return r.b.probe(ctx, run)
 }
 
-var errStep = errors.New("modelrun: the probe step failed")
+var errStep = errors.New("modelrun: the probe command failed")
 
-// sealedStep runs the CLI with args as a run is run, in a private folder of
-// its own with nothing on stdin, under ctx's limit.
-func (r *runner) sealedStep(ctx context.Context, cli string, args []string) ([]byte, error) {
+// sealedRun runs the CLI with args as a call's run is run, but in a private
+// folder of its own, with nothing on stdin and under ctx's limit, and gives
+// what it printed on stdout, at most maxList bytes. It is what probes run
+// through when the options' Env has no Run: the adapter's --version and the
+// backend's probe step.
+func (r *runner) sealedRun(ctx context.Context, cli string, args ...string) ([]byte, error) {
 	dir, err := os.MkdirTemp("", "eva-md-probe-")
 	if err != nil {
 		return nil, errStep

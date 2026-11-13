@@ -194,9 +194,9 @@ func TestTheProbeStepEndsAtItsOwnLimit(t *testing.T) {
 }
 
 // Without Env.Run the probe step is a sealed run: the cleared environment,
-// in a private folder that is gone afterwards. The version is then read by
-// the adapter's own runner, under its own limit, so this test doesn't look
-// at it.
+// in a private folder that is gone afterwards. The version is read that way
+// too, but under the adapter's own limit, which can't be raised here, so
+// this test doesn't look at it.
 func TestTheProbeStepWithNoEnvRunIsSealed(t *testing.T) {
 	isolate(t)
 	dump := puppetHost(t)
