@@ -1,0 +1,334 @@
+package drive
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/heyNag/eva-md/internal/eval/continuation/drive/fakehost"
+	"github.com/heyNag/eva-md/internal/host/adapter"
+)
+
+// emptyWork fails unless the rig's work folder holds nothing: every
+// trial's folder, and the run's, is gone.
+func emptyWork(t *testing.T, r *rig) {
+	t.Helper()
+	if got := list(t, r.opts.Work); len(got) != 0 {
+		t.Fatalf("the work folder holds %v", got)
+	}
+}
+
+// stoppedBy fails unless the run stopped with the code.
+func stoppedBy(t *testing.T, err error, code string) {
+	t.Helper()
+	var stopped *Stopped
+	if !errors.As(err, &stopped) || stopped.Code != code {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// A hidden file the chat puts within its reach, at its path in the
+// workspace (its bytes or others), in the home under another name, in the
+// temporary folder, or between two megabytes of other bytes, gives
+// hidden_found and stops the run: no later prompt, no later trial, no row,
+// and no trial's folder left. Found after the first call, or after the
+// second, which a graded round's prompt started.
+func TestAHiddenFileWithinReachStopsTheRun(t *testing.T) {
+	for _, h := range adapter.All() {
+		for _, how := range []string{"path", "at-path", "home", "tmp", "padded"} {
+			for _, from := range []int{0, 2} {
+				t.Run(string(h.ID)+"/"+how+"/round "+string(rune('0'+max(from, 1))), func(t *testing.T) {
+					r := newRig(t, 1)
+					r.opts.Host, r.opts.Trials = string(h.ID), 2
+					r.script.Steal, r.script.From = how, from
+					s, out, err := r.run()
+					stoppedBy(t, err, CodeHiddenFound)
+					if s.Judged != 0 || s.Unjudged[CodeHiddenFound] != 1 || len(s.Unjudged) != 1 || s.NotRun != 1 ||
+						!strings.Contains(out, "trial hidden-banner.t1: unjudged, hidden_found\n") {
+						t.Fatalf("run: %+v\n%s", s, out)
+					}
+					calls := r.calls()
+					continues := 0
+					if from == 2 {
+						continues = 1
+					}
+					if countMode(calls, "start") != 1 || countMode(calls, "continue") != continues {
+						t.Fatalf("calls: %+v", calls)
+					}
+					if rows := r.rows(); rows != nil {
+						t.Fatalf("rows: %+v", rows)
+					}
+					emptyWork(t, r)
+					records, err := LoadRuns(r.opts.Out)
+					if err != nil || len(records) != 1 || records[0].Ended != CodeHiddenFound {
+						t.Fatalf("records %+v: %v", records, err)
+					}
+				})
+			}
+		}
+	}
+}
+
+// Code a hidden test runs, which copies the hidden file out of the grading
+// copy into the trial's home, is found before the prompt that would follow
+// the grading: one call, and the run stops.
+func TestAHiddenTestThatCopiesItselfIsFound(t *testing.T) {
+	r := newRig(t, 1)
+	r.opts.Trials = 2
+	// The test runs in <trial>/grade/r<n>/workspace.
+	colour := filepath.Join(r.script.Task, "hidden", fakehost.FixtureRepo, "checks", "colour")
+	body := "#!/bin/sh\ncp checks/colour ../../../home/made-up-copy\ngrep -q " + fakehost.FixtureColor + " answer.txt\n"
+	if err := os.WriteFile(colour, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s, out, err := r.run()
+	stoppedBy(t, err, CodeHiddenFound)
+	if s.NotRun != 1 || s.Unjudged[CodeHiddenFound] != 1 {
+		t.Fatalf("run: %+v\n%s", s, out)
+	}
+	if calls := r.calls(); countMode(calls, "start") != 1 || countMode(calls, "continue") != 0 {
+		t.Fatalf("calls: %+v", calls)
+	}
+	emptyWork(t, r)
+}
+
+// A start that holds a hidden file's bytes, from the repository or the
+// task's start overlay, is the task's fault: the run stops before any call,
+// the version's included.
+func TestAStartHoldingAHiddenFileStopsTheRun(t *testing.T) {
+	for name, where := range map[string]func(r *rig) string{
+		"the repository":    func(r *rig) string { return filepath.Join(r.opts.Repos, fakehost.FixtureRepo, "notes", "copy.txt") },
+		"the start overlay": func(r *rig) string { return filepath.Join(r.script.Task, "start", fakehost.FixtureRepo, "copy.txt") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Trials = 3
+			data, err := os.ReadFile(filepath.Join(r.script.Task, "hidden", fakehost.FixtureRepo, "checks", "answer"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			write(t, where(r), "made-up notes before\n"+string(data)+"and after\n")
+			s, out, err := r.run()
+			stoppedBy(t, err, CodeHiddenFound)
+			if s.NotRun != 2 || s.Unjudged[CodeHiddenFound] != 1 || s.Tokens != 0 {
+				t.Fatalf("run: %+v\n%s", s, out)
+			}
+			if calls := r.calls(); len(calls) != 0 {
+				t.Fatalf("calls: %+v", calls)
+			}
+			emptyWork(t, r)
+		})
+	}
+}
+
+// No trial's folder is left, even one the chat made read-only in its
+// workspace and its home, whether the trial is judged, unjudged, or the
+// one the run stopped in; and the work folder is left empty, so another
+// run may use it.
+func TestNoTrialFolderIsLeft(t *testing.T) {
+	for _, h := range adapter.All() {
+		t.Run(string(h.ID), func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Host, r.opts.Trials = string(h.ID), 2
+			r.script.ReadOnly = true
+			if s, out, err := r.run(); err != nil || s.Judged != 2 {
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
+			}
+			// The fake did leave what it was asked to.
+			if calls := r.calls(); !strings.Contains(strings.Join(calls[len(calls)-1].Around, " "), "home/made-up-locked/inner/file") {
+				t.Fatalf("the fake left no read-only folder: %v", calls[len(calls)-1].Around)
+			}
+			emptyWork(t, r)
+			r.opts.Out = filepath.Join(r.base, "out-two")
+			r.script.SignIn = true
+			if s, out, err := r.run(); err != nil || s.Unjudged[CodeSignIn] != 2 {
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
+			}
+			emptyWork(t, r)
+			r.opts.Out = filepath.Join(r.base, "out-three")
+			r.script.SignIn, r.script.NoUsage = false, true
+			_, _, err := r.run()
+			stoppedBy(t, err, CodeNoUsage)
+			emptyWork(t, r)
+		})
+	}
+}
+
+// --keep-trials keeps every trial's folder, as the plan line and the record
+// say, but no grading's copy, which holds the hidden tests.
+func TestKeepTrials(t *testing.T) {
+	r := newRig(t, 1)
+	r.opts.Trials, r.opts.KeepTrials = 2, true
+	s, out, err := r.run()
+	if err != nil || s.Judged != 2 || !strings.Contains(strings.SplitN(out, "\n", 2)[0], "; trial folders kept") {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+	for n := 1; n <= 2; n++ {
+		dir := r.trialDir(s.Run, n)
+		for _, sub := range []string{"home", "tmp", "bin", "workspace"} {
+			if _, err := os.Stat(filepath.Join(dir, sub)); err != nil {
+				t.Fatalf("trial %d: %v", n, err)
+			}
+		}
+		if got := list(t, filepath.Join(dir, "grade")); len(got) != 0 {
+			t.Fatalf("trial %d's grading folder holds %v", n, got)
+		}
+	}
+	records, err := LoadRuns(r.opts.Out)
+	if err != nil || len(records) != 1 || !records[0].Kept {
+		t.Fatalf("records %+v: %v", records, err)
+	}
+	// Without it, the plan line says the folders are removed.
+	r.fresh("two")
+	r.opts.KeepTrials = false
+	if _, out, err := r.run(); err != nil || !strings.Contains(strings.SplitN(out, "\n", 2)[0], "; trial folders removed") {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+}
+
+// removals counts the tries at removing each trial's folder, and fails the
+// first fails of them.
+type removals struct {
+	mu    sync.Mutex
+	tries map[string]int
+	fails int
+	// end, when set, is called at the try that is the last that fails.
+	end func()
+}
+
+func (m *removals) removeAll(p string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !strings.HasPrefix(filepath.Base(p), "t") {
+		return os.RemoveAll(p) // a grading's copy
+	}
+	m.tries[p]++
+	if m.tries[p] <= m.fails {
+		if m.tries[p] == m.fails && m.end != nil {
+			m.end()
+		}
+		return errors.New("made-up: a file is held")
+	}
+	return os.RemoveAll(p)
+}
+
+// A trial's folder that cannot be removed is tried again: one that goes
+// at the third try lets the run go on; one that never goes stops the run
+// once the limit ends, which the test ends at the second failed try, with
+// the record's ended error. No time decides either.
+func TestATrialFolderIsTriedAgain(t *testing.T) {
+	never := func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+		return context.WithCancel(ctx)
+	}
+	t.Run("goes", func(t *testing.T) {
+		r := newRig(t, 1)
+		m := &removals{tries: map[string]int{}, fails: 2}
+		r.opts.Trials, r.opts.removeAll, r.opts.removeLimit = 2, m.removeAll, never
+		s, out, err := r.run()
+		if err != nil || s.Judged != 2 {
+			t.Fatalf("run: %+v %v\n%s", s, err, out)
+		}
+		if len(m.tries) != 2 {
+			t.Fatalf("tries %v", m.tries)
+		}
+		for p, n := range m.tries {
+			if n != 3 {
+				t.Fatalf("%s: %d tries", p, n)
+			}
+		}
+		emptyWork(t, r)
+	})
+	t.Run("stays", func(t *testing.T) {
+		r := newRig(t, 1)
+		var cancel context.CancelFunc
+		m := &removals{tries: map[string]int{}, fails: 2}
+		m.end = func() { cancel() }
+		r.opts.Trials, r.opts.removeAll = 3, m.removeAll
+		r.opts.removeLimit = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+			c, f := context.WithCancel(ctx)
+			cancel = f
+			return c, f
+		}
+		s, out, err := r.run()
+		var stopped *Stopped
+		if err == nil || errors.As(err, &stopped) || !strings.Contains(err.Error(), "removing its folder") || s.Judged != 1 || s.NotRun != 2 {
+			t.Fatalf("run: %+v %v\n%s", s, err, out)
+		}
+		if len(m.tries) != 1 {
+			t.Fatalf("tries %v", m.tries)
+		}
+		for _, n := range m.tries {
+			if n != 2 {
+				t.Fatalf("%d tries", n)
+			}
+		}
+		records, lerr := LoadRuns(r.opts.Out)
+		if lerr != nil || len(records) != 1 || records[0].Ended != EndedError || records[0].Judged != 1 {
+			t.Fatalf("records %+v: %v", records, lerr)
+		}
+	})
+}
+
+// A hidden file's bytes across two of the pieces a file is read in are
+// found, wherever the boundary falls in them, in the first piece's end and
+// a later one's; bytes that differ in their last byte are not, nor a file
+// that is a link to one that holds them.
+func TestHoldsAcrossPieces(t *testing.T) {
+	pattern := []byte("#!/bin/sh\nmade-up hidden test, 40 bytes\n")
+	other := []byte("#!/bin/sh\nmade-up hidden check\n")
+	h := &hidden{content: [][]byte{other, pattern}, longest: len(pattern)}
+	window := make([]byte, chunk+h.longest)
+	l := len(pattern)
+	first := chunk + l          // what the first read fills
+	second := first + chunk + 1 // and the second, after the l-1 kept
+	dir := t.TempDir()
+	for _, end := range []int{first + 1, first + l/2, first + l - 1, second + 1, second + l - 1} {
+		for _, near := range []bool{false, true} {
+			body := bytes.Repeat([]byte("x"), end-l)
+			if near {
+				body = append(body, pattern[:l-1]...)
+				body = append(body, '!')
+			} else {
+				body = append(body, pattern...)
+			}
+			body = append(body, "after"...)
+			p := filepath.Join(dir, "file")
+			if err := os.WriteFile(p, body, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if in, err := h.holds(p, window); err != nil || in == near {
+				t.Fatalf("ending at %d, near %v: %v %v", end, near, in, err)
+			}
+		}
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(filepath.Join(dir, "file"), link); err != nil {
+		t.Fatal(err)
+	}
+	if in, err := h.holds(link, window); in {
+		t.Fatalf("a link was followed: %v", err)
+	}
+}
+
+// A work folder that holds anything, or is no folder, is refused before
+// the plan, and nothing runs.
+func TestAWorkFolderNotEmptyIsRefused(t *testing.T) {
+	r := newRig(t, 1)
+	write(t, filepath.Join(r.opts.Work, "left", "behind.txt"), "made-up\n")
+	refusedBeforeThePlan(t, r, "--work is not empty")
+	r.opts.Work = filepath.Join(r.base, "a-file")
+	write(t, r.opts.Work, "made-up\n")
+	refusedBeforeThePlan(t, r, "--work is not a folder")
+	// An empty one is taken.
+	r.opts.Work = filepath.Join(r.base, "empty")
+	mkdir(t, r.opts.Work)
+	if s, out, err := r.run(); err != nil || s.Judged != 1 {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+}

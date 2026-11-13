@@ -231,6 +231,40 @@ func TestContinuationRunStopsOnNoUsage(t *testing.T) {
 	}
 }
 
+// --keep-trials keeps the trials' folders; without it the work folder is
+// left empty. A second run of the same trials in the results folder is
+// refused before its plan and starts nothing.
+func TestContinuationRunKeepsTrialsAndRefusesASecondAttempt(t *testing.T) {
+	r := newContRig(t)
+	work := filepath.Join(r.base, "work")
+	code, out, errOut := cmd(r.args("--spend-model-quota")...)
+	if code != 0 || errOut != "" {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	if entries, err := os.ReadDir(work); err != nil || len(entries) != 0 {
+		t.Fatalf("the work folder holds %v: %v", entries, err)
+	}
+	calls := len(r.calls(t))
+	code, out, errOut = cmd(r.args("--spend-model-quota")...)
+	if code != 2 || out != "" || !strings.Contains(errOut, "--out holds an earlier attempt") || len(r.calls(t)) != calls {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	args := r.args("--spend-model-quota", "--keep-trials", "--out", filepath.Join(r.base, "out-two"))
+	code, out, errOut = cmd(args...)
+	if code != 0 || !strings.Contains(out, "; trial folders kept\n") {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	entries, err := os.ReadDir(work)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("the work folder holds %v: %v", entries, err)
+	}
+	for _, n := range []string{"t1", "t2"} {
+		if _, err := os.Stat(filepath.Join(work, entries[0].Name(), fakehost.FixtureID, "off", n, "workspace")); err != nil {
+			t.Fatalf("trial %s: %v", n, err)
+		}
+	}
+}
+
 // check prints a line a task and exits 1 when one fails its check.
 func TestContinuationCheck(t *testing.T) {
 	r := newContRig(t)

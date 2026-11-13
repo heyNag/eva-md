@@ -19,13 +19,13 @@ import (
 func init() {
 	register(instrument{
 		name:     "continuation",
-		synopsis: "continuation run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--spend-model-quota] | check --tasks DIR --repos DIR",
+		synopsis: "continuation run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--spend-model-quota] | check --tasks DIR --repos DIR",
 		run:      continuation,
 	})
 }
 
 const continuationUsage = `usage:
-  eva-eval continuation run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--spend-model-quota]
+  eva-eval continuation run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--spend-model-quota]
   eva-eval continuation check --tasks DIR --repos DIR   (its scratch copies go in TMPDIR)`
 
 func continuationFail(w io.Writer, msg string) int {
@@ -76,6 +76,7 @@ func continuationRun(ctx context.Context, args []string, out, errOut io.Writer) 
 	f.Var(&pass, "pass-env", "")
 	f.StringVar(&o.EvaMD, "eva-md", "", "")
 	f.StringVar(&o.Repo, "repo", ".", "")
+	f.BoolVar(&o.KeepTrials, "keep-trials", false, "")
 	f.BoolVar(&o.Spend, "spend-model-quota", false, "")
 	if err := f.Parse(args); err != nil {
 		// The flag package's message can quote a value, so it is not shown.

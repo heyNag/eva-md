@@ -12,6 +12,20 @@
 // and the run goes on to the next. A trial unjudged for a fault of the
 // set-up, a call that gave no usage among them, stops the run: every
 // further trial would spend a session to learn nothing.
+//
+// What a chat can reach: --work must be empty or absent; each trial's
+// folder is removed once its rows are written, it is unjudged, or the run
+// stops in it, unless --keep-trials keeps it; and after the workspace is
+// prepared, after each call and after each grading a prompt follows, the
+// trial's folder, but the grading's own, is checked for a hidden test, by
+// its path in the workspace and by its bytes in any file. One found stops
+// the run as hidden_found. What this cannot guard: a chat run as the
+// invoking user can read --tasks, --repos and --out by their paths, or
+// copy a hidden test reworded; a process that leaves its process group
+// outlives the call that started it; and code the grading runs may write
+// wherever that user can. So a real run starts the CLI as a second user,
+// through a wrapper given as --cli, with the tasks and repositories out of
+// that user's reach.
 package drive
 
 import (

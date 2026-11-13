@@ -114,6 +114,18 @@ type Script struct {
 	// Pad is the size of a line of padding, an event no reader knows, the
 	// fake prints before its answer.
 	Pad int `json:"pad"`
+	// ReadOnly makes a call leave a folder only its owner may read and
+	// enter, holding a file only its owner may read, in the workspace and in
+	// the home, as Go's module cache is.
+	ReadOnly bool `json:"read_only"`
+	// Steal makes a call copy the task's first hidden file, by its path in
+	// the hidden overlay, within the chat's reach: "path" at the path it
+	// would have in the workspace, "at-path" other bytes at that path,
+	// "home" into the home under another name,
+	// "tmp" into the temporary folder, and "padded" into the home between
+	// two megabytes of other bytes. It is one of the failures From and
+	// Session keep to some calls.
+	Steal string `json:"steal"`
 }
 
 // OffVar is a variable that turns a host's own memory off, whose value the
@@ -259,6 +271,12 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		overlay = task.OverlaySolution
 	}
 	if err := lay(s.Task, overlay, dir); err != nil {
+		return 3
+	}
+	if s.ReadOnly && (readOnly(dir) != nil || readOnly(os.Getenv("HOME")) != nil) {
+		return 3
+	}
+	if s.Steal != "" && failing && steal(s, dir) != nil {
 		return 3
 	}
 	session := c.Session
@@ -409,6 +427,78 @@ func lay(taskDir, o, dir string) error {
 		}
 	}
 	return nil
+}
+
+// readOnly makes, under dir, a folder that holds a folder that holds a
+// file, each only its owner may read (and enter), unless it is there.
+func readOnly(dir string) error {
+	top := filepath.Join(dir, "made-up-locked")
+	if _, err := os.Lstat(top); err == nil {
+		return nil
+	}
+	inner := filepath.Join(top, "inner")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(inner, "file"), []byte("locked\n"), 0o400); err != nil {
+		return err
+	}
+	if err := os.Chmod(inner, 0o500); err != nil {
+		return err
+	}
+	return os.Chmod(top, 0o500)
+}
+
+// steal copies the task's first hidden file where the script's Steal
+// says, the workspace being ws.
+func steal(s Script, ws string) error {
+	t, err := task.Load(s.Task)
+	if err != nil {
+		return err
+	}
+	var src, rel, root string
+	for _, name := range t.Repos {
+		dir := filepath.Join(s.Task, task.OverlayHidden, name)
+		_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || src != "" || !d.Type().IsRegular() {
+				return err
+			}
+			src = p
+			rel, err = filepath.Rel(dir, p)
+			root = ws
+			if t.Workdir == task.WorkdirOutside {
+				root = filepath.Join(ws, name)
+			}
+			return err
+		})
+	}
+	if src == "" {
+		return errors.New("the task has no hidden file")
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	var to string
+	switch s.Steal {
+	case "path":
+		to = filepath.Join(root, rel)
+	case "at-path":
+		to, data = filepath.Join(root, rel), []byte("other bytes at a hidden file's path\n")
+	case "home":
+		to = filepath.Join(os.Getenv("HOME"), ".cache", "made-up-notes.txt")
+	case "tmp":
+		to = filepath.Join(os.Getenv("TMPDIR"), "made-up-scratch")
+	case "padded":
+		to = filepath.Join(os.Getenv("HOME"), "made-up-padded.bin")
+		data = append(append([]byte(strings.Repeat("x", 1<<20-3)), data...), strings.Repeat("y", 1<<20)...)
+	default:
+		return errors.New("no such way to steal")
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(to, data, 0o644)
 }
 
 // files lists the files under dir, as slash paths, leaving out git's own
