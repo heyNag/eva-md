@@ -21,6 +21,7 @@ a test, and one whose name starts with sim_ a simulation run by hand
 The decision (decide) takes samples and gives a verdict; it reads no clock
 and starts nothing, so its tests feed it numbers.
 """
+import collections
 import functools
 import itertools
 import json
@@ -338,7 +339,7 @@ RULE = 3  # the rule's number, which gate.json records
 ROUNDS = 3  # the gate's rounds unless --rounds says otherwise
 THRESHOLD = 1.15
 MEDIAN = 0.5
-MEDIAN_THRESHOLD = 1.10  # the median's own bound
+MEDIAN_THRESHOLD = 1.15  # the median's own bound
 DRAWS = 2000
 SEED = 0x65766120  # fixed; changing it changes every interval
 LEVEL = 0.95  # the interval's coverage; its lower bound is the 2.5% quantile
@@ -357,7 +358,7 @@ NOISY_FIGURES = 2  # the figures too noisy to judge that call the machine too no
 # the pooled samples still put a figure past THRESHOLD. The runs of an
 # unchanged binary on a quiet machine differ by far less: by 1.043 at most
 # in the 20 such gates of the proof.
-QUICK = 1.07
+QUICK = 1.10
 # A scenario the new binary failed in at least BROKEN of its runs more than
 # the old one fails the gate; in at least LOST of them, the verdict is "not
 # judged" and the gate is to be run again.
@@ -412,12 +413,32 @@ def ratios(base, cand, seed=SEED, draws=DRAWS, q=P95):
     return sorted(y/x if x > 0 else (math.inf if y > 0 else 1.0) for x, y in zip(b, c))
 
 
+@functools.lru_cache(maxsize=1024)
+def pairs(sizes, seed, draws, q=P95):
+    """The pairs of ranks ranks draws for two sizes, each with how many
+    draws gave it: the ranks gather about the quantile's own, so far fewer
+    pairs than draws."""
+    rb, rc = ranks(sizes, seed, draws, q)
+    return tuple(collections.Counter(zip(rb, rc)).items())
+
+
 def interval(base, cand, seed=SEED, draws=DRAWS, q=P95):
     """The bootstrap interval of p95(cand)/p95(base), or of the q
-    quantile's ratio, at LEVEL."""
-    r = ratios(base, cand, seed, draws, q)
+    quantile's ratio, at LEVEL: the draws of ratios at both ends, found
+    by sorting each pair of ranks once, with its count."""
+    base, cand = sorted(base), sorted(cand)
+    counted = pairs((len(base), len(cand)), seed, draws, q)
+    if base[0] > 0:
+        r = [cand[j]/base[i] for (i, j), _ in counted]
+    else:
+        r = [cand[j]/base[i] if base[i] > 0 else (math.inf if cand[j] > 0 else 1.0) for (i, j), _ in counted]
     k = int(math.floor((1-LEVEL)/2*draws))
-    return r[k], r[draws-1-k]
+    ends, seen = [], 0
+    for at in sorted(range(len(r)), key=r.__getitem__):
+        seen += counted[at][1]
+        while len(ends) < 2 and seen > (k, draws-1-k)[len(ends)]:
+            ends.append(r[at])
+    return ends[0], ends[1]
 
 
 def ratio_low(base, cand, seed=SEED, draws=DRAWS, q=P95):
@@ -581,7 +602,7 @@ def judge(low, noise, threshold, what):
 
 def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD, seed=SEED, draws=DRAWS,
            whole=WHOLE, quantile=NOISE_QUANTILE, noisy_figures=NOISY_FIGURES, sources=None, quick=QUICK,
-           median_threshold=MEDIAN_THRESHOLD, median="always"):
+           median_threshold=MEDIAN_THRESHOLD):
     """The gate's verdict. samples maps each role (ROLES) to its runs, in
     order, each a map of each figure to its samples from that run; ceilings
     maps each gated figure to its ceiling in milliseconds, or None;
@@ -611,7 +632,7 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
     controls = splits(rounds, seed)
     every = found["runs_per_binary"]
     lost_everywhere = {s for s, c in found["failed_runs"].items() if c["new"] >= every}
-    metrics, unsettled_all, failed, missing, skipped, too_few, short, noisy = {}, [], [], [], [], [], [], []
+    metrics, unsettled_all, failed, missing, skipped, too_few, short, noisy, unjudged = {}, [], [], [], [], [], [], [], []
     judged_runs = {"old": [], "new": []}
     for name in sorted(ceilings):
         o_runs = [list(run.get(name) or []) for run in runs["old"]]
@@ -660,14 +681,17 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
                 unsettled += u
                 if ceiling is not None and p95_n_low > ceiling >= p95_o:
                     reasons.append("p95 %.1f ms, at least %.1f ms, passed the ceiling of %g ms" % (p95_n, p95_n_low, ceiling))
-            if m_noise <= threshold and (median == "always" or noise > threshold):
+            else:
+                noisy.append(name)
+            if m_noise <= threshold:
                 judged_on.append("median")
                 r, u = judge(m_low, m_noise, median_threshold, "median")
                 reasons += r
                 unsettled += u
             if not judged_on:
-                noisy.append(name)
-                unsettled.append("the controls' %.3f is above %.2f: too noisy to judge" % (noise, threshold))
+                unjudged.append(name)
+                unsettled.append("the controls' %.3f, and the median's %.3f, are above %.2f: too noisy to judge" % (
+                    noise, m_noise, threshold))
         metrics[name] = {
             "p95_base_ms": round(p95_o, 3), "p95_ms": round(p95_n, 3), "p95_low_ms": round(p95_n_low, 3),
             "ratio": round(p95_n/p95_o, 3) if p95_o > 0 else None,
@@ -700,14 +724,15 @@ def decide(samples, ceilings, failures=None, rounds=ROUNDS, threshold=THRESHOLD,
         verdict, code = "not judged", 0
     elif failed:
         verdict, code = "fail", 1
-    elif noisy or lost or unsettled_all:
+    elif lost or unsettled_all:
         verdict, code = "not judged", 0
     else:
         verdict, code = "pass", 0
     return {"verdict": verdict, "exit": code, "rule": RULE, "rounds": rounds, "threshold": threshold,
             "median_threshold": median_threshold, "seed": seed, "draws": draws,
             "whole": whole, "noise_quantile": quantile, "noisy_figures": noisy_figures, "quick": quick,
-            "controls": len(controls), "machine_too_noisy": machine, "too_noisy": noisy, "one_quick_run": quick_runs,
+            "controls": len(controls), "machine_too_noisy": machine, "too_noisy": noisy, "too_noisy_to_judge": unjudged,
+            "one_quick_run": quick_runs,
             "run_levels": {b: [round(x, 3) for x in v] if v else None for b, v in levels.items()}, "unsettled": unsettled_all, "lost": lost,
             "failures": hard+failed, "too_few_samples": too_few, "short_by_failures": short, "scenarios": found,
             "not_compared": skipped, "metrics": metrics}

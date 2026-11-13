@@ -610,12 +610,17 @@ def compare(core, a):
     if a.baseline:
         write(a.baseline, json.dumps(baseline(core, a, samples, targets, runs, load), indent=2)+"\n")
     for name, m in verdict["metrics"].items():
-        print("%-28s old %8.1f ms  new %8.1f ms  ratio %6s  lower bound %6s  noise %6s  %s" % (
-            name, m["p95_base_ms"], m["p95_ms"], m["ratio"], m["ratio_low"], m["noise"],
-            "; ".join(m["reasons"] + m["unsettled"]) or
-            ("too few samples to judge, fewer than %d a binary%s" % (
-                verdict["whole"], ", as a scenario failed in some runs" if name in verdict["short_by_failures"] else "")
-             if m["too_few_samples"] else "ok")))
+        # The p95's bounds, then the median's, and which of them the
+        # verdict read (judged on).
+        print("%-28s old %8.1f ms  new %8.1f ms  ratio %6s  lower bound %6s  noise %6s  "
+              "median old %8.1f ms  new %8.1f ms  lower bound %6s  noise %6s  judged on %-14s  %s" % (
+                  name, m["p95_base_ms"], m["p95_ms"], m["ratio"], m["ratio_low"], m["noise"],
+                  m["median_base_ms"], m["median_ms"], m["median_ratio_low"], m["median_noise"],
+                  " and ".join(m["judged_on"]) or "-",
+                  "; ".join(m["reasons"] + m["unsettled"]) or
+                  ("too few samples to judge, fewer than %d a binary%s" % (
+                      verdict["whole"], ", as a scenario failed in some runs" if name in verdict["short_by_failures"] else "")
+                   if m["too_few_samples"] else "ok")))
     for name in verdict["too_few_samples"]:
         if name not in verdict["metrics"]:
             print("%-28s too few samples to judge: the new binary gave none, and lost its scenario in every run" % name)
@@ -630,16 +635,17 @@ def compare(core, a):
     for lost in verdict["lost"]:
         print("not judged: %s" % lost)
     for binary in verdict["one_quick_run"]:
-        print("not judged: one run of the %s binary was more than %.2f times as quick as its next, over the figures judged: "
-              "load on its other runs looks like a change" % (binary, verdict["quick"]))
+        print("not judged: one run of the %s binary was more than %.2f times as quick as the median of its other runs, over the "
+              "figures judged: load on its other runs looks like a change" % (binary, verdict["quick"]))
     if verdict["machine_too_noisy"]:
-        why = (" (runs differed by more than %.2f in %d figures or more, or one run was more than %.2f times as quick as "
-               "the binary's next: the machine was too noisy to judge)" % (
+        why = (" (runs differed by more than %.2f in the p95 of %d figures or more, or one run was more than %.2f times as quick as "
+               "the median of the binary's other runs: the machine was too noisy to judge)" % (
                    verdict["threshold"], verdict["noisy_figures"], verdict["quick"]))
     elif verdict["lost"]:
         why = " (a scenario may have been lost to load: run the gate again)"
-    elif verdict["too_noisy"]:
-        why = " (a figure's runs differed by more than %.2f, too much to judge it: run the gate again)" % verdict["threshold"]
+    elif verdict["too_noisy_to_judge"]:
+        why = (" (a figure's runs differed by more than %.2f in its p95 and in its median, too much to judge it: "
+               "run the gate again)" % verdict["threshold"])
     else:
         why = " (a figure rose, but no more than %.2f times what the machine put between runs: run the gate again)" % verdict["threshold"]
     print("latency gate: %s" % verdict["verdict"] + {
@@ -682,28 +688,46 @@ def baseline(core, a, samples, targets, runs, load):
             "counts": counts, "per_run": per_run}
 
 
-def main():
+def arguments(argv, rounds):
+    """The command's arguments; --rounds defaults to rounds, the gate's own
+    (core.ROUNDS)."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--binary", type=Path)
     p.add_argument("--compare", type=Path, nargs=2, metavar=("OLD", "NEW"))
     p.add_argument("--cwd", type=Path, required=True)
     p.add_argument("--output", type=Path)
-    p.add_argument("--rounds", type=int, default=2, help="gate: rounds, each of which runs each binary twice")
+    p.add_argument("--rounds", type=int, default=rounds,
+                   help="gate: rounds, each of which runs each binary twice (default: %(default)s)")
     p.add_argument("--ceiling-factor", type=float, default=2.0, help="gate: a hook's ceiling is its target times this; 0 for none")
     p.add_argument("--baseline", type=Path, help="gate: write the new binary's figures as a baseline file here")
     p.add_argument("--commit", help="gate: the new binary's commit, for the baseline file")
-    a = p.parse_args()
+    a = p.parse_args(argv)
     if (a.binary is None) == (a.compare is None):
         p.error("give --binary, or --compare OLD NEW")
     if a.binary and (a.baseline or a.commit):
         p.error("--baseline and --commit are for --compare")
-    if a.rounds < 1 or a.ceiling_factor < 0:
+    if (a.rounds is not None and a.rounds < 1) or a.ceiling_factor < 0:
         p.error("--rounds must be 1 or more, and --ceiling-factor 0 or more")
+    return a
+
+
+def main(argv=None):
+    prepared = []
 
     def prepare():
-        core = load()
-        core.scenario(100, "padded-inbox")(lambda run: padded_inbox(run, core))
-        return core
+        if not prepared:
+            core = load()
+            core.scenario(100, "padded-inbox")(lambda run: padded_inbox(run, core))
+            prepared.append(core)
+        return prepared[0]
+    # The scenarios load first, since --rounds defaults to the gate's own.
+    # One that fails to load leaves no default: the gate then stops on the
+    # same error, as could not run, and the plain benchmark raises it.
+    try:
+        rounds = prepare().ROUNDS
+    except Exception:
+        rounds = None
+    a = arguments(argv, rounds)
     if a.compare:
         return gate(prepare, a)
     core = prepare()
