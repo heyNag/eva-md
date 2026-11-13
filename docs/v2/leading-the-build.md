@@ -2,6 +2,17 @@
 
 For whoever leads the v2 build next, a person or an agent that takes it over part way. [The plan](plan.md) says what is built and why; section 9 of it says how the build is run, and section 15 gives the order of work and the owner's calendar. This says how that has worked in practice, and what each lesson cost, so that it is paid for once.
 
+## If you are starting now
+
+The owner starts a new lead with a message of their own, such as: "Take over as lead of the eva-md v2 build. Read AGENTS.md and docs/v2/leading-the-build.md, and carry on from 'Where the build stands'." Their words are your leave, and `AGENTS.md` records its limits. Then:
+
+1. Read `AGENTS.md`, this file in full, and the index, [cards/README.md](cards/README.md).
+2. Read "Where the build stands", below. It was true when it was last pushed; `git log -5 --format='%h %cd %s' -- docs/v2/leading-the-build.md docs/v2/cards/README.md` says when that was.
+3. Nothing that ran in the last lead's session is running now, and its agents' reports are gone with it. A card the index calls building or in review is waiting for you.
+4. Fetch the safety copy, `git fetch origin <branch>`, with the branch "Where the build stands" names. `git log --grep='^Safety copy' --format='%h %cd%n%b' FETCH_HEAD` lists, newest first, each branch that was copied and its tip. For a package you take up, make its branch again at its newest tip, `git branch pkg/<id> <tip>`, and give it to a builder: the builder's order in [wave.js](wave.js) says how to carry on from a branch that exists, and a builder may judge it not worth keeping and start from the card. A branch that looks finished is still reviewed and verified again before it is merged, since no report vouches for it. A package with no branch in the copy is built from its card.
+5. Read CI for the head of `main`, as step 5 of "How a package goes from card to main" says, and mend what is red before anything else.
+6. Tell the owner, in plain words, what you found and what you are starting.
+
 ## Always ready to hand over
 
 The owner's rule, given on 2026-11-13: the lead works as if the build were handed to someone else at any moment, and answers for it. A session can end and a machine can restart without warning, and the next lead has only the repository and the remote. So, at every change of state, and not at the end of a day:
@@ -9,7 +20,7 @@ The owner's rule, given on 2026-11-13: the lead works as if the build were hande
 - the index says what is building, in review, merged or owed, in the same push as the change;
 - "Where the build stands", below, says what is running now, what comes next and what is kept beside `main`, and is rewritten when any of that changes;
 - a ruling the lead makes is written into the card it concerns when it is made, not at the merge;
-- every branch that holds work not on `main` has its tip in the safety copy (lesson 18), renewed when a wave ends or a builder is cut off, after work an agent left uncommitted is committed on its branch (lesson 25);
+- every branch that holds work not on `main` has its tip in the safety copy (lesson 18). While a wave runs, [safety-copy.sh](safety-copy.sh) renews it every 15 minutes and lists each branch and its tip in the copy's message; when a builder is cut off, work it left uncommitted is committed on its branch first (lesson 25);
 - a lesson is written here when it is learned.
 
 The test is a reader with nothing but a fresh clone: can it say what to do next, and find everything it needs?
@@ -92,7 +103,7 @@ Each of these happened. Items 3 to 8 and 11 are now rules in `AGENTS.md` or in a
 As of 2026-11-13, for whoever leads next; the index stays the list of every card's state, and this says only what it cannot.
 
 - **Released.** The counters release is 2026.11.13, cut from GitHub on the owner's word and approval. The owner upgrades the real install, uses it for a day or more, and runs the second field evaluation.
-- **Kept beside `main`.** The branch `heynag/amazing-pascal-di8yn0` on the remote is the safety copy of lesson 18. Two of the tips its head commit has as parents are still wanted: `pkg/ev-11` at e64004c (three commits) and `pkg/if-01b` at 28fa9b5 (one commit of work nobody has checked). Each was a first builder's, cut off part way; the next builder reads it against the card and keeps it or starts again. HO-14's first builder left nothing.
+- **Kept beside `main`.** The branch `heynag/amazing-pascal-di8yn0` on the remote is the safety copy, renewed every 15 minutes while a wave runs. Since 2026-11-13 each copy's message lists the branches it adds and their tips, and "If you are starting now" says how to read them. Older copies carry no list: of their tips only `pkg/ev-11` at e64004c and `pkg/if-01b` at 28fa9b5 were still wanted, each a first builder's work cut off part way, and the running wave builds on both. HO-14's first builder left nothing.
 - **Running since 2026-11-13,** as two waves of the script: the three that were cut off (EV-11, IF-01b, HO-14), and EV-16c, since CI's Linux job has failed four times on what it mends, with IF-01c. EV-11 merges before the others, since its check reads a `paths` block from each card and its branch gives the cards that lack one theirs.
 - **Next, in this order,** as those end: HO-11, HO-12a, SEAM-0e, EV-17d, LG-13a, DV-11a, EV-17a, EV-03a, DV-03a, EV-14c, DV-02a and DV-12b.
 - **Cards owed, each named in the index or in a merged card's notes:** a hook test that depends on speed (`TestLateRunRecordsItsTime`, in LG-12's notes); ST-03a's reading of a lock or a verified mark behind Unicode white space (ST-03b's notes); the files v1's `.gitignore` hid, for ST-07's card (ST-04's notes); LG-22a; and the small tests owed in the notes of ST-02, ST-04, ST-03b, EV-14d and DL-04.
