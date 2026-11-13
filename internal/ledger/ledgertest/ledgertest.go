@@ -123,18 +123,8 @@ func (f *Fake) Read(ctx context.Context, k ledger.Key) (event.Session, []event.E
 		return event.Session{}, nil, fmt.Errorf("%w: %s", ErrNoSession, name(k))
 	}
 	s := f.sessions[i]
-	rec := event.Session{Host: k.Host, ID: k.Session, Folder: k.Folder, Class: s.Class, Events: len(s.Events)}
-	for _, e := range s.Events {
-		if e.Copy != 0 {
-			rec.Copies++
-		}
-		if e.Has(event.MarkWithheld) {
-			rec.Withheld++
-		}
-		if e.Has(event.MarkWrapper) {
-			rec.Wrappers++
-		}
-	}
+	rec := count(s.Events)
+	rec.Host, rec.ID, rec.Folder, rec.Class = k.Host, k.Session, k.Folder, s.Class
 	return rec, cloneAll(s.Events), nil
 }
 

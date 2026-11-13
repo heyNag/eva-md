@@ -15,21 +15,20 @@ import (
 type Clause string
 
 const (
-	// ClauseRead: every listed key reads, and its record has the key's
-	// host and session and a valid class.
+	// ClauseRead: every listed key reads, and is listed once, and its
+	// record has the key's host and session and a valid class.
 	ClauseRead Clause = "read"
+	// ClauseCounts: the record's counts of events, copies, withheld events
+	// and wrappers equal its events' (SPEC.md section 7).
+	ClauseCounts Clause = "counts"
 	// ClauseSeqs: seqs rise, from 1 or more, and every event validates.
 	ClauseSeqs Clause = "seqs"
 	// ClauseCopies: a copy names an earlier event with its key and turn
 	// that is not itself a copy, and no two events that are not copies
-	// share a key.
+	// share a key (SPEC.md section 8).
 	ClauseCopies Clause = "copies"
-	// ClauseCounts: the record's counts of events, copies, withheld
-	// events and wrappers equal its events'.
-	ClauseCounts Clause = "counts"
 	// ClauseResolve: ledger.Resolve of e:<session>#<seq> gives that event,
-	// or ledger.ErrAmbiguous when the reference names more than one listed
-	// session.
+	// or what the sessions the reference names hold for it (see Check).
 	ClauseResolve Clause = "resolve"
 )
 
@@ -56,30 +55,37 @@ func fault(k ledger.Key, seq int64, c Clause, format string, args ...any) *Fault
 	return &Fault{Key: k, Seq: seq, Clause: c, Err: fmt.Errorf(format, args...)}
 }
 
+// read is what Check read of one session.
+type read struct {
+	s      event.Session
+	events []event.Event
+}
+
 // Check holds r to the reader's contract (internal/ledger/SPEC.md sections
 // 1, 7, 8 and 10) and returns the first Fault, or the error of a listing
-// that fails or of a context that ends. It reads every listed session and
-// checks, for each in the listing's order, the clauses in this order:
-// read, seqs, copies, counts; then, for every event, resolve.
+// that fails or of a context that ends. It lists the sessions once and
+// reads each, and checks, for each in the listing's order, the clauses
+// read, seqs, copies and counts; then, for every event of every session,
+// resolve.
 //
 // A reference names a session by its whole id, or by its first 8
 // characters, so e:<session>#<seq> names every listed session with that id,
 // in any folder, and every one whose first 8 characters are the whole id.
-// Where it names more than one, Resolve may give ledger.ErrAmbiguous, or
-// that seq's event of another session it names, as that session reads.
+// When it names this session alone, Resolve must give this event. When it
+// names more than one, Resolve must give what those sessions hold for it
+// as Check read them, by SPEC.md section 9: the one session that holds
+// that seq, or of those the one whose event decodes and belongs to its
+// file, and otherwise ledger.ErrAmbiguous. So a session kept in more than
+// one folder may give ErrAmbiguous, and a session that is alone never does.
 func Check(ctx context.Context, r ledger.Reader) error {
 	keys, err := r.Sessions(ctx)
 	if err != nil {
 		return fmt.Errorf("ledgertest: the listing fails: %w", err)
 	}
-	type read struct {
-		s      event.Session
-		events []event.Event
-	}
 	reads := map[ledger.Key]read{}
 	for _, k := range keys {
 		if _, ok := reads[k]; ok {
-			continue
+			return fault(k, 0, ClauseRead, "listed twice")
 		}
 		s, events, err := r.Read(ctx, k)
 		if err := ctx.Err(); err != nil {
@@ -96,76 +102,89 @@ func Check(ctx context.Context, r ledger.Reader) error {
 		if err := checkEvents(k, events); err != nil {
 			return err
 		}
-		var want event.Session
-		want.Events = len(events)
-		for _, e := range events {
-			if e.Copy != 0 {
-				want.Copies++
-			}
-			if e.Has(event.MarkWithheld) {
-				want.Withheld++
-			}
-			if e.Has(event.MarkWrapper) {
-				want.Wrappers++
-			}
-		}
+		want := count(events)
 		if s.Events != want.Events || s.Copies != want.Copies || s.Withheld != want.Withheld || s.Wrappers != want.Wrappers {
-			return fault(k, 0, ClauseCounts, "the record counts %d events, %d copies, %d withheld and %d wrappers; the events %d, %d, %d and %d",
+			return fault(k, 0, ClauseCounts, "the record counts %d events, %d copies, %d withheld and %d wrappers; the events are %d, %d, %d and %d",
 				s.Events, s.Copies, s.Withheld, s.Wrappers, want.Events, want.Copies, want.Withheld, want.Wrappers)
 		}
 		reads[k] = read{s, events}
 	}
 	for _, k := range keys {
-		got := reads[k]
-		for _, e := range got.events {
-			if err := ctx.Err(); err != nil {
+		for _, e := range reads[k].events {
+			if err := checkResolve(ctx, r, keys, reads, k, e); err != nil {
 				return err
-			}
-			ref := event.Ref{Session: k.Session, First: e.Seq, Last: e.Seq}
-			if len(k.Session) > 128 {
-				// The longest session a reference carries whole.
-				ref.Session = event.Prefix(k.Session)
-			}
-			if _, err := event.ParseRef(ref.String()); err != nil {
-				return fault(k, e.Seq, ClauseResolve, "%s cannot be read: %v", ref, err)
-			}
-			named := map[ledger.Key]bool{}
-			for _, other := range keys {
-				if ref.Names(other.Session) {
-					named[other] = true
-				}
-			}
-			s, found, err := ledger.Resolve(ctx, r, ref.String())
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err != nil {
-				if errors.Is(err, ledger.ErrAmbiguous) && len(named) > 1 {
-					continue
-				}
-				return fault(k, e.Seq, ClauseResolve, "%s: %w", ref, err)
-			}
-			if s == got.s && same(found, e) {
-				continue
-			}
-			ok := false
-			for other := range named {
-				o := reads[other]
-				if other == k || s != o.s {
-					continue
-				}
-				for _, oe := range o.events {
-					if oe.Seq == e.Seq && same(found, oe) {
-						ok = true
-					}
-				}
-			}
-			if !ok {
-				return fault(k, e.Seq, ClauseResolve, "%s gives another event, #%d of %s:%s", ref, found.Seq, s.Host, s.ID)
 			}
 		}
 	}
 	return nil
+}
+
+// checkResolve holds Resolve of e's reference to what the sessions it
+// names hold for it, as Check read them.
+func checkResolve(ctx context.Context, r ledger.Reader, keys []ledger.Key, reads map[ledger.Key]read, k ledger.Key, e event.Event) error {
+	ref := event.Ref{Session: k.Session, First: e.Seq, Last: e.Seq}
+	if len(k.Session) > 128 {
+		// Longer than a reference carries whole.
+		ref.Session = event.Prefix(k.Session)
+	}
+	// What Resolve must give: of the sessions the reference names, those
+	// that hold the seq; where more than one does, those whose event
+	// decodes and belongs to its file; and ambiguity unless one is left.
+	var hits []read
+	for _, other := range keys {
+		if !ref.Names(other.Session) {
+			continue
+		}
+		o := reads[other]
+		for _, oe := range o.events {
+			if oe.Seq == e.Seq {
+				hits = append(hits, read{o.s, []event.Event{oe}})
+				break
+			}
+		}
+	}
+	if len(hits) > 1 {
+		var kept []read
+		for _, h := range hits {
+			if he := h.events[0]; !he.Has(event.MarkRepaired) && !(he.Has(event.MarkWithheld) && he.Why == event.WhyUntrusted) {
+				kept = append(kept, h)
+			}
+		}
+		hits = kept
+	}
+	s, found, err := ledger.Resolve(ctx, r, ref.String())
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	switch {
+	case len(hits) != 1 && errors.Is(err, ledger.ErrAmbiguous):
+		return nil
+	case len(hits) != 1:
+		return fault(k, e.Seq, ClauseResolve, "%s names sessions that hold #%d alike, and Resolve gives %v, not ambiguity", ref, e.Seq, err)
+	case err != nil:
+		return fault(k, e.Seq, ClauseResolve, "%s: %w", ref, err)
+	case s != hits[0].s || !same(found, hits[0].events[0]):
+		return fault(k, e.Seq, ClauseResolve, "%s gives #%d of %s, not #%d of %s as it reads", ref, found.Seq, recordName(s), e.Seq, recordName(hits[0].s))
+	}
+	return nil
+}
+
+// count is a record that holds only the counts of events, as SPEC.md
+// section 7 defines them.
+func count(events []event.Event) event.Session {
+	s := event.Session{Events: len(events)}
+	for _, e := range events {
+		if e.Copy != 0 {
+			s.Copies++
+		}
+		if e.Has(event.MarkWithheld) {
+			s.Withheld++
+		}
+		if e.Has(event.MarkWrapper) {
+			s.Wrappers++
+		}
+	}
+	return s
 }
 
 // checkEvents holds a session's events to the clauses seqs and copies.
@@ -173,7 +192,7 @@ func checkEvents(k ledger.Key, events []event.Event) error {
 	var last int64
 	for _, e := range events {
 		if e.Seq <= last {
-			return fault(k, e.Seq, ClauseSeqs, "seq %d does not rise from %d", e.Seq, last)
+			return fault(k, e.Seq, ClauseSeqs, "seq %d does not rise above %d", e.Seq, last)
 		}
 		last = e.Seq
 		if err := e.Validate(); err != nil {
@@ -212,4 +231,9 @@ func same(a, b event.Event) bool {
 	ea, errA := event.Encode(a)
 	eb, errB := event.Encode(b)
 	return errA == nil && errB == nil && bytes.Equal(ea, eb)
+}
+
+// recordName is how a fault names a record, as name names a key.
+func recordName(s event.Session) string {
+	return name(ledger.Key{Host: s.Host, Session: s.ID, Folder: s.Folder})
 }
