@@ -126,6 +126,23 @@ func mapsEqual(a, b map[string]fs.FileMode) bool {
 	return true
 }
 
+// An empty trace folder that was there is closed to all but its owner.
+func TestAnEmptyTraceFolderIsClosed(t *testing.T) {
+	r := traceRig(t)
+	if err := os.Mkdir(r.opts.Trace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(r.opts.Trace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if s, out, err := r.run(); err != nil || s.Judged != 1 {
+		t.Fatalf("run: %v, %+v\n%s", err, s, out)
+	}
+	if info, err := os.Stat(r.opts.Trace); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("the trace folder: %v, %v", info.Mode(), err)
+	}
+}
+
 // A trace that is cut at the output's limit holds what the driver read:
 // the limit's bytes of stdout, and as many of stderr.
 func TestTraceKeepsWhatTheLimitKeeps(t *testing.T) {
@@ -308,9 +325,16 @@ func TestTraceFoldersRefused(t *testing.T) {
 			if calls := r.calls(); len(calls) != 0 {
 				t.Fatalf("the fake ran: %+v", calls)
 			}
+			// The run writes the fake's script; git's own background work in
+			// the rig's repository may come and go.
 			after := tree(t, r.base)
-			delete(after, "script.json")
-			delete(before, "script.json")
+			for _, m := range []map[string]fs.FileMode{before, after} {
+				for p := range m {
+					if p == "script.json" || strings.HasPrefix(p, filepath.Join("repo", ".git")) {
+						delete(m, p)
+					}
+				}
+			}
 			if !mapsEqual(before, after) {
 				t.Fatalf("the run made or changed %v, from %v", after, before)
 			}
