@@ -391,11 +391,18 @@ func runInstallWith(ctx context.Context, opts Options, run runner, render render
 		}
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), RollbackTimeout)
 		defer cancel()
-		// The manifest is put back once the rest is: a rollback that stops
-		// part way leaves one that lists every file of both releases.
+		// The manifest is put back once the rest is. A rollback that stops
+		// part way leaves the one written before the first change, which
+		// lists every file of both releases, so it is right whichever
+		// release the folders hold: the final one, which lists only this
+		// run's files, may already be on disk when a later step fails.
 		rollbackErr := rollback(rollbackCtx, opts.Dirs, share, plans, previousBinary, owned, run)
 		if rollbackErr == nil && manWritten {
 			rollbackErr = restoreManifest(rollbackCtx, share, manBefore)
+		} else if rollbackErr != nil && manWritten && pre != nil {
+			if _, e := putManifest(rollbackCtx, share, pre, &manOnDisk); e != nil {
+				rollbackErr = fmt.Errorf("%w; %v", rollbackErr, e)
+			}
 		}
 		if rollbackErr != nil {
 			err = fmt.Errorf("%w; rollback incomplete: %v; generated files were kept for recovery", err, rollbackErr)

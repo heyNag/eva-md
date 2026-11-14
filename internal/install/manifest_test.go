@@ -834,6 +834,74 @@ func TestManifestFailedInstall(t *testing.T) {
 			}
 		}
 	})
+	// The last write that can fail, needs-trust.json's, fails once the
+	// hosts verify and the manifest lists only the second release's files;
+	// the rollback then puts the first release's folders back and stops.
+	// The manifest left must still list every file the folders hold, so
+	// the next install of the second release succeeds.
+	t.Run("trust mark fails and rollback stops", func(t *testing.T) {
+		opts, f := setup(t)
+		setManifestSwitch(t, opts.Dirs, true)
+		if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+			t.Fatal(err)
+		}
+		first := folders(t, opts.Dirs)
+		mark := filepath.Join(opts.Dirs.State, "needs-trust.json")
+		if err := os.Remove(mark); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+		// needs-trust.json is a folder that holds a file, so its write fails.
+		if err := os.MkdirAll(filepath.Join(mark, "x"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		claudeAdds := 0
+		run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+			command := host + " " + strings.Join(args, " ")
+			if strings.HasPrefix(command, "claude plugin install ") {
+				claudeAdds++
+			}
+			// The rollback's re-add of Claude Code's plugin does not verify.
+			if claudeAdds >= 2 && strings.HasPrefix(command, "claude plugin list") {
+				return nil, errors.New("synthetic failure")
+			}
+			return f.run(ctx, host, args...)
+		}
+		r, err := runInstallWith(context.Background(), opts, run, second)
+		if !r.NeedsTrust || err == nil || !strings.Contains(err.Error(), "needs-trust.json") || !strings.Contains(err.Error(), "rollback incomplete") {
+			t.Fatalf("the failed install = %v (needs trust %v)", err, r.NeedsTrust)
+		}
+		now := folders(t, opts.Dirs)
+		if !maps.EqualFunc(now, first, func(a, b map[string][]byte) bool { return maps.EqualFunc(a, b, bytes.Equal) }) {
+			t.Fatalf("the rollback did not put the first release's folders back")
+		}
+		m, data := readDiskManifest(t, opts.Dirs)
+		if m == nil {
+			t.Fatalf("no manifest after a rollback that stopped")
+		}
+		for host, files := range now {
+			listed := map[string]bool{}
+			for _, u := range m.Units {
+				if u.Root == "marketplace/"+host {
+					for _, f := range u.Files {
+						listed[f.Path] = true
+					}
+				}
+			}
+			for name := range files {
+				if !listed[name] {
+					t.Errorf("the manifest does not list %s in the %s folder: %s", name, host, data)
+				}
+			}
+		}
+		if err := os.RemoveAll(mark); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runInstallWith(context.Background(), opts, f.run, second); err != nil {
+			t.Fatalf("the next install: %v", err)
+		}
+		wantFolders(t, opts.Dirs, second)
+		wantManifestMatchesDisk(t, opts.Dirs, "claude", "codex")
+	})
 }
 
 // Each unreadable manifest stops install, its dry run and preflight, and
