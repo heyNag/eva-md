@@ -69,7 +69,7 @@ The rows named by file are the plan's: sections 6.0, 8 ("What runs in parallel")
 | `internal/health/hookweek.go` | 297 | the hook counters: a week of counts, behind the two doctor rows | CT-1, 4341736 | leaves at CUT-4 | HO-12b, HO-23 |
 | `internal/health/updates.go` | 327 | the update counters behind `status --updates` | CT-2, 6114939 | leaves at CUT-4 | DV-13, HO-24 |
 | `internal/health/backlog.go` | 242 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
-| `internal/health/report.go` | 424 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
+| `internal/health/report.go` | 428 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
 | `internal/health/report_hooks.go` | 123 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
 | `internal/health/report_record.go` | 255 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
 | `internal/health/report_updates.go` | 101 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
@@ -88,7 +88,7 @@ The v1 files those commits changed that no (a) row holds, whose changes stay in 
 | --- | ---: | --- | --- |
 | `internal/store/api.go` | 163 | ST-02 | ST-05 |
 | `internal/store/ids.go` | 77 | ST-02 | ST-05 |
-| `internal/store/codec/**` | 2168 | ST-03a, ST-03b | ST-05 |
+| `internal/store/codec/**` | 2344 | ST-03a, ST-03b | ST-05 |
 | `internal/store/migrate/**` | 1805 | ST-04 | ST-05 |
 | `internal/store/profile/**` | 1682 | ST-01, ST-01b | ST-05 |
 | `internal/work/**` | 1089 | DV-12a | DV-12b |
@@ -98,12 +98,12 @@ The v1 files those commits changed that no (a) row holds, whose changes stay in 
 ## The end state
 
 ```ledger
-counted-at: 08f1fb0dfc11
-built: 63269
+counted-at: a4c9b312ad7f
+built: 63437
 leaves-v1: 20609
-leaves-instruments: 5871
-leaves: 26480
-not-yet-called: 10241
-end-state: 47030
+leaves-instruments: 5875
+leaves: 26484
+not-yet-called: 10417
+end-state: 47370
 ceiling: 53694
 ```

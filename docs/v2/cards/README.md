@@ -62,8 +62,8 @@ Rules every card carries, so they are said once here:
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | building since 2026-11-14 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | building since 2026-11-14 |
-| [HO-12a](HO-12a.md) | Health's host names through the adapter | building since 2026-11-14, beside DV-12b, which adds two files to the same package: the later of the two to merge brings them under this card's work |
-| [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
+| [HO-12a](HO-12a.md) | Health's host names through the adapter | merged; its latency is read from CI's `latency` job |
+| [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after DV-12b (HO-12a is merged) |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
 | [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | merged |
@@ -97,7 +97,7 @@ Rules every card carries, so they are said once here:
 | [EV-17g](EV-17g.md) | The continuation driver's guards before a live run | merged, with later rounds for a trace, a diagnosis, the points the v1 condition owed, and every chat's web tools off; nothing in the driver is owed before the pilot |
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; EV-17f adds the check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03); it also settles grading as another user and the build cache grading uses (EV-17g checks a chat's reach for hidden files) |
-| [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | building since 2026-11-14; two reviewers; its first run on a real release is the owner's next cut |
+| [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | merged; its first run on a real release is the owner's next cut; `docs/verification.md` owes a sentence, which waits for EV-10a's merge |
 | [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | building since 2026-11-14, beside DV-12b, which changes a line in each of two of its files; while it builds nothing else edits `docs/design.md`, `docs/verification.md` or `docs/decisions.md` |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
 
