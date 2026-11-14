@@ -61,6 +61,16 @@ The built commands are setup, init, validate, install, uninstall, upgrade, docto
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| OPS-K20 | status never writes; the doctor repairs only derived indexes, under the wiki lock, in a wiki of this instance | internal/health:TestStatusLeavesTheCodeStatus, internal/health:TestStatusLeavesTheKnowledgeIndex, internal/health:TestStatusLeavesTheNamesIndex, internal/health:TestDoctorWritesTheNamesIndexAgain, internal/health:TestDoctorWithTheWikiBusy |
+| OPS-K21 | Only eva's name is shown, and counts rather than captured content | internal/health:TestFieldReportHoldsNoText, internal/hook:TestRecordsHoldNoContent, internal/update:TestRunLogHoldsNoEntryText |
+
 ## Since the split
 
 No change yet.

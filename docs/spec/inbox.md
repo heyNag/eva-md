@@ -4,7 +4,7 @@
 - **Paths:** `internal/inbox`, `cmd/eva-md/inbox.go`
 - **Status:** v1 as built, frozen on 2026-11-14
 
-The blocks below are v1's design and verification text, moved here word for word when the two documents were split; [INDEX.md](INDEX.md) lists every spec.
+The blocks below are v1's design text, moved here word for word when the two documents were split; its verification text moved on 2026-11-14 to [inbox-clear.md](inbox-clear.md), and [INDEX.md](INDEX.md) lists every spec.
 
 <!-- v1 docs/design.md 008 -->
 ## The inbox
@@ -128,26 +128,28 @@ The daily lint reads `inbox/.removed` (see "Health check"), and so do `eva-md sh
 
 ---
 
-<!-- v1 docs/verification.md 008 -->
-- **Removing captured chats** (`cmd/eva-md`, `internal/inbox`, `internal/lint`, `internal/catchup`, `internal/searchindex`, `internal/health`, `internal/resume`).
-  `eva-md inbox clear` previewing a session named by a ref, with its host, id, project, last write and size, the 3 refs a thread page holds to it and what the wiki keeps, and changing nothing; then with `--apply` removing its file, watermark, transcript recovery record and its project's search index,
-  and recording it, while its off-the-record marker, its lock file, the project's other session and the general area stay; the lint then counting its refs as removed, and the index built again finding the kept session's words and none of the removed one's (`TestInboxClearPreviewsThenRemoves`);
-  `--project`, `--before` and both together, a project folder left empty removed, and a file deleted by hand found by the watermark it left, whose refs the lint fails until a removal records it (`TestInboxClearChoosesByProjectAndDay`); each usage error, a filter given an empty value beside another
-  among them, removing nothing, `--before 0001-01-01` read in UTC, where it is the zero time, choosing nothing, alone or beside another filter, 8 characters two sessions share choosing nothing and naming both until a project tells them apart, nothing to remove, and a project folder that can't be read
-  named before the list (`TestInboxClearArguments`); the list naming 20 captures and counting the rest (`TestInboxListNamesTwentyAndCountsTheRest`); the update's lock or a project's index held removing and recording nothing, a session a hook holds stopping the removal with its file kept and
-  unrecorded: the removal seen in the goroutines' stacks waiting for the hook's own lock, keeping the file and taking and recording it once the hook lets go, and saying to run it again once its wait runs out, and a session whose id its file's name holds changed locked by the id the hooks lock it by
-  (`TestInboxClearRemovesNothingWhileBusy`); each session recorded just before its files go, so a removal that fails at a session's transcript recovery record records and removes nothing of it, and one that stops at a second session a hook holds records and removes the first alone
-  (`TestInboxClearRecordsOnlyTheChatsItRemoves`); a chat off the record keeping its transcript recovery record, still blocked, while its file and watermark go (`TestInboxClearKeepsTheRecordOfAChatOffTheRecord`).
-  In the inbox: the captures listing session files and the watermarks of files gone, and nothing else (`TestCapturesListsFilesAndLeftWatermarks`); a removal taking the file before its watermark, so one cut short leaves the watermark alone, listed for the next, and refusing a capture outside its folder
-  (`TestRemoveTakesTheFileThenItsWatermark`); the record of removals appended 0600 under a flock, a line a killed writer left ended and passed over, and a link in its place refused (`TestRecordOfRemovals`); and the session id the hooks lock by read from the file's first entry (`TestSessionIDIsTheHooksID`).
-  A recovery record whose cursor lags behind the hooks removed with the capture, so recovery brings none of its rows back, while one appending to another project folder stays and a damaged one goes (`TestForgetKeepsRecoveryFromBringingBackARemovedCapture`); a blocked record that alone keeps a chat off
-  the record, its markers unwritable, kept, so the chat's next registration keeps it off the record and recovery stores nothing it says next (`TestForgetKeepsARecordThatKeepsTheChatOffTheRecord`).
-  A held index folder refusing a search's top-up, then dropped with no file left holding a removed word, and built again by the next catch-up (`TestHoldDropsAFoldersIndexWhole`); a folder another writer holds making the hold busy, holding nothing (`TestHoldIsBusyWhileAWriterHoldsAFolder`).
-  The lint sorting refs into removed, also by a short id and after a chat still open made its file again, lost, with only a watermark left, past a file's end, and another Mac's (`TestLintSortsRefsToRemovedLostAndOtherMacsChats`), failing none in a wiki with no inbox, as one adopted from another Mac
-  (`TestLintWithoutInbox`), counting refs as unknown, never as another Mac's, and naming the folder while a project folder or a session file in it can't be read (`TestLintCountsRefsUnknownWhileAFolderCantBeRead`), and counting refs to chosen sessions by full and short ids (`TestCiting`); the doctor's
-  source refs row naming refs to removed and other Macs' chats without failing, unknown while refs couldn't be checked, naming the folders that couldn't be read, and its fix naming the command (`TestLintRows`); `eva-md show` saying a ref's chat was removed, by a full or short id, and a ref to a chat never captured still not found (`TestShowSaysAChatWasRemoved`).
-
 <!-- /v1 -->
+
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| CAP-K06 | Redaction before disk fails closed: a redactor panic stores no text, a secret in an identity field rejects the entry, other metadata is redacted | internal/inbox:TestRedactionTruncationAndFailClosed, internal/inbox:TestIdentitySecretsStillRejected, internal/inbox:TestMetadataRedactionAndInvalidLines, internal/hook:TestModelAndMetadataSafety |
+| CAP-K12 | Append-only JSONL under a file lock; a killed writer's partial line is ended and marked; a malformed line reads as a gap | internal/inbox:TestConcurrentAppend, internal/inbox:TestSeparateProcessAppend, internal/inbox:TestInterruptedAppendRecovery, internal/inbox:TestPartialLinesAndWatermark, internal/inbox:TestMetadataRedactionAndInvalidLines |
+| CAP-K13 | Escaping and quoting keep pasted text from forging an entry, a speaker or the brief's notes | internal/freetext:TestShown, internal/resume:TestFreeTextCannotForgeSpeakerHeaders |
+| CAP-K14 | State is confined: opened through a root with no linked ancestor, safe names, links and swapped files refused, private modes | internal/paths:TestRootedWritesRejectEscapeAndCancellation, internal/paths:TestSafeName, internal/inbox:TestTraversalAndSymlinks, internal/inbox:TestOpenSessionRefusesLinks, internal/inbox:TestPermissionsAndRefs, internal/session:TestSymlinkConfinement, internal/session:TestHostileNamesStayInsideRoot, internal/session:TestPermissions |
+| CAP-K15 | An entry is trusted only in the file its host, session and project name, and nothing said off the record reaches search | internal/inbox:TestWalkYieldsWhatSearchCanMatch, internal/inbox:TestWalkResumesFromAPosition, internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile |
+| CAP-K17 | Removal previews first, an empty filter is a usage error, and lock, record, file and watermark go in that order | cmd/eva-md:TestInboxClearPreviewsThenRemoves, cmd/eva-md:TestInboxClearArguments, cmd/eva-md:TestInboxClearKeepsTheRecordOfAChatOffTheRecord, internal/inbox:TestRemoveTakesTheFileThenItsWatermark, internal/inbox:TestRecordOfRemovals |
+| CUP-K15 | Removing a capture removes the record that could bring it back, under the session lock, only if unchanged; a blocked record stays | internal/catchup:TestForgetKeepsRecoveryFromBringingBackARemovedCapture, internal/catchup:TestForgetKeepsARecordThatKeepsTheChatOffTheRecord, internal/catchup:TestPruneKeepsARecordSavedAgainAfterTheListing, internal/catchup:TestPruneKeepsARecordSavedBeforeItLocks, internal/catchup:TestPruneLeavesARecordThatAloneKeepsAChatOffTheRecord |
+| RED-K01 | Text is redacted before any byte reaches disk and before it is cut, so a token across a cut leaks no prefix | internal/inbox:TestRedactionTruncationAndFailClosed, internal/hook:TestToolLines, internal/catchup:TestBoundedRedactMatchesFullRedaction |
+| RED-K02 | A redactor panic stores no text, or a gap in recovery, never unredacted text | internal/inbox:TestRedactionTruncationAndFailClosed, internal/catchup:TestRedactorPanicLeavesGap |
+| RED-K12 | Logs and entries record how many replacements, never what was replaced | internal/inbox:TestAppendRedactedKeepsTextAndChecksMetadata, internal/redact:TestCount, internal/hook:TestRecordsHoldNoContent |
+| SRC-K03 | An entry must belong to the file it is read from | internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile, internal/inbox:TestWalkYieldsWhatSearchCanMatch, internal/searchindex:TestOffRecordAndUntrustedNeverIndexed |
+| SRC-K11 | Clearing chats holds the index folders and drops each cleared project's index | internal/searchindex:TestHoldDropsAFoldersIndexWhole, internal/searchindex:TestHoldIsBusyWhileAWriterHoldsAFolder |
+| UPW-K02 | The inbox watermark is the truth about pending work | internal/inbox:TestPendingSkipsAWaitingBacklog, internal/update:TestSessionsDrainsTheNamedSessions |
 
 ## Since the split
 

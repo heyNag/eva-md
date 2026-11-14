@@ -87,6 +87,22 @@ The index is a cache built from the inbox, never the truth: deleting it loses no
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| SRC-K01 | Nothing is shown from the cache: every candidate is read again from the inbox and checked, and the index stores no text | internal/resume:TestSearchIndexAndScanAgree, internal/resume:TestSearchFindsALineAtAStaleCandidatesNumber, internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile, internal/resume:TestSearchDeadAndStaleFiles |
+| SRC-K02 | Off-the-record ranges are never indexed, printed or counted | internal/resume:TestSearchPrivacy, internal/resume:TestSearchSkipsOffTheRecordRanges, internal/searchindex:TestOffRecordAndUntrustedNeverIndexed, internal/inbox:TestWalkYieldsWhatSearchCanMatch |
+| SRC-K09 | Cache writes are crash-safe: synced temporary files, the manifest last, retired segments kept for readers, checksums, a free-space check | internal/searchindex:TestManifestBoundsAndLeftovers, internal/searchindex:TestPruneKeepsRecentSegments, internal/searchindex:TestSegmentByteFlips, internal/searchindex:TestFreeSpaceRefusal, internal/searchindex:TestConcurrentAppendersAndIndexer |
+| SRC-K10 | A replaced or rewritten file is seen by its generation, inode and line ends | internal/resume:TestSearchDeadAndStaleFiles, internal/resume:TestSearchRewrittenFileShowsEachLineOnce, internal/searchindex:TestMergeDropsDeadGenerations |
+| SRC-K11 | Clearing chats holds the index folders and drops each cleared project's index | internal/searchindex:TestHoldDropsAFoldersIndexWhole, internal/searchindex:TestHoldIsBusyWhileAWriterHoldsAFolder |
+| SRC-K12 | Hooks never read or write the index, and the MCP search writes no file and takes no lock (untested: the hooks' half) | internal/mcp:TestServerWritesNothing |
+| SRC-K17 | Pages are found by a file they cite or a folder holding it, and tokens split at camelCase and digits | internal/resume:TestSearchFindsSystemPagesByNameAndCode, internal/searchindex:TestTokenize, internal/searchindex:TestPrefixAndShortTokens |
+| SRC-K19 | Search tests run with and without the index and compare hits; segments are byte-flipped and fuzzed; no test depends on speed (untested: independence from speed) | internal/resume:TestSearchIndexAndScanAgree, internal/searchindex:TestSegmentByteFlips, internal/searchindex:FuzzSegmentReader |
+
 ## Since the split
 
 No change yet.

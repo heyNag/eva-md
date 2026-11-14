@@ -86,6 +86,30 @@ A Now in any other format, such as a hand-written or placeholder page, is cut to
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| CAP-K13 | Escaping and quoting keep pasted text from forging an entry, a speaker or the brief's notes | internal/freetext:TestShown, internal/resume:TestFreeTextCannotForgeSpeakerHeaders |
+| BRF-K01 | The brief needs no model or network; any failure gives no context and the hook still exits 0 (untested: no model or network) | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/hook:TestSessionStartBudgetAndMarkerErrors |
+| BRF-K02 | One label outside a fence longer than any run inside; speakers only from entry fields; quoted lines indented, also after a cut | internal/resume:TestFence, internal/resume:TestHostileFencesUnicodeAndLimits, internal/resume:TestMiddleCutCannotForgeSpeakerHeader, internal/resume:TestMiddleQuotedIndentsEveryLine, internal/resume:TestFreeTextCannotForgeSpeakerHeaders, internal/resume:TestOtherChatLineCannotForgeSpeaker, internal/resume:TestGitSubjectCannotForgeSpeaker |
+| BRF-K03 | What the brief shows is redacted again with the union of the rules | internal/freetext:TestShown, internal/resume:TestCleanPage |
+| BRF-K04 | Off-the-record ranges leave the brief, and no brief comes while a chat is off the record or its transcript is unread | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/resume:TestOpeningRequestFromHeadRead, internal/hook:TestCompactResumeAndOffRecordSuppression, internal/hook:TestOffRecordAndResume |
+| BRF-K05 | Wiki reads are pinned and bounded: no link or swapped file, the instance checked first, pages read by path, the Now read from the head | internal/resume:TestWikiInstanceAndProjectGuards, internal/resume:TestStrayWikiFileKeepsTheNow, internal/resume:TestLongPageKeepsItsNow, internal/resume:TestNowMarkersAfterTheNowAreNotLookedAt, internal/resume:TestUnusableMapGivesNoPointers |
+| BRF-K06 | The brief's cost is bounded however long chats grow | internal/resume:TestBriefReadsAtMost64SessionFiles, internal/resume:TestProgramRunFilesBeyondThe64AreBounded, internal/resume:TestLargeInboxTailReferencesAndCancellation, internal/resume:TestOpeningRequestFromHeadRead |
+| BRF-K07 | Another branch's Now comes only as labelled lineage at a startup or clear, never on a resume, fork or compact | internal/resume:TestResumeNeverInjectsAnotherBranchNow, internal/resume:TestResumeReportsLiveGitWithoutAnotherBranchPage, internal/resume:TestStartupLineageNowNamesItsBranch, internal/resume:TestStartupKeepsOwnBranchNow, internal/resume:TestCompactDoesNotBorrowAnotherSession |
+| BRF-K08 | Events never make a chat the newest or the Now stale | internal/resume:TestEventsDoNotMakeAnIdleChatNewest, internal/resume:TestSessionStartDoesNotMakeNowStale |
+| BRF-K09 | A chat a program ran is never the previous chat and cannot crowd a person's chats out | internal/resume:TestBriefPassesOverAProgramRunChat, internal/resume:TestLineagePassesOverAProgramRunChat, internal/resume:TestProgramRunChatsDontCountTowardThe64 |
+| BRF-K10 | The newest exchange, the footer, the rules, the constraints and the system pointers are reserved and never cut | internal/resume:TestBudgetRetainsNewestReplyAndFooter, internal/resume:TestEveryVariantStaysWithinItsCap, internal/resume:TestBriefShowsTheRulesFirst |
+| BRF-K11 | Freshness and provenance are shown: as_of, stale and lineage labels, the pending update, and refs with physical line numbers | internal/resume:TestVariantsFreshStaleMissingAndRefresh, internal/resume:TestBriefSaysWhenAnUpdateIsPending, internal/resume:TestRecoveredEntriesUseOriginalChronology, internal/resume:TestLargeInboxTailReferencesAndCancellation |
+| BRF-K12 | Live git cannot harm or stall: no hooks or lazy fetch, a scrubbed environment, children killed at the deadline, output capped | internal/resume:TestLiveGitWithShowSignature, internal/resume:TestBriefFetchesNothingInAPartialClone, internal/resume:TestLiveGitKillsItsChildren, internal/resume:TestLiveGitRunsWithTheReadEnvironment, internal/resume:TestLiveGitOutputIsBounded, internal/resume:TestSlowGitLeavesTimeToDeliverBrief |
+| BRF-K15 | An undated placeholder Now is not memory | internal/resume:TestInitialGeneralScaffoldIsNotMemory, internal/resume:TestUndatedRealNowIsPreservedWithUnknownFreshness |
+| PGS-K11 | The hot path reads a thread page to its Now's end and the recall index by path, refusing links | internal/resume:TestLongPageKeepsItsNow, internal/knowledgepage:TestReadIndexStrict, internal/hook:TestRecallNeedsTheIndex |
+| SYS-K08 | Hooks run no git for pointers and read bounded local files; the brief's live count has a hard budget | internal/hook:TestPointerCarriesTheCodeNote, internal/resume:TestBriefCodeWithinItsDeadline |
+
 ## Since the split
 
 No change yet.

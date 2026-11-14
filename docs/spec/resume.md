@@ -133,6 +133,19 @@ Codex runs SessionStart(compact) before the next model request, even after autom
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| BRF-K01 | The brief needs no model or network; any failure gives no context and the hook still exits 0 (untested: no model or network) | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/hook:TestSessionStartBudgetAndMarkerErrors |
+| BRF-K04 | Off-the-record ranges leave the brief, and no brief comes while a chat is off the record or its transcript is unread | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/resume:TestOpeningRequestFromHeadRead, internal/hook:TestCompactResumeAndOffRecordSuppression, internal/hook:TestOffRecordAndResume |
+| BRF-K07 | Another branch's Now comes only as labelled lineage at a startup or clear, never on a resume, fork or compact | internal/resume:TestResumeNeverInjectsAnotherBranchNow, internal/resume:TestResumeReportsLiveGitWithoutAnotherBranchPage, internal/resume:TestStartupLineageNowNamesItsBranch, internal/resume:TestStartupKeepsOwnBranchNow, internal/resume:TestCompactDoesNotBorrowAnotherSession |
+| BRF-K13 | A brief not delivered is given again with the next prompt | internal/hook:TestBriefTooCloseToDeadlineIsRetried, internal/hook:TestDeliveryRecordsTheFirstPromptFallback |
+| BRF-K14 | The refresh hash ignores hidden comments, so ids and dates alone change nothing | internal/resume:TestStripComments, internal/resume:TestRefreshFollowsTheRules, internal/hook:TestRefreshFollowsTheNowHash |
+
 ## Since the split
 
 No change yet.

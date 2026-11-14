@@ -111,6 +111,16 @@ Passed:
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| MCP-K09 | One marketplace folder a host, and the Codex manifest in the form that exposes hooks | internal/install:TestPluginFolderBytes, internal/host/adapter:TestPluginHoldsV1sValues |
+| OPS-K04 | Codex is asked for plugins one marketplace at a time, never for its global list | internal/install:TestCodexIsAskedOneMarketplaceAtATime |
+
 ## Since the split
 
 No change yet.

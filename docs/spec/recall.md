@@ -78,6 +78,28 @@ The wiki's instance is checked at most once a prompt, for the pointers and recal
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| BRF-K02 | One label outside a fence longer than any run inside; speakers only from entry fields; quoted lines indented, also after a cut | internal/resume:TestFence, internal/resume:TestHostileFencesUnicodeAndLimits, internal/resume:TestMiddleCutCannotForgeSpeakerHeader, internal/resume:TestMiddleQuotedIndentsEveryLine, internal/resume:TestFreeTextCannotForgeSpeakerHeaders, internal/resume:TestOtherChatLineCannotForgeSpeaker, internal/resume:TestGitSubjectCannotForgeSpeaker |
+| BRF-K16 | Recall never repeats a page the brief listed | internal/hook:TestRecallSkipsTheBriefsConstraints, internal/hook:TestPointersSkipTheBriefsPages, internal/hook:TestQuotedCommandIsNoPointer |
+| RCL-K01 | Recall and pointers read local bounded files only, run no git, model or network, and inject nothing on an error (untested: no git, model or network, and p95 under 50 ms) | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates |
+| RCL-K02 | Anything injected is read strictly, by path, with no link, one hard link and a size bound; a rebuild replaces an index the readers refuse | internal/knowledgepage:TestReadIndexStrict, internal/hook:TestRecallNeedsTheIndex, internal/knowledgepage:TestRefreshRewritesAnIndexTheReadersRefuse |
+| RCL-K04 | One fence and one label style, the label worded as facts, not commands | internal/resume:TestFence, internal/hook:TestPromptRecallsKnowledge, internal/hook:TestRecallLabelNamesTheTagsShown |
+| RCL-K05 | A line the secret scan flags, or that cleaning would change, is dropped, never altered | internal/hook:TestRecallBlockFits, internal/hook:TestPointerFits, internal/resume:TestPointersAreCleanedAsWikiText |
+| RCL-K06 | Each recalled line carries its tag and the label says what the tags rest on | internal/hook:TestRecallLabelNamesTheTagsShown, internal/hook:TestRecallLineWithoutATag, internal/resume:TestLabelsSayWhatObservedRestsOn |
+| RCL-K07 | Scope is closed by default: own project and all-projects facts, another project only by its whole owner path | internal/knowledgepage:TestRecallScope, internal/knowledgepage:TestPromptNamesAProject, internal/knowledgepage:TestProjectName, internal/hook:TestRecallKeepsToTheChatsScope |
+| RCL-K08 | A weak match adds nothing, and a score does not grow with the index | internal/knowledgepage:TestRecallPrecision, internal/knowledgepage:TestRecallScoreHoldsAtEverySize, internal/knowledgepage:TestRecallRules, internal/hook:TestNamedPrecision |
+| RCL-K09 | A page is not sent twice in a chat, nor at all if the brief listed it; a startup or clear starts over | internal/hook:TestPromptRecallsKnowledge, internal/hook:TestRecallSkipsTheBriefsConstraints, internal/hook:TestClearRecallsAgain, internal/hook:TestPointersSkipTheBriefsPages, internal/hook:TestClearStartsTheStateOver |
+| RCL-K10 | The chat's state is saved before lines go, lines are dropped if it fails, and it is never written through a link | internal/hook:TestDeliveryRecordsNoLinesNotSaved, internal/hook:TestStateNeverSavedThroughALink, internal/hook:TestLostRefreshRecordsNoPointer |
+| RCL-K11 | Nothing is injected off the record, while recovery is behind, or from a wiki of another instance | internal/hook:TestRecallGates, internal/hook:TestPointersNeedTheIndex |
+| RCL-K12 | A prompt's cost is capped: characters per injection, terms and bytes of prompt read | internal/hook:TestRecallBlockFits, internal/hook:TestPointersPerChat, internal/hook:TestLongPromptScanned, internal/knowledgepage:TestRecallRules |
+| PGS-K14 | Recalled text is fenced as reference data, says what its tags rest on, at most 3 facts, each once a chat | internal/hook:TestPromptRecallsKnowledge, internal/hook:TestRecallBlockFits, internal/hook:TestRecallLabelNamesTheTagsShown |
+
 ## Since the split
 
 No change yet.
