@@ -179,4 +179,5 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 ## Since the split
 
-No change yet.
+**2026-11-14, DV-13: a config key.**
+The config gains `daily_token_budget`: weighted tokens for each host a day, held only with `[switches] token_budget = true`; 0 or absent is 1,000,000, and a negative number is refused.

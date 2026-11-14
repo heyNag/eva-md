@@ -108,3 +108,17 @@ A lock taken between two of the update job's calls keeps the marks of the reason
 The reasons are: waiting for the size or quiet rule (a session with a backlog by its watermark, as the update backlog row counts it, and no mark); behind a running job (a mark waiting for the worker); deferred by the day's budget; held after a failure, with the failure that started the hold or backoff as its class and its next try; waiting for sign-in; or switched off.
 The hook's wake recovers a fault of its own and still starts the jobs the launch judged.
 Off, the default, nothing changes: the hooks start v1's commands with v1's arguments, and `status` and `doctor` print what they printed.
+
+**2026-11-14, DV-13: the cost ledger, a token budget and a low effort default, behind two switches that are off.**
+A pass's record gains `tokens_cached_in`, the part of `tokens_in` the host read from its cache (Claude's `cacheReadInputTokens` in `modelUsage`, or `cache_read_input_tokens` in `usage`; Codex's `cached_input_tokens`), summed over the pass's attempts and left out when 0.
+`tokens_in` keeps its meaning, a cache write counts as uncached input, and a record without the field has no cached input.
+What organizing spends is counted in weighted tokens: uncached input, plus cached input at a tenth, plus output at five times, rounded up to a whole token.
+`[switches] token_budget = true` holds each host's updates to a daily budget of weighted tokens, `daily_token_budget`, which is 1,000,000 when 0 or absent (provisional until the contract spike's figures); a negative value makes the config invalid.
+With it on, a host whose weighted tokens today reached the budget is stopped with `budget`, as `daily_cap` stops it, a person's run included.
+With it on, a pass is stopped with `budget` when its estimate (a token for each four bytes of the rules, the batch and the schema) would take the day's weighted tokens past the budget; a pass that lands exactly on it runs.
+A pass the budget stops is deferred: it leaves no record, its watermark stays, and the next day it runs; `daily_cap` still applies.
+With it on, the worker's update job waits as deferred by the day's budget for a host that the budget or `daily_cap` stops, judged on the whole of today's run log; a wait that is held, waits for sign-in or is off keeps its own reason.
+With it on, each host's updates row in `status` and `doctor` adds "about N thousand weighted tokens today, P% of the day's budget".
+With it on, `eva-md status --updates` ends with a line a host of what its updates spent over the 7 days: each token count and the weighted sum, model calls and passes, chats organized and weighted tokens a chat, and the shares unchanged and below the effort asked; its JSON is unchanged, and with the switch off the line is not shown.
+`[switches] low_effort_default = true` makes a pass and `doctor --live` ask for `low` where the `[effort]` table names no effort for the host or model, in place of the highest; an entry still wins, and the model stays the chat's.
+Off, the default for both, nothing changes: no budget of tokens stops a pass, the effort is the highest, and `status`, `doctor` and `status --updates` print what they printed.
