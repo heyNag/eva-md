@@ -24,7 +24,7 @@ What fails. `go test ./internal/eval/guard -run TestTheSizeLedgerHoldsForThisRep
 | --- | ---: | --- | --- | --- | --- |
 | `internal/okfadapter/**` | 1038 | ST-13 | CUT-4 | file | ST-03a |
 | `internal/wikiinit/**` | 572 | ST-13 | CUT-4 | file | none |
-| `internal/update/**` | 8981 | DV-26 | CUT-4 | file | none |
+| `internal/update/**` | 9162 | DV-26 | CUT-4 | file | none |
 | `internal/lint/**` | 401 | DV-26 | CUT-4 | file | none |
 | `internal/threadpage/**` | 1881 | DV-26 | CUT-4 | file | none |
 | `internal/knowledgepage/**` | 2244 | DV-26 | CUT-4 | file | none |
@@ -67,7 +67,7 @@ The rows named by file are the plan's: sections 6.0, 8 ("What runs in parallel")
 | `internal/health/held.go` | 48 | the hook counters: what each hook held back and delivered | CT-1, 4341736 | leaves at CUT-4 | HO-12b, HO-23 |
 | `internal/health/delivered.go` | 72 | the hook counters: what each hook held back and delivered | CT-1, 4341736 | leaves at CUT-4 | HO-12b, HO-23 |
 | `internal/health/hookweek.go` | 297 | the hook counters: a week of counts, behind the two doctor rows | CT-1, 4341736 | leaves at CUT-4 | HO-12b, HO-23 |
-| `internal/health/updates.go` | 327 | the update counters behind `status --updates` | CT-2, 6114939 | leaves at CUT-4 | DV-13, HO-24 |
+| `internal/health/updates.go` | 335 | the update counters behind `status --updates` | CT-2, 6114939 | leaves at CUT-4 | DV-13, HO-24 |
 | `internal/health/backlog.go` | 242 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
 | `internal/health/report.go` | 428 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
 | `internal/health/report_hooks.go` | 123 | `doctor --report` | CT-4, 80e6aa2 | leaves at CUT-4 | EV-23 |
@@ -97,12 +97,12 @@ The v1 files those commits changed that no (a) row holds, whose changes stay in 
 ## The end state
 
 ```ledger
-counted-at: 9bb0160494b1
-built: 66982
-leaves-v1: 20620
-leaves-instruments: 5875
-leaves: 26495
+counted-at: d89c4293e4c2
+built: 67373
+leaves-v1: 20801
+leaves-instruments: 5883
+leaves: 26684
 not-yet-called: 9328
-end-state: 49815
+end-state: 50017
 ceiling: 53694
 ```

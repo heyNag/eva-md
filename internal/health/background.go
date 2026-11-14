@@ -97,7 +97,7 @@ func inspectUpdates(r *Report, d paths.Dirs, c config.Config, now time.Time) {
 			r.add(name, "UNKNOWN", "the run log is unreadable", "inspect the files in eva-md's state folder, updates/")
 		default:
 			status, detail, fix := updateRow(update.Host(records, host, now), host, c.DailyCap, update.CLIRecorded(d.State, host))
-			r.add(name, status, detail, fix)
+			r.add(name, status, detail+budgetDetail(c, records, host, now), fix)
 		}
 	}
 }

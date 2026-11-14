@@ -91,7 +91,7 @@ func claudeResult(c child, out *capped, effort string) attempt {
 		return attempt{reason: d.reason(), effortRefused: d.refusesEffort(), strictMCPRefused: d.refusesStrictMCP()}
 	}
 	a := attempt{model: claudeModel(e)}
-	a.tokensIn, a.tokensOut = claudeTokens(e)
+	a.tokensIn, a.tokensCachedIn, a.tokensOut = claudeTokens(e)
 	switch {
 	case deniedTools(e.PermissionDenials):
 		a.reason = ReasonToolUsed
@@ -169,20 +169,23 @@ func claudeModel(e envelope) string {
 
 // claudeTokens reads the token counts. modelUsage covers every model call
 // of the run, so it is preferred to usage, which covers the main loop only.
-// The input count adds the cache writes and reads, which both report apart.
-func claudeTokens(e envelope) (in, out int) {
+// The input count adds the cache writes and reads, which both report apart;
+// cached is the reads alone, a part of in.
+func claudeTokens(e envelope) (in, cached, out int) {
 	var models map[string]map[string]any
 	if json.Unmarshal(e.ModelUsage, &models) == nil && len(models) > 0 {
 		for _, u := range models {
+			cached += count(u["cacheReadInputTokens"])
 			in += count(u["inputTokens"]) + count(u["cacheCreationInputTokens"]) + count(u["cacheReadInputTokens"])
 			out += count(u["outputTokens"])
 		}
-		return in, out
+		return in, cached, out
 	}
 	var u map[string]any
 	if json.Unmarshal(e.Usage, &u) != nil {
-		return 0, 0
+		return 0, 0, 0
 	}
-	in = count(u["input_tokens"]) + count(u["cache_creation_input_tokens"]) + count(u["cache_read_input_tokens"])
-	return in, count(u["output_tokens"])
+	cached = count(u["cache_read_input_tokens"])
+	in = count(u["input_tokens"]) + count(u["cache_creation_input_tokens"]) + cached
+	return in, cached, count(u["output_tokens"])
 }

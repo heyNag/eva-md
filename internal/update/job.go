@@ -28,7 +28,7 @@ import (
 const (
 	StopBusy        = "busy"        // another job holds the update lock
 	StopPaused      = "paused"      // updates = false in the config
-	StopBudget      = "budget"      // the host's daily cap of model calls is reached
+	StopBudget      = "budget"      // the host's daily cap of model calls, or with token_budget on its day's weighted tokens, is reached
 	StopHeld        = "held"        // auth or mcp_failed today, until tomorrow or a successful manual run
 	StopBackoff     = "backoff"     // rate_limit, host_error, wiki_error or cli_missing, for 5 to 60 minutes
 	StopQuarantined = "quarantined" // 3 session failures in a row today
