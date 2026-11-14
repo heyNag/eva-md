@@ -361,6 +361,7 @@ func TestPilotExportRefusesBeforeAnyCheck(t *testing.T) {
 		"a folder that is not empty": "the folder to write is not empty",
 		"a file":                     "the folder to write is not a folder",
 		"a link to an empty folder":  "the folder to write is a link",
+		"a link with a slash after":  "the folder to write is a link",
 		"in no folder":               "the folder to write is in no folder that exists",
 		"inside the tasks":           "the folder to write lies inside the tasks folder",
 		"the tasks themselves":       "the folder to write is not empty",
@@ -408,6 +409,17 @@ func TestPilotExportRefusesBeforeAnyCheck(t *testing.T) {
 					t.Fatal(err)
 				}
 				return filepath.Join(base, "out")
+			},
+		},
+		"a link with a slash after": {
+			setup: func(base string) string {
+				if err := os.Mkdir(filepath.Join(base, "empty"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(base, "empty"), filepath.Join(base, "out")); err != nil {
+					t.Fatal(err)
+				}
+				return filepath.Join(base, "out") + string(filepath.Separator)
 			},
 		},
 		"in no folder":          {setup: func(base string) string { return filepath.Join(base, "none", "out") }},

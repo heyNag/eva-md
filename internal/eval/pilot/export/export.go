@@ -87,6 +87,9 @@ func Export(ctx context.Context, o Options) (Report, error) {
 	if o.Out == "" {
 		return Report{}, usage("the export needs a folder to write")
 	}
+	// Cleaned, a link given with a slash after it is read as the link it
+	// is, not as the folder it leads to.
+	o.Out = filepath.Clean(o.Out)
 	existed, err := outFolder(o.Out, o.Tasks)
 	if err != nil {
 		return Report{}, err
