@@ -214,21 +214,42 @@ func TestACopyALastGradingLeavesStopsTheNextTrial(t *testing.T) {
 }
 
 // A hidden file's bytes in a folder its owner may not read, or may not
-// enter, are found: the folder is given its owner's rights first.
+// enter, or in a file its owner may not read, are found: the folder or
+// file is given its owner's rights first. Its mode is put back once it is
+// read, so that the grading that follows sees what the chat left.
 func TestFoundInAFolderTheOwnerCannotRead(t *testing.T) {
 	data := []byte("#!/bin/sh\nmade-up hidden test\n")
-	for name, mode := range map[string]os.FileMode{"not read": 0o300, "not entered": 0o600} {
+	for name, c := range map[string]struct {
+		dir, file os.FileMode
+	}{
+		"not read":      {0o300, 0o644},
+		"not entered":   {0o600, 0o644},
+		"a file unread": {0o755, 0o200},
+	} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			dir := filepath.Join(root, "locked")
-			write(t, filepath.Join(dir, "copy.txt"), "made-up before\n"+string(data))
-			if err := os.Chmod(dir, mode); err != nil {
+			file := filepath.Join(dir, "copy.txt")
+			write(t, file, "made-up before\n"+string(data))
+			if err := os.Chmod(file, c.file); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(dir, c.dir); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 			h := &hidden{content: [][]byte{data}, longest: len(data)}
 			if in, err := h.found(root); err != nil || !in {
 				t.Fatalf("found: %v %v", in, err)
+			}
+			if info, err := os.Lstat(dir); err != nil || info.Mode().Perm() != c.dir {
+				t.Fatalf("the folder's mode: %v %v, want %v", info, err, c.dir)
+			}
+			if err := os.Chmod(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if info, err := os.Lstat(file); err != nil || info.Mode().Perm() != c.file {
+				t.Fatalf("the file's mode: %v %v, want %v", info, err, c.file)
 			}
 		})
 	}

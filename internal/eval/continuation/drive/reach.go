@@ -158,8 +158,9 @@ const chunk = 1 << 20
 // the trials --keep-trials keeps, which a later chat can reach. Every file
 // is read, however large, a piece at a time, so memory is bounded by the
 // hidden files and not by what the chat wrote. A folder or file the owner
-// cannot read is given the owner's rights first; one that still cannot be
-// read is an error.
+// cannot read is given the owner's rights first, and its mode is put back
+// once it is read; one that still cannot be read is an error. A run as
+// root, as the run-book's, reads them as they are.
 func (h *hidden) found(root string) (bool, error) {
 	window := make([]byte, chunk+h.longest)
 	in, err := h.walk(root, window)
@@ -183,10 +184,15 @@ func (h *hidden) found(root string) (bool, error) {
 
 // walk reads every regular file under dir, links not followed, and
 // reports whether one holds a hidden file's bytes. A folder its owner may
-// not read or enter is given those rights first.
+// not read or enter is given those rights first, and its mode is put back
+// once it is read, so that the grading that follows sees the modes the
+// chat left.
 func (h *hidden) walk(dir string, window []byte) (bool, error) {
 	if info, err := os.Lstat(dir); err == nil && info.IsDir() && info.Mode().Perm()&0o500 != 0o500 {
-		_ = os.Chmod(dir, info.Mode().Perm()|0o700)
+		mode := info.Mode().Perm()
+		if os.Chmod(dir, mode|0o700) == nil {
+			defer func() { _ = os.Chmod(dir, mode) }()
+		}
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -249,12 +255,16 @@ func (h *hidden) holds(p string, window []byte) (bool, error) {
 }
 
 // open opens the file p to read, never through a link, and, when its
-// owner may not read it, after giving the owner that right.
+// owner may not read it, after giving the owner that right, which is taken
+// back once the file is open.
 func open(p string) (*os.File, error) {
 	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, fs.ErrPermission) {
 		if info, lerr := os.Lstat(p); lerr == nil && info.Mode().IsRegular() {
-			_ = os.Chmod(p, info.Mode().Perm()|0o400)
+			mode := info.Mode().Perm()
+			if os.Chmod(p, mode|0o400) == nil {
+				defer func() { _ = os.Chmod(p, mode) }()
+			}
 		}
 		f, err = os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	}
