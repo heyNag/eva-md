@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -34,7 +35,8 @@ var waitDelay = 10 * time.Second
 // under scratch, PATH holding only links to the runners; GOCACHE as
 // "go env GOCACHE" gives it; GOPROXY=off and GOTOOLCHAIN=local, so go
 // reaches no network; and GOWORK=off, so no go.work above scratch joins
-// in. A runner not installed is an error, and so is ctx ending.
+// in. Go's telemetry is off in HOME before any test runs. A runner not
+// installed is an error, and so is ctx ending.
 func Grade(ctx context.Context, t Task, workspace, scratch string, limit time.Duration) (failed []string, err error) {
 	var needs []string
 	for _, test := range t.Tests {
@@ -125,6 +127,9 @@ func newSandbox(ctx context.Context, t Task, scratch string, needs []string, avo
 			return nil, t.errorf("cannot make the scratch folder: %s", bare(err))
 		}
 	}
+	if err := goTelemetryOff(filepath.Join(dir, "home")); err != nil {
+		return nil, t.errorf("cannot turn Go's telemetry off: %s", bare(err))
+	}
 	s.env = []string{"PATH=" + s.bin, "HOME=" + filepath.Join(dir, "home"), "TMPDIR=" + filepath.Join(dir, "tmp"),
 		"GOPROXY=off", "GOTOOLCHAIN=local", "GOWORK=off"}
 	linked := map[string]bool{}
@@ -156,6 +161,23 @@ func newSandbox(ctx context.Context, t Task, scratch string, needs []string, avo
 		}
 	}
 	return s, nil
+}
+
+// goTelemetryOff writes off as Go's telemetry mode into home, where go
+// keeps it (os.UserConfigDir's folder, with no XDG_CONFIG_HOME in the
+// sandbox's environment): a go command run with a home of its own otherwise
+// leaves a process behind that writes into that home after the command
+// ends.
+func goTelemetryOff(home string) error {
+	config := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		config = filepath.Join(home, "Library", "Application Support")
+	}
+	dir := filepath.Join(config, "go", "telemetry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "mode"), []byte("off\n"), 0o600)
 }
 
 // resolved returns path made absolute with its links resolved; of a path
