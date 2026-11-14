@@ -10,7 +10,10 @@ import (
 )
 
 func init() {
-	registerRows(500, "search index", func(r *Report, in *inspection) { inspectSearchIndex(r, in.d) })
+	registerRows(500, "search index", func(r *Report, in *inspection) {
+		c, _ := in.config()
+		searchIndexRow(r, in.d, Switch.On(c))
+	})
 }
 
 // inspectSearchIndex adds the search index's row, read from its manifests
@@ -18,7 +21,12 @@ func init() {
 // is not built yet, or the project folders whose index is damaged, which
 // search scans instead. Search works without it either way. The doctor
 // repairs nothing here; eva-md index and the day's maintenance do.
-func inspectSearchIndex(r *Report, d paths.Dirs) {
+func inspectSearchIndex(r *Report, d paths.Dirs) { searchIndexRow(r, d, false) }
+
+// searchIndexRow is inspectSearchIndex; with rest, as with the switch
+// health on, an index that covers less than all of the inbox says that
+// search scans the rest.
+func searchIndexRow(r *Report, d paths.Dirs, rest bool) {
 	st := searchindex.Inspect(d)
 	switch n := len(st.Damaged); {
 	case n > 0:
@@ -35,6 +43,9 @@ func inspectSearchIndex(r *Report, d paths.Dirs) {
 		detail := fmt.Sprintf("covers %s of %s MB of the inbox (%.1f%%) in %d %s; %s MB in %d %s", megabytes(st.Covered), megabytes(st.Inbox), pct, st.Indexed, plural(st.Indexed, "project", "projects"), megabytes(st.Size), st.Segments, plural(st.Segments, "segment", "segments"))
 		if !st.Built.IsZero() {
 			detail += "; built " + st.Built.Local().Format("2006-01-02 15:04") + " by " + st.By
+		}
+		if rest && st.Covered < st.Inbox {
+			detail += "; search scans the rest"
 		}
 		r.add("search index", "PASS", detail, "")
 	}
