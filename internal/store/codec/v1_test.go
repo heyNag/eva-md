@@ -188,31 +188,34 @@ func TestV1Differences(t *testing.T) {
 				return err == nil && reflect.DeepEqual(p.Verified, []V1Stamp{{}}) && !p.Doc.Protection().Verified
 			}},
 		// A space before the colon and none after it, or a quote v1 trimmed
-		// from the key: YAML reads another key or none, and Protection
-		// does not read these as the key (ST-03a's to widen).
-		{"locked-space-before-colon", "locked: true", refused(ErrNotWritten, Protection{})},
-		{"verified-space-before-colon", `verified by "a"`, refused(ErrNotWritten, Protection{})},
-		{"verified-quote-in-key", `the key "verified", so verified`, refused(ErrNotWritten, Protection{})},
-		{"locked-spaces-in-quotes", `the key "locked", spaces trimmed, so locked`, refused(ErrNotWritten, Protection{})},
+		// from the key: YAML reads another key or none. ReadV1 refuses
+		// them, and Protection reads the mark v1 read.
+		{"locked-space-before-colon", "locked: true", refused(ErrNotWritten, Protection{Locked: true})},
+		{"verified-space-before-colon", `verified by "a"`, refused(ErrNotWritten, Protection{Verified: true})},
+		{"verified-quote-in-key", `the key "verified", so verified`, refused(ErrNotWritten, Protection{Verified: true})},
+		{"locked-spaces-in-quotes", `the key "locked", spaces trimmed, so locked`, refused(ErrNotWritten, Protection{Locked: true})},
 		// v1's check of a verified mark cut the line at its first colon,
 		// quotes and all; the page itself it read as YAML does.
-		{"verified-colon-in-quoted-key", `the key "verified", the value "by river': yes", so verified`, refused(ErrNotWritten, Protection{})},
+		{"verified-colon-in-quoted-key", `the key "verified", the value "by river': yes", so verified`, refused(ErrNotWritten, Protection{Verified: true})},
 		// v1 trimmed white space from a key as Go does, a no-break space
-		// too; YAML keeps it in the key, and Protection reads no such key
-		// as a mark.
-		{"nbsp-before-locked", `the key "locked", the space trimmed, so locked`, refused(ErrNotWritten, Protection{})},
-		{"verified-nbsp-before-colon", `the key "verified", the space trimmed, so verified`, refused(ErrNotWritten, Protection{})},
-		{"locked-nbsp-in-quotes", `the key "locked", the space trimmed, so locked`, refused(ErrNotWritten, Protection{})},
+		// too; YAML keeps it in the key, and Protection trims it as v1 did.
+		{"nbsp-before-locked", `the key "locked", the space trimmed, so locked`, refused(ErrNotWritten, Protection{Locked: true})},
+		{"verified-nbsp-before-colon", `the key "verified", the space trimmed, so verified`, refused(ErrNotWritten, Protection{Verified: true})},
+		{"locked-nbsp-in-quotes", `the key "locked", the space trimmed, so locked`, refused(ErrNotWritten, Protection{Locked: true})},
 		{"status-nbsp-before-colon", `the status "stable"`, refused(ErrNotWritten, Protection{})},
 		// A quote that never closes: YAML reads no key; v1's check of a
 		// verified mark cut the line at its colon and trimmed the quote.
-		{"verified-unclosed-quote", `the key "verified", so verified`, refused(ErrNotWritten, Protection{})},
+		// Another reader may close it anywhere, so it protects both ways.
+		{"verified-unclosed-quote", `the key "verified", so verified`, refused(ErrNotWritten, Protection{Locked: true, Verified: true})},
 		// YAML refuses a plain value that holds ": "; v1 kept all of it,
 		// and the codec would drop the comment from it.
 		{"colon-value-comment", `the writer "Tide: feed #3 (draft)"`, refused(ErrNotWritten, Protection{})},
 		{"colon-pair-comment", `a generated record by "codex: model-b # by hand"`, refused(ErrNotWritten, Protection{})},
 		{"colon-source-comment", `a source titled "Tide: feed # draft"`, refused(ErrNotWritten, Protection{})},
 		{"colon-item-comment", `the repos ["tide-tables", "harbour:\tbay # later"]`, refused(ErrNotWritten, Protection{})},
+		// A plain value that ends in a colon, then a comment: YAML refuses
+		// it, and the codec would drop the comment.
+		{"colon-end-comment", `the writer "Tide: # x"`, refused(ErrNotWritten, Protection{})},
 	}
 	var named []string
 	for _, r := range rows {
@@ -315,7 +318,11 @@ func TestReadV1Refusals(t *testing.T) {
 		{"an escape past the last code point", page("title: \"\\U00110000\"\n"), ErrNotWritten},
 		{"a quoted key with a colon after verified", page("\"verified:secret_word_zq\": x\n"), ErrNotWritten},
 		{"a single-quoted key with a colon after verified, a list under it", page("'verified:':\n  - by: secret_word_zq\n"), ErrNotWritten},
-		{"an escape read as a space", page("title: \"secret\\_word_zq\"\n"), ErrNotWritten},
+		// YAML reads these as U+00A0, U+2028 and U+2029; v1 kept them as
+		// written. ReadV1 does not guess between the two.
+		{"an escape that is a no-break space", page("title: \"secret\\_word_zq\"\n"), ErrNotWritten},
+		{"an escape that is a line separator", page("title: \"secret\\Lword_zq\"\n"), ErrNotWritten},
+		{"an escape that is a paragraph separator", page("title: \"secret\\Pword_zq\"\n"), ErrNotWritten},
 		{"an escape YAML does not know, in a flow mapping", page("generated: { by: \"secret\\qword_zq\" }\n"), ErrNotWritten},
 		{"an escape YAML does not know, in a source", page("sources:\n  - resource: \"secret\\qword_zq\"\n"), ErrNotWritten},
 	} {
