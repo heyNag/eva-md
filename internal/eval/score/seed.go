@@ -85,13 +85,10 @@ func idealItem(sc scenario.Scenario, fact scenario.Fact, kind scenario.Kind) Ite
 		it.Sources = []Source{src}
 	}
 	switch {
+	case acceptance(sc, fact):
+		it.Authority = TagAccepted
 	case fact.Authority == scenario.AuthorityUser:
 		it.Authority = TagStated
-		for _, g := range sc.Facts {
-			if g.ID == fact.Supersedes && g.Authority != scenario.AuthorityUser {
-				it.Authority = TagAccepted
-			}
-		}
 	case turn.Author == event.AuthorTool:
 		it.Authority = TagObserved
 	case turn.Author == event.AuthorAgent || turn.Author == event.AuthorSubagent:

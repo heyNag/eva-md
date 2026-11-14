@@ -141,11 +141,15 @@ type Fact struct {
 }
 
 // Slot is one value that must survive: its class, the value as said, and
-// any other forms a store may give it.
+// any other forms a store may give it. A slot is asked of every kind its
+// fact permits but those it lists as Unasked, whose items need not hold
+// it: a hypothesis filed as an open question needs no hedge word, and one
+// filed as a fact does.
 type Slot struct {
-	Class SlotClass `json:"class"`
-	Value string    `json:"value"`
-	Forms []string  `json:"forms,omitempty"`
+	Class   SlotClass `json:"class"`
+	Value   string    `json:"value"`
+	Forms   []string  `json:"forms,omitempty"`
+	Unasked []Kind    `json:"unasked,omitempty"`
 }
 
 // Ref names a turn: its session's full id and its seq, from 1.
@@ -285,6 +289,19 @@ func (sc Scenario) checkFact(f Fact, at Turn, planted map[string]Turn) error {
 	for _, s := range f.Slots {
 		if !slices.Contains(slotClasses, s.Class) || strings.TrimSpace(s.Value) == "" || slices.Contains(s.Forms, "") {
 			return errors.New("a slot needs a known class and a value")
+		}
+		for i, k := range s.Unasked {
+			if !slices.Contains(f.Kinds, k) || slices.Contains(s.Unasked[:i], k) {
+				return fmt.Errorf("a slot leaves unasked a kind the fact does not permit, or one twice: %q", k)
+			}
+		}
+		if !slices.ContainsFunc(f.Kinds, func(k Kind) bool { return !slices.Contains(s.Unasked, k) }) {
+			return errors.New("a slot is asked of no kind the fact permits")
+		}
+	}
+	for _, k := range f.Kinds {
+		if !slices.ContainsFunc(f.Slots, func(s Slot) bool { return !slices.Contains(s.Unasked, k) }) {
+			return fmt.Errorf("no slot is asked of kind %q", k)
 		}
 	}
 	if !slices.ContainsFunc(f.Slots, func(s Slot) bool { return forbiddable(s.Value) }) {
