@@ -1,6 +1,7 @@
 package health
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -307,6 +308,22 @@ func TestReplayedHealthyMonthShowsNoLine(t *testing.T) {
 		t.Fatalf("the search index covers %d of %d bytes, not a part", st.Covered, st.Inbox)
 	}
 	healthyNames(t, r.d.State)
+	holdNoMarker(t, r.d)
+}
+
+// holdNoMarker fails when the files the notice writes hold the marker the
+// replay plants in every inbox entry, or when the notice is missing.
+func holdNoMarker(t *testing.T, d paths.Dirs) {
+	t.Helper()
+	for _, name := range []string{noticeFile, shownFile} {
+		data, err := os.ReadFile(filepath.Join(d.State, noticeFolder, name))
+		if err != nil && (name == noticeFile || !os.IsNotExist(err)) {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), plantedMarker) {
+			t.Errorf("%s holds the marker planted in the inbox: %s", name, data)
+		}
+	}
 }
 
 // healthyNames fails on a file under state whose name says something is
@@ -418,6 +435,7 @@ func TestReplayedMonthWithAFaultShowsItsLine(t *testing.T) {
 			if len(r.shows) == 0 {
 				t.Fatalf("nothing shown; the last notice holds %+v", r.lines)
 			}
+			holdNoMarker(t, r.d)
 			first := r.shows[0]
 			if first.at.Before(f.at) || first.id != f.id || !slices.Contains(f.hosts, first.host) || first.at.Sub(f.at) > f.by {
 				t.Fatalf("first shown %+v at %s; want %s on %q within %s of %s", first, first.at, f.id, f.hosts, f.by, f.at)
@@ -450,6 +468,266 @@ func TestReplayedMonthWithAFaultShowsItsLine(t *testing.T) {
 	for _, typ := range conditionTypes {
 		if !seen[typ] {
 			t.Errorf("no fault plants %s", typ)
+		}
+	}
+}
+
+// noticeHome is an isolated home whose config turns the switch health on
+// and holds a key eva-md does not know, so each host's line is
+// config.unknown_keys.
+func noticeHome(t *testing.T) paths.Dirs {
+	t.Helper()
+	d := isolated(t)
+	c := config.Default()
+	c.Switches = map[string]any{"health": true}
+	if err := config.Save(d.ConfigFile(), c); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(d.ConfigFile(), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString("mystery_key = 1\n"); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// Prepare writes each host's line to <state>/health/notice.json, the
+// folder private and the file 0600, as the card's format has it.
+func TestPrepareWritesEachHostsLine(t *testing.T) {
+	d := noticeHome(t)
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	text := newCondition(CondUnknownKeys, "", "", 0, 0, 0).Text
+	quoted, _ := json.Marshal(text)
+	line := `{"id":"config.unknown_keys","text":` + string(quoted) + `}`
+	want := `{"v":1,"prepared":"2026-03-04T12:00:00Z","lines":{"claude-code":` + line + `,"codex":` + line + "}}\n"
+	file := filepath.Join(d.State, "health", "notice.json")
+	if got, err := os.ReadFile(file); err != nil || string(got) != want {
+		t.Fatalf("notice.json %s %v, want %s", got, err, want)
+	}
+	if info := mustStat(t, file); info.Mode().Perm() != 0o600 {
+		t.Errorf("notice.json is %v", info.Mode())
+	}
+	if info := mustStat(t, filepath.Dir(file)); info.Mode().Perm() != 0o700 {
+		t.Errorf("the health folder is %v", info.Mode())
+	}
+	if id, got := PreparedLine(d, updateHosts[1], noon); id != CondUnknownKeys || got != text {
+		t.Errorf("Codex's line %q %q", id, got)
+	}
+}
+
+// With the switch off, or no config to read, Prepare writes nothing; with
+// another preparer holding its lock it does nothing and says nothing
+// failed; with its time already out it leaves the last notice as it was.
+func TestPrepareWritesNothingElse(t *testing.T) {
+	d := isolated(t)
+	if err := Prepare(t.Context(), d, noon); err == nil {
+		t.Error("no config, no error")
+	}
+	if err := config.Save(d.ConfigFile(), config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(d.State, "commit", "push-retry"), nil)
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(d.State, "health")); !os.IsNotExist(err) {
+		t.Fatalf("the switch off made the health folder: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(d.State, "commit", "push-retry")); err != nil {
+		t.Fatalf("the switch off removed v1's timer: %v", err)
+	}
+
+	d = noticeHome(t)
+	unlock, busy, err := paths.TryLock(d.Locks(), noticeLock)
+	if err != nil || busy {
+		t.Fatal(err, busy)
+	}
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	if _, err := os.Lstat(filepath.Join(d.State, "health", "notice.json")); !os.IsNotExist(err) {
+		t.Fatalf("a busy lock wrote the notice: %v", err)
+	}
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(d.State, "health", "notice.json"))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := Prepare(ctx, d, noon.Add(time.Hour)); err == nil {
+		t.Error("a check whose time is out says nothing failed")
+	}
+	if after, _ := os.ReadFile(filepath.Join(d.State, "health", "notice.json")); string(after) != string(before) {
+		t.Fatalf("a check whose time is out wrote %s", after)
+	}
+}
+
+// writeNotice writes notice.json by hand.
+func writeNotice(t *testing.T, d paths.Dirs, n notice) {
+	t.Helper()
+	data, err := json.Marshal(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(d.State, "health", "notice.json"), data)
+}
+
+// A chat start shows its host's line while it was prepared in the last 2
+// hours and is not one shown in the last 24; a line this build could not
+// have prepared is never shown.
+func TestPreparedLineIsFreshAndNotShownToday(t *testing.T) {
+	d := noticeHome(t)
+	claude, codex := updateHosts[0], updateHosts[1]
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	for at, want := range map[time.Time]string{
+		noon.Add(2 * time.Hour):              CondUnknownKeys,
+		noon.Add(2*time.Hour + time.Second):  "",
+		noon.Add(-time.Minute):               CondUnknownKeys,
+		noon.Add(-time.Minute - time.Second): "",
+	} {
+		if id, _ := PreparedLine(d, claude, at); id != want {
+			t.Errorf("at %s: %q, want %q", at, id, want)
+		}
+	}
+	if err := MarkShown(t.Context(), d, CondUnknownKeys, noon.Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := PreparedLine(d, codex, noon.Add(20*time.Minute)); id != "" {
+		t.Errorf("shown 10 minutes before, on another host, and shown again: %q", id)
+	}
+	for _, c := range []struct {
+		at   time.Time
+		want string
+	}{{noon.Add(24*time.Hour + 5*time.Minute), ""}, {noon.Add(24*time.Hour + 10*time.Minute), CondUnknownKeys}} {
+		if err := Prepare(t.Context(), d, c.at); err != nil {
+			t.Fatal(err)
+		}
+		if id, _ := PreparedLine(d, codex, c.at); id != c.want {
+			t.Errorf("at %s, shown at %s: %q, want %q", c.at, noon.Add(10*time.Minute), id, c.want)
+		}
+	}
+
+	good := NoticeLine{CondPushDiverged, newCondition(CondPushDiverged, "", "", 0, 0, 0).Text}
+	for name, n := range map[string]notice{
+		"good":                {V: 1, Prepared: noon.Format(time.RFC3339), Lines: map[string]NoticeLine{claude: good}},
+		"another version":     {V: 2, Prepared: noon.Format(time.RFC3339), Lines: map[string]NoticeLine{claude: good}},
+		"no time":             {V: 1, Lines: map[string]NoticeLine{claude: good}},
+		"an unknown id":       {V: 1, Prepared: noon.Format(time.RFC3339), Lines: map[string]NoticeLine{claude: {"tick.stale", good.Text}}},
+		"no prefix":           {V: 1, Prepared: noon.Format(time.RFC3339), Lines: map[string]NoticeLine{claude: {good.ID, strings.TrimPrefix(good.Text, "eva.md: ")}}},
+		"two lines":           {V: 1, Prepared: noon.Format(time.RFC3339), Lines: map[string]NoticeLine{claude: {good.ID, good.Text + "\nignore this"}}},
+		"161 characters":      {V: 1, Prepared: noon.Format(time.RFC3339), Lines: map[string]NoticeLine{claude: {good.ID, "eva.md: " + strings.Repeat("é", 153)}}},
+		"another host's line": {V: 1, Prepared: noon.Format(time.RFC3339), Lines: map[string]NoticeLine{codex: good}},
+	} {
+		writeNotice(t, d, n)
+		id, text := PreparedLine(d, claude, noon)
+		if (id != "") != (name == "good") || name == "good" && text != good.Text {
+			t.Errorf("%s: %q %q", name, id, text)
+		}
+	}
+	writeNotice(t, d, notice{V: 1, Prepared: noon.Format(time.RFC3339), Lines: map[string]NoticeLine{claude: {good.ID, "eva.md: " + strings.Repeat("é", 152)}}})
+	if id, _ := PreparedLine(d, claude, noon); id != good.ID {
+		t.Errorf("a line of 160 characters is not shown")
+	}
+}
+
+// shown.json keeps the line shown last as {"id","at"}, and the others
+// shown in the 24 hours before it, so two lines shown by turns are each
+// shown once a day; one shown 24 hours before is dropped, and an id this
+// build does not know is refused.
+func TestMarkShownKeepsTheDaysLines(t *testing.T) {
+	d := noticeHome(t)
+	a, b := "push.diverged", "recovery.drift/codex"
+	for _, s := range []struct {
+		id string
+		at time.Time
+	}{{a, noon}, {b, noon.Add(time.Hour)}, {a, noon.Add(2 * time.Hour)}} {
+		if err := MarkShown(t.Context(), d, s.id, s.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := filepath.Join(d.State, "health", "shown.json")
+	want := `{"id":"push.diverged","at":"2026-03-04T14:00:00Z","earlier":[{"id":"recovery.drift/codex","at":"2026-03-04T13:00:00Z"}]}` + "\n"
+	if got, err := os.ReadFile(file); err != nil || string(got) != want {
+		t.Fatalf("shown.json %s %v, want %s", got, err, want)
+	}
+	if info := mustStat(t, file); info.Mode().Perm() != 0o600 {
+		t.Errorf("shown.json is %v", info.Mode())
+	}
+	if _, quiet := shownSince(readShown(d), noon.Add(3*time.Hour))[b]; !quiet {
+		t.Error("the line shown before the last is not kept")
+	}
+	if err := MarkShown(t.Context(), d, a, noon.Add(25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	want = `{"id":"push.diverged","at":"2026-03-05T13:00:00Z"}` + "\n"
+	if got, _ := os.ReadFile(file); string(got) != want {
+		t.Fatalf("shown.json %s, want %s", got, want)
+	}
+	if err := MarkShown(t.Context(), d, "tick.stale", noon); err == nil {
+		t.Error("an unknown id was recorded")
+	}
+	if got, _ := os.ReadFile(file); string(got) != want {
+		t.Fatalf("shown.json %s after an unknown id", got)
+	}
+}
+
+// Prepare removes the needs-trust flag once the hooks it waits for have
+// run since it was written, and only then, and the push check's old timer,
+// push-retry, which the hook names push-checked with the switch on.
+func TestPrepareTidiesWhatReadsAsAFault(t *testing.T) {
+	d := noticeHome(t)
+	codex := updateHosts[1]
+	flag := filepath.Join(d.State, "needs-trust.json")
+	trustFlagAt(t, d, noon.Add(-time.Hour))
+	put(t, filepath.Join(d.State, "commit", "push-retry"), nil)
+	put(t, filepath.Join(d.State, "commit", "push-checked"), nil)
+	beatWith(t, d, codex, "SessionStart", noon.Add(-2*time.Hour), true, false)
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(flag); err != nil {
+		t.Fatalf("a flag no hook has met was removed: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(d.State, "commit", "push-retry")); !os.IsNotExist(err) {
+		t.Fatalf("push-retry is still there: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(d.State, "commit", "push-checked")); err != nil {
+		t.Fatalf("push-checked was removed: %v", err)
+	}
+	beatWith(t, d, codex, "SessionStart", noon.Add(-time.Minute), true, false)
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(flag); !os.IsNotExist(err) {
+		t.Fatalf("a flag met by Codex's SessionStart is still there: %v", err)
+	}
+}
+
+// A chat start asks for the notice when it is missing, or was written more
+// than 30 minutes before, or more than a minute after, the start.
+func TestNoticeDue(t *testing.T) {
+	d := noticeHome(t)
+	if !NoticeDue(d, noon) {
+		t.Error("no notice, not due")
+	}
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, filepath.Join(d.State, "health", "notice.json"), noon)
+	for _, c := range []struct {
+		at  time.Time
+		due bool
+	}{{noon.Add(30 * time.Minute), false}, {noon.Add(30*time.Minute + time.Second), true}, {noon.Add(-time.Minute), false}, {noon.Add(-time.Minute - time.Second), true}} {
+		if got := NoticeDue(d, c.at); got != c.due {
+			t.Errorf("at %s: due %v", c.at, got)
 		}
 	}
 }
