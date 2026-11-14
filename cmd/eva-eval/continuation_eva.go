@@ -16,7 +16,8 @@ import (
 // folder, that signs the host's CLI in there by the host's own means, so
 // that v1's update, which gives the CLI a cleared environment, finds a
 // sign-in in the trial's home. The flag is taken out of run's arguments
-// before run reads them, so run's own file is unchanged.
+// before run reads them, so run's own file is unchanged. A run of the
+// condition with no --eva-md is a usage error, as a missing flag is.
 func init() {
 	c, ok := continuationCommands["run"]
 	if !ok {
@@ -25,12 +26,16 @@ func init() {
 	inner := c.run
 	c.synopsis += " [--sign-in PATH, with --condition " + string(task.Eva) + "]"
 	c.run = func(ctx context.Context, args []string, out, errOut io.Writer) int {
-		rest, signIn, err := takeSignIn(args)
-		if err != "" {
-			return continuationFail(errOut, err)
+		rest, signIn, msg := takeSignIn(args)
+		if msg != "" {
+			return continuationFail(errOut, msg)
 		}
-		if signIn != "" && lastCondition(rest) != string(task.Eva) {
+		eva := lastValue(rest, "condition") == string(task.Eva)
+		switch {
+		case signIn != "" && !eva:
 			return continuationFail(errOut, "--sign-in is for --condition "+string(task.Eva)+" alone")
+		case eva && lastValue(rest, "eva-md") == "":
+			return continuationFail(errOut, "--condition "+string(task.Eva)+" needs --eva-md, an evaluation build of eva-md")
 		}
 		v1arm.SetSignIn(signIn)
 		defer v1arm.SetSignIn("")
@@ -39,20 +44,29 @@ func init() {
 	continuationCommands["run"] = c
 }
 
+// flagName splits a, an argument that is a flag, -name or --name, with
+// =value or without, into its name and value; ok is false for any other.
+func flagName(a string) (name, value string, inline, ok bool) {
+	if !strings.HasPrefix(a, "-") {
+		return "", "", false, false
+	}
+	name, value, inline = strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
+	return name, value, inline, true
+}
+
 // takeSignIn takes --sign-in PATH, or --sign-in=PATH, with one dash or
 // two, out of a run's arguments, up to a "--" that ends its flags, and
 // gives the rest and the path, or a usage error's words.
 func takeSignIn(args []string) (rest []string, path, msg string) {
 	given := false
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
+		if args[i] == "--" {
 			rest = append(rest, args[i:]...)
 			break
 		}
-		name, value, inline := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
-		if !strings.HasPrefix(a, "-") || name != "sign-in" {
-			rest = append(rest, a)
+		name, value, inline, ok := flagName(args[i])
+		if !ok || name != "sign-in" {
+			rest = append(rest, args[i])
 			continue
 		}
 		if !inline {
@@ -62,10 +76,10 @@ func takeSignIn(args []string) (rest []string, path, msg string) {
 			i++
 			value = args[i]
 		}
-		if given {
+		switch {
+		case given:
 			return nil, "", "--sign-in is given twice"
-		}
-		if value == "" {
+		case value == "":
 			return nil, "", "--sign-in needs a program's path"
 		}
 		given, path = true, value
@@ -73,17 +87,16 @@ func takeSignIn(args []string) (rest []string, path, msg string) {
 	return rest, path, ""
 }
 
-// lastCondition is the value of a run's last --condition, as the flag
-// package reads it, or "".
-func lastCondition(args []string) string {
-	condition := ""
+// lastValue is the value of a run's last --<flag>, as the flag package
+// reads it, or "".
+func lastValue(args []string, flag string) string {
+	last := ""
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
+		if args[i] == "--" {
 			break
 		}
-		name, value, inline := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
-		if !strings.HasPrefix(a, "-") || name != "condition" {
+		name, value, inline, ok := flagName(args[i])
+		if !ok || name != flag {
 			continue
 		}
 		if !inline {
@@ -93,7 +106,7 @@ func lastCondition(args []string) string {
 			i++
 			value = args[i]
 		}
-		condition = value
+		last = value
 	}
-	return condition
+	return last
 }

@@ -427,3 +427,110 @@ func noWord(t *testing.T, r *rig, word, out string, err error) {
 		}
 	}
 }
+
+// What eva-md's updates spent, by its run log, is in the rows as
+// memory_tokens and memory_ms, and counts toward --max-tokens; under
+// memory_off too, which stops the run.
+func TestTheRunLogsSpendIsCounted(t *testing.T) {
+	h := adapter.All()[0]
+	spend := func(r *rig) {
+		r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 ok", Outcome: update.OutcomeOK, TokensIn: 300, TokensOut: 40, DurationMS: 1200}}
+		r.eva.RunLog = []update.Record{{Host: string(h.ID), Session: "made-up-other-session", Outcome: update.OutcomeSkipped, TokensIn: 7, TokensOut: 3, DurationMS: 5}}
+	}
+	r := newRig(t, h)
+	spend(r)
+	s, out, err := r.run()
+	if err != nil || s.Judged != 1 {
+		t.Fatalf("judged %d, %v\n%s", s.Judged, err, out)
+	}
+	values := map[string]float64{}
+	for _, row := range r.rows() {
+		values[row.Metric[strings.LastIndex(row.Metric, ".")+1:]] = row.Value
+	}
+	if values["memory_tokens"] != 350 || values["memory_ms"] != 1205 {
+		t.Fatalf("rows: %v", values)
+	}
+	// The chat's tokens: the whole less the run log's.
+	chat := s.Tokens - 350
+	if chat <= 0 {
+		t.Fatalf("tokens %d", s.Tokens)
+	}
+
+	// A ceiling the chat alone would not reach stops the second trial.
+	r = newRig(t, h)
+	spend(r)
+	r.opts.Trials, r.opts.MaxTokens = 2, chat+1
+	s, out, err = r.run()
+	if err != nil || s.Judged != 1 || s.NotRun != 1 || s.Tokens != chat+350 {
+		t.Fatalf("judged %d, not run %d, tokens %d, %v\n%s", s.Judged, s.NotRun, s.Tokens, err, out)
+	}
+
+	// memory_off: no row, and the spend counted.
+	r = newRig(t, h)
+	spend(r)
+	r.eva.Plant = nil
+	r.opts.Trials = 2
+	s, out, err = r.run()
+	var stopped *drive.Stopped
+	if !errors.As(err, &stopped) || stopped.Code != drive.CodeMemoryOff || s.Unjudged[drive.CodeMemoryOff] != 1 || s.NotRun != 1 || s.Tokens != chat+350 {
+		t.Fatalf("unjudged %v, not run %d, tokens %d, %v\n%s", s.Unjudged, s.NotRun, s.Tokens, err, out)
+	}
+	if rows := r.rows(); len(rows) != 0 {
+		t.Fatalf("%d rows", len(rows))
+	}
+	records, err := drive.LoadRuns(r.opts.Out)
+	if err != nil || len(records) != 1 || records[0].Tokens != chat+350 || records[0].Ended != drive.CodeMemoryOff {
+		t.Fatalf("the run's record: %+v, %v", records, err)
+	}
+}
+
+// A word planted in every turn of the earlier chat, which eva-md prints
+// on stdout and stderr, as the sign-in program does, is in no row, output
+// or error, whether the trial is judged, fails its setup, a hook or its
+// update, or finds memory off; the hooks did get it.
+func TestTheEarlierChatsWordsStayOut(t *testing.T) {
+	const word = "madeupturnwordqx"
+	for name, edit := range map[string]func(r *rig){
+		"judged":       func(r *rig) {},
+		"setup fails":  func(r *rig) { r.eva.SetupFail = []int{1} },
+		"a hook fails": func(r *rig) { r.eva.HookFail = "UserPromptSubmit" },
+		"update fails": func(r *rig) { r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 failed " + word, Outcome: update.OutcomeFailed, Exit: 1}} },
+		"memory off":   func(r *rig) { r.eva.Plant = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, adapter.All()[0])
+			plantWord(t, r.opts.Tasks, word)
+			r.eva.Print = word
+			r.useSignIn(signInScript{Print: word})
+			edit(r)
+			_, out, err := r.run()
+			noWord(t, r, word, out, err)
+			reached := false
+			for _, c := range r.calls() {
+				reached = reached || strings.Contains(c.Stdin, word)
+			}
+			if !reached && name != "setup fails" {
+				t.Fatal("no hook was given the word")
+			}
+		})
+	}
+}
+
+// plantWord adds word to every turn of the fixture task's earlier chat.
+func plantWord(t *testing.T, tasks, word string) {
+	t.Helper()
+	file := filepath.Join(tasks, "hidden-banner", task.FileName)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var x map[string]any
+	if err := jsonUnmarshal(string(data), &x); err != nil {
+		t.Fatal(err)
+	}
+	for _, turn := range x["history"].([]any) {
+		m := turn.(map[string]any)
+		m["text"] = m["text"].(string) + " The made-up word is " + word + "."
+	}
+	writeJSON(t, file, x)
+}
