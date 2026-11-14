@@ -46,3 +46,13 @@ The card's checker left these to the lead.
 - The stronger rule is in: over a run of 200 seeds or more, an armed crash fires at every step (item 2), with a variant that fails it (item 3).
 - The names stand: `faultIgnored`, `faultEarlyOnly`, `sessionRewritten`, `handTextDropped` and `SessionKept`.
 - ST-05's card, when it is written, depends on this one.
+
+## As merged
+
+Merged on 2026-11-14 (b5537ba, from `pkg/st-02b-r1`, after one review, one round of fixes and a verification that accepted it).
+
+- **How soon every step sees a crash:** on the model and on the fake alike, by seed 2 for CrashSafety, 10 for ExactlyOnce, 4 for Restore and 5 for Replay, so the rule of 200 seeds has room.
+- **A failure of a whole run** ("no armed crash fired ...") belongs to no step: it carries the step -1 and its words name none.
+- The test of the run's rule alone covers ExactlyOnce, Restore and Replay, not CrashSafety, which arms a crash on every pass at a changing step, so a seed with none at recover or plan is too rare to find. The card asks for one property at least.
+- `PROPERTIES.md` holds six properties in 12,116 bytes of its 12,288.
+- Known and left: no test holds the words of the failure for an empty list of seeds ("fails on seed 0: no seed to check"); the exported runs stop before it with a fatal of their own.

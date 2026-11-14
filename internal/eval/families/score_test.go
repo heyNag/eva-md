@@ -129,8 +129,10 @@ func TestMomentIsNeverARule(t *testing.T) {
 
 // TestCorrectionKeepsTheNewValue: the corrected value is the one in force;
 // an active item that holds the old value is stale_in_force whether it
-// cites the user's first words or the agent's reply that repeats them; and
-// a store that keeps only the old value in force holds no fact.
+// cites the user's first words or the agent's reply that repeats them,
+// unless it holds the correction in full and names the old value as its
+// history; and a store that keeps only the old value in force holds no
+// fact.
 func TestCorrectionKeepsTheNewValue(t *testing.T) {
 	for _, sc := range instances(t)["correction"] {
 		if len(sc.Facts) != 3 {
@@ -156,13 +158,20 @@ func TestCorrectionKeepsTheNewValue(t *testing.T) {
 				t.Errorf("%s: the old value in force, citing %s, scores %+v, item %s", sc.ID, at, r.Metrics, r.Items[len(r.Items)-1].Outcome)
 			}
 		}
+		// Citing the correction does not spare the old value: only an item
+		// that holds the correction in full may name it.
+		alone := score.Item{Kind: scenario.KindFact, State: score.StateActive, Authority: score.TagStated, Text: old.Slots[0].Value, Sources: []score.Source{fixedAt, echoAt}}
+		if r := score.Score(sc, with(sc, alone)); r.Metrics.StaleInForce != 1 || r.Items[len(r.Items)-1].Outcome != score.StaleInForce || factResult(r, echo.ID).Outcome != score.StaleInForce {
+			t.Errorf("%s: the old value alone, citing the correction and the echo, scores %+v, item %s", sc.ID, r.Metrics, r.Items[len(r.Items)-1].Outcome)
+		}
 		onlyOld := score.Export{Items: []score.Item{itemOf(t, sc, scenario.KindDecision, score.TagStated, old.Slots[0].Value, old.ID)}}
 		if r := score.Score(sc, onlyOld); r.Metrics.FactHolds != 0 || r.Metrics.StaleInForce != 1 || factResult(r, fixed.ID).Outcome != score.Missing {
 			t.Errorf("%s: only the old value scores %+v", sc.ID, r.Metrics)
 		}
 		// A store that keeps the corrected value in force and names the
 		// old one as its history holds every fact, whether its item cites
-		// the old line and the correction or the correction alone.
+		// the old line and the correction, the correction alone, or either
+		// with the agent's echo of the old value.
 		oldAt, _ := plantedAt(t, sc, old.ID)
 		kept := fixed.Slots[0].Value + ", " + fixed.Slots[1].Value
 		history := func(text string, cites ...score.Source) score.Result {
@@ -176,6 +185,8 @@ func TestCorrectionKeepsTheNewValue(t *testing.T) {
 		}{
 			{kept + ", corrected from " + old.Slots[0].Value, []score.Source{oldAt, fixedAt}},
 			{kept + ", corrected from " + old.Slots[0].Value, []score.Source{fixedAt}},
+			{kept + ", corrected from " + old.Slots[0].Value, []score.Source{fixedAt, echoAt}},
+			{kept + ", corrected from " + old.Slots[0].Value, []score.Source{oldAt, fixedAt, echoAt}},
 			{kept + ", replacing " + old.Slots[1].Value, []score.Source{oldAt, fixedAt}},
 			{"Not " + old.Slots[0].Value + " after all: " + kept, []score.Source{oldAt, fixedAt}},
 		} {
@@ -206,13 +217,13 @@ func TestCorrectionKeepsTheNewValue(t *testing.T) {
 			t.Errorf("%s: the corrected value without its reference, naming the old one, scores %+v, item %s; the rule recorded is stale_in_force",
 				sc.ID, r.Metrics, r.Items[1].Outcome)
 		}
-		// The scorer's rule, recorded: an item that cites the agent's echo
-		// and holds the old value keeps the echo in force, though it holds
-		// the correction in full, since the echo ends at a line that plants
-		// nothing, so no fact ends it. A store cites the correction for the
-		// corrected value, not the echo of the old one.
-		if r := history(kept+", corrected from "+old.Slots[0].Value, fixedAt, echoAt); r.Metrics.StaleInForce != 1 || factResult(r, echo.ID).Outcome != score.StaleInForce {
-			t.Errorf("%s: the history citing the echo scores %+v; if the scorer now spares it, make this a clean case above", sc.ID, r.Metrics)
+		// The echo is spared only as the history of the correction held in
+		// full: held in full itself, beside the correction, it is kept in
+		// force.
+		echoed := kept + "; the agent said " + echo.Slots[0].Value + ", " + echo.Slots[1].Value
+		if r := history(echoed, fixedAt, echoAt); r.Metrics.StaleInForce != 1 || r.Items[1].Outcome != score.StaleInForce ||
+			factResult(r, echo.ID).Outcome != score.StaleInForce || factResult(r, fixed.ID).Outcome != score.Holds {
+			t.Errorf("%s: the echo in full beside the correction scores %+v, item %s, echo %s", sc.ID, r.Metrics, r.Items[1].Outcome, factResult(r, echo.ID).Outcome)
 		}
 	}
 }
@@ -267,7 +278,7 @@ func TestUnagreedHasNoAuthority(t *testing.T) {
 // accepted authority as a decision; stored as a rule it is a violation;
 // stored under the agent's authority, suggested or observed, it is found
 // with the wrong authority. Stored under stated it is
-// TestAcceptedUnderStatedHoldsUntilTheScorerTellsThemApart's.
+// TestAcceptedUnderStatedIsFoundWithTheWrongAuthority's.
 func TestAcceptedIsADecisionNeverARule(t *testing.T) {
 	for _, sc := range instances(t)["accepted"] {
 		stored, nevers := facts(sc, scenario.MustStore), facts(sc, scenario.MustNotAsRule)
@@ -294,29 +305,34 @@ func TestAcceptedIsADecisionNeverARule(t *testing.T) {
 	}
 }
 
-// TestAcceptedUnderStatedHoldsUntilTheScorerTellsThemApart holds today's
-// score of an acceptance stored under the stated authority, and fails by
-// design when the scorer changes. The scorer reads stated and accepted
-// alike as the user's, so it scores that store as holding, though the
-// family asks for accepted. This package may read the scorer and not
-// change it, so the lead's ruling of 2026-11-13 (the card's first ruling)
-// has this test hold today's score. When EV-14b's scorer tells accepted
-// from stated, this test fails: the acceptance under stated is then to be
-// found with the wrong authority, as the card first asked, and the test
-// is changed to say so.
-func TestAcceptedUnderStatedHoldsUntilTheScorerTellsThemApart(t *testing.T) {
+// TestAcceptedUnderStatedIsFoundWithTheWrongAuthority: the acceptance
+// stored under stated, as though the user had said it unasked, is found
+// with the wrong authority, as a decision or a procedure. It costs
+// fact_holds the acceptance's share, the only fact to store still in
+// force, and nothing else: it is still recalled, and the user's choice is
+// the user's words, so it is not misattributed.
+func TestAcceptedUnderStatedIsFoundWithTheWrongAuthority(t *testing.T) {
 	for _, sc := range instances(t)["accepted"] {
 		stored := facts(sc, scenario.MustStore)
 		if len(stored) != 2 {
 			t.Fatalf("%s plants %d facts to store", sc.ID, len(stored))
 		}
 		choice := stored[1]
-		ex := score.Ideal(sc)
-		ex.Items[1].Authority = score.TagStated
-		r := score.Score(sc, ex)
-		if fr := factResult(r, choice.ID); fr.Outcome != score.Holds || len(fr.Problems) != 0 || r.Metrics != scoreIdeal(sc).Metrics {
-			t.Errorf("%s: the acceptance under stated is %s %v, metrics %+v; today's scorer holds it, so the scorer has changed: "+
-				"it is now to be found with the wrong authority, as the card first asked", sc.ID, fr.Outcome, fr.Problems, r.Metrics)
+		for _, kind := range choice.Kinds {
+			ex := score.Ideal(sc)
+			ex.Items[1].Authority, ex.Items[1].Kind = score.TagStated, kind
+			r := score.Score(sc, ex)
+			want := perfect
+			want.FactHolds = 0
+			if fr := factResult(r, choice.ID); fr.Outcome != score.Found || !slices.Equal(fr.Problems, []score.Problem{score.ProblemAuthority}) ||
+				r.Metrics != want {
+				t.Errorf("%s: the acceptance under stated, as a %s, is %s %v, metrics %+v; want found [authority] and %+v",
+					sc.ID, kind, fr.Outcome, fr.Problems, r.Metrics, want)
+			}
+			ex.Items[1].Authority = score.TagAccepted
+			if r := score.Score(sc, ex); r.Metrics != perfect {
+				t.Errorf("%s: the acceptance under accepted, as a %s, scores %+v", sc.ID, kind, r.Metrics)
+			}
 		}
 	}
 }
@@ -417,29 +433,43 @@ func TestLimitSurvives(t *testing.T) {
 	}
 }
 
-// TestHypothesisKeepsItsHedgeEvenAsAnOpenQuestion holds today's score of a
-// hypothesis filed as an open question with no hedge word: limit_dropped,
-// though a store that wrote it did nothing wrong. That is the scorer's
-// limit, not the store's: the scorer cannot ask a slot of one kind and not
-// of another, so the family asks the hedge in every filing, the open
-// question included (the lead's ruling of 2026-11-13, the card's second).
-// The family is held out, so no tuning leans on it. When EV-14b's scorer
-// lets a fact ask a slot of some kinds only, this test fails by design: the
-// open question with no hedge is then to hold, and the family takes the
-// card's first wording back.
-func TestHypothesisKeepsItsHedgeEvenAsAnOpenQuestion(t *testing.T) {
+// TestHypothesisAsAnOpenQuestionNeedsNoHedge: a hypothesis asked as an
+// open question with no hedge word holds, since the question is itself
+// unsure; stated as a fact with no hedge word, or filed in a kind it does
+// not permit with none, it is limit_dropped. Only the hypothesis leaves
+// its limit unasked, and only of an open question: an open question about
+// a finding of another form that drops its limit is limit_dropped.
+func TestHypothesisAsAnOpenQuestionNeedsNoHedge(t *testing.T) {
 	seen := 0
 	for _, sc := range instances(t)["limit"] {
 		f := sc.Facts[0]
-		if len(f.Slots) != 2 || !slices.Contains(hedges, f.Slots[1].Value) {
+		hypothesis := slices.Contains(hedges, f.Slots[1].Value)
+		if want := []scenario.Kind(nil); hypothesis {
+			want = []scenario.Kind{scenario.KindOpen}
+			if !slices.Equal(f.Slots[1].Unasked, want) || f.Slots[0].Unasked != nil {
+				t.Errorf("%s: the hypothesis leaves its slots unasked of %v and %v", sc.ID, f.Slots[0].Unasked, f.Slots[1].Unasked)
+			}
+		} else if f.Slots[0].Unasked != nil || f.Slots[1].Unasked != nil {
+			t.Errorf("%s: a finding with %q leaves a slot unasked", sc.ID, f.Slots[1].Value)
+		}
+		asked := "Does the " + f.Slots[0].Value + " cache cause the slow start?"
+		r := score.Score(sc, score.Export{Items: []score.Item{itemOf(t, sc, scenario.KindOpen, score.TagSuggested, asked, f.ID)}})
+		if !hypothesis {
+			if r.Metrics != (score.Metrics{WrongWrite: 1}) || r.Facts[0].Outcome != score.LimitDropped {
+				t.Errorf("%s: an open question that drops %q scores %+v, fact %s", sc.ID, f.Slots[1].Value, r.Metrics, r.Facts[0].Outcome)
+			}
 			continue
 		}
 		seen++
-		asked := score.Export{Items: []score.Item{itemOf(t, sc, scenario.KindOpen, score.TagSuggested,
-			"Does the "+f.Slots[0].Value+" cache cause the slow start?", f.ID)}}
-		if r := score.Score(sc, asked); r.Metrics != (score.Metrics{WrongWrite: 1}) || r.Facts[0].Outcome != score.LimitDropped {
-			t.Errorf("%s: the hypothesis asked as an open question with no hedge word scores %+v, fact %s; today's scorer drops "+
-				"its limit, so the scorer has changed: the open question is now to hold", sc.ID, r.Metrics, r.Facts[0].Outcome)
+		if r.Metrics != perfect || r.Items[0].Outcome != score.Supports || r.Facts[0].Outcome != score.Holds {
+			t.Errorf("%s: the hypothesis asked as an open question with no hedge word scores %+v, item %s, fact %s", sc.ID, r.Metrics, r.Items[0].Outcome, r.Facts[0].Outcome)
+		}
+		for _, kind := range []scenario.Kind{scenario.KindFact, scenario.KindDecision, scenario.KindNext} {
+			stated := "The " + f.Slots[0].Value + " cache causes the slow start"
+			r := score.Score(sc, score.Export{Items: []score.Item{itemOf(t, sc, kind, score.TagSuggested, stated, f.ID)}})
+			if r.Metrics != (score.Metrics{WrongWrite: 1}) || r.Items[0].Outcome != score.LimitDropped || r.Facts[0].Outcome != score.LimitDropped {
+				t.Errorf("%s: the hypothesis as a %s with no hedge word scores %+v, item %s, fact %s", sc.ID, kind, r.Metrics, r.Items[0].Outcome, r.Facts[0].Outcome)
+			}
 		}
 	}
 	if seen == 0 {

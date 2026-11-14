@@ -1,486 +1,510 @@
 {
   "v": 1,
-  "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+  "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
   "rows": [
     {
       "v": 1,
       "metric": "retrieval.tuning.lexical.precision",
       "value": 0.47368421052631576,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.lexical.recall",
       "value": 0.9782608695652174,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.lexical.false_additions",
       "value": 0.5263157894736842,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.lexical.silence_pos",
       "value": 0.021739130434782608,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.lexical.silence_neg",
       "value": 0.5364583333333334,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.paraphrase.recall",
       "value": 0,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.paraphrase.silence_pos",
       "value": 1,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.name.precision",
       "value": 0.25925925925925924,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.name.recall",
       "value": 0.16279069767441862,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.name.false_additions",
       "value": 0.7407407407407407,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.name.silence_pos",
       "value": 0.8372093023255814,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.name.silence_neg",
       "value": 0.5476190476190477,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.all.precision",
       "value": 0.4551282051282051,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.all.recall",
       "value": 0.5318352059925093,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.all.false_additions",
       "value": 0.5448717948717948,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.all.silence_pos",
       "value": 0.4681647940074906,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.all.silence_neg",
       "value": 0.5384615384615384,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.no_match.false_events",
       "value": 0,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.near_miss.false_events",
       "value": 0.6410256410256411,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.tuning.sibling_only.false_events",
       "value": 0.9166666666666666,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
+    },
+    {
+      "v": 1,
+      "metric": "retrieval.tuning.negative.false_events",
+      "value": 0.46153846153846156,
+      "unit": "ratio",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
+      "dirty": false,
+      "instrument": "retrieval",
+      "scenario": "v1-recall.set1",
+      "seed": 1684811828,
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.lexical.precision",
       "value": 0.4426877470355731,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.lexical.recall",
       "value": 0.9180327868852459,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.lexical.false_additions",
       "value": 0.5573122529644269,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.lexical.silence_pos",
       "value": 0.08196721311475409,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.lexical.silence_neg",
       "value": 0.5077720207253886,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.paraphrase.recall",
       "value": 0,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.paraphrase.silence_pos",
       "value": 1,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.name.precision",
       "value": 0.21875,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.name.recall",
       "value": 0.14893617021276595,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.name.false_additions",
       "value": 0.78125,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.name.silence_pos",
       "value": 0.851063829787234,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.name.silence_neg",
       "value": 0.4791666666666667,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.all.precision",
       "value": 0.41754385964912283,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.all.recall",
       "value": 0.4524714828897338,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.all.false_additions",
       "value": 0.5824561403508772,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.all.silence_pos",
       "value": 0.5475285171102662,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.all.silence_neg",
       "value": 0.5020746887966805,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.no_match.false_events",
       "value": 0,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.near_miss.false_events",
       "value": 0.6171875,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
     },
     {
       "v": 1,
       "metric": "retrieval.heldout.sibling_only.false_events",
       "value": 0.9318181818181818,
       "unit": "ratio",
-      "commit": "7368de8329e0b17632b30aca0b5e2a652921102e",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
       "dirty": false,
       "instrument": "retrieval",
       "scenario": "v1-recall.set1",
       "seed": 1684811828,
-      "time": "2026-11-11T15:57:52.026272346Z"
+      "time": "2026-11-14T16:05:21.527396966Z"
+    },
+    {
+      "v": 1,
+      "metric": "retrieval.heldout.negative.false_events",
+      "value": 0.4979253112033195,
+      "unit": "ratio",
+      "commit": "4891b1a1bd61395a5cf5e3172ef9b1f8a00275bb",
+      "dirty": false,
+      "instrument": "retrieval",
+      "scenario": "v1-recall.set1",
+      "seed": 1684811828,
+      "time": "2026-11-14T16:05:21.527396966Z"
     }
   ]
 }

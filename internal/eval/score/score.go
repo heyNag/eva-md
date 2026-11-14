@@ -12,14 +12,21 @@
 // that must be stored and is still in force holds when an item in a
 // permitted kind supports it under the right authority and scope, and as a
 // dated line under its day; it is found when an item supports it with
-// something else wrong, which the result names. An item that holds only
+// something else wrong, which the result names. The right authority is
+// accepted for an acceptance, a fact of the user's that supersedes
+// another's, either of the user's tags for any other fact of the user's,
+// and one of another's for anyone else's: an acceptance under stated is
+// found, and no statement under accepted is. A slot a fact leaves unasked
+// of a kind it permits is not asked of an item in that kind, which
+// supports the fact without it; an item in a kind the fact does not
+// permit is asked every slot. An item that holds only
 // some of a fact's values gives the fact and itself the worst of what it
 // lacks: a wrong value, then a dropped date, condition, limit or other
 // value. Three ties need less than every value, and give the fact's own
 // verdict instead: an item that cites a line said off the record breaks
 // that fact's Must in any words; one that holds any value of a fact that
-// may be kept, only never under the user's tag or never as a rule, breaks
-// it when filed so; and an active item that holds a value of a fact that
+// may be kept, only never under the user's tag or never as a rule, asked
+// of its kind or not, breaks it when filed so; and an active item that holds a value of a fact that
 // ended, which no fact still in force that its cited lines plant holds,
 // keeps it in force. Value matching cannot read a negation, so the
 // pasted-fact tie and the last spare an item that holds another fact in
@@ -33,8 +40,15 @@
 // one that ended it, by superseding it or being planted where it ends,
 // whether or not that fact has ended in its turn: an item that holds a
 // correction that was itself corrected keeps that correction in force,
-// not what it corrected. A fact that may be kept, only never as a rule, is
-// never spared.
+// not what it corrected. It is the correction's echo, and spared too, when
+// the fact it holds ended another and every value it holds of the ended
+// fact is a value of the one replaced: an agent's reply that repeats the
+// old value after the user corrected it, cited beside the correction. Both
+// spare an item that holds the ended fact in part only; one that holds it
+// in full keeps it in force. Value matching cannot read a negation, so an
+// item that takes the echoed value beside the correction it holds in full,
+// as "use EVA_TOKEN, not EVA_MD_TOKEN", is spared as well. A fact that may
+// be kept, only never as a rule, is never spared.
 //
 // Off the record is judged by citation, as every tie is: an item that
 // holds a value said off the record but cites only other lines is not
@@ -75,6 +89,32 @@ const (
 var otherTags = []string{TagObserved, TagSuggested, TagExternal, TagEcho, TagInferred}
 
 func userTag(tag string) bool { return tag == TagStated || tag == TagAccepted }
+
+// acceptance reports whether fact is an acceptance: the user's, and it
+// supersedes a fact of another's, as a proposal the user picks in a dialog
+// or approves in a plan. Its item carries accepted, not stated.
+func acceptance(sc scenario.Scenario, fact scenario.Fact) bool {
+	if fact.Authority != scenario.AuthorityUser || fact.Supersedes == "" {
+		return false
+	}
+	return slices.ContainsFunc(sc.Facts, func(g scenario.Fact) bool {
+		return g.ID == fact.Supersedes && g.Authority == scenario.AuthorityOther
+	})
+}
+
+// rightTag reports whether tag is one an item of fact may carry: accepted
+// for an acceptance, either of the user's for any other fact of the user's,
+// and one of another's for anyone else's. accepted is right for every fact
+// of the user's, and stated is wrong only for an acceptance.
+func rightTag(sc scenario.Scenario, fact scenario.Fact, tag string) bool {
+	switch {
+	case fact.Authority != scenario.AuthorityUser:
+		return slices.Contains(otherTags, tag)
+	case acceptance(sc, fact):
+		return tag == TagAccepted
+	}
+	return userTag(tag)
+}
 
 // scopes are the scopes an item may name; empty is a store that has none.
 var scopes = []string{"", "here", "project", "all"}
@@ -286,7 +326,7 @@ func (s *scorer) read(it Item) read {
 	var full []int
 	var parts []part
 	for _, f := range r.cands {
-		held, lack := s.match(r.text, s.sc.Facts[f])
+		held, lack := s.match(r.text, s.sc.Facts[f], it.Kind)
 		if lack == "" {
 			r.supports = append(r.supports, support{fact: f})
 			full = append(full, f)
@@ -297,7 +337,7 @@ func (s *scorer) read(it Item) read {
 	best := 0
 	for _, p := range parts {
 		switch {
-		case s.tied(it, &r, p.fact, p.held, full):
+		case s.tied(it, &r, p.fact, full):
 			r.supports = append(r.supports, support{fact: p.fact})
 		case r.partial < 0 || p.held > best:
 			r.partial, r.lack, best = p.fact, p.lack, p.held
@@ -310,9 +350,11 @@ func (s *scorer) read(it Item) read {
 }
 
 // tied reports whether an item that cites the line planting fact f, and
-// holds held of its values but not all, is still tied to it, so that it
-// says of the fact what an item holding all of them would. full are the
-// facts its cited lines plant whose every value it holds. Tied are: any
+// lacks a value f asks of its kind, is still tied to it, so that it says
+// of the fact what an item holding all of them would. full are the facts
+// its cited lines plant whose every value it holds. tied reads every slot
+// of f, asked of the item's kind or not: a value f leaves unasked of it
+// is still one of f's values. Tied are: any
 // item that cites a fact said off the record; one that holds a value of a
 // fact that may be kept, only never as a rule; one that holds a value of a
 // fact that may be kept, only never under the user's tag, unless it holds
@@ -325,30 +367,66 @@ func (s *scorer) read(it Item) read {
 // holds in full a fact that ended f, by superseding it or being planted
 // where f ends, as in "use EVA_MD_TOKEN, corrected from EVA_TOKEN", even
 // one that has ended in its turn, which the item then keeps in force
-// itself.
-func (s *scorer) tied(it Item, r *read, f, held int, full []int) bool {
+// itself; or unless it holds in full a fact that ended another, h, and
+// every value of f it holds is a value of h (hasSlot), so that f repeats
+// what the correction replaced, as an agent's reply that echoes the old
+// value after the user corrected it. Both exemptions are by part only: an
+// item that holds f in full is not tied here but supports it, and keeps it
+// in force. Value matching cannot read a negation, so the second also
+// spares an item that takes the echoed value beside the correction, as
+// "use EVA_TOKEN, not EVA_MD_TOKEN" citing the correction and the echo.
+func (s *scorer) tied(it Item, r *read, f int, full []int) bool {
 	fact := s.sc.Facts[f]
+	some := slices.ContainsFunc(fact.Slots, r.text.holds)
 	switch fact.Must {
 	case scenario.MustNotStore:
 		return true
 	case scenario.MustNotWithAuthority:
-		return held > 0 && !slices.ContainsFunc(full, s.required)
+		return some && !slices.ContainsFunc(full, s.required)
 	case scenario.MustStore:
-		if !s.ended[f] || it.State != StateActive || slices.ContainsFunc(full, func(g int) bool { return slices.Contains(s.enders[f], g) }) {
+		if !s.ended[f] || it.State != StateActive || slices.ContainsFunc(full, func(g int) bool { return slices.Contains(s.enders[f], g) }) ||
+			s.echoes(r, f, full) {
 			return false
 		}
 		return slices.ContainsFunc(fact.Slots, func(sl scenario.Slot) bool {
 			return r.text.holds(sl) && !slices.ContainsFunc(r.cands, func(g int) bool { return s.required(g) && hasSlot(s.sc.Facts[g], sl) })
 		})
 	}
-	return held > 0
+	return some
 }
 
-// match counts the slots of f the text holds and gives the worst outcome of
-// those it lacks, or "" when it lacks none.
-func (s *scorer) match(t text, f scenario.Fact) (int, Outcome) {
+// asked reports whether fact f asks slot sl of an item of kind: of every
+// kind but one f permits and leaves sl unasked of.
+func asked(f scenario.Fact, sl scenario.Slot, kind scenario.Kind) bool {
+	return !slices.Contains(sl.Unasked, kind) || !slices.Contains(f.Kinds, kind)
+}
+
+// echoes reports whether an item, which holds in full the facts full and
+// part of fact f, holds in full a fact that ended some other fact h, and
+// every slot of f it holds is a slot of h: what it holds of f repeats what
+// that correction replaced.
+func (s *scorer) echoes(r *read, f int, full []int) bool {
+	for h := range s.sc.Facts {
+		if h == f || !slices.ContainsFunc(full, func(g int) bool { return slices.Contains(s.enders[h], g) }) {
+			continue
+		}
+		if !slices.ContainsFunc(s.sc.Facts[f].Slots, func(sl scenario.Slot) bool { return r.text.holds(sl) && !hasSlot(s.sc.Facts[h], sl) }) {
+			return true
+		}
+	}
+	return false
+}
+
+// match counts the slots of f the text of an item of kind holds and gives
+// the worst outcome of those it lacks, or "" when it lacks none. A slot f
+// leaves unasked of kind, a kind f permits, is neither held nor lacking;
+// an item in a kind f does not permit is asked every slot.
+func (s *scorer) match(t text, f scenario.Fact, kind scenario.Kind) (int, Outcome) {
 	held, worst := 0, -1
 	for _, sl := range f.Slots {
+		if !asked(f, sl, kind) {
+			continue
+		}
 		if t.holds(sl) {
 			held++
 			continue
@@ -448,7 +526,7 @@ func (s *scorer) verdict(it Item, r *read, sp support) (verdict, []Problem) {
 	default:
 		return history, nil
 	}
-	if userTag(it.Authority) != (fact.Authority == scenario.AuthorityUser) || !userTag(it.Authority) && !slices.Contains(otherTags, it.Authority) {
+	if !rightTag(s.sc, fact, it.Authority) {
 		problems = append(problems, ProblemAuthority)
 	}
 	if !slices.Contains(scopes, it.Scope) {

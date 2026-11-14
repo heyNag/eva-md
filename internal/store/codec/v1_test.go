@@ -215,7 +215,9 @@ func TestV1Differences(t *testing.T) {
 		{"colon-item-comment", `the repos ["tide-tables", "harbour:\tbay # later"]`, refused(ErrNotWritten, Protection{})},
 		// A plain value that ends in a colon, then a comment: YAML refuses
 		// it, and the codec would drop the comment.
-		{"colon-end-comment", `the writer "Tide: # x"`, refused(ErrNotWritten, Protection{})},
+		{"colon-end-comment", `the writer "Tide: # x"`, func(p V1Page, err error) bool {
+			return refused(ErrNotWritten, Protection{})(p, err) && strings.Contains(err.Error(), "a comment after a plain value that holds a colon")
+		}},
 	}
 	var named []string
 	for _, r := range rows {

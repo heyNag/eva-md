@@ -13,8 +13,8 @@ import (
 // subject is the conformance harness's view of a fake. The harness opens a
 // subject many times; its first open makes the fake, and every other is a
 // Reopen, so each store it is handed is the same fake. It counts the
-// faults that stopped a pass, since the harness lets a pass whose fault
-// never fired go on, and a fake that dropped its fault would pass.
+// faults that stopped a pass, as a check of its own beside the harness's,
+// which fails a run in which no armed crash fired.
 type subject struct {
 	fake   *storetest.Fake
 	clock  conformance.Clock
@@ -119,10 +119,10 @@ func seeds() int {
 	return 200
 }
 
-// The fake keeps ST-02's five properties, as the model it is built on
+// The fake keeps the store's six properties, as the model it is built on
 // does. Each runs beside the others: they share no state. Every property
-// but Protection crashes passes, so for each of those a fault must have
-// stopped a pass of the fake.
+// but Protection and SessionKept crashes passes, so for each of those a
+// fault must have stopped a pass of the fake.
 func TestTheFakeKeepsEveryProperty(t *testing.T) {
 	type property struct {
 		run     func(*testing.T, func() conformance.Subject, func() conformance.Restorable)
@@ -144,6 +144,9 @@ func TestTheFakeKeepsEveryProperty(t *testing.T) {
 		conformance.PropReplay: {func(t *testing.T, _ func() conformance.Subject, r func() conformance.Restorable) {
 			conformance.RunReplay(t, r, seeds())
 		}, true},
+		conformance.PropSessionKept: {func(t *testing.T, s func() conformance.Subject, _ func() conformance.Restorable) {
+			conformance.RunSessionKept(t, s, seeds())
+		}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

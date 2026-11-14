@@ -69,6 +69,10 @@ type Model struct {
 	queueFromJobs      bool // read coverage from the local job list too
 	sessionUnguarded   bool // write notes and coverage into a protected session file
 	requiresIgnored    bool // treat every requirement as met
+	faultIgnored       bool // never call the fault
+	faultEarlyOnly     bool // call the fault at recover and plan alone
+	sessionRewritten   bool // write a session file anew on each pass, with only that pass's notes
+	handTextDropped    bool // keep only the notes the store wrote of a session file's log
 }
 
 // folder is the store folder.
@@ -244,7 +248,8 @@ func (h *handle) usable() error {
 
 // step stops Apply where the fault says, as a process's death would.
 func (h *handle) step(s store.Step, i int) error {
-	if h.fault == nil {
+	early := s == store.StepRecover || s == store.StepPlan
+	if h.fault == nil || h.m.faultIgnored || h.m.faultEarlyOnly && !early {
 		return nil
 	}
 	if err := h.fault(s, i); err != nil {
@@ -450,7 +455,8 @@ func (m *Model) plan(f *folder, txn store.Txn) (*planned, error) {
 		// the ranges stay in the queue until a person repairs the file.
 		return p, nil
 	}
-	have, keep, log := parseSession(b)
+	_, mine := p.writes[path]
+	have, keep, log := m.session(b, mine)
 	if m.coverageOutside {
 		have = f.outside[txn.Session]
 	}
@@ -505,7 +511,8 @@ func (m *Model) planOp(txn store.Txn, i int, p *planned, read func(string) ([]by
 		if reason := m.sessionShut(b); ok && reason != "" {
 			return refused(reason, op.ID)
 		}
-		have, keep, log := parseSession(b)
+		_, mine := p.writes[path]
+		have, keep, log := m.session(b, mine)
 		p.writes[path] = renderSession(txn.Session, keep, have, log+"- did: "+text+"\n")
 		return store.Outcome{Result: store.ResultApplied, ID: op.ID}
 	}
@@ -747,6 +754,27 @@ func parseSession(b []byte) ([]store.Range, []string, string) {
 	}
 	log, _ := strings.CutPrefix(body, "## Log\n")
 	return out, keep, log
+}
+
+// session is parseSession as a pass that rewrites the file reads it; mine
+// says whether the pass wrote the file already. The broken variants lose
+// part of the log: sessionRewritten all of it the pass did not write, and
+// handTextDropped every line but the notes the store wrote.
+func (m *Model) session(b []byte, mine bool) ([]store.Range, []string, string) {
+	have, keep, log := parseSession(b)
+	switch {
+	case m.sessionRewritten && !mine:
+		log = ""
+	case m.handTextDropped:
+		var notes strings.Builder
+		for l := range strings.SplitAfterSeq(log, "\n") {
+			if strings.HasPrefix(l, "- did: ") {
+				notes.WriteString(l)
+			}
+		}
+		log = notes.String()
+	}
+	return have, keep, log
 }
 
 // renderSession writes a session file: its session, the lines it keeps,
