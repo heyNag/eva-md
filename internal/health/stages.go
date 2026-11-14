@@ -64,6 +64,12 @@ const commitLogDays = 62
 // says what evidence could not be read, so the lag is not known; Notes
 // are what the stage counts apart, said beside its lag. Neither holds a
 // path, a session or captured text.
+//
+// Off is true when the stage's work is off by the owner's choice: eva-md
+// is not installed for the host, for capture; updates = false, for
+// organizing; commits = false, for commit and push. A note says which. An
+// off stage's lag is still shown, but it is held to no budget, so its row
+// never fails, and the verdict names it apart from the stages that are on.
 type Stage struct {
 	Name, Host       string
 	Lag, Bar, Budget time.Duration
@@ -72,6 +78,7 @@ type Stage struct {
 	Waiting          int
 	Unread           string
 	Notes            []string
+	Off              bool
 }
 
 // Stages reads each stage's lag at now: for each host, its activity, its
@@ -92,7 +99,12 @@ func Stages(ctx context.Context, d paths.Dirs, c config.Config, now time.Time) [
 		activity := activityStage(ctx, host, now)
 		out = append(out, activity, captureStage(d, host, activity, now))
 		if c.WikiPath != "" {
-			out = append(out, organizingStage(host, waiting, waitErr, held, now))
+			organizing := organizingStage(host, waiting, waitErr, held, now)
+			if !c.Updates {
+				organizing.Off = true
+				organizing.Notes = append(organizing.Notes, "updates are off (updates = false in the config), so its lag is held to no budget")
+			}
+			out = append(out, organizing)
 		}
 	}
 	if c.WikiPath != "" {
@@ -162,11 +174,18 @@ func installedAt(d paths.Dirs, host string) time.Time {
 // captureStage is the capture's lag: while the host's newest chat is newer
 // than its newest hook run, or than its install when that is newer, by more
 // than the bar, the time since that run; else 0. With neither a run nor an
-// install, the lag runs from the chat.
+// install time that is not in the future, the lag runs from the chat. A
+// host eva-md is not installed for, as a one-host install leaves the
+// other, is not captured: its capture is off and has no lag.
 func captureStage(d paths.Dirs, host string, activity Stage, now time.Time) Stage {
 	s := Stage{Name: StageCapture, Host: host, Bar: captureBar, Budget: captureBudget}
 	if activity.Unread != "" {
 		s.Unread = activity.Unread
+		return s
+	}
+	if !Installed(d, host) {
+		s.Off = true
+		s.Notes = append(s.Notes, "eva-md is not installed for it, so its capture is not measured")
 		return s
 	}
 	since := lastHookRun(d, host, now)
@@ -234,7 +253,9 @@ func wikiStages(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 	commit := Stage{Name: StageCommit, Bar: commitBar, Budget: commitBudget}
 	push := Stage{Name: StagePush, Bar: pushBar, Budget: pushBudget}
 	if !c.Commits {
-		commit.Notes = append(commit.Notes, "daily commits are off (commits = false in the config)")
+		commit.Off, push.Off = true, true
+		commit.Notes = append(commit.Notes, "daily commits are off (commits = false in the config), so its lag is held to no budget")
+		push.Notes = append(push.Notes, "daily pushes are off (commits = false in the config), so its lag is held to no budget")
 	}
 	records, err := commitRecords(d.State, now, doctorCommit)
 	if err != nil {
@@ -310,9 +331,7 @@ func wikiStages(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 func firstWritten(d paths.Dirs, saved, now time.Time) (time.Time, bool) {
 	days := commitLogDays
 	if !saved.IsZero() {
-		first := time.Date(saved.Year(), saved.Month(), saved.Day(), 0, 0, 0, 0, now.Location())
-		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		days = min(max(int(today.Sub(first).Hours()/24)+1, 1), commitLogDays)
+		days = min(max(calendarDays(saved.In(now.Location()), now)+1, 1), commitLogDays)
 	}
 	records, err := update.Days(d.State, now, days)
 	if err != nil {
@@ -332,6 +351,15 @@ func firstWritten(d paths.Dirs, saved, now time.Time) (time.Time, bool) {
 		}
 	}
 	return oldest, true
+}
+
+// calendarDays is how many calendar days from's date is before to's, each
+// read in its own zone: two midnights that a change of daylight saving
+// puts 23 or 25 hours apart are one day apart, as update.Days reads the
+// run log by date.
+func calendarDays(from, to time.Time) int {
+	day := func(t time.Time) time.Time { return time.Date(t.Year(), t.Month(), t.Day(), 12, 0, 0, 0, time.UTC) }
+	return int(day(to).Sub(day(from)) / (24 * time.Hour))
 }
 
 // span words a duration in whole days past two, else hours past one, else

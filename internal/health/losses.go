@@ -68,11 +68,15 @@ func countLosses(ctx context.Context, d paths.Dirs, now time.Time) map[string]lo
 	}
 	for _, k := range keys {
 		l, ok := out[k.Host]
-		if !ok || ctx.Err() != nil {
+		if !ok {
 			continue
 		}
 		info, err := os.Lstat(filepath.Join(d.Inbox(), k.Folder, k.File))
 		switch {
+		case ctx.Err() != nil:
+			// The check's time ran out: what is left is counted as not
+			// read, so the row says its count is short.
+			l.Unread++
 		case err != nil:
 			l.Unread++
 		case now.Sub(info.ModTime()) > lossDays:
@@ -163,7 +167,7 @@ func lossRow(host string, l loss) Check {
 		parts = append(parts, fmt.Sprintf("%d of %d closed turns with a prompt have no stored reply (%s)", l.NoReply, l.Closed, share(l.NoReply, l.Closed)))
 	}
 	if l.Unread > 0 {
-		parts = append(parts, fmt.Sprintf("%d session %s could not be read", l.Unread, plural(l.Unread, "file", "files")))
+		parts = append(parts, fmt.Sprintf("%d session %s could not be read, so the turns counted are a floor", l.Unread, plural(l.Unread, "file", "files")))
 	}
 	check.Detail = strings.Join(parts, "; ") + "; the bar of each is 0.5%"
 	switch {

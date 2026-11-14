@@ -61,8 +61,8 @@ func init() {
 
 // stageRow is a stage's row, <host> <stage> lag: the lag beside the bar,
 // past the bar when it is, the reason, and what waits. PASS within the
-// budget, FAIL past it; UNKNOWN when the evidence could not be read,
-// saying which.
+// budget, FAIL past it, unless the stage is off; UNKNOWN when the evidence
+// could not be read, saying which.
 func stageRow(s Stage) Check {
 	name := s.Name + " lag"
 	if s.Host != "" {
@@ -85,11 +85,13 @@ func stageRow(s Stage) Check {
 			detail += ": " + s.Reason
 		}
 	}
-	detail += "; " + waitingWords(s)
+	if words := waitingWords(s); words != "" {
+		detail += "; " + words
+	}
 	for _, note := range s.Notes {
 		detail += "; " + note
 	}
-	if s.Lag > s.Budget {
+	if s.Lag > s.Budget && !s.Off {
 		return Check{Name: name, Status: "FAIL", Detail: detail, Fix: stageFix(s)}
 	}
 	return Check{Name: name, Status: "PASS", Detail: detail}
@@ -100,6 +102,9 @@ func waitingWords(s Stage) string {
 	n := s.Waiting
 	switch s.Name {
 	case StageCapture:
+		if s.Off {
+			return ""
+		}
 		if s.Lag > 0 {
 			return "the host's newest chat is newer than its newest hook run"
 		}
@@ -202,7 +207,9 @@ func markLosses(r *Report, hosts []string) {
 // verdict is the one line: a counted loss past its bar first, the largest
 // share first; else the stage furthest past its bar, by lag over bar, with
 // its lag, its bar and its reason; else that every stage is within its bar,
-// naming any whose lag could not be told. A host nobody uses is left out.
+// naming any whose lag could not be told, and any that is off and past its
+// bar, with its lag. A host nobody uses is left out, and an off stage is
+// never the one furthest past its bar.
 func verdict(stages []Stage, losses map[string]loss, unused []string) string {
 	worst, worstShare := "", 0.0
 	for _, host := range updateHosts {
@@ -227,13 +234,19 @@ func verdict(stages []Stage, losses map[string]loss, unused []string) string {
 		return label(worst, StageCapture) + " is losing chats: " + strings.Join(parts, " and ") + " in the past 7 days, past the bar of 0.5%"
 	}
 	var furthest *Stage
-	var unread []string
+	var unread, off []string
 	for i, s := range stages {
 		if s.Name == StageActivity || slices.Contains(unused, s.Host) {
 			continue
 		}
 		if s.Unread != "" {
 			unread = append(unread, label(s.Host, s.Name))
+			continue
+		}
+		if s.Off {
+			if s.Lag > s.Bar {
+				off = append(off, label(s.Host, s.Name)+" lags "+span(s.Lag))
+			}
 			continue
 		}
 		if s.Lag > s.Bar && (furthest == nil || float64(s.Lag)/float64(s.Bar) > float64(furthest.Lag)/float64(furthest.Bar)) {
@@ -247,9 +260,21 @@ func verdict(stages []Stage, losses map[string]loss, unused []string) string {
 		}
 		return line
 	}
-	line := "every stage is within its bar"
+	subject := "every stage"
+	switch {
+	case len(off) > 0 && len(unread) > 0:
+		subject += " that is switched on and could be read"
+	case len(off) > 0:
+		subject += " that is switched on"
+	case len(unread) > 0:
+		subject += " that could be read"
+	}
+	line := subject + " is within its bar"
 	if len(unread) > 0 {
-		line = "every stage that could be read is within its bar; the lag of " + list(unread) + " can't be told"
+		line += "; the lag of " + list(unread) + " can't be told"
+	}
+	if len(off) > 0 {
+		line += "; switched off, so held to no bar: " + list(off)
 	}
 	return line
 }
