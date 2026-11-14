@@ -25,8 +25,8 @@
 // value. Three ties need less than every value, and give the fact's own
 // verdict instead: an item that cites a line said off the record breaks
 // that fact's Must in any words; one that holds any value of a fact that
-// may be kept, only never under the user's tag or never as a rule, breaks
-// it when filed so; and an active item that holds a value of a fact that
+// may be kept, only never under the user's tag or never as a rule, asked
+// of its kind or not, breaks it when filed so; and an active item that holds a value of a fact that
 // ended, which no fact still in force that its cited lines plant holds,
 // keeps it in force. Value matching cannot read a negation, so the
 // pasted-fact tie and the last spare an item that holds another fact in
@@ -337,7 +337,7 @@ func (s *scorer) read(it Item) read {
 	best := 0
 	for _, p := range parts {
 		switch {
-		case s.tied(it, &r, p.fact, p.held, full):
+		case s.tied(it, &r, p.fact, full):
 			r.supports = append(r.supports, support{fact: p.fact})
 		case r.partial < 0 || p.held > best:
 			r.partial, r.lack, best = p.fact, p.lack, p.held
@@ -350,9 +350,11 @@ func (s *scorer) read(it Item) read {
 }
 
 // tied reports whether an item that cites the line planting fact f, and
-// holds held of its values but not all, is still tied to it, so that it
-// says of the fact what an item holding all of them would. full are the
-// facts its cited lines plant whose every value it holds. Tied are: any
+// lacks a value f asks of its kind, is still tied to it, so that it says
+// of the fact what an item holding all of them would. full are the facts
+// its cited lines plant whose every value it holds. tied reads every slot
+// of f, asked of the item's kind or not: a value f leaves unasked of it
+// is still one of f's values. Tied are: any
 // item that cites a fact said off the record; one that holds a value of a
 // fact that may be kept, only never as a rule; one that holds a value of a
 // fact that may be kept, only never under the user's tag, unless it holds
@@ -373,13 +375,14 @@ func (s *scorer) read(it Item) read {
 // in force. Value matching cannot read a negation, so the second also
 // spares an item that takes the echoed value beside the correction, as
 // "use EVA_TOKEN, not EVA_MD_TOKEN" citing the correction and the echo.
-func (s *scorer) tied(it Item, r *read, f, held int, full []int) bool {
+func (s *scorer) tied(it Item, r *read, f int, full []int) bool {
 	fact := s.sc.Facts[f]
+	some := slices.ContainsFunc(fact.Slots, r.text.holds)
 	switch fact.Must {
 	case scenario.MustNotStore:
 		return true
 	case scenario.MustNotWithAuthority:
-		return held > 0 && !slices.ContainsFunc(full, s.required)
+		return some && !slices.ContainsFunc(full, s.required)
 	case scenario.MustStore:
 		if !s.ended[f] || it.State != StateActive || slices.ContainsFunc(full, func(g int) bool { return slices.Contains(s.enders[f], g) }) ||
 			s.echoes(r, f, full) {
@@ -389,7 +392,7 @@ func (s *scorer) tied(it Item, r *read, f, held int, full []int) bool {
 			return r.text.holds(sl) && !slices.ContainsFunc(r.cands, func(g int) bool { return s.required(g) && hasSlot(s.sc.Facts[g], sl) })
 		})
 	}
-	return held > 0
+	return some
 }
 
 // asked reports whether fact f asks slot sl of an item of kind: of every

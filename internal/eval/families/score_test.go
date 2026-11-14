@@ -158,6 +158,12 @@ func TestCorrectionKeepsTheNewValue(t *testing.T) {
 				t.Errorf("%s: the old value in force, citing %s, scores %+v, item %s", sc.ID, at, r.Metrics, r.Items[len(r.Items)-1].Outcome)
 			}
 		}
+		// Citing the correction does not spare the old value: only an item
+		// that holds the correction in full may name it.
+		alone := score.Item{Kind: scenario.KindFact, State: score.StateActive, Authority: score.TagStated, Text: old.Slots[0].Value, Sources: []score.Source{fixedAt, echoAt}}
+		if r := score.Score(sc, with(sc, alone)); r.Metrics.StaleInForce != 1 || r.Items[len(r.Items)-1].Outcome != score.StaleInForce || factResult(r, echo.ID).Outcome != score.StaleInForce {
+			t.Errorf("%s: the old value alone, citing the correction and the echo, scores %+v, item %s", sc.ID, r.Metrics, r.Items[len(r.Items)-1].Outcome)
+		}
 		onlyOld := score.Export{Items: []score.Item{itemOf(t, sc, scenario.KindDecision, score.TagStated, old.Slots[0].Value, old.ID)}}
 		if r := score.Score(sc, onlyOld); r.Metrics.FactHolds != 0 || r.Metrics.StaleInForce != 1 || factResult(r, fixed.ID).Outcome != score.Missing {
 			t.Errorf("%s: only the old value scores %+v", sc.ID, r.Metrics)

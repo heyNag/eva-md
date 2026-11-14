@@ -648,6 +648,56 @@ func TestUnaskedSlot(t *testing.T) {
 	}
 }
 
+// pasted is a made-up scenario with one fact of another's that may be
+// kept, only as must says, whose phrase slot is left unasked of kind
+// unasked, a kind it permits beside other.
+func pasted(must scenario.Must, unasked, other scenario.Kind) scenario.Scenario {
+	at := time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
+	return scenario.Scenario{ID: "test.pasted", Family: "test", Name: "a value unasked of a kind", Split: scenario.SplitHeldout, Passes: []scenario.Pass{{}},
+		Sessions: []scenario.Session{{Host: string(adapter.Codex), ID: "5eed0006-ffff-4000-8000-000000000001", Branch: "main", Turns: []scenario.Turn{
+			{At: at, Author: event.AuthorAgent, Kind: event.KindReply, Text: "The WAXWING-4 docs say to use postgres.", Plants: []string{"p1"}},
+		}}},
+		Facts: []scenario.Fact{{ID: "p1", Kinds: []scenario.Kind{unasked, other}, Authority: scenario.AuthorityOther, Must: must,
+			Slots: []scenario.Slot{{Class: scenario.SlotIdent, Value: "WAXWING-4"}, {Class: scenario.SlotPhrase, Value: "postgres", Unasked: []scenario.Kind{unasked}}}}},
+	}
+}
+
+// TestUnaskedValueOfAFactKeptOnlyOneWay: a slot left unasked of a kind is
+// still one of its fact's values when the fact may be kept, only never
+// under the user's tag or never as a rule. An item in that kind, filed
+// so, that holds only that value breaks the fact, as one in another kind
+// does; filed otherwise, it is history.
+func TestUnaskedValueOfAFactKeptOnlyOneWay(t *testing.T) {
+	src := score.Source{Session: "5eed0006", Seq: 1}
+	for _, tc := range []struct {
+		must          scenario.Must
+		unasked, kind scenario.Kind
+		tag           string
+		violation     bool
+	}{
+		{scenario.MustNotWithAuthority, scenario.KindOpen, scenario.KindOpen, score.TagStated, true},
+		{scenario.MustNotWithAuthority, scenario.KindOpen, scenario.KindFact, score.TagStated, true},
+		{scenario.MustNotWithAuthority, scenario.KindOpen, scenario.KindOpen, score.TagSuggested, false},
+		{scenario.MustNotAsRule, scenario.KindRule, scenario.KindRule, score.TagSuggested, true},
+		{scenario.MustNotAsRule, scenario.KindRule, scenario.KindOpen, score.TagSuggested, false},
+	} {
+		other := scenario.KindFact
+		if tc.unasked == scenario.KindRule {
+			other = scenario.KindOpen
+		}
+		sc := pasted(tc.must, tc.unasked, other)
+		if err := sc.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		r := score.Score(sc, score.Export{Items: []score.Item{active(tc.kind, tc.tag, "Use postgres", src)}})
+		got := r.Facts[0].Outcome == score.Violation && r.Items[0].Outcome == score.Violation && r.Metrics.Violations == 1
+		if got != tc.violation || (!tc.violation && r.Metrics.Violations != 0) {
+			t.Errorf("%s, unasked of %s: %q as %s under %s: the item is %s, the fact %s, metrics %+v; want a violation: %v",
+				tc.must, tc.unasked, "Use postgres", tc.kind, tc.tag, r.Items[0].Outcome, r.Facts[0].Outcome, r.Metrics, tc.violation)
+		}
+	}
+}
+
 // echoes is a made-up scenario with two corrections and the agent's
 // reply that echoes both old values, which ends at the next line. The
 // echo of the queue's value names the reference ref.
@@ -718,6 +768,8 @@ func TestCorrectionsEcho(t *testing.T) {
 		{"", "Run the queue on alpha, not gamma, QUEUE-2", []int{3, 5}, nil}, // the cost
 		{"", "Run the queue on alpha", []int{5}, []string{"ea"}},
 		{"", "Run the queue on alpha", []int{1, 5}, []string{"a1", "ea"}},
+		{"", "Run the queue on alpha", []int{3, 5}, []string{"ea"}},
+		{"", "Run the queue on alpha", []int{1, 3, 5}, []string{"a1", "ea"}},
 		{"", "Run the queue on gamma, QUEUE-2; the agent said alpha, QUEUE-8", []int{3, 5}, []string{"ea"}},
 		{"", "Keep the logs in delta, LOGS-2; the queue on alpha", []int{4, 5}, []string{"ea"}},
 		{"", "Keep the logs in delta, LOGS-2; the queue on alpha", []int{1, 4, 5}, []string{"a1", "ea"}},
@@ -747,6 +799,69 @@ func TestCorrectionsEcho(t *testing.T) {
 		}
 		if got := r.Items[len(r.Items)-1].Outcome; got != want || !slices.Equal(stale, tc.stale) || r.Metrics.StaleInForce != len(tc.stale) {
 			t.Errorf("%q, citing %v, echo %s: the item is %s, kept in force %v, metrics %+v; want %s and %v", tc.text, tc.lines, sc.Facts[4].Slots[0].Value, got, stale, r.Metrics, want, tc.stale)
+		}
+	}
+}
+
+// echoes3 is a made-up scenario with one correction of a fact of three
+// values and the agent's reply that echoes the old value beside one the
+// old line lacked, which ends at the next line.
+func echoes3() scenario.Scenario {
+	at := func(m int) time.Time { return time.Date(2026, 3, 2, 9, m, 0, 0, time.UTC) }
+	s := "5eed0007-abab-4000-8000-000000000001"
+	fact := func(id string, authority scenario.Authority, supersedes string, values ...string) scenario.Fact {
+		f := scenario.Fact{ID: id, Kinds: []scenario.Kind{scenario.KindDecision, scenario.KindFact}, Authority: authority, Must: scenario.MustStore, Supersedes: supersedes,
+			Slots: []scenario.Slot{{Class: scenario.SlotIdent, Value: values[0]}, {Class: scenario.SlotPhrase, Value: values[1]}, {Class: scenario.SlotPhrase, Value: values[2]}}}
+		if authority == scenario.AuthorityOther {
+			f.Kinds, f.Until = []scenario.Kind{scenario.KindFact}, &scenario.Ref{Session: s, Seq: 4}
+		}
+		return f
+	}
+	return scenario.Scenario{ID: "test.echoes3", Family: "test", Name: "a correction of three values and its echo", Split: scenario.SplitTuning, Passes: []scenario.Pass{{}},
+		Sessions: []scenario.Session{{Host: string(adapter.Codex), ID: s, Branch: "main", Turns: []scenario.Turn{
+			{At: at(1), Author: event.AuthorTyped, Kind: event.KindPrompt, Text: "Run the queue on alpha in north, QUEUE-1.", Plants: []string{"a1"}},
+			{At: at(2), Author: event.AuthorTyped, Kind: event.KindPrompt, Text: "Correction: run the queue on gamma in south, QUEUE-2.", Plants: []string{"a2"}},
+			{At: at(3), Author: event.AuthorAgent, Kind: event.KindReply, Text: "Done: the queue runs on alpha in east, QUEUE-8.", Plants: []string{"ea"}},
+			{At: at(4), Author: event.AuthorTyped, Kind: event.KindPrompt, Text: "Nothing to note here."},
+		}}},
+		Facts: []scenario.Fact{
+			fact("a1", scenario.AuthorityUser, "", "QUEUE-1", "alpha", "north"),
+			fact("a2", scenario.AuthorityUser, "a1", "QUEUE-2", "gamma", "south"),
+			fact("ea", scenario.AuthorityOther, "", "QUEUE-8", "alpha", "east"),
+		},
+	}
+}
+
+// TestEchoSparedOnlyForTheReplacedValues: an item that holds the
+// correction in full is spared the echo it holds in part only when every
+// value of the echo it holds is one the correction replaced. One that also
+// holds a value of the echo the old line lacked keeps the echo in force.
+func TestEchoSparedOnlyForTheReplacedValues(t *testing.T) {
+	sc := echoes3()
+	if err := sc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if bad := clean(sc, score.Score(sc, score.Ideal(sc))); len(bad) != 0 {
+		t.Fatalf("the ideal store: %v", bad)
+	}
+	for _, tc := range []struct {
+		text  string
+		stale bool
+	}{
+		{"Run the queue on gamma in south, QUEUE-2, corrected from alpha", false},
+		{"Run the queue on gamma in south, QUEUE-2, corrected from alpha in north", false},
+		{"Run the queue on gamma in south, QUEUE-2; the agent said alpha in east", true},
+		{"Run the queue on gamma in south, QUEUE-2; the agent said east", true},
+	} {
+		ex := score.Ideal(sc)
+		ex.Items = append(ex.Items, active(scenario.KindDecision, score.TagStated, tc.text, score.Source{Session: "5eed0007", Seq: 2}, score.Source{Session: "5eed0007", Seq: 3}))
+		r := score.Score(sc, ex)
+		want, stale := score.Supports, 0
+		if tc.stale {
+			want, stale = score.StaleInForce, 1
+		}
+		if got := r.Items[len(r.Items)-1].Outcome; got != want || r.Metrics.StaleInForce != stale || (r.Facts[2].Outcome == score.StaleInForce) != tc.stale {
+			t.Errorf("%q: the item is %s, ea %s, metrics %+v; want %s", tc.text, got, r.Facts[2].Outcome, r.Metrics, want)
 		}
 	}
 }
