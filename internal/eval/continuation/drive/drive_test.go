@@ -804,30 +804,37 @@ func TestNoAskedAgainWhenNotMeasured(t *testing.T) {
 
 // Usage errors start nothing.
 func TestUsageErrors(t *testing.T) {
-	for name, set := range map[string]func(o *Options){
-		"no host":                 func(o *Options) { o.Host = "" },
-		"an unknown host":         func(o *Options) { o.Host = "made-up-host" },
-		"a relative CLI":          func(o *Options) { o.CLI = "claude" },
-		"a CLI that is no file":   func(o *Options) { o.CLI = filepath.Join(filepath.Dir(o.CLI), "made-up-cli") },
-		"no trials":               func(o *Options) { o.Trials = 0 },
-		"no session ceiling":      func(o *Options) { o.MaxSessions = 0 },
-		"no token ceiling":        func(o *Options) { o.MaxTokens = 0 },
-		"a pass-env with =":       func(o *Options) { o.PassEnv = append(o.PassEnv, "A=B") },
-		"a pass-env the driver":   func(o *Options) { o.PassEnv = append(o.PassEnv, "HOME") },
-		"a pass-env a host's off": func(o *Options) { o.PassEnv = append(o.PassEnv, fakehost.OffVar) },
-		"a pass-env not set":      func(o *Options) { o.PassEnv = append(o.PassEnv, "EVAL_MADE_UP_UNSET") },
-		"a pass-env given twice":  func(o *Options) { o.PassEnv = append(o.PassEnv, o.PassEnv[0]) },
-		"a model not an id":       func(o *Options) { o.Model = "Made Up" },
-		"no results folder":       func(o *Options) { o.Out = "" },
-		"no tasks":                func(o *Options) { o.Tasks = filepath.Join(filepath.Dir(o.Tasks), "none") },
+	for name, c := range map[string]struct {
+		set  func(t *testing.T, o *Options)
+		want string // what the error says
+	}{
+		"no host":               {func(_ *testing.T, o *Options) { o.Host = "" }, "--host is not a host id"},
+		"an unknown host":       {func(_ *testing.T, o *Options) { o.Host = "made-up-host" }, "--host is not a host id"},
+		"a relative CLI":        {func(_ *testing.T, o *Options) { o.CLI = "claude" }, "--cli: not an absolute path"},
+		"a CLI that is no file": {func(_ *testing.T, o *Options) { o.CLI = filepath.Join(filepath.Dir(o.CLI), "made-up-cli") }, "--cli: no such file"},
+		"no trials":             {func(_ *testing.T, o *Options) { o.Trials = 0 }, "--trials is under 1"},
+		"no session ceiling":    {func(_ *testing.T, o *Options) { o.MaxSessions = 0 }, "--max-sessions is missing or under 1"},
+		"no token ceiling":      {func(_ *testing.T, o *Options) { o.MaxTokens = 0 }, "--max-tokens is missing or under 1"},
+		"a pass-env with =":     {func(_ *testing.T, o *Options) { o.PassEnv = append(o.PassEnv, "A=B") }, "is not a variable's name"},
+		"a pass-env the driver": {func(_ *testing.T, o *Options) { o.PassEnv = append(o.PassEnv, "HOME") }, "--pass-env HOME is one the driver sets itself"},
+		// Set, so that only the driver's setting it can refuse it.
+		"a pass-env a host's off": {func(t *testing.T, o *Options) {
+			t.Setenv(fakehost.OffVar, "0")
+			o.PassEnv = append(o.PassEnv, fakehost.OffVar)
+		}, "--pass-env " + fakehost.OffVar + " is one the driver sets itself"},
+		"a pass-env not set":     {func(_ *testing.T, o *Options) { o.PassEnv = append(o.PassEnv, "EVAL_MADE_UP_UNSET") }, "--pass-env EVAL_MADE_UP_UNSET is not set"},
+		"a pass-env given twice": {func(_ *testing.T, o *Options) { o.PassEnv = append(o.PassEnv, o.PassEnv[0]) }, "is given twice"},
+		"a model not an id":      {func(_ *testing.T, o *Options) { o.Model = "Made Up" }, "--model is not a model id"},
+		"no results folder":      {func(_ *testing.T, o *Options) { o.Out = "" }, "--out is missing"},
+		"no tasks":               {func(_ *testing.T, o *Options) { o.Tasks = filepath.Join(filepath.Dir(o.Tasks), "none") }, "task: "},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t, 1)
-			set(&r.opts)
+			c.set(t, &r.opts)
 			_, _, err := r.run()
 			var usage *UsageError
-			if !errors.As(err, &usage) {
-				t.Fatalf("run: %v", err)
+			if !errors.As(err, &usage) || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("run: %v, want an error saying %q", err, c.want)
 			}
 			if calls := r.calls(); len(calls) != 0 {
 				t.Fatalf("the fake ran: %+v", calls)

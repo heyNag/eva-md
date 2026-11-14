@@ -319,6 +319,40 @@ func TestAConditionThatLaysAHiddenFileStopsTheRun(t *testing.T) {
 	}
 }
 
+// A start that holds a file at a hidden file's path, with other bytes, as
+// a stub a hidden test replaces, is no fault: the trial is judged, the
+// path being one the start had. The chat writing other bytes there is
+// none either, but writing the hidden file's bytes there is found by its
+// bytes, after the call that wrote them.
+func TestAStartHoldingAHiddenPathIsJudged(t *testing.T) {
+	for name, c := range map[string]struct {
+		steal string
+		found bool
+	}{
+		"the chat leaves it":             {"", false},
+		"the chat writes other bytes":    {"at-path", false},
+		"the chat writes the hidden one": {"path", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Trials = 2
+			write(t, filepath.Join(r.opts.Repos, fakehost.FixtureRepo, "checks", "answer"), "#!/bin/sh\necho made-up stub\nexit 1\n")
+			r.script.Steal, r.script.From = c.steal, 2
+			s, out, err := r.run()
+			if c.found {
+				stoppedBy(t, err, CodeHiddenFound)
+				if s.Judged != 0 || s.NotRun != 1 || countMode(r.calls(), "continue") != 1 {
+					t.Fatalf("run: %+v\n%s", s, out)
+				}
+				return
+			}
+			if err != nil || s.Judged != 2 || len(s.Unjudged) != 0 || !strings.Contains(out, "solved 1, first try 0, corrections 1, rounds 2") {
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
+			}
+		})
+	}
+}
+
 // No trial's folder is left, even one the chat made read-only in its
 // workspace and its home, whether the trial is judged, unjudged, or the
 // one the run stopped in; and the work folder is left empty, so another
