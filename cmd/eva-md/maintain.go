@@ -51,44 +51,51 @@ func init() {
 // index up to date (see indexStep). Without a wiki, as in a capture-only
 // install, it runs only that step and then the two removals.
 func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int {
+	code, _ := maintain(ctx, args, out, errOut)
+	return code
+}
+
+// maintain is runMaintain, and also reports whether maintain.lock was held,
+// so that the worker's maintain job can keep its marks for the next run.
+func maintain(ctx context.Context, args []string, out, errOut io.Writer) (code int, busy bool) {
 	f := flag.NewFlagSet("maintain", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	pushOnly := f.Bool("push-only", false, "")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
-		return usage(errOut, "invalid arguments for maintain")
+		return usage(errOut, "invalid arguments for maintain"), false
 	}
 	dirs, err := paths.Default()
 	if err != nil {
 		fmt.Fprintln(errOut, "eva-md: home folder is unavailable")
-		return 1
+		return 1, false
 	}
 	c, err := config.Load(dirs.ConfigFile())
 	wiki := err == nil && c.WikiPath != ""
 	if !wiki && (*pushOnly || err != nil && !errors.Is(err, fs.ErrNotExist)) {
 		fmt.Fprintln(errOut, "eva-md: no wiki is set up; run eva-md setup first")
-		return 1
+		return 1, false
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	unlock, busy, err := update.TryLock(dirs.Locks(), "maintain.lock")
 	if busy {
 		fmt.Fprintln(out, "maintain: busy")
-		return 0
+		return 0, true
 	}
 	if err != nil {
 		fmt.Fprintln(errOut, "eva-md: maintain:", err)
-		return 1
+		return 1, false
 	}
 	defer unlock()
 	if !wiki {
 		// A capture-only install: maintain keeps the search index, and
 		// prunes the markers and records the hooks leave.
-		code := indexStep(ctx, dirs, out, errOut)
+		code = indexStep(ctx, dirs, out, errOut)
 		pruneAttempts(dirs.State, time.Now())
 		pruneRecords(ctx, dirs, time.Now(), out)
-		return code
+		return code, false
 	}
-	code := 0
+	code = 0
 	if !*pushOnly {
 		code = knowledgeStep(c, dirs, out, errOut)
 	}
@@ -96,7 +103,7 @@ func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int 
 		code = 1
 	}
 	if *pushOnly {
-		return code
+		return code, false
 	}
 	r, err := lint.Run(ctx, c.WikiPath, dirs)
 	if err != nil {
@@ -113,7 +120,7 @@ func runMaintain(ctx context.Context, args []string, out, errOut io.Writer) int 
 	if indexStep(ctx, dirs, out, errOut) != 0 {
 		code = 1
 	}
-	return code
+	return code, false
 }
 
 // commitStep runs the day's commit and push, or with pushOnly the push of a
