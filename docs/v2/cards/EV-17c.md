@@ -66,3 +66,15 @@ The card's checker left these to the lead.
 - The end-to-end test needs a `TMPDIR` outside `/tmp`, as eva-md's hook tests do, and the checks' script gives it one.
 - EV-17g exports the driver's two limits for this package's tests (its item 9).
 - If the card proves too large for one run, the end-to-end test becomes a follow-up of its own, and the builder says so.
+
+## Added by the lead on 2026-11-14, before the build
+
+The pilot's run-book was checked against the code and found what this card had missed: **v1's update cannot sign in with a key.** `internal/update/process.go` gives the host's CLI a cleared environment and drops every key, by design, so that the update runs on the person's own sign-in. A trial's home is new and holds no sign-in, so in a container that has only keys every trial of this condition would end `update_failed`.
+
+The ruling: eva-md is not changed, and the driver and this arm still hold, read and write no key. The command gains **`--sign-in PATH`**, for this condition alone: a program the run-book gives, run once in each trial before setup, in the trial's environment (so with the variables `--pass-env` names) and with the trial's home as its folder. It signs the host's CLI in within the trial's home by the host's own means, so that a CLI started later with a cleared environment finds its sign-in there. The arm does not read what it prints (at most 64 KiB is kept, for an error's length alone), bounds it like item 9's commands, and counts a failure as `setup_failed`. Without the flag nothing runs and item 4 behaves as carded. Tests: the fake program records its environment and folder; it runs before setup, once a trial; its failure or its stall is `setup_failed` with no row; a word it prints is in no row, output or error. The trial's folder is removed when its rows are written, so what the program wrote goes with it.
+
+Three more points from the same check:
+
+- **Where each command runs.** The run-book's wrapper, given as `--cli`, takes a call of the host's CLI made in the trial's workspace for a chat and gives the trial to the chat's user. So setup and the update run with the trial's home as their folder, never the workspace; only the replayed hooks name the workspace, in their payload's `cwd`, and they run eva-md, not the host's CLI. A test holds the folder of each.
+- **A run does not go on through trials that all fail the same way.** `setup_failed` and `update_failed` stop the run when the first two trials of a run both end in one of them: each further trial would end the same. A later one is counted and the run goes on.
+- **Jobs that outlive the chat can call the model.** With a sign-in in the trial's home, eva-md's own jobs started by the new chat's last hooks can spend after item 5's wait. The removal of the trial's folder takes their sign-in away; what they spend before that is uncounted, and the run-book's limit at the provider is what bounds it. The card says so in its package comment.

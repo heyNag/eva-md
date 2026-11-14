@@ -76,4 +76,4 @@ Owed, for the package that next changes `cmd/live-accuracy`:
 - A test of `createTrace` removing what it made when it fails part way.
 - Whether a pages folder that cannot be made takes the recording away too, with `--record` added to the test's two pages cases.
 
-The latency gate was not judged for this merge: the machine was at ten times its CPUs. The change to what a release builds is one optional field and a check for it on the update runner's path, which no hook runs; CI's `latency` artifact for the push is the reading.
+The latency gate was not judged for this merge: the machine was at ten times its CPUs. The change to what a release builds is one optional field and a check for it on the update runner's path, which no hook runs; CI's `latency` artifact for the push is the reading. CI's gate did not judge that push either. On 2026-11-14, on a quiet machine, the gate by its third rule compared the commit before this package with `main` as it then was, judged all 19 figures by their p95 and their median, and passed.
