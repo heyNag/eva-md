@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"math"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -50,12 +52,39 @@ func smallSet() *Set {
 	}
 }
 
-func figures(t *testing.T, s *Set, sys System) map[string][2]int {
+// score is Score, which must succeed, with the checks every run is held to:
+// its figures come in the order of Metrics, and each half's false events
+// over all negatives are all.silence_neg's events less its count, over the
+// same events, both given or both left out.
+func score(t *testing.T, s *Set, name string, sys System) *Result {
 	t.Helper()
-	res, err := Score(context.Background(), s, "fake", sys)
+	res, err := Score(context.Background(), s, name, sys)
 	if err != nil {
 		t.Fatal(err)
 	}
+	order, last := Metrics(), -1
+	got := map[string]Figure{}
+	for _, f := range res.Figures {
+		i := slices.Index(order, f.Metric)
+		if i <= last {
+			t.Errorf("%s: %s is out of the order of Metrics", name, f.Metric)
+		}
+		last = i
+		got[f.Metric] = f
+	}
+	for _, half := range Halves {
+		neg, nok := got[Metric(half, Negative, FalseEvents)]
+		sil, sok := got[Metric(half, "all", SilenceNeg)]
+		if nok != sok || nok && (neg.Num != sil.Den-sil.Num || neg.Den != sil.Den) {
+			t.Errorf("%s, %s: false events over all negatives %+v, silence on them %+v", name, half, neg, sil)
+		}
+	}
+	return res
+}
+
+func figures(t *testing.T, s *Set, sys System) map[string][2]int {
+	t.Helper()
+	res := score(t, s, "fake", sys)
 	out := map[string][2]int{}
 	for _, f := range res.Figures {
 		if _, twice := out[f.Metric]; twice {
@@ -90,7 +119,7 @@ func TestFiveEventsGiveExactFigures(t *testing.T) {
 		h("name", Recall):           {0, 1}, h("name", SilencePos): {1, 1},
 		h("all", Precision): {2, 4}, h("all", Recall): {2, 4}, h("all", FalseAdditions): {2, 4},
 		h("all", SilencePos): {1, 3}, h("all", SilenceNeg): {1, 2},
-		h("near_miss", FalseEvents): {1, 1}, h("sibling_only", FalseEvents): {0, 1},
+		h("near_miss", FalseEvents): {1, 1}, h("sibling_only", FalseEvents): {0, 1}, h(Negative, FalseEvents): {1, 2},
 	}
 	got := figures(t, s, fake)
 	if !maps.Equal(got, want) {
@@ -106,12 +135,12 @@ func TestFiveEventsGiveExactFigures(t *testing.T) {
 		}
 	}
 	for m, v := range got {
-		if !strings.Contains(m, ".lexical.") && !strings.Contains(m, ".all.") && !strings.Contains(m, ".sibling_only.") && after[m] != v {
+		if !strings.Contains(m, ".lexical.") && !strings.Contains(m, ".all.") && !strings.Contains(m, ".sibling_only.") && !strings.Contains(m, "."+Negative+".") && after[m] != v {
 			t.Errorf("%s changed from %v to %v", m, v, after[m])
 		}
 	}
-	if after[h("sibling_only", FalseEvents)] != [2]int{1, 1} || after[h("lexical", SilenceNeg)] != [2]int{0, 2} {
-		t.Errorf("the sibling-only event's figures: %v %v", after[h("sibling_only", FalseEvents)], after[h("lexical", SilenceNeg)])
+	if after[h("sibling_only", FalseEvents)] != [2]int{1, 1} || after[h("lexical", SilenceNeg)] != [2]int{0, 2} || after[h(Negative, FalseEvents)] != [2]int{2, 2} {
+		t.Errorf("the sibling-only event's figures: %v %v %v", after[h("sibling_only", FalseEvents)], after[h("lexical", SilenceNeg)], after[h(Negative, FalseEvents)])
 	}
 
 	// Every figure's metric is one the scorer may give.
@@ -162,9 +191,7 @@ func TestScoreRefusesABadAnswer(t *testing.T) {
 		t.Errorf("an event twice: %v", err)
 	}
 	s := smallSet()
-	if _, err := Score(context.Background(), s, "fake", meddler{}); err != nil {
-		t.Fatal(err)
-	}
+	score(t, s, "fake", meddler{})
 	if !slices.Equal(s.Events[0].Relevant, []string{"iaaaaaaaaaaaaa"}) || len(s.Events[3].Decoys) != 1 {
 		t.Errorf("a system changed the labels: %v %v", s.Events[0].Relevant, s.Events[3].Decoys)
 	}
@@ -208,9 +235,7 @@ func (r recorder) Add(_ context.Context, e Event) ([]string, error) {
 func TestASystemIsNotGivenTheLabels(t *testing.T) {
 	s := loadCommitted(t)
 	var seen []Event
-	if _, err := Score(context.Background(), s, "recorder", recorder{&seen}); err != nil {
-		t.Fatal(err)
-	}
+	score(t, s, "recorder", recorder{&seen})
 	if len(seen) != len(s.Events) {
 		t.Fatalf("the system was asked %d times for %d events", len(seen), len(s.Events))
 	}
@@ -287,10 +312,7 @@ func TestV1AddsASiblingOnlyWithASharedPage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res, err := Score(context.Background(), set, "v1-recall", sys)
-		if err != nil {
-			t.Fatal(err)
-		}
+		res := score(t, set, "v1-recall", sys)
 		n := 0
 		for _, e := range set.Events {
 			for _, id := range res.Added[e.ID] {
@@ -326,10 +348,7 @@ func TestOracleAndSilent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res, err := Score(context.Background(), s, name, sys)
-		if err != nil {
-			t.Fatal(err)
-		}
+		res := score(t, s, name, sys)
 		seen := map[string]bool{}
 		for _, f := range res.Figures {
 			measure := f.Metric[strings.LastIndex(f.Metric, ".")+1:]
@@ -345,6 +364,26 @@ func TestOracleAndSilent(t *testing.T) {
 		if name == "oracle" && len(seen) != 6 || name == "silent" && len(seen) != 4 {
 			t.Errorf("%s gives the measures %v", name, seen)
 		}
+		if name != "silent" {
+			continue
+		}
+		// Silence on every negative of a half is zero false events over at
+		// least 160, whose bound the table prints under 1.9%.
+		var b bytes.Buffer
+		res.Table(&b)
+		for _, half := range Halves {
+			m := Metric(half, Negative, FalseEvents)
+			i := slices.IndexFunc(res.Figures, func(f Figure) bool { return f.Metric == m })
+			if i < 0 || res.Figures[i].Num != 0 || res.Figures[i].Den < 160 || Bound(res.Figures[i].Den) >= 0.019 {
+				t.Errorf("silent: %s is %+v", m, res.Figures)
+				continue
+			}
+			line := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(m) + ` .*$`).FindString(b.String())
+			if want := fmt.Sprintf("0 of %d, under %s at 95%%", res.Figures[i].Den, percent(Bound(res.Figures[i].Den))); !strings.HasSuffix(line, want) {
+				t.Errorf("silent: the table's line %q, want it to end %q", line, want)
+			}
+			t.Logf("%s", line)
+		}
 	}
 }
 
@@ -356,11 +395,7 @@ func v1Rows(t *testing.T, commit string, at time.Time) []results.Row {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := Score(context.Background(), s, "v1-recall", sys)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return res.Rows(commit, false, at)
+	return score(t, s, "v1-recall", sys).Rows(commit, false, at)
 }
 
 // Two runs give the same rows apart from the time; the rows are of the
@@ -534,10 +569,7 @@ func TestTheTableShowsNoText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := Score(context.Background(), s, "v1-recall", sys)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := score(t, s, "v1-recall", sys)
 	var b bytes.Buffer
 	res.Table(&b)
 	out := b.String()

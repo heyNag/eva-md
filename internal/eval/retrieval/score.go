@@ -19,8 +19,13 @@ const (
 	FalseAdditions = "false_additions" // additions not relevant, of all additions
 	SilencePos     = "silence_pos"     // positive events with no addition, of positive events
 	SilenceNeg     = "silence_neg"     // other events with no addition, of other events
-	FalseEvents    = "false_events"    // events of a negative class with any addition, of that class's events
+	FalseEvents    = "false_events"    // events of a negative class, or of all of them, with any addition, of those events
 )
+
+// Negative is the group of every event of a half whose class is not
+// positive, over which FalseEvents is also given: a figure over more events
+// than any one class holds.
+const Negative = "negative"
 
 // Measures are the measures of a split, in the order they are reported.
 var Measures = []string{Precision, Recall, FalseAdditions, SilencePos, SilenceNeg}
@@ -53,6 +58,7 @@ func Metrics() []string {
 		for _, c := range NegativeClasses {
 			out = append(out, Metric(half, c, FalseEvents))
 		}
+		out = append(out, Metric(half, Negative, FalseEvents))
 	}
 	return out
 }
@@ -138,7 +144,7 @@ func measure(events []Event, added map[string][]string) []Figure {
 		for _, g := range Groups {
 			groups[g] = &counts{}
 		}
-		classes := map[string][2]int{} // class: events with an addition, events
+		classes := map[string][2]int{} // class, or Negative: events with an addition, events
 		for _, e := range events {
 			if Half(e.ID) != half {
 				continue
@@ -167,12 +173,14 @@ func measure(events []Event, added map[string][]string) []Figure {
 				}
 			}
 			if e.Class != Positive {
-				n := classes[e.Class]
-				if len(got) > 0 {
-					n[0]++
+				for _, k := range []string{e.Class, Negative} {
+					n := classes[k]
+					if len(got) > 0 {
+						n[0]++
+					}
+					n[1]++
+					classes[k] = n
 				}
-				n[1]++
-				classes[e.Class] = n
 			}
 		}
 		add := func(group, measure string, num, den int) {
@@ -188,7 +196,7 @@ func measure(events []Event, added map[string][]string) []Figure {
 			add(g, SilencePos, c.posSilent, c.pos)
 			add(g, SilenceNeg, c.negSilent, c.neg)
 		}
-		for _, class := range NegativeClasses {
+		for _, class := range append(slices.Clone(NegativeClasses), Negative) {
 			add(class, FalseEvents, classes[class][0], classes[class][1])
 		}
 	}

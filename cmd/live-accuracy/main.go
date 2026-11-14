@@ -54,6 +54,10 @@ func main() {
 	os.Exit(code)
 }
 
+// suiteScripts gives the scripts a run asks for: the suite's 12, which a
+// test may replace with fewer.
+var suiteScripts = accuracy.Scripts
+
 // clis are the commands the hosts' update runs start.
 var clis = map[string]string{update.HostClaude: "claude", update.HostCodex: "codex"}
 
@@ -101,7 +105,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 	if err := update.CheckFlags(*host, *effort, *model, *cli); err != nil {
 		return usage(errOut, strings.TrimPrefix(err.Error(), "update: "))
 	}
-	scripts, calls := accuracy.Scripts(), 0
+	scripts, calls := suiteScripts(), 0
 	index, counts := map[*accuracy.Script]int{}, make([]int, len(scripts))
 	for i, s := range scripts {
 		calls += len(s.Passes)
@@ -162,6 +166,19 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 			return 1
 		}
 	}
+	// Then the pages folder: one that cannot be made leaves nothing made,
+	// the trace and the recording included.
+	if *pages != "" {
+		if err := os.MkdirAll(*pages, 0o755); err != nil {
+			fmt.Fprintf(errOut, "live-accuracy: could not make the pages folder: %v\n", err)
+			tr.discard()
+			if rec != nil {
+				rec.close()
+				os.Remove(*record)
+			}
+			return 1
+		}
+	}
 	if rec != nil {
 		defer func() {
 			if err := rec.close(); err != nil {
@@ -169,13 +186,6 @@ func run(ctx context.Context, args []string, out, errOut io.Writer, newRunner fu
 				code = 1
 			}
 		}()
-	}
-	if *pages != "" {
-		if err := os.MkdirAll(*pages, 0o755); err != nil {
-			fmt.Fprintf(errOut, "live-accuracy: could not make the pages folder: %v\n", err)
-			tr.discard()
-			return 1
-		}
 	}
 	// The trace ends with end.json however the run ends from here: stopped
 	// unless the run is judged.

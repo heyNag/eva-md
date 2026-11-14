@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -631,6 +632,72 @@ func TestAPageThatCannotBeWritten(t *testing.T) {
 			}
 			if summed := strings.Contains(out.String(), "\nOn claude-code, against the target"); summed != (tc.calls == 21) {
 				t.Errorf("the report:\n%s", out.String())
+			}
+			if left := leftIn(t, tmp); len(left) != 0 {
+				t.Errorf("the run left %q", left)
+			}
+		})
+	}
+}
+
+// A run that meets the target exits 0, unless the last script's page, which
+// no pass came after, cannot be written: then it prints its report and
+// exits 1. No answers meet the target on all twelve scripts, so the run
+// asks for two copies of one script, answered right.
+func TestTheLastPageOfARunThatMeetsTheTarget(t *testing.T) {
+	right := `{"summary":"","last_chat":"","done":[],"items":[{"id":null,"kind":"decision","action":"add","text":"Switch to the streaming parser if scripts/benchmark.py passes 300 ms, CONDOR-8","tag":"stated","refs":[1],"reason":null,"replacement":null}],"timeline":[],"unknowns":[],"rules":[],"knowledge":[]}`
+	saved := suiteScripts
+	t.Cleanup(func() { suiteScripts = saved })
+	suiteScripts = func() []*accuracy.Script {
+		var scripts []*accuracy.Script
+		for i := range 2 {
+			s := accuracy.Conditional()
+			s.Name = fmt.Sprintf("%s %d", s.Name, i+1)
+			scripts = append(scripts, s)
+		}
+		return scripts
+	}
+	for _, blocked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("the last page blocked %v", blocked), func(t *testing.T) {
+			tmp := isolate(t)
+			pages := filepath.Join(t.TempDir(), "pages")
+			runner := &fakeRunner{t: t, tmp: tmp, answer: func(n int) (update.Result, error) {
+				// A folder where the last page goes stops its write, as
+				// root too.
+				if blocked && n == 2 {
+					if err := os.Mkdir(filepath.Join(pages, "v1.02.md"), 0o700); err != nil {
+						t.Error(err)
+					}
+				}
+				return update.Result{Output: []byte(right), Effort: "max"}, nil
+			}}
+			var out, errOut bytes.Buffer
+			args := []string{"--host", "claude-code", "--spend-model-quota", "--pages", pages}
+			code := run(context.Background(), args, &out, &errOut, func(string) update.Runner { return runner })
+			if len(runner.requests) != 2 || !strings.HasSuffix(out.String(), "\nThe run meets the target.\n") {
+				t.Fatalf("exit %d after %d calls\n%s\n%s", code, len(runner.requests), out.String(), errOut.String())
+			}
+			const failed = "live-accuracy: could not write the page v1.02.md: "
+			if want := map[bool]int{false: 0, true: 1}[blocked]; code != want || strings.Contains(errOut.String(), failed) != blocked {
+				t.Errorf("exit %d, want %d\n%s", code, want, errOut.String())
+			}
+			if blocked {
+				if left := leftIn(t, pages); !slices.Equal(left, []string{"v1.01.md", "v1.02.md"}) {
+					t.Errorf("the pages folder holds %q", left)
+				}
+				if info, err := os.Lstat(filepath.Join(pages, "v1.02.md")); err != nil || !info.IsDir() {
+					t.Errorf("v1.02.md: %v, %v", info, err)
+				}
+				must(t, os.Remove(filepath.Join(pages, "v1.02.md")))
+			}
+			got := pagesIn(t, pages)
+			if want := map[bool]int{false: 2, true: 1}[blocked]; len(got) != want {
+				t.Errorf("%d pages, want %d", len(got), want)
+			}
+			for name, page := range got {
+				if !strings.Contains(page, "CONDOR-8") {
+					t.Errorf("%s:\n%s", name, page)
+				}
 			}
 			if left := leftIn(t, tmp); len(left) != 0 {
 				t.Errorf("the run left %q", left)

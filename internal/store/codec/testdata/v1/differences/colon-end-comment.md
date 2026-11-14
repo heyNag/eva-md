@@ -1,7 +1,8 @@
 ---
 type: thread
-title: Tide feed
+title: "Tide feed"
 writer: Tide: # x
+status: stable
 ---
 
 # Body

@@ -255,6 +255,17 @@
       ]
     },
     {
+      "name": "retrieval.tuning.negative.false_events",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
       "name": "retrieval.heldout.lexical.precision",
       "unit": "ratio",
       "direction": "higher",
@@ -498,6 +509,17 @@
     },
     {
       "name": "retrieval.heldout.sibling_only.false_events",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "eval/retrieval/set",
+        "internal/eval/retrieval",
+        "internal/knowledgepage",
+        "internal/systempage"
+      ]
+    },
+    {
+      "name": "retrieval.heldout.negative.false_events",
       "unit": "ratio",
       "direction": "lower",
       "paths": [
