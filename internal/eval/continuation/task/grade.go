@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -36,11 +37,14 @@ const waitDelay = 10 * time.Second
 // Grade copies the workspace into scratch/workspace/, where scratch must not
 // exist or be an empty folder that neither holds the workspace nor is in
 // it, lays the hidden/ overlay of the task in taskDir over the copy, and
-// runs each test in its repository's copy within its time limit. A test
-// passes when it exits 0; one that fails or runs out of time fails, and so
-// does one that what the chat left cannot run: its repository's folder
+// runs each test in its repository's copy within its time limit, the
+// hidden files laid again before each test after the first, since the
+// chat's code an earlier test ran may have changed them. A test passes
+// when it exits 0; one that fails or runs out of time fails, and so does
+// one that what the chat left cannot run: its repository's folder
 // missing, or its runner, given as a path in the repository, missing or
-// not runnable (see runTest). A runner that is not installed on the
+// not runnable (see runTest), or the hidden files that cannot be laid
+// again before it. A runner that is not installed on the
 // machine, or a ctx that ends, is an error. A workspace given by a link is
 // graded from where the link leads. It never
 // writes the workspace. Tests run in an environment built from nothing
@@ -63,19 +67,28 @@ func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Gra
 			return Grading{}, fmt.Errorf("task %s: %w", t.ID, err)
 		}
 	}
+	if err := GoTelemetryOff(home); err != nil {
+		return Grading{}, fmt.Errorf("task %s: %w", t.ID, pathless(err))
+	}
 	if err := copyTree(workspace, cp); err != nil {
 		return Grading{}, fmt.Errorf("task %s: copying the workspace: %w", t.ID, pathless(err))
 	}
 	hidden := t
 	hidden.Dir = taskDir
-	for _, name := range t.Repos {
-		if err := layOverlay(hidden, OverlayHidden, name, repoRoot(t, cp, name)); err != nil {
-			return Grading{}, fmt.Errorf("task %s: %w", t.ID, err)
-		}
+	if err := relay(hidden, cp); err != nil {
+		return Grading{}, fmt.Errorf("task %s: %w", t.ID, err)
 	}
 	env := testEnv(home, tmp)
 	var g Grading
-	for _, x := range t.Tests {
+	for i, x := range t.Tests {
+		// The chat's code an earlier test ran may have changed a hidden
+		// file in the copy, such as a later test rewritten to pass: each
+		// test after the first runs on the hidden files laid again, and
+		// fails when they cannot be.
+		if i > 0 && relay(hidden, cp) != nil {
+			g.Fail = append(g.Fail, Failure{Test: x.ID, Facts: slices.Clone(x.Facts)})
+			continue
+		}
 		pass, err := runTest(ctx, x, repoRoot(t, cp, x.Repo), env)
 		if err != nil {
 			return Grading{}, fmt.Errorf("task %s: test %s: %w", t.ID, x.ID, err)
@@ -87,6 +100,36 @@ func Grade(ctx context.Context, t Task, taskDir, workspace, scratch string) (Gra
 		}
 	}
 	return g, nil
+}
+
+// relay lays the hidden/ overlay of the task t, whose Dir is the task's
+// folder, over the grading's copy cp again, replacing whatever stands at
+// a hidden file's path or on the way to it, a link among them.
+func relay(t Task, cp string) error {
+	for _, name := range t.Repos {
+		if err := layOverlay(t, OverlayHidden, name, repoRoot(t, cp, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GoTelemetryOff turns Go's telemetry off for a go command run with the
+// home folder home: it writes off to the mode file Go reads in the
+// configuration folder there (os.UserConfigDir's: .config, or on macOS
+// Library/Application Support), making its folders. Otherwise a go command
+// keeps counters in that folder and may leave a process behind, outside
+// its process group, that writes into it after the command has ended.
+func GoTelemetryOff(home string) error {
+	config := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		config = filepath.Join(home, "Library", "Application Support")
+	}
+	dir := filepath.Join(config, "go", "telemetry")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "mode"), []byte("off\n"), 0o644)
 }
 
 // apart returns the workspace ws made absolute with its links resolved, or

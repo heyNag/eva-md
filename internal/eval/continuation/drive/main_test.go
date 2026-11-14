@@ -22,8 +22,8 @@ func TestMain(m *testing.M) {
 	testgitenv.Clear()
 	// The production limits, raised once: the fake's --version and a
 	// killed call's output are waited for long enough on a slow machine.
-	versionTimeout = 10 * time.Minute
-	waitDelay = 10 * time.Minute
+	VersionTimeout = 10 * time.Minute
+	WaitDelay = 10 * time.Minute
 	os.Exit(m.Run())
 }
 
@@ -110,6 +110,13 @@ func (r *rig) run() (Summary, string, error) {
 	var out bytes.Buffer
 	s, err := Run(context.Background(), r.opts, &out)
 	return s, out.String(), err
+}
+
+// fresh gives the rig's next run a results folder and a work folder of
+// their own, named for name, as a second attempt at the same trials takes.
+func (r *rig) fresh(name string) {
+	r.opts.Out = filepath.Join(r.base, "out-"+name)
+	r.opts.Work = filepath.Join(r.base, "work-"+name)
 }
 
 // calls reads the fake's record.

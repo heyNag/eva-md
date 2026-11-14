@@ -19,7 +19,8 @@ var TempFolders = []string{"/tmp", "/var/tmp"}
 // as it exists, or a *UsageError when it is not absolute, or overlaps the
 // invoking home, a temporary folder the hooks skip, the tasks, the
 // repositories or the repository the rows are read from: when it is one of
-// them, is in one, or holds one. It writes nothing.
+// them, is in one, or holds one; or when it is there and is not an empty
+// folder. It writes nothing.
 func checkWork(o Options) (string, error) {
 	if !filepath.IsAbs(o.Work) {
 		return "", usagef("--work is not an absolute path")
@@ -53,6 +54,16 @@ func checkWork(o Options) (string, error) {
 				return "", usagef("--work overlaps a temporary folder, whose chats eva-md's hooks skip")
 			}
 		}
+	}
+	// What an earlier run left in it, a trial's folder among them, a chat
+	// could reach.
+	entries, err := os.ReadDir(work)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return "", usagef("--work is not a folder that can be read")
+	case len(entries) > 0:
+		return "", usagef("--work is not empty, and a chat could reach what it holds")
 	}
 	return work, nil
 }

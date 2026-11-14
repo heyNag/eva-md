@@ -1,19 +1,30 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/eval/continuation/drive"
 	"github.com/heyNag/eva-md/internal/eval/continuation/drive/fakehost"
 	"github.com/heyNag/eva-md/internal/eval/results"
 )
 
-// The fake host runs this test binary again under a host CLI's name.
-func init() { fakehost.Main() }
+// The fake host runs this test binary again under a host CLI's name. The
+// driver's limits are raised once, so that the fake's version and a killed
+// call's output are waited for long enough on a slow machine.
+func init() {
+	fakehost.Main()
+	drive.VersionTimeout = 10 * time.Minute
+	drive.WaitDelay = 10 * time.Minute
+}
 
 // contRig is a made-up world for eva-eval continuation: a home, the fake
 // host's fixture task, a repository the rows' commit is read from, and
@@ -62,8 +73,15 @@ func (r contRig) tmpRoot() string { return filepath.Join(r.base, "made-up-tmp") 
 // setScript writes the fake's script, with the rig's record and task.
 func (r contRig) setScript(t *testing.T, s fakehost.Script) {
 	t.Helper()
-	s.Dir, s.Task, s.Facts = r.record, filepath.Join(r.tasks, fakehost.FixtureID), []string{fakehost.FixtureColor}
 	s.Events, s.Prompt, s.Cached, s.Output = 3, 900, 400, 30
+	r.writeScript(t, s)
+}
+
+// writeScript writes the fake's script with the rig's record and task, and
+// the tokens s gives.
+func (r contRig) writeScript(t *testing.T, s fakehost.Script) {
+	t.Helper()
+	s.Dir, s.Task, s.Facts = r.record, filepath.Join(r.tasks, fakehost.FixtureID), []string{fakehost.FixtureColor}
 	data, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
@@ -92,8 +110,52 @@ func TestContinuationIsRegistered(t *testing.T) {
 	if code != 2 || !strings.Contains(errOut, "eva-eval continuation run --tasks DIR") || !strings.Contains(errOut, "eva-eval continuation check --tasks DIR --repos DIR") {
 		t.Fatalf("exit %d\n%s", code, errOut)
 	}
-	if code, _, errOut := cmd("nothing"); code != 2 || !strings.Contains(errOut, "eva-eval continuation run") {
+	if code, _, errOut := cmd("nothing"); code != 2 || !strings.Contains(errOut, "eva-eval continuation <command> ...") {
 		t.Fatalf("eva-eval's usage: %d\n%s", code, errOut)
+	}
+}
+
+// A command another file adds to the continuation's map runs as a
+// subcommand, with the arguments after its name, and its usage line is
+// listed; a name taken, or not of lower-case letters and dashes, or a
+// command with no usage line, is refused.
+func TestContinuationCommandsAreAMap(t *testing.T) {
+	var got []string
+	addContinuation("made-up", continuationCommand{synopsis: "made-up --flag N", run: func(_ context.Context, args []string, out, _ io.Writer) int {
+		got = args
+		fmt.Fprintln(out, "made-up ran")
+		return 7
+	}})
+	t.Cleanup(func() { delete(continuationCommands, "made-up") })
+	code, out, _ := cmd("continuation", "made-up", "--flag", "3")
+	if code != 7 || out != "made-up ran\n" || !slices.Equal(got, []string{"--flag", "3"}) {
+		t.Fatalf("exit %d, args %v\n%s", code, got, out)
+	}
+	if code, _, errOut := cmd("continuation"); code != 2 || !strings.Contains(errOut, "\n  eva-eval continuation made-up --flag N\n") ||
+		!strings.Contains(errOut, "\n  eva-eval continuation check --tasks DIR") {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	for name, c := range map[string]struct {
+		name string
+		cmd  continuationCommand
+	}{
+		"taken":           {"run", continuationCommand{synopsis: "run", run: continuationRun}},
+		"not a name":      {"Made_Up", continuationCommand{synopsis: "Made_Up", run: continuationRun}},
+		"no usage line":   {"other", continuationCommand{run: continuationRun}},
+		"nothing to run":  {"other", continuationCommand{synopsis: "other"}},
+		"two usage lines": {"other", continuationCommand{synopsis: "other\nmore", run: continuationRun}},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: added", name)
+				}
+			}()
+			addContinuation(c.name, c.cmd)
+		}()
+	}
+	if _, ok := continuationCommands["other"]; ok {
+		t.Fatal("a refused command was added")
 	}
 }
 
@@ -109,9 +171,9 @@ func TestContinuationRun(t *testing.T) {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
 	}
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
-	if len(lines) != 5 || lines[0] != "plan: condition off, host codex, tasks 1, trials 2 each, sessions 2; ceilings: sessions 2, tokens 100000" ||
+	if len(lines) != 5 || lines[0] != "plan: condition off, host codex, tasks 1, trials 2 each, sessions 2; ceilings: sessions 2, tokens 100000; trial folders removed" ||
 		lines[2] != "trial hidden-banner.t1: solved 1, first try 0, corrections 1, rounds 2" ||
-		!strings.HasSuffix(lines[4], ": planned 2, judged 2, no model 0, not run 0, unjudged sign_in 0, rate_limited 0, timeout 0, other_model 0, setup_failed 0, update_failed 0, host_failed 0; tokens 3720, rows 18") {
+		!strings.HasSuffix(lines[4], ": planned 2, judged 2, no model 0, not run 0, unjudged sign_in 0, rate_limited 0, timeout 0, other_model 0, setup_failed 0, update_failed 0, host_failed 0, no_usage 0, memory_off 0, hidden_found 0; tokens 3720, rows 18") {
 		t.Fatalf("output:\n%s", out)
 	}
 	if strings.Contains(out, secret) || strings.Contains(out, r.base) || strings.Contains(out, fakehost.FixtureColor) || strings.Contains(out, fakehost.FixtureRepo) {
@@ -181,8 +243,13 @@ func TestContinuationRunUnjudged(t *testing.T) {
 	if code != 1 || errOut != "" || !strings.Contains(out, "unjudged sign_in 2,") {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
 	}
-	if _, err := os.Stat(filepath.Join(r.base, "out")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(r.base, "out", results.FileName)); !os.IsNotExist(err) {
 		t.Fatal("an unjudged run wrote rows")
+	}
+	// It wrote its record, which counts both.
+	records, err := drive.LoadRuns(filepath.Join(r.base, "out"))
+	if err != nil || len(records) != 1 || records[0].Unjudged[drive.CodeSignIn] != 2 || records[0].Ended != drive.EndedDone {
+		t.Fatalf("records %+v: %v", records, err)
 	}
 }
 
@@ -194,7 +261,7 @@ func TestContinuationRunGoesOnPastAHostFailure(t *testing.T) {
 	r.setScript(t, fakehost.Script{Status: 529, Session: 1, NoModel: true})
 	code, out, errOut := cmd(r.args("--spend-model-quota", "--model", "made-up-model-3")...)
 	if code != 1 || errOut != "" || !strings.Contains(out, "trial hidden-banner.t1: unjudged, host_failed\n") ||
-		!strings.Contains(out, ": planned 2, judged 1, no model 1, not run 0, ") || !strings.Contains(out, ", host_failed 1; ") {
+		!strings.Contains(out, ": planned 2, judged 1, no model 1, not run 0, ") || !strings.Contains(out, ", host_failed 1, ") {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
 	}
 	rows, err := results.Load(filepath.Join(r.base, "out"))
@@ -204,6 +271,72 @@ func TestContinuationRunGoesOnPastAHostFailure(t *testing.T) {
 	for _, row := range rows {
 		if row.Scenario != "hidden-banner.t2" || row.Model != "" {
 			t.Fatalf("row %+v", row)
+		}
+	}
+}
+
+// On each host, a call that answers without its usage, or with 0 tokens,
+// stops the run: no row, the rest not run, the summary printed, the
+// record's ended no_usage, and exit 2.
+func TestContinuationRunStopsOnNoUsage(t *testing.T) {
+	for _, host := range []string{"claude-code", "codex"} {
+		for name, script := range map[string]fakehost.Script{
+			"no usage": {NoUsage: true, Events: 3, Prompt: 900, Cached: 400, Output: 30},
+			"0 tokens": {Events: 3},
+		} {
+			t.Run(host+"/"+name, func(t *testing.T) {
+				r := newContRig(t)
+				r.writeScript(t, script)
+				code, out, errOut := cmd(r.args("--spend-model-quota", "--host", host)...)
+				if code != 2 || !strings.Contains(errOut, "the run stopped") || !strings.Contains(out, "trial hidden-banner.t1: unjudged, no_usage\n") ||
+					!strings.Contains(out, ": planned 2, judged 0, no model 0, not run 1, ") || !strings.Contains(out, "host "+host+",") {
+					t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+				}
+				if _, err := os.Stat(filepath.Join(r.base, "out", results.FileName)); !os.IsNotExist(err) {
+					t.Fatal("a run with no usage wrote rows")
+				}
+				if starts := len(r.calls(t)); starts != 2 {
+					t.Fatalf("%d calls, want the version and one chat", starts)
+				}
+				records, err := drive.LoadRuns(filepath.Join(r.base, "out"))
+				if err != nil || len(records) != 1 || records[0].Ended != drive.CodeNoUsage || records[0].Host != host {
+					t.Fatalf("records %+v: %v", records, err)
+				}
+			})
+		}
+	}
+}
+
+// --keep-trials keeps the trials' folders; without it the work folder is
+// left empty. A second run of the same trials in the results folder is
+// refused before its plan and starts nothing.
+func TestContinuationRunKeepsTrialsAndRefusesASecondAttempt(t *testing.T) {
+	r := newContRig(t)
+	work := filepath.Join(r.base, "work")
+	code, out, errOut := cmd(r.args("--spend-model-quota")...)
+	if code != 0 || errOut != "" {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	if entries, err := os.ReadDir(work); err != nil || len(entries) != 0 {
+		t.Fatalf("the work folder holds %v: %v", entries, err)
+	}
+	calls := len(r.calls(t))
+	code, out, errOut = cmd(r.args("--spend-model-quota")...)
+	if code != 2 || out != "" || !strings.Contains(errOut, "--out holds an earlier attempt") || len(r.calls(t)) != calls {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	args := r.args("--spend-model-quota", "--keep-trials", "--out", filepath.Join(r.base, "out-two"))
+	code, out, errOut = cmd(args...)
+	if code != 0 || !strings.Contains(out, "; trial folders kept, each closed to others once it ends\n") {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	entries, err := os.ReadDir(work)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("the work folder holds %v: %v", entries, err)
+	}
+	for _, n := range []string{"t1", "t2"} {
+		if _, err := os.Stat(filepath.Join(work, entries[0].Name(), fakehost.FixtureID, "off", n, "workspace")); err != nil {
+			t.Fatalf("trial %s: %v", n, err)
 		}
 	}
 }

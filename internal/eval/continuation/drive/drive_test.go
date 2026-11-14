@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -68,6 +69,8 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 			t.Run(string(h.ID)+"/"+string(c), func(t *testing.T) {
 				r := newRig(t, 1)
 				r.opts.Host, r.opts.Condition, r.opts.Model = string(h.ID), c, "made-up-model-7"
+				// The trial's folder is read after the run.
+				r.opts.KeepTrials = true
 				s, out, err := r.run()
 				if err != nil {
 					t.Fatalf("run: %v\n%s", err, out)
@@ -110,9 +113,18 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 					adapter.ClaudeCode: {"--settings", `{"autoMemoryEnabled":false}`},
 					adapter.Codex:      {"--disable", "hooks", "--disable", "plugins"},
 				}[h.ID]
+				// And Claude Code's by a variable too (evaluate.md 4.5); Codex
+				// has none (F-170).
+				env := []string{fakehost.ScriptVar, "GIT_CONFIG_NOSYSTEM", "HOME", "PATH", "TMPDIR"}
+				if h.ID == adapter.ClaudeCode {
+					env = []string{fakehost.OffVar, fakehost.ScriptVar, "GIT_CONFIG_NOSYSTEM", "HOME", "PATH", "TMPDIR"}
+				}
 				for _, call := range calls {
-					if want := []string{fakehost.ScriptVar, "GIT_CONFIG_NOSYSTEM", "HOME", "PATH", "TMPDIR"}; !slices.Equal(call.Env, want) {
-						t.Fatalf("the environment: %v, want %v", call.Env, want)
+					if !slices.Equal(call.Env, env) {
+						t.Fatalf("the environment: %v, want %v", call.Env, env)
+					}
+					if value, set := call.Fixed[fakehost.OffVar]; set != (h.ID == adapter.ClaudeCode) || set && value != "1" {
+						t.Fatalf("the variable that turns memory off: %q %v", value, set)
 					}
 					if call.Fixed["HOME"] != filepath.Join(dir, "home") || call.Fixed["TMPDIR"] != filepath.Join(dir, "tmp") ||
 						call.Fixed["GIT_CONFIG_NOSYSTEM"] != "1" || call.Fixed["PATH"] != filepath.Join(dir, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH") {
@@ -138,9 +150,16 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 							t.Fatalf("the trial's folder held %s at a prompt", f)
 						}
 					}
+					// Its home has Go's telemetry off at each prompt.
+					if !slices.Contains(call.Around, "home/"+telemetryMode) {
+						t.Fatalf("the trial's home lacked Go's telemetry mode at a prompt: %v", call.Around)
+					}
 				}
-				if want := []string{".gitconfig"}; !slices.Equal(list(t, filepath.Join(dir, "home")), want) {
+				if want := slices.Sorted(slices.Values([]string{".gitconfig", telemetryMode})); !slices.Equal(files(t, filepath.Join(dir, "home")), want) {
 					t.Fatalf("the home holds %v", list(t, filepath.Join(dir, "home")))
+				}
+				if mode, err := os.ReadFile(filepath.Join(dir, "home", filepath.FromSlash(telemetryMode))); err != nil || strings.TrimSpace(string(mode)) != "off" {
+					t.Fatalf("Go's telemetry mode: %q %v", mode, err)
 				}
 				gc, _ := os.ReadFile(filepath.Join(dir, "home", ".gitconfig"))
 				if string(gc) != gitconfig || !strings.Contains(gitconfig, "gpgsign = false") || !strings.Contains(gitconfig, "auto = false") {
@@ -159,6 +178,28 @@ func holdsRun(args, want []string) bool {
 		}
 	}
 	return false
+}
+
+// telemetryMode is the slash path, in a home, of the mode file of Go's
+// telemetry, as os.UserConfigDir names it on this system.
+var telemetryMode = map[bool]string{false: ".config/go/telemetry/mode", true: "Library/Application Support/go/telemetry/mode"}[runtime.GOOS == "darwin"]
+
+// files lists the files under dir, as slash paths, folders left out.
+func files(t *testing.T, dir string) []string {
+	t.Helper()
+	var names []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		names = append(names, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return names
 }
 
 // list lists the names under dir, as slash paths.
@@ -447,6 +488,7 @@ func TestMaxTokens(t *testing.T) {
 		t.Fatalf("%d sessions started", starts)
 	}
 	r.opts.MaxTokens = perTrial + 1
+	r.fresh("two")
 	if s, out, err = r.run(); err != nil || s.Judged != 2 || s.NotRun != 1 || !strings.Contains(out, "trial hidden-banner.t3 and the 0 after it: not run") {
 		t.Fatalf("run: %+v %v\n%s", s, err, out)
 	}
@@ -468,6 +510,7 @@ func TestCeilingsOnAHugePlan(t *testing.T) {
 	}
 	// Two tasks of math.MaxInt trials each: the count would wrap.
 	second(t, r)
+	r.fresh("two")
 	r.opts.Trials, r.opts.MaxSessions = math.MaxInt, 1
 	s, out, err = r.run()
 	var usage *UsageError
@@ -576,6 +619,7 @@ func TestArmPrepareAndAfter(t *testing.T) {
 		r := newRig(t, 1)
 		r.opts.Condition = task.Eva
 		r.opts.EvaMD = filepath.Join(r.base, "made-up-eva-md")
+		r.opts.KeepTrials = true // its bin is read after the run
 		write(t, r.opts.EvaMD, "#!/bin/sh\nexit 0\n")
 		if err := os.Chmod(r.opts.EvaMD, 0o755); err != nil {
 			t.Fatal(err)
@@ -663,6 +707,8 @@ func TestPluginLaunch(t *testing.T) {
 		t.Run(string(h.ID), func(t *testing.T) {
 			r := newRig(t, 1)
 			r.opts.Host, r.opts.Condition = string(h.ID), task.Eva
+			// The trial's home is read after the run.
+			r.opts.KeepTrials = true
 			install := false
 			useArm(t, Arm{Prepare: func(_ context.Context, tr Trial) (Launch, error) {
 				if install {
@@ -676,12 +722,18 @@ func TestPluginLaunch(t *testing.T) {
 				t.Fatalf("no plugin: %+v %v\n%s", s, err, out)
 			}
 			install = true
+			r.fresh("two")
 			if s, out, err = r.run(); err != nil || s.Judged != 1 {
 				t.Fatalf("run: %+v %v\n%s", s, err, out)
 			}
 			calls := r.calls()
 			args := calls[len(calls)-1].Args
 			home := calls[len(calls)-1].Fixed["HOME"]
+			// The plugin's chat has the host's own memory off by its variable
+			// too.
+			if value, set := calls[len(calls)-1].Fixed[fakehost.OffVar]; set != (h.ID == adapter.ClaudeCode) || set && value != "1" {
+				t.Fatalf("the variable that turns memory off: %q %v", value, set)
+			}
 			switch h.ID {
 			case adapter.ClaudeCode:
 				if !holdsRun(args, []string{"--plugin-dir", pluginDir(home, h)}) || !holdsRun(args, []string{"--settings", `{"autoMemoryEnabled":false}`}) {
@@ -752,29 +804,37 @@ func TestNoAskedAgainWhenNotMeasured(t *testing.T) {
 
 // Usage errors start nothing.
 func TestUsageErrors(t *testing.T) {
-	for name, set := range map[string]func(o *Options){
-		"no host":                func(o *Options) { o.Host = "" },
-		"an unknown host":        func(o *Options) { o.Host = "made-up-host" },
-		"a relative CLI":         func(o *Options) { o.CLI = "claude" },
-		"a CLI that is no file":  func(o *Options) { o.CLI = filepath.Join(filepath.Dir(o.CLI), "made-up-cli") },
-		"no trials":              func(o *Options) { o.Trials = 0 },
-		"no session ceiling":     func(o *Options) { o.MaxSessions = 0 },
-		"no token ceiling":       func(o *Options) { o.MaxTokens = 0 },
-		"a pass-env with =":      func(o *Options) { o.PassEnv = append(o.PassEnv, "A=B") },
-		"a pass-env the driver":  func(o *Options) { o.PassEnv = append(o.PassEnv, "HOME") },
-		"a pass-env not set":     func(o *Options) { o.PassEnv = append(o.PassEnv, "EVAL_MADE_UP_UNSET") },
-		"a pass-env given twice": func(o *Options) { o.PassEnv = append(o.PassEnv, o.PassEnv[0]) },
-		"a model not an id":      func(o *Options) { o.Model = "Made Up" },
-		"no results folder":      func(o *Options) { o.Out = "" },
-		"no tasks":               func(o *Options) { o.Tasks = filepath.Join(filepath.Dir(o.Tasks), "none") },
+	for name, c := range map[string]struct {
+		set  func(t *testing.T, o *Options)
+		want string // what the error says
+	}{
+		"no host":               {func(_ *testing.T, o *Options) { o.Host = "" }, "--host is not a host id"},
+		"an unknown host":       {func(_ *testing.T, o *Options) { o.Host = "made-up-host" }, "--host is not a host id"},
+		"a relative CLI":        {func(_ *testing.T, o *Options) { o.CLI = "claude" }, "--cli: not an absolute path"},
+		"a CLI that is no file": {func(_ *testing.T, o *Options) { o.CLI = filepath.Join(filepath.Dir(o.CLI), "made-up-cli") }, "--cli: no such file"},
+		"no trials":             {func(_ *testing.T, o *Options) { o.Trials = 0 }, "--trials is under 1"},
+		"no session ceiling":    {func(_ *testing.T, o *Options) { o.MaxSessions = 0 }, "--max-sessions is missing or under 1"},
+		"no token ceiling":      {func(_ *testing.T, o *Options) { o.MaxTokens = 0 }, "--max-tokens is missing or under 1"},
+		"a pass-env with =":     {func(_ *testing.T, o *Options) { o.PassEnv = append(o.PassEnv, "A=B") }, "is not a variable's name"},
+		"a pass-env the driver": {func(_ *testing.T, o *Options) { o.PassEnv = append(o.PassEnv, "HOME") }, "--pass-env HOME is one the driver sets itself"},
+		// Set, so that only the driver's setting it can refuse it.
+		"a pass-env a host's off": {func(t *testing.T, o *Options) {
+			t.Setenv(fakehost.OffVar, "0")
+			o.PassEnv = append(o.PassEnv, fakehost.OffVar)
+		}, "--pass-env " + fakehost.OffVar + " is one the driver sets itself"},
+		"a pass-env not set":     {func(_ *testing.T, o *Options) { o.PassEnv = append(o.PassEnv, "EVAL_MADE_UP_UNSET") }, "--pass-env EVAL_MADE_UP_UNSET is not set"},
+		"a pass-env given twice": {func(_ *testing.T, o *Options) { o.PassEnv = append(o.PassEnv, o.PassEnv[0]) }, "is given twice"},
+		"a model not an id":      {func(_ *testing.T, o *Options) { o.Model = "Made Up" }, "--model is not a model id"},
+		"no results folder":      {func(_ *testing.T, o *Options) { o.Out = "" }, "--out is missing"},
+		"no tasks":               {func(_ *testing.T, o *Options) { o.Tasks = filepath.Join(filepath.Dir(o.Tasks), "none") }, "task: "},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t, 1)
-			set(&r.opts)
+			c.set(t, &r.opts)
 			_, _, err := r.run()
 			var usage *UsageError
-			if !errors.As(err, &usage) {
-				t.Fatalf("run: %v", err)
+			if !errors.As(err, &usage) || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("run: %v, want an error saying %q", err, c.want)
 			}
 			if calls := r.calls(); len(calls) != 0 {
 				t.Fatalf("the fake ran: %+v", calls)
@@ -950,7 +1010,7 @@ func TestCallsWithNoAnswerAreHostFailed(t *testing.T) {
 				}
 				if !strings.Contains(out, "trial hidden-banner.t1: unjudged, host_failed\n") ||
 					!strings.Contains(out, "trial hidden-banner.t2: solved 1, first try 0, corrections 1, rounds 2\n") ||
-					!strings.Contains(out, ", host_failed 1;") {
+					!strings.Contains(out, ", host_failed 1, ") {
 					t.Fatalf("output:\n%s", out)
 				}
 				want := task.Outcome{Solved: true, Corrections: 1, Rounds: 2, AgentEvents: 4, PromptTokens: 2000, CachedTokens: 1200, OutputTokens: 100, WallMs: 2000}
@@ -1105,7 +1165,7 @@ func TestAnswersThatAreGraded(t *testing.T) {
 // the fake's child, which holds the call's output, goes with it, so the
 // trial ends at once as timeout, with no row. The limit ends at an exact
 // point, once the child runs; were the child left alive, the wait for the
-// output would last the raised waitDelay, past the guard.
+// output would last the raised WaitDelay, past the guard.
 func TestStalledSessionsGroupIsKilled(t *testing.T) {
 	for _, h := range adapter.All() {
 		t.Run(string(h.ID), func(t *testing.T) {
