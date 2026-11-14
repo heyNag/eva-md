@@ -236,3 +236,32 @@ func TestDoctorsHooksFeatureRuleWhereInstallsDiffers(t *testing.T) {
 		}
 	}
 }
+
+// QuickNotice reads the transcript drift of every host, Codex as well as
+// Claude Code: each host's drift alone gives its own notice, named by its
+// id, and so does each of them with the other host's drift recorded too,
+// in the hosts' order.
+func TestQuickNoticeReadsEachHostsDrift(t *testing.T) {
+	notice := func(host string) string {
+		return "eva.md: transcript recovery no longer recognizes " + host + "'s transcripts, so missed replies are not recovered; run eva-md doctor."
+	}
+	for _, c := range []struct {
+		drifted []string
+		want    string
+	}{
+		{[]string{"codex"}, notice("codex")},
+		{[]string{"claude-code"}, notice("claude-code")},
+		{[]string{"codex", "claude-code"}, notice("claude-code")},
+	} {
+		d := isolated(t)
+		if got := QuickNotice(context.Background(), d, config.Default()); got != "" {
+			t.Fatalf("%q: an isolated home has the notice %q", c.drifted, got)
+		}
+		for _, host := range c.drifted {
+			put(t, filepath.Join(d.State, "catchup", "drift-"+host+".json"), []byte(`{"v":1,"host":"`+host+`"}`))
+		}
+		if got := QuickNotice(context.Background(), d, config.Default()); got != c.want {
+			t.Errorf("%q drifted: notice %q, want %q", c.drifted, got, c.want)
+		}
+	}
+}
