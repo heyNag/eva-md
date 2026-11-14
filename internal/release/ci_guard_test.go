@@ -143,7 +143,10 @@ func structural(text string) (lines []string, numbers []int) {
 
 // unplainForms are the forms of YAML the line reader above cannot read as
 // GitHub does, each of which could hide a key, such as continue-on-error,
-// that the reader would then read as absent.
+// that the reader would then read as absent. The check-cell reader of
+// internal/spec has a list of the same kind, wider than this one: the two
+// test packages share no code, and a form found for one is tried on the
+// other.
 var unplainForms = []struct {
 	what string
 	re   *regexp.Regexp
@@ -153,6 +156,9 @@ var unplainForms = []struct {
 	{"a key with a space before its colon", regexp.MustCompile(`^\s*(?:- +)?[A-Za-z0-9_-]+\s+:(?:\s|$)`)},
 	{"an anchor, an alias or a merge key", regexp.MustCompile(`^\s*(?:- +)?<<\s*:|:\s+[&*][A-Za-z0-9_]|^\s*- +[&*][A-Za-z0-9_]`)},
 	{"a complex key", regexp.MustCompile(`^\s*(?:- +)?\?(?:\s|$)`)},
+	{"an anchor, an alias or a tag on a key", regexp.MustCompile(`^\s*(?:-\s+)*[&*!]`)},
+	{"a sequence entry whose keys start on the next line", regexp.MustCompile(`^\s*(?:-\s+)*-(?:\s+#.*)?\s*$`)},
+	{"a job's key with a comment after it", regexp.MustCompile(`^  [A-Za-z0-9_-]+:\s+#`)},
 	{"a flow mapping", regexp.MustCompile(`:\s+\{|^\s*- +\{`)},
 }
 
@@ -453,6 +459,10 @@ func TestACIThatIsNoRunOfRecordIsFound(t *testing.T) {
 		{"a continue-on-error with a space before its colon", suite, suite + "        continue-on-error : true\n", []string{`^line [0-9]+ holds a key with a space before its colon`}},
 		{"the suite in a block that passes whatever it does", suite, "      - run: |\n          set +e\n          go test -timeout 40m ./...\n          exit 0\n", []string{`^no macOS job runs go test \./\.\.\. in full`}},
 		{"the suite in a block with a line after it", raceSuite, "      - run: |\n          go test -race -timeout 40m ./...\n          true\n", []string{`^no macOS job runs go test -race \./\.\.\. in full`}},
+		{"an anchor on a key", suite, suite + "        &a continue-on-error: true\n", []string{`^line [0-9]+ holds an anchor, an alias or a tag on a key`}},
+		{"a tag on a key", "  test:\n    runs-on: macos-latest\n", "  test:\n    runs-on: macos-latest\n    !!str if: false\n", []string{`^line [0-9]+ holds an anchor, an alias or a tag on a key`}},
+		{"a step whose keys start on the line after its dash", suite, "      -\n        run: go test -timeout 40m ./...\n        continue-on-error: true\n", []string{`^line [0-9]+ holds a sequence entry whose keys start on the next line`, `^no macOS job runs go test \./\.\.\. in full`}},
+		{"a job's key with a comment after it", "  test:\n    runs-on: macos-latest\n", "  test: # the suite\n    runs-on: macos-latest\n", []string{`^line [0-9]+ holds a job's key with a comment after it`, `^no macOS job runs go test \./\.\.\. in full`, `^no macOS job runs go test -race \./\.\.\. in full`}},
 		{"a merge key", "  test:\n    runs-on: macos-latest\n", "  test:\n    runs-on: macos-latest\n    <<: *lenient\n", []string{`^line [0-9]+ holds an anchor, an alias or a merge key`}},
 		{"a step as a flow mapping", suite, "      - {run: go test -timeout 40m ./..., continue-on-error: true}\n", []string{`^line [0-9]+ holds a flow mapping`, `^no macOS job runs go test \./\.\.\. in full`}},
 		{"a tab in an indent", "  test:\n    runs-on: macos-latest\n", "  test:\n\truns-on: macos-latest\n", []string{`^line [0-9]+ holds a tab in its indent`, `^no macOS job runs go test \./\.\.\. in full`, `^no macOS job runs go test -race \./\.\.\. in full`, `^no Linux job runs scripts/linux-check\.sh whole`}},

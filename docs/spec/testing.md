@@ -152,7 +152,11 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 No behaviour changes.
 A package-level time limit of the program must be raised by its own package's tests before they run, to no less than its value outside them, or be listed in `internal/spec/limits_test.go` with its reason.
 A new `time.Sleep` or `Skip` in a test, or in a package only tests link, must be added to that file's count for its package, with its reason; a count may fall freely.
-Every package whose tests start git, or link code that does, has a `TestMain` that clears the git environment first, or is listed in `internal/spec/home_test.go` with its reason; 19 packages are listed.
+Every package whose tests start git, or link code that does, has a `TestMain` that clears the git environment first, or is listed in `internal/spec/home_test.go` with its reason; none is listed since EV-10d.
 No test names `~/.claude`, `~/.codex`, `~/.config/eva-md` or `~/.local/share/eva-md` under a home it did not make, unless its file is listed with its reason.
 Only `internal/okfadapter` imports the page library and only `internal/config` the TOML library, and `go.mod` requires no third module.
 A whole guided setup against the fake hosts starts no headless run of a prompt (`cmd/eva-md/setup_nomodel_test.go`).
+
+**2026-11-14, EV-10d: every test package that reaches git clears its environment first.**
+No behaviour changes.
+The 19 test packages EV-10c could only list call `testgitenv.Clear()` first in a `TestMain`, so the list of packages that do not is empty, and stays as the place for a later exception with its reason.

@@ -1,6 +1,6 @@
 # EV-10d: every test package that reaches git clears its environment first
 
-**Plan:** section 8 Stage 1 row EV-10 (its last clause), section 9 ("Documents a team can work from"). **Design:** `evaluate.md` section 12.1, step "Guarantees first". **Part of:** EV-10: a, b, c, d (this). **Size:** S. **Reviewers:** one. **Depends on:** EV-10c, merged.
+**Plan:** section 8 Stage 1 row EV-10 (its last clause), section 9 ("Documents a team can work from"). **Design:** `evaluate.md` section 12.1, step "Guarantees first". **Part of:** EV-10: a, b, c, d (this), e. **Size:** S. **Reviewers:** one. **Depends on:** EV-10c, merged.
 
 ## Why
 
@@ -55,3 +55,13 @@ Any file of the program; any other existing test; `internal/testgitenv`; `intern
 - Each form of item 4 is seeded and caught, and `ci.yml`, as it is, still holds today's check cells.
 - No test added here sleeps or skips, and the pinned counts of sleeps and skips are unchanged.
 - The report gives item 3's two runs and item 5's survey.
+
+## As merged
+
+Merged on 2026-11-14 from `pkg/ev-10d-r2`, after one review (protection: three major, three minor), a verification that found two more major forms the reader missed, a second fix round, and a second verification that accepted it with three minor points. Test files only. The lead reworded one comment of `checkcell_test.go` in the merge, and brought `internal/release`'s guard of `ci.yml`, which the paths block did not hold, in line with it in the notes' commit: a tag or an anchor on a key, a sequence entry whose keys start on the next line and a job's key with a comment after it are refused there too, each with its seed.
+
+**Item 3, as found.** The 19 packages' tests passed both before and after the change with git configuration and an identity carried in the environment: none of their tests commits, and the git they reach only reads. So the clearing is held by the check of the source, not by a test that failed without it. `internal/eval/results/row.go` still runs git with the environment as it finds it; its reads could be bent by a setting carried there, outside tests. Left as it is, as the card says.
+
+**Item 5, the survey**, which is why EV-10e exists. Of the rigs that give git a configuration of their own, two turn git's background work off: `internal/store/migrate`, and `internal/eval/continuation/drive` through the program's own workspace code. Eighteen packages whose tests commit, clone, fetch or push leave `gc.auto` and `maintenance.auto` at git's defaults: `cmd/eva-eval`, `cmd/eva-md`, `cmd/hostrec`, `internal/coderef`, `internal/eval/continuation/v1arm`, `internal/eval/guard`, `internal/eval/results`, `internal/health`, `internal/hook`, `internal/identity`, `internal/knowledgepage`, `internal/mcp`, `internal/release` (macOS only), `internal/resume`, `internal/systempage`, `internal/update`, `internal/wikigit` and `internal/wikiinit`. The rest write a configuration and neither commit nor fetch, or only name the variable.
+
+**Known and left.** The check-cell reader still counts two shell forms as running a check though they pass its failure over: `<check> & wait`, and a `set +e` on an earlier line of the step or script. No workflow or script of the repository runs a check so. No test holds that a job whose id GitHub refuses (`b.c`) holds no check, though the code refuses it. The two lists of forms, in `internal/spec` and `internal/release`, are written twice and are not the same list: the spec's is the wider.

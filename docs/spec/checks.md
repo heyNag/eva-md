@@ -108,3 +108,10 @@ The benchmark is held so through the Linux job's `scripts/linux-check.sh`, not t
 `internal/release/ci_guard_test.go` holds `ci.yml` to the run of record: its token reads contents only, and a push to main and every pull request run it, unfiltered.
 Its macOS job runs `go test ./...` and `go test -race ./...` whole, each as the whole of its step, and its Linux job runs `scripts/linux-check.sh` whole.
 Nothing there may skip or narrow them: no `if`, `needs`, `continue-on-error`, folder, shell, `GOFLAGS` or `GITHUB_ENV`, and no YAML the check's line reader cannot read as GitHub does.
+
+**2026-11-14, EV-10d: a workflow the check-cell reader cannot read holds no check.**
+No behaviour changes.
+A workflow holds no `check:<path>` cell when, outside its block scalars, it is written in a form the cell's line reader cannot read as GitHub does: a quoted key, a key with a space before its colon, an anchor, an alias, a tag, a merge key, a complex key, a flow mapping or a tab in an indent.
+The same holds for a sequence entry whose keys start on the next line, a node at a job's indent that is no job's key, and a value that goes on past its line.
+A folded run step runs no check, and neither does a run line that pipes the check, follows it with `&&` or `||`, or carries it on past a backslash.
+The guard of `ci.yml` in `internal/release` refuses the forms that could hide a key from its own reader: these, a tag or an anchor on a key, and a job's key with a comment after it.
