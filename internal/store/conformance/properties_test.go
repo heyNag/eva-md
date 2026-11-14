@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -418,6 +419,127 @@ func TestACrashArmedAtPlanMustFire(t *testing.T) {
 		var f *Failure
 		if !errors.As(err, &f) || f.Property != c.property || f.Seed != c.seed || f.Step != c.step || f.Detail != "a crash armed at plan did not fire" {
 			t.Errorf("%s on seed %d gave %v; want a crash armed at plan that did not fire, at step %d", c.property, c.seed, err, c.step)
+		}
+	}
+}
+
+// keptEdits is the model behind a subject whose hand edit of a session
+// file adds the person's text to the log and keeps every line there, as a
+// store may. It can also drop a line: dropAfterEdit is a text each pass
+// takes out of every session file once a person has edited one, and
+// dropOnReopen one the store takes out as it reopens after a hand edit.
+type keptEdits struct {
+	*Model
+	dropAfterEdit, dropOnReopen string
+	edited, reopenDue           bool
+}
+
+func (s *keptEdits) HandEdit(path string, e Edit) error {
+	s.reopenDue = true
+	if e.Kind != EditChange || !strings.HasPrefix(path, "sessions/") {
+		return s.Model.HandEdit(path, e)
+	}
+	b, ok := s.folder.files[path]
+	if !ok {
+		return ErrNoFile
+	}
+	s.folder.files[path] = append(bytes.Clone(b), e.Text+"\n"...)
+	s.edited = true
+	return nil
+}
+
+// drop takes each line that holds text out of every session file.
+func (s *keptEdits) drop(text string) {
+	for p, b := range s.folder.files {
+		if !strings.HasPrefix(p, "sessions/") {
+			continue
+		}
+		var out []byte
+		for l := range bytes.SplitAfterSeq(b, []byte("\n")) {
+			if !bytes.Contains(l, []byte(text)) {
+				out = append(out, l...)
+			}
+		}
+		s.folder.files[p] = out
+	}
+}
+
+func (s *keptEdits) Open(clock Clock, fault store.Fault) (store.Store, error) {
+	if s.reopenDue && s.dropOnReopen != "" && s.folder != nil {
+		s.drop(s.dropOnReopen)
+	}
+	s.reopenDue = false
+	st, err := s.Model.Open(clock, fault)
+	if err != nil {
+		return nil, err
+	}
+	return keptStore{st, s}, nil
+}
+
+// keptStore is the store of keptEdits, whose passes drop its text once a
+// person has edited a session file.
+type keptStore struct {
+	store.Store
+	s *keptEdits
+}
+
+func (k keptStore) Apply(txn store.Txn) (store.Result, error) {
+	res, err := k.Store.Apply(txn)
+	if err == nil && k.s.edited && k.s.dropAfterEdit != "" {
+		k.s.drop(k.s.dropAfterEdit)
+	}
+	return res, err
+}
+
+// After a person's edit of a session file, the notes the file still holds
+// stay on its list; the list is read just after the edit, before the store
+// reopens; and the files are checked after every event, not each pass
+// alone.
+func TestSessionKeptKeepsWhatAnEditLeft(t *testing.T) {
+	note := func(n int) chunk {
+		return chunk{session: "codex:b2", from: n, to: n, facts: []fact{{do: doNote, text: fmt.Sprintf("s%d the hook stays local", n)}}}
+	}
+	sch := &schedule{
+		record: []chunk{note(1), note(2), note(3), note(4)},
+		events: []event{
+			{what: evPass, chunk: 0},
+			{what: evPass, chunk: 1},
+			{what: evEdit, session: true, edit: Edit{Kind: EditChange, Text: "s1000 the cache is the person's"}},
+			{what: evPass, chunk: 2},
+			{what: evEdit, session: true, edit: Edit{Kind: EditLock}},
+			{what: evPass, chunk: 3},
+		},
+	}
+	s := &keptEdits{Model: NewModel()}
+	counts := &keptCounts{}
+	if err := checkSessionKept(func() Subject { return s }, 1, sch, counts); err != nil {
+		t.Fatal(err)
+	}
+	if want := (keptCounts{notes: 3, refused: 1, byHand: 1}); *counts != want {
+		t.Errorf("the check counted %+v, want %+v", *counts, want)
+	}
+	got := string(s.Files()[sessionPath("codex:b2")])
+	for text, there := range map[string]bool{"s1 ": true, "s2 ": true, "s1000 ": true, "s3 ": true, "s4 ": false} {
+		if strings.Contains(got, text) != there {
+			t.Errorf("the file holds %q: %v, want %v", text, !there, there)
+		}
+	}
+	for _, c := range []struct {
+		name   string
+		s      *keptEdits
+		step   int
+		detail string
+	}{
+		// A pass after the edit drops a note the edit left.
+		{"a later pass", &keptEdits{Model: NewModel(), dropAfterEdit: "s1 the hook"}, 3, "a note a pass wrote into sessions/codex.b2.md at step 0 is no longer there"},
+		// The store drops a note the edit left as it reopens: the edit's
+		// own step fails.
+		{"the reopen", &keptEdits{Model: NewModel(), dropOnReopen: "s2 the hook"}, 2, "a note a pass wrote into sessions/codex.b2.md at step 1 is no longer there"},
+	} {
+		err := checkSessionKept(func() Subject { return c.s }, 1, sch, &keptCounts{})
+		var f *Failure
+		if !errors.As(err, &f) || f.Step != c.step || f.Detail != c.detail {
+			t.Errorf("a note dropped by %s gave %v; want a failure at step %d: %s", c.name, err, c.step, c.detail)
 		}
 	}
 }
