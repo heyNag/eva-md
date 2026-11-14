@@ -21,7 +21,9 @@
 // answer; fail its sign-in, a rate
 // limit or with another status; exit having printed nothing; kill itself,
 // before an answer or after a whole one; answer with no session, with no
-// usage, or at the turn bound; name another model, or none; pad its output.
+// usage, or at the turn bound; name another model, or none; pad its output;
+// print a line on stderr, or a word in its answer; and keep what each call
+// printed, for a test to compare with what the driver kept of it.
 // Its failures can be kept to one session and to the rounds of a session
 // from one on.
 //
@@ -131,6 +133,14 @@ type Script struct {
 	// two megabytes of other bytes. It is one of the failures From and
 	// Session keep to some calls.
 	Steal string `json:"steal"`
+	// Stderr is printed on stderr by every call, its version included,
+	// before anything else.
+	Stderr string `json:"stderr"`
+	// Say is put in the text of each answer, after "Done.".
+	Say string `json:"say"`
+	// Printed keeps what each call printed, on stdout and on stderr, in
+	// files of Dir that Printed reads.
+	Printed bool `json:"printed"`
 }
 
 // OffVar is a variable that turns a host's own memory off, whose value the
@@ -189,6 +199,28 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	var s Script
 	if err := json.Unmarshal(data, &s); err != nil {
 		return 3
+	}
+	errOut := io.Writer(os.Stderr)
+	if s.Printed {
+		prior, err := Read(s.Dir)
+		if err != nil {
+			return 3
+		}
+		name := printedName(s.Dir, len(prior)+1)
+		kept, err := os.Create(name + ".stdout")
+		if err != nil {
+			return 3
+		}
+		defer kept.Close()
+		keptErr, err := os.Create(name + ".stderr")
+		if err != nil {
+			return 3
+		}
+		defer keptErr.Close()
+		out, errOut = io.MultiWriter(out, kept), io.MultiWriter(errOut, keptErr)
+	}
+	if s.Stderr != "" {
+		fmt.Fprint(errOut, s.Stderr)
 	}
 	dir, _ := os.Getwd()
 	c := Call{Host: host.ID, Args: args, Dir: dir, Fixed: map[string]string{}}
@@ -552,6 +584,26 @@ func record(s Script, c Call) error {
 	return err
 }
 
+// printedName is where a script that keeps what its calls printed keeps
+// the call i's, the line i of the record counted from 1, without the
+// .stdout or .stderr its two files add.
+func printedName(dir string, i int) string {
+	return filepath.Join(dir, "printed-"+strconv.Itoa(i))
+}
+
+// Printed reads what the call i, the line i of the record in dir counted
+// from 1, printed on stdout and on stderr, when its script kept it.
+func Printed(dir string, i int) (stdout, stderr []byte, err error) {
+	name := printedName(dir, i)
+	if stdout, err = os.ReadFile(name + ".stdout"); err != nil {
+		return nil, nil, err
+	}
+	if stderr, err = os.ReadFile(name + ".stderr"); err != nil {
+		return nil, nil, err
+	}
+	return stdout, stderr, nil
+}
+
 // Read reads the record in dir; none is an empty record.
 func Read(dir string) ([]Call, error) {
 	data, err := os.ReadFile(filepath.Join(dir, Calls))
@@ -598,6 +650,10 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 		}
 		return e
 	}
+	text := "Done."
+	if s.Say != "" {
+		text += " " + s.Say
+	}
 	switch id {
 	case adapter.ClaudeCode:
 		emit(out, withModel(map[string]any{"type": "system", "subtype": "init", "session_id": session}, "model"))
@@ -606,7 +662,7 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 				"message": withModel(map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "Edit"}}}, "model")})
 		}
 		emit(out, map[string]any{"type": "assistant", "session_id": session,
-			"message": withModel(map[string]any{"content": []any{map[string]any{"type": "text", "text": "Done."}}}, "model")})
+			"message": withModel(map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}}, "model")})
 		subtype := "success"
 		if s.TurnBound {
 			subtype = "error_max_turns"
@@ -625,7 +681,7 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 		for range s.Events {
 			emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution"}})
 		}
-		emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "Done."}})
+		emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": text}})
 		done := map[string]any{"type": "turn.completed"}
 		if !s.NoUsage {
 			done["usage"] = map[string]any{"input_tokens": s.Prompt, "cached_input_tokens": s.Cached, "output_tokens": s.Output}
