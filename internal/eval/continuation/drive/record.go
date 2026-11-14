@@ -113,7 +113,44 @@ func (r Record) check() string {
 	if counted > r.Planned {
 		return "it counts more trials than were planned"
 	}
+	if slices.Contains(stopCodes, r.Ended) && r.Unjudged[r.Ended] < 1 {
+		return "ended names a code no trial was left unjudged by"
+	}
 	return ""
+}
+
+// recordFields are the names of a Record's fields as a line holds them,
+// each of which it must hold.
+var recordFields = func() map[string]bool {
+	data, err := json.Marshal(Record{})
+	if err != nil {
+		panic(err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		panic(err)
+	}
+	names := map[string]bool{}
+	for k := range m {
+		names[k] = true
+	}
+	return names
+}()
+
+// wholeFields reports whether the JSON object line holds exactly a
+// Record's fields, none of them null, so that no field it lacks is read
+// as false or 0.
+func wholeFields(line []byte) bool {
+	var m map[string]json.RawMessage
+	if decodeStrict(line, &m) != nil || len(m) != len(recordFields) {
+		return false
+	}
+	for k, v := range m {
+		if !recordFields[k] || string(bytes.TrimSpace(v)) == "null" {
+			return false
+		}
+	}
+	return true
 }
 
 // strings are the record's string fields.
@@ -200,8 +237,9 @@ func endsWithALine(f *os.File) error {
 // LoadRuns reads the records of the RunsFile in the results folder dir, in
 // the order they were written. It refuses the whole file when a line is not
 // a record that passes the checks a run makes before appending one: a
-// field it does not know, a code not on the list or a way of ending that
-// is none among them, and a last line that is not whole. A folder with no
+// field it does not know, one it lacks or that is null, a code not on the
+// list, a way of ending that is none among them or a code that no trial
+// was left unjudged by, and a last line that is not whole. A folder with no
 // RunsFile gives an error that wraps fs.ErrNotExist.
 func LoadRuns(dir string) ([]Record, error) {
 	data, err := os.ReadFile(filepath.Join(dir, RunsFile))
@@ -217,7 +255,7 @@ func LoadRuns(dir string) ([]Record, error) {
 	var records []Record
 	for i, line := range bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")) {
 		var r Record
-		if err := decodeStrict(line, &r); err != nil {
+		if !wholeFields(line) || decodeStrict(line, &r) != nil {
 			return nil, fmt.Errorf("the runs file: line %d is not a record", i+1)
 		}
 		if msg := r.check(); msg != "" {

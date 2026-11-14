@@ -178,6 +178,13 @@ func TestLoadRunsRefuses(t *testing.T) {
 	if got, err := load(line(nil) + line(nil)); err != nil || len(got) != 2 || !reflect.DeepEqual(got[0], good) {
 		t.Fatalf("good lines: %+v %v", got, err)
 	}
+	stopped := line(func(m map[string]any) {
+		m["ended"], m["judged"] = CodeHiddenFound, 0
+		m["unjudged"].(map[string]any)[CodeHiddenFound] = 1
+	})
+	if got, err := load(stopped); err != nil || len(got) != 1 || got[0].Ended != CodeHiddenFound {
+		t.Fatalf("a stopped run's line: %+v %v", got, err)
+	}
 	for name, body := range map[string]string{
 		"an unknown field":   line(func(m map[string]any) { m["made_up"] = 1 }),
 		"an unknown code":    line(func(m map[string]any) { m["unjudged"].(map[string]any)["made_up"] = 0 }),
@@ -191,8 +198,21 @@ func TestLoadRunsRefuses(t *testing.T) {
 		"another instrument": line(func(m map[string]any) { m["instrument"] = "pilot" }),
 		"another format":     line(func(m map[string]any) { m["v"] = 2 }),
 		"more counted":       line(func(m map[string]any) { m["not_run"] = 1 }),
-		"a partial line":     line(nil) + strings.TrimSuffix(line(nil), "\n"),
-		"not a record":       line(nil) + "{\n",
+		"a stop with no trial": line(func(m map[string]any) {
+			m["ended"] = CodeHiddenFound
+		}),
+		"dirty missing":    line(func(m map[string]any) { delete(m, "dirty") }),
+		"kept missing":     line(func(m map[string]any) { delete(m, "kept") }),
+		"judged missing":   line(func(m map[string]any) { delete(m, "judged") }),
+		"not_run missing":  line(func(m map[string]any) { delete(m, "not_run") }),
+		"no_model missing": line(func(m map[string]any) { delete(m, "no_model") }),
+		"tokens missing":   line(func(m map[string]any) { delete(m, "tokens") }),
+		"rows missing":     line(func(m map[string]any) { delete(m, "rows") }),
+		"model missing":    line(func(m map[string]any) { delete(m, "model") }),
+		"a null count":     line(func(m map[string]any) { m["judged"] = nil }),
+		"a null flag":      line(func(m map[string]any) { m["dirty"] = nil }),
+		"a partial line":   line(nil) + strings.TrimSuffix(line(nil), "\n"),
+		"not a record":     line(nil) + "{\n",
 	} {
 		if got, err := load(body); err == nil {
 			t.Errorf("%s: loaded %+v", name, got)
