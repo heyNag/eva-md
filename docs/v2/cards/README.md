@@ -31,7 +31,7 @@ Rules every card carries, so they are said once here:
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | merged; the gate stays advisory, since this rule cannot yet block a merge (EV-16d) |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | merged |
 | [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | merged; on CI's runner the gate still seldom judges, and its count starts again at 0 |
-| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | building since 2026-11-14 |
+| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | merged; `docs/verification.md` owes its sentence, which waits for EV-10a's merge |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
