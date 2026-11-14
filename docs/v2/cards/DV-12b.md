@@ -32,6 +32,7 @@ cmd/eva-md/work.go
 cmd/eva-md/work_test.go
 internal/hook/wake.go
 internal/hook/wake_test.go
+internal/hook/handlers_test.go
 internal/health/work.go
 internal/health/work_test.go
 internal/update/runlog.go
@@ -56,3 +57,7 @@ README.md
 - On fixture run logs and inboxes, `work --status` and the row give each of the six reasons, and the next try equals v1's backoff end.
 - A marker planted in inbox entries and session ids appears in no line `work --status`, the row or the journal print or write.
 - EV-16's comparison of the old and new binary, switch off, shows no gated metric worse. Report the figures.
+
+## Added by the lead on 2026-11-14
+
+`internal/hook/handlers_test.go` is in the paths block now. `TestHandlersAtOnePlacePanic` pins the hook's list of handlers, and the handler this card asks for at a chat's launch is one more in it, so that test's list gains its line. The acceptance line "no existing test changed beyond item 5" stands with that one addition: the list's new entry, and no other change to the file. Both reviewers and each verifier named this as the one thing that kept the package from merging; the code was right.

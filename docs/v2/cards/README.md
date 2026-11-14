@@ -31,7 +31,7 @@ Rules every card carries, so they are said once here:
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | merged; the gate stays advisory, since this rule cannot yet block a merge (EV-16d) |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | merged |
 | [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | merged; on CI's runner the gate still seldom judges, and its count starts again at 0 |
-| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | merged; `docs/verification.md` owes its sentence, which waits for EV-10a's merge |
+| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | merged |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
@@ -61,8 +61,8 @@ Rules every card carries, so they are said once here:
 | [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | merged |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | building since 2026-11-14 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
-| [HO-11](HO-11.md) | The install manifest | merged; its switch `install_manifest` stays off until HO-20 or HO-27 turns it on; HO-20's card starts from the rulings in its last section; the design owes its words, which wait for EV-10a's merge |
-| [HO-12a](HO-12a.md) | Health's host names through the adapter | merged; its latency is read from CI's `latency` job |
+| [HO-11](HO-11.md) | The install manifest | merged; its switch `install_manifest` stays off until HO-20 or HO-27 turns it on; HO-20's card starts from the rulings in its last section |
+| [HO-12a](HO-12a.md) | Health's host names through the adapter | merged; CI's latency gate passed on its merge (run 205) |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after DV-12b (HO-12a is merged) |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
@@ -73,7 +73,7 @@ Rules every card carries, so they are said once here:
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: DV-13's `paths` block, once DV-12b is merged; EV-11b is the ledger of what leaves the binary and when |
+| [EV-11](EV-11.md) | Ownership and size checks | merged; EV-11b is the ledger of what leaves the binary and when |
 | [EV-11b](EV-11b.md) | The size ledger: what leaves the binary, and when | merged; by its first reading the end state is 47,030 lines against the ceiling's 53,694 |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
 | [IF-01b](IF-01b.md) | The reader's fake | merged |
@@ -85,7 +85,7 @@ Rules every card carries, so they are said once here:
 | [ST-03c](ST-03c.md) | The codec's protection reads a lock as v1 read it, behind white space, quotes and escapes | merged; the format's specification owes two sentences on it (the card's last section) |
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
-| [ST-04b](ST-04b.md) | Four tests and a figure that merged packages owe | merged, and the retrieval baseline accepted again on `main`; `docs/verification.md` owes three sentences, which wait for EV-10a's merge |
+| [ST-04b](ST-04b.md) | Four tests and a figure that merged packages owe | merged, and the retrieval baseline accepted again on `main` |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
 | [EV-14c](EV-14c.md) | Six new families, half held out | merged; EV-14e mends the scorer before these figures are put in a gate |
@@ -97,9 +97,9 @@ Rules every card carries, so they are said once here:
 | [EV-17g](EV-17g.md) | The continuation driver's guards before a live run | merged, with later rounds for a trace, a diagnosis, the points the v1 condition owed, and every chat's web tools off; nothing in the driver is owed before the pilot |
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; EV-17f adds the check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03); it also settles grading as another user and the build cache grading uses (EV-17g checks a chat's reach for hidden files) |
-| [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | merged; its first run on a real release is the owner's next cut; `docs/verification.md` owes a sentence, which waits for EV-10a's merge |
-| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | building since 2026-11-14, beside DV-12b, which changes a line in each of two of its files; while it builds nothing else edits `docs/design.md`, `docs/verification.md` or `docs/decisions.md` |
-| [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
+| [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | merged; its first run on a real release is the owner's next cut |
+| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | merged; a change of behaviour is written under its spec's "Since the split" now |
+| [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | building since 2026-11-14 |
 
 SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner. A fifth part, e, was added after one run of CI failed in a way its log could not explain: it makes the death of a git child by a signal say which signal.
 

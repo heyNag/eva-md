@@ -58,3 +58,5 @@ Merged on 2026-11-14 (a861d45, from `pkg/ev-16e-r1`, after one review, one round
 - **Owed at the next refresh of the stored baseline:** `docs/v2/baselines/README.md` says that `code_brief` is measured with git's trace of the brief's git calls turned on, as both binaries of a gate are.
 - **The 60 ms floor is loose where no count followed the notes shown** (the reviewer's point, at the card's level): the clock stops without a further count only when its budget of 150 ms is spent, the deadline is near, or the context ended, so a brief that lost its last notes for another reason is caught only by the one-in-two share. Left as the card has it. Watch the count of briefs passed over in CI's `latency` job before tightening either figure: on this machine at a load of 50, up to 4 of 10 were passed over, none with a count killed.
 - Known and left: no test holds that the two counters start at 0 (a wrong start only makes the line beside the report, or the share, harsher).
+
+Added by the lead on 2026-11-14: the sentence owed is written, in `docs/spec/performance.md` under "Since the split" (the verification document is an index now).

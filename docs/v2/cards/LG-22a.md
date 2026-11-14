@@ -60,3 +60,5 @@ Merged on 2026-11-14 (47a8460, from `pkg/lg-22a-r1`, after one review, one round
 - **Stricter than the card names.** `Check` also refuses a project with no key, an empty key, and a key repeated within one project; the fake refuses two keys that give one id. Each follows from "every id is ProjectID(Keys[0])", "an empty key has no id" and "no key names two projects". If LG-22 rules that one project may repeat a key, the repeat clause skips it.
 - `Kind` has a small `Known()` method the card did not name.
 - AGENTS.md's list of v2's packages does not name `internal/ledger/registry` or its fake `registrytest`: the file is 14 bytes under its limit, so the words wait for a change that condenses it.
+
+Added by the lead on 2026-11-14: AGENTS.md names `internal/ledger/registry` and its fake now.

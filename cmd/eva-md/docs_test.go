@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -425,90 +422,5 @@ func TestAgentsPreviewsWhatTakesApply(t *testing.T) {
 		if !strings.Contains(previews, "`"+command+"` without `--apply`") {
 			t.Errorf("AGENTS.md doesn't give eva-md %s without --apply as a preview", command)
 		}
-	}
-}
-
-// verification.md says how many lines the redaction test that keeps
-// ordinary text keeps as they are; that is the test's own count.
-func TestVerificationCountsTheKeptLines(t *testing.T) {
-	m := regexp.MustCompile(`([0-9]+) lines kept as they are`).FindStringSubmatch(repoDoc(t, "docs/verification.md"))
-	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "..", "internal", "redact", "passwords_test.go"), nil, 0)
-	if m == nil || err != nil {
-		t.Fatalf("verification.md's count %q, the test file %v", m, err)
-	}
-	count := -1
-	for _, d := range f.Decls {
-		if fn, ok := d.(*ast.FuncDecl); ok && fn.Name.Name == "TestPasswordShapesKept" {
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				if r, ok := n.(*ast.RangeStmt); ok && count < 0 {
-					if lit, ok := r.X.(*ast.CompositeLit); ok {
-						count = len(lit.Elts)
-					}
-				}
-				return count < 0
-			})
-		}
-	}
-	if strconv.Itoa(count) != m[1] {
-		t.Fatalf("verification.md says %s lines kept as they are; TestPasswordShapesKept keeps %d", m[1], count)
-	}
-}
-
-// Each bullet of verification.md that names its packages in brackets after
-// its title, as - **Search** (`cmd/eva-md`, `internal/resume`), cites only
-// tests that exist, each defined in one of those packages, so a reader can
-// run what the bullet describes.
-func TestVerificationBulletsNameTheirPackages(t *testing.T) {
-	root := filepath.Join("..", "..")
-	defined := map[string][]string{} // a test's name, the packages that define it
-	testFunc := regexp.MustCompile(`(?m)^func ((?:Test|Benchmark|Fuzz)[A-Za-z0-9_]*)\(`)
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			return err
-		case d.IsDir() && path != root && strings.HasPrefix(d.Name(), "."):
-			return filepath.SkipDir
-		case d.IsDir() || !strings.HasSuffix(path, "_test.go"):
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		pkg, _ := filepath.Rel(root, filepath.Dir(path))
-		for _, m := range testFunc.FindAllStringSubmatch(string(data), -1) {
-			defined[m[1]] = append(defined[m[1]], filepath.ToSlash(pkg))
-		}
-		return nil
-	})
-	if err != nil || len(defined["TestVerificationBulletsNameTheirPackages"]) != 1 {
-		t.Fatalf("reading the tests: %v", err)
-	}
-	bullet := regexp.MustCompile("^- \\*\\*([^*]+)\\*\\* \\(([^)]*)\\)")
-	cited := regexp.MustCompile("`((?:Test|Benchmark|Fuzz)[A-Za-z0-9_]*)`")
-	quoted := regexp.MustCompile("`([^`]+)`")
-	read := 0
-	for _, l := range strings.Split(repoDoc(t, "docs/verification.md"), "\n") {
-		m := bullet.FindStringSubmatch(l)
-		if m == nil {
-			continue
-		}
-		read++
-		var pkgs []string
-		for _, q := range quoted.FindAllStringSubmatch(m[2], -1) {
-			pkgs = append(pkgs, q[1])
-		}
-		for _, c := range cited.FindAllStringSubmatch(l, -1) {
-			where := defined[c[1]]
-			switch {
-			case len(where) == 0:
-				t.Errorf("%s cites %s, which no test file defines", m[1], c[1])
-			case !slices.ContainsFunc(where, func(p string) bool { return slices.Contains(pkgs, p) }):
-				t.Errorf("%s cites %s, defined in %v, which its packages %v leave out", m[1], c[1], where, pkgs)
-			}
-		}
-	}
-	if read < 10 {
-		t.Fatalf("read %d bullets of verification.md", read)
 	}
 }

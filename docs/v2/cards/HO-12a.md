@@ -46,3 +46,5 @@ Merged on 2026-11-14 (a4c9b31, from `pkg/ho-12a-r1`, after one review, one round
 - Sentences that name a host inside a longer text stay as they were, since what a person sees does not change; the Codex review notice stays one literal, which `TestEveryNoticeHasItsKind` reads.
 - The two literals left in the CLI are in `main.go` and `mcp.go`, outside this card.
 - **The latency gate was not run** on this machine, which was too busy to judge: the notice at a chat's start runs in a hook and now looks hosts up in the adapter (a few small copies, no file read or process more). CI's `latency` job on the merge is the run of record; the lead reads it.
+
+Added by the lead on 2026-11-14: CI's `latency` job on the merge (run 205, against the commit before the push) **passed**, judged at a starting load of 5.5.
