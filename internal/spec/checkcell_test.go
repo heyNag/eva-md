@@ -12,7 +12,7 @@ import (
 // surely is what a run step that holds a check must be, as the must-keep
 // check's problem says it.
 const surely = "on a push or a pull request, itself or through a script of the repository it runs, " +
-	"with no continue-on-error or if on the step or its job"
+	"with no continue-on-error, if, needs, shell or defaults on the step, its job or the workflow"
 
 // wfStep is one step of a workflow's job, as the check reads it.
 type wfStep struct {
@@ -26,30 +26,73 @@ type wfJob struct {
 	steps []wfStep
 }
 
+// plainKey is a node with a plain key, and the value after it.
+var plainKey = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.$/-]*:(?:\s+(.*)|$)`)
+
+// blockScalar is the value of a key whose block scalar follows: | or >,
+// with an indentation or a chomping indicator.
+var blockScalar = regexp.MustCompile(`^[|>](?:[1-9][-+]?|[-+][1-9]?)?$`)
+
+// node reads a line of a workflow outside its comments and block scalars:
+// col is the column of its key, past the dashes of the sequence entries it
+// opens, or for an entry with no key the column of its last dash (its
+// indent when it has none); value is what follows the key, or the entry's
+// scalar, with a comment that ends the line taken off. A key is plain
+// letters, digits and _ . $ / -, then a colon and a space or the line's end.
+func node(line string) (col int, value string) {
+	rest := strings.TrimLeft(line, " ")
+	col = len(line) - len(rest)
+	dash := col
+	for rest == "-" || strings.HasPrefix(rest, "- ") {
+		dash = col
+		after := strings.TrimLeft(rest[1:], " ")
+		col += len(rest) - len(after)
+		rest = after
+	}
+	if i := strings.Index(rest, " #"); i >= 0 {
+		rest = rest[:i]
+	}
+	rest = strings.TrimSpace(rest)
+	if m := plainKey.FindStringSubmatch(rest); m != nil {
+		return col, strings.TrimSpace(m[1])
+	}
+	return dash, rest
+}
+
 // readWorkflow reads a workflow as this repository writes them, two spaces
 // of indent a level: whether a push or a pull request runs it, and its
-// jobs with their steps.
+// jobs with their steps. A workflow's defaults are given to each job, as
+// they hold for each. A run's literal block is read line by line; a folded
+// one, whose lines YAML joins, is not read, so its step runs nothing here;
+// any other key's block scalar is passed over as text.
 func readWorkflow(text string) (pushed bool, jobs []wfJob) {
 	jobStart := regexp.MustCompile(`^  ([A-Za-z0-9_-]+):\s*$`)
 	jobKey := regexp.MustCompile(`^    ([A-Za-z0-9_-]+):(?:\s+(.*))?$`)
 	stepStart := regexp.MustCompile(`^      - ([A-Za-z0-9_-]+):(?:\s+(.*))?$`)
 	stepKey := regexp.MustCompile(`^        ([A-Za-z0-9_-]+):(?:\s+(.*))?$`)
-	section, inSteps := "", false
-	block := -1 // the indent of the run key whose block the lines are in
+	section, inSteps, defaults := "", false, false
+	block := -1        // the column of the key whose block scalar the lines are in
+	readBlock := false // whether that block is a run's literal block, read as its lines
 	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		indent := len(line) - len(strings.TrimLeft(line, " "))
 		if block >= 0 {
 			if trimmed == "" || indent > block {
-				j := &jobs[len(jobs)-1]
-				s := &j.steps[len(j.steps)-1]
-				s.run = append(s.run, trimmed)
+				if readBlock {
+					j := &jobs[len(jobs)-1]
+					s := &j.steps[len(j.steps)-1]
+					s.run = append(s.run, trimmed)
+				}
 				continue
 			}
-			block = -1
+			block, readBlock = -1, false
 		}
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
+		}
+		col, scalar := node(line)
+		if blockScalar.MatchString(scalar) {
+			block = col
 		}
 		if indent == 0 {
 			name, value, _ := strings.Cut(line, ":")
@@ -58,6 +101,7 @@ func readWorkflow(text string) (pushed bool, jobs []wfJob) {
 				names := strings.FieldsFunc(value, func(r rune) bool { return strings.ContainsRune("[], ", r) })
 				pushed = slices.Contains(names, "push") || slices.Contains(names, "pull_request")
 			}
+			defaults = defaults || name == "defaults"
 			continue
 		}
 		switch section {
@@ -94,11 +138,16 @@ func readWorkflow(text string) (pushed bool, jobs []wfJob) {
 		s := &j.steps[len(j.steps)-1]
 		s.keys[key] = value
 		if key == "run" {
-			if strings.HasPrefix(value, "|") || strings.HasPrefix(value, ">") {
-				block = 8
+			if block >= 0 {
+				readBlock = strings.HasPrefix(scalar, "|")
 			} else {
 				s.run = append(s.run, strings.Trim(value, `"'`))
 			}
+		}
+	}
+	if defaults {
+		for _, j := range jobs {
+			j.keys["defaults"] = "(the workflow's)"
 		}
 	}
 	return pushed, jobs
@@ -110,52 +159,79 @@ func readWorkflow(text string) (pushed bool, jobs []wfJob) {
 // internal/release/ci_guard_test.go, for the line reader there: the two test
 // packages share no code, so a form added to one is added to the other.
 var unplainForms = []*regexp.Regexp{
-	regexp.MustCompile(`^ *\t`),                                                           // a tab in its indent
-	regexp.MustCompile(`^\s*(?:- +)?(?:"[^"]*"|'[^']*')\s*:`),                             // a quoted key
-	regexp.MustCompile(`^\s*(?:- +)?[A-Za-z0-9_-]+\s+:(?:\s|$)`),                          // a key with a space before its colon
-	regexp.MustCompile(`^\s*(?:- +)?<<\s*:|:\s+[&*][A-Za-z0-9_]|^\s*- +[&*][A-Za-z0-9_]`), // an anchor, an alias or a merge key
-	regexp.MustCompile(`^\s*(?:- +)?\?(?:\s|$)`),                                          // a complex key
-	regexp.MustCompile(`:\s+\{|^\s*- +\{`),                                                // a flow mapping
+	regexp.MustCompile(`^ *\t`),                                                       // a tab in its indent
+	regexp.MustCompile(`^\s*(?:-\s+)*(?:"[^"]*"|'[^']*')\s*:`),                        // a quoted key
+	regexp.MustCompile(`^\s*(?:-\s+)*[A-Za-z0-9_-]+\s+:(?:\s|$)`),                     // a key with a space before its colon
+	regexp.MustCompile(`^\s*(?:-\s+)*<<\s*:|:\s+[&*][A-Za-z0-9_]|^\s*(?:-\s+)*[&*!]`), // an anchor, an alias, a tag or a merge key
+	regexp.MustCompile(`^\s*(?:-\s+)*[?:](?:\s|$)`),                                   // a complex key, or its value
+	regexp.MustCompile(`:\s+\{|^\s*(?:-\s+)*[{},%@` + "`" + `]`),                      // a flow mapping, or an indicator YAML reserves
 }
 
-// blockOpens is a line whose key's value is a block scalar, such as a
-// run's script, whose lines YAML reads as text.
-var blockOpens = regexp.MustCompile(`^\s*(?:- )?[^\s#][^#]*:\s*[|>][-+0-9]*\s*$`)
+// closedQuote is a quoted value YAML reads as the text between its quotes:
+// closed on its line, with no escape and no quote doubled.
+var closedQuote = regexp.MustCompile(`^(?:"[^"\\]*"|'[^']*')$`)
 
-// unplain says whether a line of a workflow, outside its comments and its
-// block scalars, holds one of unplainForms.
+// unplain says whether a workflow, outside its comments and its block
+// scalars, holds one of unplainForms, or a scalar the reader cannot read
+// as YAML does: a value that goes on past its line, which YAML joins to it;
+// a quoted value that is not closed on its line, holds an escape or doubles
+// its quote; or a plain value that holds a colon and a space, which YAML
+// refuses. A block scalar's lines are those indented as its first line is,
+// or more, and it ends at a line indented less; a line then indented past
+// the block's key is unplain too.
 func unplain(text string) bool {
-	block := -1 // the indent of the key whose block scalar the lines are in
+	block, content := -1, -1  // the column of the block scalar's key, and its lines' indent
+	prev, inline := -1, false // the column of the last node, and whether it held a value
 	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		indent := len(line) - len(strings.TrimLeft(line, " "))
-		if block >= 0 && (trimmed == "" || indent > block) {
-			continue
+		if block >= 0 {
+			if trimmed == "" {
+				continue
+			}
+			if content < 0 && indent > block {
+				content = indent
+			}
+			if content >= 0 && indent >= content {
+				continue
+			}
+			block, content = -1, -1
 		}
-		block = -1
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 		if slices.ContainsFunc(unplainForms, func(re *regexp.Regexp) bool { return re.MatchString(line) }) {
 			return true
 		}
-		if blockOpens.MatchString(line) {
-			block = indent
+		if inline && indent > prev {
+			return true
 		}
+		col, value := node(line)
+		if quoted := strings.HasPrefix(value, `"`) || strings.HasPrefix(value, "'"); quoted && !closedQuote.MatchString(value) ||
+			!quoted && (strings.Contains(value, ": ") || strings.Contains(value, ":\t")) {
+			return true
+		}
+		if blockScalar.MatchString(value) {
+			block = col
+		}
+		prev, inline = col, value != ""
 	}
 	return false
 }
 
 // sure says whether a step of a job runs whenever its job does and fails
-// it when its command fails: no continue-on-error but false, and no if, on
-// it or its job.
+// it when its command fails: no continue-on-error but false, no if, no
+// shell of its own and no defaults, on it or its job (the workflow's
+// defaults are its job's), and a job that needs no other job.
 func sure(j wfJob, s wfStep) bool {
 	for _, keys := range []map[string]string{j.keys, s.keys} {
 		if v, ok := keys["continue-on-error"]; ok && v != "false" {
 			return false
 		}
-		if _, ok := keys["if"]; ok {
-			return false
+		for _, k := range []string{"if", "needs", "shell", "defaults"} {
+			if _, ok := keys[k]; ok {
+				return false
+			}
 		}
 	}
 	return true
@@ -287,7 +363,7 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 		{"a check no workflow runs", func(t *testing.T, dir string) {
 			edit(t, dir, ci, gateStep, "")
 		}, []string{
-			`^docs/spec/(checks|testing)\.md:[0-9]+: EVL-K08 names check:scripts/bench/test_gate\.py, which no run step of a workflow in \.github/workflows runs, on a push or a pull request, itself or through a script of the repository it runs, with no continue-on-error or if on the step or its job$`,
+			`^docs/spec/(checks|testing)\.md:[0-9]+: EVL-K08 names check:scripts/bench/test_gate\.py, which no run step of a workflow in \.github/workflows runs, on a push or a pull request, itself or through a script of the repository it runs, with no continue-on-error, if, needs, shell or defaults on the step, its job or the workflow$`,
 			`^docs/spec/performance\.md:[0-9]+: EVL-K10 names check:scripts/bench/test_gate\.py, which no run step`,
 		}},
 		{"a check a workflow names in a comment", func(t *testing.T, dir string) {
@@ -353,6 +429,33 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 		}, append(gateGone, benchGone...)},
 		{"a key hidden behind a tab", func(t *testing.T, dir string) {
 			edit(t, dir, ci, gateStep, gateStep+"        \tcontinue-on-error: true\n")
+		}, append(gateGone, benchGone...)},
+		{"a key hidden by quotes after a block", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, "      - run: |\n          python3 -I scripts/bench/test_gate.py\n        \"continue-on-error\": true\n")
+		}, append(gateGone, benchGone...)},
+		{"a key hidden behind an anchor on it", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, gateStep+"        &a continue-on-error: true\n")
+		}, append(gateGone, benchGone...)},
+		{"a key hidden behind a tag on it", func(t *testing.T, dir string) {
+			edit(t, dir, ci, latency, latency+"    !!str if: false\n")
+		}, append(gateGone, benchGone...)},
+		{"a check whose failure a line that goes on passes over", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, "      - run: python3 -I scripts/bench/test_gate.py\n          || true\n")
+		}, append(gateGone, benchGone...)},
+		{"a check whose failure an escape hides", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, "      - run: \"python3 -I scripts/bench/test_gate.py \\x7c| true\"\n")
+		}, append(gateGone, benchGone...)},
+		{"a check whose failure a folded block passes over", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, "      - run: >\n          python3 -I scripts/bench/test_gate.py\n          || true\n")
+		}, gateGone},
+		{"a check run by a step with a shell of its own", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, gateStep+"        shell: bash {0}\n")
+		}, gateGone},
+		{"a check run by a job that needs another", func(t *testing.T, dir string) {
+			edit(t, dir, ci, latency, latency+"    needs: test\n")
+		}, gateGone},
+		{"a check run under the workflow's defaults", func(t *testing.T, dir string) {
+			edit(t, dir, ci, "permissions:\n  contents: read\n", "permissions:\n  contents: read\n\ndefaults:\n  run:\n    shell: bash {0}\n")
 		}, append(gateGone, benchGone...)},
 		{"a path out of the repository", func(t *testing.T, dir string) {
 			e, row := rowOf(t, dir, "EVL-K09")
@@ -431,6 +534,37 @@ func TestRunByWorkflowReadsRunSteps(t *testing.T) {
 		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        \tcontinue-on-error: true\n", "", false},
 		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n          echo \"a\" : {b: *c} &d\n          ? e\n      - name: y\n        env:\n          T: >-\n            <<: 'f': g\n        run: true\n", "", true},
 		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n\t  continue-on-error: true\n", "", false},
+		// Each form after a block opened on a step's first line, whose
+		// block ends at the step's next key, as YAML reads it.
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n        \"continue-on-error\": true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n        if : false\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n        ? if\n        : false\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n        \tcontinue-on-error: true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n        &a continue-on-error: true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n         continue-on-error: true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |-\n            python3 -I scripts/x.py\n          true\n", "", false},
+		// A colon and a bar in a plain value open no block.
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py a:|\n        \"continue-on-error\": true\n", "", false},
+		// An anchor or a tag on a key.
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        &a continue-on-error: true\n", "", false},
+		{on + "jobs:\n  a:\n    &j if: false\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        !!str if: false\n", "", false},
+		// A folded run, whose lines YAML joins into one command.
+		{on + "jobs:\n  a:\n    steps:\n      - run: >\n          python3 -I scripts/x.py\n          || true\n", "", false},
+		// A value that goes on past its line, an escape, a plain value
+		// YAML refuses.
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n          || true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: \"python3 -I scripts/x.py\n          || true\"\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: \"python3 -I scripts/x.py \\x7c| true\"\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py a: b\n", "", false},
+		// A shell of the step's own, defaults, and a job that needs another.
+		{on + "jobs:\n  a:\n    steps:\n      - shell: bash {0}\n        run: |\n          python3 -I scripts/x.py\n          true\n", "", false},
+		{on + "jobs:\n  a:\n    defaults:\n      run:\n        shell: bash {0}\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "defaults:\n  run:\n    shell: bash {0}\njobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  b:\n    if: false\n    steps:\n      - run: true\n  a:\n    needs: b\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		// What YAML reads as the reader does still holds.
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n        env:\n          A: b\n      - name: \"a b\"\n        run: 'true'\n", "", true},
+		{on + "jobs:\n  a:\n    steps:\n      - name: x # y\n        run: | # z\n          python3 -I scripts/x.py\n\n          true\n", "", true},
 	} {
 		dir := t.TempDir()
 		write(t, dir, workflows+"/a.yml", c.yml)
