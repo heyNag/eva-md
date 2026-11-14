@@ -612,7 +612,7 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	}
 	folders := "removed"
 	if o.KeepTrials {
-		folders = "kept"
+		folders = "kept, each closed to others once it ends"
 	}
 	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %s; ceilings: sessions %d, tokens %d; trial folders %s\n",
 		o.Condition, p.host.ID, len(p.tasks), o.Trials, sessions, o.MaxSessions, o.MaxTokens, folders)
@@ -693,11 +693,15 @@ func (p *plan) trials(ctx context.Context, s *Summary, commit string, dirty bool
 				err = p.write(s, store, t, n, r, commit, dirty, out)
 			}
 			// Once its rows are written, it is unjudged, or the run stops in
-			// it, the trial's folder goes, unless the run keeps it.
-			if !o.KeepTrials {
-				if rerr := p.remove(ctx, trialRoot(p.work, s.Run, t.ID, o.Condition, n)); rerr != nil {
-					err = errors.Join(err, fmt.Errorf("removing its folder: %w", rerr))
+			// it, the trial's folder goes, or, when the run keeps it, is
+			// closed to all but the driver's user.
+			root := trialRoot(p.work, s.Run, t.ID, o.Condition, n)
+			if o.KeepTrials {
+				if cerr := closeKept(root); cerr != nil {
+					err = errors.Join(err, fmt.Errorf("closing its folder: %w", cerr))
 				}
+			} else if rerr := p.remove(ctx, root); rerr != nil {
+				err = errors.Join(err, fmt.Errorf("removing its folder: %w", rerr))
 			}
 			switch {
 			case err != nil:
@@ -710,6 +714,26 @@ func (p *plan) trials(ctx context.Context, s *Summary, commit string, dirty bool
 		}
 	}
 	return versions, nil
+}
+
+// closeKept closes the folder of a trial --keep-trials keeps to all but its
+// owner, the driver's user, before the next trial's chat starts. The
+// trial's home and workspace may be another user's, the chat's, as the
+// run-book's wrapper gives them, and they hold the trial's solved work and
+// the host's record of its prompts, which state the facts; that user can
+// no longer reach them through the trial's folder. A chat run as the
+// driver's user can, as it can read --tasks (see the package comment).
+func closeKept(root string) error {
+	info, err := os.Lstat(root)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return pathless(err)
+	case !info.IsDir():
+		return errors.New("it is no longer a folder")
+	}
+	return pathless(os.Chmod(root, 0o700))
 }
 
 // write appends the rows of the judged trial n of task t, and counts them

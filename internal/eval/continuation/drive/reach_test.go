@@ -359,16 +359,36 @@ func TestATrialFolderGoesBeforeTheNext(t *testing.T) {
 }
 
 // --keep-trials keeps every trial's folder, as the plan line and the record
-// say, but no grading's copy, which holds the hidden tests.
+// say, but no grading's copy, which holds the hidden tests; and each is
+// closed to all but the driver's user once its trial ends, before the next
+// trial is prepared, so that a chat run as another user cannot reach an
+// earlier trial's solved work or its host's record of the facts.
 func TestKeepTrials(t *testing.T) {
 	r := newRig(t, 1)
-	r.opts.Trials, r.opts.KeepTrials = 2, true
+	r.opts.Condition, r.opts.Trials, r.opts.KeepTrials = task.Eva, 3, true
+	var before []os.FileMode // the modes of the earlier trials' folders, at each trial's Prepare
+	useArm(t, Arm{Prepare: func(_ context.Context, tr Trial) (Launch, error) {
+		for n := 1; n < tr.Number && tr.Options.KeepTrials; n++ {
+			info, err := os.Lstat(filepath.Join(filepath.Dir(tr.Dirs.Root), "t"+string(rune('0'+n))))
+			if err != nil {
+				return Launch{}, err
+			}
+			before = append(before, info.Mode().Perm())
+		}
+		return Launch{}, nil
+	}})
 	s, out, err := r.run()
-	if err != nil || s.Judged != 2 || !strings.Contains(strings.SplitN(out, "\n", 2)[0], "; trial folders kept") {
+	if err != nil || s.Judged != 3 || !strings.Contains(strings.SplitN(out, "\n", 2)[0], "; trial folders kept, each closed to others once it ends") {
 		t.Fatalf("run: %+v %v\n%s", s, err, out)
 	}
-	for n := 1; n <= 2; n++ {
+	if want := []os.FileMode{0o700, 0o700, 0o700}; !reflect.DeepEqual(before, want) {
+		t.Fatalf("the earlier trials' folders' modes: %v, want %v", before, want)
+	}
+	for n := 1; n <= 3; n++ {
 		dir := r.trialDir(s.Run, n)
+		if info, err := os.Lstat(dir); err != nil || info.Mode().Perm() != 0o700 {
+			t.Fatalf("trial %d's folder: %v %v", n, info, err)
+		}
 		for _, sub := range []string{"home", "tmp", "bin", "workspace"} {
 			if _, err := os.Stat(filepath.Join(dir, sub)); err != nil {
 				t.Fatalf("trial %d: %v", n, err)

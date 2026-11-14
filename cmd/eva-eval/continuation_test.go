@@ -327,7 +327,7 @@ func TestContinuationRunKeepsTrialsAndRefusesASecondAttempt(t *testing.T) {
 	}
 	args := r.args("--spend-model-quota", "--keep-trials", "--out", filepath.Join(r.base, "out-two"))
 	code, out, errOut = cmd(args...)
-	if code != 0 || !strings.Contains(out, "; trial folders kept\n") {
+	if code != 0 || !strings.Contains(out, "; trial folders kept, each closed to others once it ends\n") {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
 	}
 	entries, err := os.ReadDir(work)
