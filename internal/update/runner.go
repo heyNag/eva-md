@@ -91,6 +91,7 @@ type Result struct {
 	ModelReported       string // the model the host's output says answered the last attempt; empty where it doesn't say
 	ModelNote           string // "fallback from <model>" or "default (chat model unknown)"
 	TokensIn, TokensOut int    // from the CLI's own report, when present, over all attempts; input includes cached tokens
+	TokensCachedIn      int    // of TokensIn, those read from the host's cache, over all attempts; a cache write is not one
 	Attempts            int    // CLI runs made, including the retries after a refusal; a missing CLI made none
 	Effort              string // the effort flag the successful attempt used; empty when it ran without one
 	Reason              string // "" on success, else one of the Reason constants
@@ -127,6 +128,7 @@ type attempt struct {
 	strictMCPRefused    bool // claude refused --strict-mcp-config
 	degraded            string
 	tokensIn, tokensOut int
+	tokensCachedIn      int    // of tokensIn, those read from the cache
 	model               string // the model the output says answered, where it says
 }
 
@@ -191,6 +193,7 @@ func (c cliRunner) Run(ctx context.Context, r Request) (Result, error) {
 		}
 		res.TokensIn += a.tokensIn
 		res.TokensOut += a.tokensOut
+		res.TokensCachedIn += a.tokensCachedIn
 		switch {
 		case a.reason == ReasonHostError && a.strictMCPRefused && !t.noStrictMCP:
 			// An organization's managed MCP config makes claude refuse the

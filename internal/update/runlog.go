@@ -104,6 +104,10 @@ type Record struct {
 	// SessionHashes are the sessions a busy job was started for (see
 	// sessionHash); only an OutcomeBusy record has them.
 	SessionHashes []string `json:"session_hashes,omitempty"`
+	// TokensCachedIn is the part of TokensIn the host read from its cache:
+	// absent in a record an older release wrote, which counts none. A cache
+	// write is uncached input.
+	TokensCachedIn int `json:"tokens_cached_in,omitempty"`
 }
 
 // success reports a pass whose output validated.

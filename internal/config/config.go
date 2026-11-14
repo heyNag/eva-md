@@ -30,9 +30,18 @@ const (
 // EffortHighest asks for the highest effort the chat's model supports.
 const EffortHighest = "highest"
 
+// EffortLow is the low effort a background update asks for when the config
+// names none and the update's switch low_effort_default is on.
+const EffortLow = "low"
+
 // DefaultDailyCap is the default number of model calls the background
 // update makes per host per day.
 const DefaultDailyCap = 40
+
+// DefaultDailyTokenBudget is the weighted tokens a host's background update
+// may spend a day when daily_token_budget is 0 or absent. It holds only
+// while the update's switch token_budget is on, and is provisional.
+const DefaultDailyTokenBudget = 1_000_000
 
 // DefaultReminderEvery is how many prompts apart the memory reminder rides
 // with a prompt by default.
@@ -45,9 +54,9 @@ const RemotePrefix = "remote:"
 var foldCase = runtime.GOOS == "darwin"
 
 // Config is the per-machine config at ~/.config/eva-md/config.toml. Updates,
-// DailyCap, Effort and CodexIgnoreUserConfig configure the background update;
-// Commits, the daily commit and push; ReminderEvery, the prompt's reminder;
-// Recall, the knowledge a prompt gets.
+// DailyCap, DailyTokenBudget, Effort and CodexIgnoreUserConfig configure the
+// background update; Commits, the daily commit and push; ReminderEvery, the
+// prompt's reminder; Recall, the knowledge a prompt gets.
 type Config struct {
 	WikiPath       string `toml:"wiki_path"`
 	ExpectedRemote string `toml:"expected_remote"`
@@ -70,6 +79,11 @@ type Config struct {
 	DailyCap              int               `toml:"daily_cap"`                // model calls per host per day, default 40
 	Effort                map[string]string `toml:"effort"`                   // keys "claude-code", "codex" or "<host>/<model>"; value an effort level or "highest"
 	CodexIgnoreUserConfig bool              `toml:"codex_ignore_user_config"` // default false
+	// DailyTokenBudget is the weighted tokens a host's background update may
+	// spend a day while the update's switch token_budget is on: uncached
+	// input, plus cached input at a tenth, plus output at five times. 0, or
+	// absent, is DefaultDailyTokenBudget.
+	DailyTokenBudget int64 `toml:"daily_token_budget,omitzero"`
 	// ReminderEvery spaces the one-line memory reminder the prompt hook adds:
 	// on a chat's first prompt, then every ReminderEvery prompts. Default 5;
 	// 0 turns it off.
@@ -151,6 +165,9 @@ func (c Config) Validate() error {
 	if c.ReminderEvery < 0 {
 		return fmt.Errorf("reminder_every %d must not be negative", c.ReminderEvery)
 	}
+	if c.DailyTokenBudget < 0 {
+		return fmt.Errorf("daily_token_budget %d must not be negative", c.DailyTokenBudget)
+	}
 	for _, e := range c.Exclude {
 		if err := checkExclude(e); err != nil {
 			return err
@@ -191,15 +208,34 @@ func checkExclude(e string) error {
 // EffortFor returns the effort for a background update: the
 // "<host>/<model>" entry, then the "<host>" entry, then "highest".
 func (c Config) EffortFor(host, model string) string {
-	if model != "" {
-		if v := strings.TrimSpace(c.Effort[host+"/"+model]); v != "" {
-			return v
-		}
-	}
-	if v := strings.TrimSpace(c.Effort[host]); v != "" {
+	if v, ok := c.EffortEntry(host, model); ok {
 		return v
 	}
 	return EffortHighest
+}
+
+// EffortEntry returns the effort the config's [effort] table names for a
+// background update of host and model, the "<host>/<model>" entry, then
+// the "<host>" entry, and whether it names one.
+func (c Config) EffortEntry(host, model string) (string, bool) {
+	if model != "" {
+		if v := strings.TrimSpace(c.Effort[host+"/"+model]); v != "" {
+			return v, true
+		}
+	}
+	if v := strings.TrimSpace(c.Effort[host]); v != "" {
+		return v, true
+	}
+	return "", false
+}
+
+// TokenBudget is the weighted tokens a host's background update may spend a
+// day: daily_token_budget, or DefaultDailyTokenBudget when that is 0.
+func (c Config) TokenBudget() int64 {
+	if c.DailyTokenBudget > 0 {
+		return c.DailyTokenBudget
+	}
+	return DefaultDailyTokenBudget
 }
 
 // Excluded reports whether a chat in folder dir, in a repo with the given

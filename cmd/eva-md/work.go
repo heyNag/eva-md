@@ -339,9 +339,37 @@ func updateWaiting(ctx context.Context, now time.Time) []work.Waiting {
 		return nil
 	}
 	held := heldMarks(dirs)
-	return health.UpdateWaits(ctx, dirs, c, updateKind, now, func(host, sid string) bool {
+	waits := health.UpdateWaits(ctx, dirs, c, updateKind, now, func(host, sid string) bool {
 		return held[updateKind+"-"+fileKey(host, sid)]
 	})
+	return budgetWaits(dirs, c, now, waits)
+}
+
+// budgetWaits gives work.WaitBudget, in place of work.WaitRule, to each
+// wait of a host the update's budget stops for the rest of the day, by
+// update.OverBudget on the whole of today's run log, while the switch
+// token_budget is on: daily_cap or the day's weighted tokens. Off, waits
+// are as health.UpdateWaits gives them, whose own test is daily_cap's.
+func budgetWaits(dirs paths.Dirs, c config.Config, now time.Time, waits []work.Waiting) []work.Waiting {
+	if !update.TokenBudget.On(c) {
+		return waits
+	}
+	records, _ := update.Days(dirs.State, now, 1)
+	over := map[string]bool{}
+	for i, w := range waits {
+		if w.Reason != work.WaitRule {
+			continue
+		}
+		stopped, seen := over[w.Host]
+		if !seen {
+			stopped = update.OverBudget(c, records, w.Host, now)
+			over[w.Host] = stopped
+		}
+		if stopped {
+			waits[i].Reason = work.WaitBudget
+		}
+	}
+	return waits
 }
 
 // heldMarks lists the names of the marks the worker holds: those in its
