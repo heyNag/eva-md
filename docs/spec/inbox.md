@@ -4,7 +4,7 @@
 - **Paths:** `internal/inbox`, `cmd/eva-md/inbox.go`
 - **Status:** v1 as built, frozen on 2026-11-14
 
-The blocks below are v1's design and verification text, moved here word for word when the two documents were split; [INDEX.md](INDEX.md) lists every spec.
+The blocks below are v1's design text, moved here word for word when the two documents were split; its verification text moved on 2026-11-14 to [inbox-clear.md](inbox-clear.md), and [INDEX.md](INDEX.md) lists every spec.
 
 <!-- v1 docs/design.md 008 -->
 ## The inbox
@@ -133,6 +133,7 @@ The daily lint reads `inbox/.removed` (see "Health check"), and so do `eva-md sh
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
@@ -148,6 +149,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | RED-K12 | Logs and entries record how many replacements, never what was replaced | internal/inbox:TestAppendRedactedKeepsTextAndChecksMetadata, internal/redact:TestCount, internal/hook:TestRecordsHoldNoContent |
 | SRC-K03 | An entry must belong to the file it is read from | internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile, internal/inbox:TestWalkYieldsWhatSearchCanMatch, internal/searchindex:TestOffRecordAndUntrustedNeverIndexed |
 | SRC-K11 | Clearing chats holds the index folders and drops each cleared project's index | internal/searchindex:TestHoldDropsAFoldersIndexWhole, internal/searchindex:TestHoldIsBusyWhileAWriterHoldsAFolder |
+| UPW-K02 | The inbox watermark is the truth about pending work | internal/inbox:TestPendingSkipsAWaitingBacklog, internal/update:TestSessionsDrainsTheNamedSessions |
 
 ## Since the split
 

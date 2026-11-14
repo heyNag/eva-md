@@ -113,9 +113,11 @@ The brief's footer and the prompt reminder still name the command line, which wo
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
+| SRC-K12 | Hooks never read or write the index, and the MCP search writes no file and takes no lock (untested: the hooks' half) | internal/mcp:TestServerWritesNothing |
 | MCP-K01 | The read tools write no file, take no lock, start no model and ask no host | internal/mcp:TestServerWritesNothing |
 | MCP-K02 | The server never hangs or outlives its host: deadlines, stuck calls abandoned, exit on end of input, a failed write or a new parent | internal/mcp:TestEndOfInputEndsServe, internal/mcp:TestEndOfInputEndsServePastAStuckAnswer, internal/mcp:TestFailedWriteEndsServe, internal/mcp:TestParentChangeEndsServe, internal/mcp:TestStuckCallIsAnsweredAtItsDeadline, internal/mcp:TestAbandonedCallsEndTheServer |
 | MCP-K03 | The off switches are read each request and give an empty tool list and refused calls, also inside eva-md's own runs | internal/mcp:TestOffStates |

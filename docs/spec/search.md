@@ -106,6 +106,7 @@ Only the agent runs it, when it needs an earlier chat; no hook ever does.
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
@@ -125,7 +126,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | SRC-K16 | Ranking weighs tool lines, puts an exact path before a whole repo, and dates Now items by their prompt | internal/searchindex:TestBM25HandComputed, internal/resume:TestSearchFindsSystemPagesByNameAndCode, internal/resume:TestSearchDatesANowItemByItsPrompt |
 | SRC-K17 | Pages are found by a file they cite or a folder holding it, and tokens split at camelCase and digits | internal/resume:TestSearchFindsSystemPagesByNameAndCode, internal/searchindex:TestTokenize, internal/searchindex:TestPrefixAndShortTokens |
 | SRC-K18 | Show ends a section as the page model does, caps a Timeline, and prints a full id where a short ref is ambiguous | internal/resume:TestShowSectionsSkipFencedHeadings, internal/resume:TestShowTimelineChoosesDateGroups, internal/resume:TestSearchPrintsTheFullIDForASharedPrefix, internal/resume:TestShowAcceptsFullSessionID |
-| SRC-K19 | Search tests run with and without the index and compare hits; segments are byte-flipped and fuzzed | internal/resume:TestSearchIndexAndScanAgree, internal/searchindex:TestSegmentByteFlips, internal/searchindex:FuzzSegmentReader |
+| SRC-K19 | Search tests run with and without the index and compare hits; segments are byte-flipped and fuzzed; no test depends on speed (untested: independence from speed) | internal/resume:TestSearchIndexAndScanAgree, internal/searchindex:TestSegmentByteFlips, internal/searchindex:FuzzSegmentReader |
 | SYS-K16 | The Unverified section is tagged unverified in search hits | internal/resume:TestSearchFindsSystemLines |
 | MCP-K05 | Everything returned is labelled as data and cleaned against forgery | internal/mcp:TestSearchFindsWhatShowOpens, internal/mcp:TestInstructions, internal/resume:TestSearchSnippetCannotStartALine |
 

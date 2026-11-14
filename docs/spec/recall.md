@@ -81,12 +81,13 @@ The wiki's instance is checked at most once a prompt, for the pointers and recal
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
 | BRF-K02 | One label outside a fence longer than any run inside; speakers only from entry fields; quoted lines indented, also after a cut | internal/resume:TestFence, internal/resume:TestHostileFencesUnicodeAndLimits, internal/resume:TestMiddleCutCannotForgeSpeakerHeader, internal/resume:TestMiddleQuotedIndentsEveryLine, internal/resume:TestFreeTextCannotForgeSpeakerHeaders, internal/resume:TestOtherChatLineCannotForgeSpeaker, internal/resume:TestGitSubjectCannotForgeSpeaker |
 | BRF-K16 | Recall never repeats a page the brief listed | internal/hook:TestRecallSkipsTheBriefsConstraints, internal/hook:TestPointersSkipTheBriefsPages, internal/hook:TestQuotedCommandIsNoPointer |
-| RCL-K01 | Recall and pointers read local bounded files only, run no git, model or network, and inject nothing on an error | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates |
+| RCL-K01 | Recall and pointers read local bounded files only, run no git, model or network, and inject nothing on an error (untested: no git, model or network, and p95 under 50 ms) | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates |
 | RCL-K02 | Anything injected is read strictly, by path, with no link, one hard link and a size bound; a rebuild replaces an index the readers refuse | internal/knowledgepage:TestReadIndexStrict, internal/hook:TestRecallNeedsTheIndex, internal/knowledgepage:TestRefreshRewritesAnIndexTheReadersRefuse |
 | RCL-K04 | One fence and one label style, the label worded as facts, not commands | internal/resume:TestFence, internal/hook:TestPromptRecallsKnowledge, internal/hook:TestRecallLabelNamesTheTagsShown |
 | RCL-K05 | A line the secret scan flags, or that cleaning would change, is dropped, never altered | internal/hook:TestRecallBlockFits, internal/hook:TestPointerFits, internal/resume:TestPointersAreCleanedAsWikiText |

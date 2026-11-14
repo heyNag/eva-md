@@ -83,6 +83,7 @@ A call that runs out of time is killed together with every process it started.
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
@@ -92,7 +93,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | SYS-K11 | Unchanged is never claimed for a path the commit lacks or with nothing counted, and a status at other commits is ignored | internal/coderef:TestAPathTheCommitLacks, internal/coderef:TestMovementSince, internal/coderef:TestStatus, internal/resume:TestBriefTakesNoCountTheStatusCantMeasure |
 | SYS-K12 | The code status is local, private, read without links within a bound, and holds no subject; a printed subject is redacted and cut | internal/coderef:TestSaveLoadMerge, internal/coderef:TestLast |
 | SYS-K13 | A write checks each cited path exists at its commit, never waiting on a clone | internal/systempage:TestWriteChecksCodeInAClone |
-| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed | internal/coderef:TestMain, internal/systempage:TestMain |
+| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed | none yet |
 
 ## Since the split
 

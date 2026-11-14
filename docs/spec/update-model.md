@@ -4,7 +4,7 @@
 - **Paths:** `internal/update`
 - **Status:** v1 as built, frozen on 2026-11-14
 
-The blocks below are v1's design and verification text, moved here word for word when the two documents were split; [INDEX.md](INDEX.md) lists every spec.
+The blocks below are v1's design text, moved here word for word when the two documents were split; its verification text moved on 2026-11-14 to [update-runners.md](update-runners.md), and [INDEX.md](INDEX.md) lists every spec.
 
 <!-- v1 docs/design.md 023 -->
 ## Input
@@ -165,6 +165,7 @@ The model never writes dates, ids, markdown structure or provenance stamps.
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |

@@ -89,11 +89,12 @@ A Now in any other format, such as a hand-written or placeholder page, is cut to
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
 | CAP-K13 | Escaping and quoting keep pasted text from forging an entry, a speaker or the brief's notes | internal/freetext:TestShown, internal/resume:TestFreeTextCannotForgeSpeakerHeaders |
-| BRF-K01 | The brief needs no model or network; any failure gives no context and the hook still exits 0 | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/hook:TestSessionStartBudgetAndMarkerErrors |
+| BRF-K01 | The brief needs no model or network; any failure gives no context and the hook still exits 0 (untested: no model or network) | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/hook:TestSessionStartBudgetAndMarkerErrors |
 | BRF-K02 | One label outside a fence longer than any run inside; speakers only from entry fields; quoted lines indented, also after a cut | internal/resume:TestFence, internal/resume:TestHostileFencesUnicodeAndLimits, internal/resume:TestMiddleCutCannotForgeSpeakerHeader, internal/resume:TestMiddleQuotedIndentsEveryLine, internal/resume:TestFreeTextCannotForgeSpeakerHeaders, internal/resume:TestOtherChatLineCannotForgeSpeaker, internal/resume:TestGitSubjectCannotForgeSpeaker |
 | BRF-K03 | What the brief shows is redacted again with the union of the rules | internal/freetext:TestShown, internal/resume:TestCleanPage |
 | BRF-K04 | Off-the-record ranges leave the brief, and no brief comes while a chat is off the record or its transcript is unread | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/resume:TestOpeningRequestFromHeadRead, internal/hook:TestCompactResumeAndOffRecordSuppression, internal/hook:TestOffRecordAndResume |

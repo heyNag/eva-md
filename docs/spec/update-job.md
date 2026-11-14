@@ -4,7 +4,7 @@
 - **Paths:** `internal/update`, `cmd/eva-md/update.go`
 - **Status:** v1 as built, frozen on 2026-11-14
 
-The blocks below are v1's design and verification text, moved here word for word when the two documents were split; [INDEX.md](INDEX.md) lists every spec.
+The blocks below are v1's design text, moved here word for word when the two documents were split; its verification text moved on 2026-11-14 to [update-job-checks.md](update-job-checks.md), and [INDEX.md](INDEX.md) lists every spec.
 
 <!-- v1 docs/design.md 011 -->
 ## Background update
@@ -77,10 +77,11 @@ Only `eva-md status --updates` reads that file, so however many busy exits a day
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| PGS-K17 | Times keep their own offset, and as_of only moves forward | internal/threadpage:TestItemLineRoundTrip, internal/threadpage:TestItemLineForms |
+| PGS-K17 | Times keep their own offset, and as_of only moves forward | internal/threadpage:TestItemLineRoundTrip, internal/threadpage:TestItemLineForms, internal/update:TestNoChangePassStampsAsOf |
 | PGS-K18 | A project's first page write creates now.md with its remote under the same lock, claiming the folder | internal/update:TestFirstThreadPageClaimsTheFolder, internal/update:TestADamagedNowPageKeepsItsFolder, internal/update:TestAProjectWithoutARemoteFindsItsHashFolderAgain |
 | UPM-K11 | Refs name physical inbox lines; the watermark moves exactly past what a pass covered; a prompt waits for its reply | internal/update:TestDecodeKeepsPhysicalLines, internal/update:TestPromptAtTheEndWaitsForItsReply, internal/update:TestChunkedChatContinuesAcrossRuns, internal/update:TestBuildChunksAtExactly60KB, internal/update:TestWaitingRestIsRecordedInTheWatermark |
 | UPM-K17 | Chats from before updates are never summarized unasked, and a watermark that cannot be saved costs no call | internal/update:TestBaselineSetsAsideChatsFromBeforeUpdates, internal/update:TestWatermarkFailureStaysWithinTheBudget |

@@ -4,7 +4,7 @@
 - **Paths:** `internal/hook`
 - **Status:** v1 as built, frozen on 2026-11-14
 
-The blocks below are v1's design and verification text, moved here word for word when the two documents were split; [INDEX.md](INDEX.md) lists every spec.
+The blocks below are v1's design text, moved here word for word when the two documents were split; its verification text moved on 2026-11-14 to [hooks-checks.md](hooks-checks.md), and [INDEX.md](INDEX.md) lists every spec.
 
 <!-- v1 docs/design.md 009 -->
 ## Flows
@@ -104,6 +104,7 @@ The blocks below are v1's design and verification text, moved here word for word
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
@@ -121,9 +122,10 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | CAP-K18 | Capture p95 under 50 ms and the brief under 300 ms, checked by the benchmark | none yet |
 | CAP-K19 | Hook tests never depend on machine speed: injected clock, slack, deadlines and hang guards | internal/hook:TestBudget, internal/hook:TestCancelledCallbacksCannotWriteLater, internal/hook:TestEarlierCallerDeadlineWins |
 | CAP-K20 | Each event keeps its run history and a stamp for a run that captured nothing by design | internal/hook:TestHeartbeatsKeepTheLastRuns, internal/hook:TestUncapturedRunsStampTheTimeOnly, internal/hook:TestUncapturedStampIsWrittenInPlace, internal/hook:TestStampsWrittenAtOnceLeaveOneWhole, internal/health:TestCaptureFreshnessCountsTheUncapturedStamp |
+| SRC-K12 | Hooks never read or write the index, and the MCP search writes no file and takes no lock (untested: the hooks' half) | internal/mcp:TestServerWritesNothing |
 | UPW-K01 | Hooks never wait for or share a lock with the job: it starts after the output, detached, and trigger checks cost a stat | internal/hook:TestSpawnFollowsTheOutput, internal/hook:TestDetachedJobOutlivesTheHook, internal/hook:TestStopSpawnsAt60KBUnprocessed, internal/update:TestSecondJobExitsAtOnce |
-| STO-K14 | Hooks run no git and no network for maintain: a stat, an exclusive create, and a detached start after the output | internal/hook:TestDailyMaintainStartsOnce, internal/hook:TestLateCaptureStartsNoMaintain, internal/hook:TestPushRetrySpacing |
-| MCP-K16 | eva-md's own tool calls are captured without their arguments' long text or results | internal/hook:TestToolLines |
+| STO-K14 | Hooks run no git and no network for maintain: a stat, an exclusive create, and a detached start after the output (untested: no git or network) | internal/hook:TestDailyMaintainStartsOnce, internal/hook:TestLateCaptureStartsNoMaintain, internal/hook:TestPushRetrySpacing |
+| MCP-K16 | eva-md's own tool calls are captured without their search terms or results; v1 keeps the terms, as for any MCP tool | none yet |
 | SET-K13 | Exclusions match the written and resolved path and every parent; path before identity, remote before any marker | internal/config:TestExcluded, internal/config:TestExcludedSymlinkAliases, internal/config:TestRemoteExclusionForms, internal/hook:TestGuardsAndOrdering |
 
 ## Since the split

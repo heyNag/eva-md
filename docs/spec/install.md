@@ -4,7 +4,7 @@
 - **Paths:** `internal/install`, `cmd/eva-md/uninstall.go`
 - **Status:** v1 as built, frozen on 2026-11-14
 
-The blocks below are v1's design and verification text, moved here word for word when the two documents were split; [INDEX.md](INDEX.md) lists every spec.
+The blocks below are v1's verification text, moved here word for word when the two documents were split; its design text moved on 2026-11-14 to [install-design.md](install-design.md), and [INDEX.md](INDEX.md) lists every spec.
 
 <!-- v1 docs/verification.md 010 -->
 - **Install** (`internal/install`).
@@ -49,6 +49,7 @@ The blocks below are v1's design and verification text, moved here word for word
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |

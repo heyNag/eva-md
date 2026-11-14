@@ -23,6 +23,14 @@ const (
 // The limits of a Must keep table's cells.
 const maxItem = 200
 
+// An item that tests hold only in part says, at the end of its Item cell,
+// what of it no test holds, as "(untested: <what>)". The check counts it
+// as held in part, so the missing half stays on the list of later work.
+var partMark = regexp.MustCompile(` \(untested: [^()]+\)$`)
+
+// TestMain sets up a package's tests; it runs none, so it holds no item.
+const setUp = "TestMain"
+
 var (
 	findingRow = regexp.MustCompile(`^\| ([A-Z]+)-[0-9]+ \|`)
 	keepRow    = regexp.MustCompile(`^\| ([A-Z]+-K[0-9]{2,}) \| ([^|]+) \| ([^|]+) \|$`)
@@ -90,10 +98,13 @@ func keepLists(text string) ([]keepList, []string) {
 
 // keepEntry is one row of a spec's Must keep table.
 type keepEntry struct {
-	file, id string
-	line     int
-	tests    []string // as <package path>:<TestName>; none for "none yet"
+	file, id, item string
+	line           int
+	tests          []string // as <package path>:<TestName>; none for "none yet"
 }
+
+// part says whether the row's item says what of it no test holds.
+func (e keepEntry) part() bool { return partMark.MatchString(e.item) }
 
 // keepSection gives the rows of a spec's Must keep section, and the
 // problems with its place and its rows. A spec that holds v1's blocks has
@@ -155,13 +166,18 @@ func keepSection(d doc) ([]keepEntry, []string) {
 		if item == "" || len([]rune(item)) > maxItem {
 			problems = append(problems, fmt.Sprintf("%s: the item of %s is empty or over %d characters", where, m[1], maxItem))
 		}
-		e := keepEntry{file: d.name, id: m[1], line: i + 1}
+		e := keepEntry{file: d.name, id: m[1], item: item, line: i + 1}
+		if cell == noTest && e.part() {
+			problems = append(problems, fmt.Sprintf("%s: %s says what of it no test holds, but its tests cell is %q", where, m[1], noTest))
+		}
 		if cell != noTest {
 			named := map[string]bool{}
 			for _, t := range strings.Split(cell, ", ") {
 				switch {
 				case !heldBy.MatchString(t):
 					problems = append(problems, fmt.Sprintf("%s: %s names %q, which is not <package path>:<TestName>, and its cell is not %q", where, m[1], t, noTest))
+				case strings.HasSuffix(t, ":"+setUp):
+					problems = append(problems, fmt.Sprintf("%s: %s names %s, which sets up its package's tests and holds no item", where, m[1], t))
 				case named[t]:
 					problems = append(problems, fmt.Sprintf("%s: %s names %s twice", where, m[1], t))
 				default:
@@ -227,7 +243,8 @@ func readMustKeep(root string) (mustKeep, []string) {
 // checkMustKeep holds the specs' Must keep tables at root to the register
 // and to the tests: every item sits in a spec, every id a spec names is
 // the register's, once a spec, and every test it names is defined by a
-// _test.go file of the package it names.
+// _test.go file of the package it names. An item sitting in more than one
+// spec reads the same in each, tests included.
 func checkMustKeep(root string) []string {
 	mk, problems := readMustKeep(root)
 	known := map[string]bool{}
@@ -236,6 +253,7 @@ func checkMustKeep(root string) []string {
 			known[id] = true
 		}
 	}
+	first := map[string]keepEntry{}
 	placed := map[string]bool{}
 	inFile := map[string]bool{}
 	defined := map[string]map[string]bool{}
@@ -248,6 +266,11 @@ func checkMustKeep(root string) []string {
 			problems = append(problems, fmt.Sprintf("%s: %s lists %s twice", where, e.file, e.id))
 		}
 		inFile[e.file+" "+e.id] = true
+		if f, ok := first[e.id]; !ok {
+			first[e.id] = e
+		} else if f.item != e.item || strings.Join(f.tests, ", ") != strings.Join(e.tests, ", ") {
+			problems = append(problems, fmt.Sprintf("%s: %s reads differently from its row at %s:%d; an item reads the same in every spec", where, e.id, f.file, f.line))
+		}
 		placed[e.id] = true
 		for _, t := range e.tests {
 			pkg, name, _ := strings.Cut(t, ":")
@@ -274,32 +297,38 @@ func checkMustKeep(root string) []string {
 
 // Every must-keep item of the register sits in a spec's table with the
 // tests that hold it, and every test named there exists. The log gives,
-// for each part, how many items a test holds and the ids no test holds yet.
+// for each part, how many items tests hold wholly, the ids they hold only
+// in part and the ids no test holds yet.
 func TestEachMustKeepItemSitsInASpecWithItsTests(t *testing.T) {
 	root := repoRoot(t)
 	for _, p := range checkMustKeep(root) {
 		t.Error(p)
 	}
 	mk, _ := readMustKeep(root)
-	held := map[string]bool{}
+	held, part := map[string]bool{}, map[string]bool{}
 	for _, e := range mk.rows {
 		if len(e.tests) > 0 {
 			held[e.id] = true
+			part[e.id] = part[e.id] || e.part()
 		}
 	}
-	items, tested := 0, 0
+	items, whole, parts := 0, 0, 0
 	for _, k := range mk.lists {
-		var none []string
+		var some, none []string
 		for _, id := range k.ids {
-			if !held[id] {
+			switch {
+			case !held[id]:
 				none = append(none, id)
+			case part[id]:
+				some = append(some, id)
 			}
 		}
 		items += len(k.ids)
-		tested += len(k.ids) - len(none)
-		t.Logf("%s: %d of %d items held by a test; none yet: %s", k.prefix, len(k.ids)-len(none), len(k.ids), strings.Join(none, ", "))
+		whole += len(k.ids) - len(some) - len(none)
+		parts += len(some)
+		t.Logf("%s: %d of %d items held wholly by tests; in part: %s; none yet: %s", k.prefix, len(k.ids)-len(some)-len(none), len(k.ids), strings.Join(some, ", "), strings.Join(none, ", "))
 	}
-	t.Logf("%d of %d items held by a test", tested, items)
+	t.Logf("%d of %d items held wholly by tests, %d more in part, %d by none yet", whole, items, parts, items-whole-parts)
 	if len(mk.lists) != keepParts || items != keepItems {
 		t.Errorf("read %d lists and %d items; the register holds %d and %d", len(mk.lists), items, keepParts, keepItems)
 	}
@@ -436,6 +465,39 @@ func TestEachMustKeepFaultIsCaught(t *testing.T) {
 			e, row := rowOf(t, dir, "OKF-K12")
 			edit(t, dir, e.file, keepHead+"\n"+keepRule+"\n", row+"\n"+keepHead+"\n"+keepRule+"\n")
 		}, []string{`^docs/spec/okf-adapter.md:[0-9]+: a row before the table's head`}},
+		{"a test that only sets up the package's tests", func(t *testing.T, dir string) {
+			e, row := rowOf(t, dir, "CAP-K07")
+			edit(t, dir, e.file, row, strings.Replace(row, "internal/hook:TestToolLines", "internal/hook:TestMain", 1))
+		}, []string{`: CAP-K07 names internal/hook:TestMain, which sets up its package's tests and holds no item$`}},
+		{"an item over the limit", func(t *testing.T, dir string) {
+			e, row := rowOf(t, dir, "OKF-K12")
+			edit(t, dir, e.file, row, "| OKF-K12 | "+strings.Repeat("x", maxItem+1)+" | "+strings.Join(e.tests, ", ")+" |")
+		}, []string{`^docs/spec/okf-adapter.md:[0-9]+: the item of OKF-K12 is empty or over 200 characters$`}},
+		{"a blank item", func(t *testing.T, dir string) {
+			e, row := rowOf(t, dir, "OKF-K12")
+			edit(t, dir, e.file, row, "| OKF-K12 |   | "+strings.Join(e.tests, ", ")+" |")
+		}, []string{`^docs/spec/okf-adapter.md:[0-9]+: the item of OKF-K12 is empty or over 200 characters$`}},
+		{"an untested part on a row no test holds", func(t *testing.T, dir string) {
+			e, row := rowOf(t, dir, "CAP-K05")
+			edit(t, dir, e.file, row, strings.Replace(row, " | none yet |", " (untested: all of it) | none yet |", 1))
+		}, []string{`^docs/spec/hooks.md:[0-9]+: CAP-K05 says what of it no test holds, but its tests cell is "none yet"$`}},
+		{"an item that reads differently in a second spec", func(t *testing.T, dir string) {
+			mk, _ := readMustKeep(dir)
+			var rows []keepEntry
+			for _, e := range mk.rows {
+				if e.id == "CAP-K03" {
+					rows = append(rows, e)
+				}
+			}
+			if len(rows) < 2 {
+				t.Fatalf("CAP-K03 sits in %d specs, not two", len(rows))
+			}
+			row := strings.Split(read(t, dir, rows[1].file), "\n")[rows[1].line-1]
+			edit(t, dir, rows[1].file, row, strings.Replace(row, rows[1].item, rows[1].item+" (untested: the job's own runs)", 1))
+		}, []string{`^docs/spec/[a-z-]+\.md:[0-9]+: CAP-K03 reads differently from its row at docs/spec/[a-z-]+\.md:[0-9]+; an item reads the same in every spec$`}},
+		{"a table head with no rule", func(t *testing.T, dir string) {
+			edit(t, dir, "docs/spec/identity.md", keepHead+"\n"+keepRule+"\n", keepHead+"\n")
+		}, []string{`^docs/spec/identity.md:[0-9]+: its table's head has no rule after it$`, `^docs/spec/identity.md:[0-9]+: a row before the table's head`, `^SET-K1[4-7] sits in no spec's`}},
 		{"a spec without the section", func(t *testing.T, dir string) {
 			edit(t, dir, "docs/spec/identity.md", keepHeading+"\n", "## Kept\n")
 		}, []string{`^docs/spec/identity.md: it has no ## Must keep section before its Since the split$`, `^SET-K1[4-7] sits in no spec's`}},

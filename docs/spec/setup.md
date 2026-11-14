@@ -101,6 +101,7 @@ Then it looks before it asks, and asks only what it can't work out:
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
@@ -114,7 +115,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | SET-K10 | The wiki folder is not home, a protected or synced folder, or eva-md's own, judged through links and case; it is 0700 | internal/wikiinit:TestProtectedLocations, internal/wikiinit:TestCheckFolder, internal/wikiinit:TestInitAcceptsAFolderTypedInAnotherCase, cmd/eva-md:TestSetupRefusesProtectedFolderFlag |
 | SET-K11 | A rerun after a failed first commit resumes; .DS_Store is tolerated; a leftover save lock is removed first | cmd/eva-md:TestSetupResumesAWikiWhoseFirstCommitFailed, internal/wikiinit:TestRerunAfterFailedSignatureToleratesDSStore, internal/wikiinit:TestAFolderWithOnlyDSStoreIsEmpty, internal/wikiinit:TestAdoptionRemovesTheSavesLockFile |
 | SET-K19 | Setup makes no model call | none yet |
-| SET-K20 | Every time limit of setup is a variable tests raise once | cmd/eva-md:TestMain, internal/identity:TestMain |
+| SET-K20 | Every time limit of setup is a variable tests raise once | none yet |
 
 ## Since the split
 

@@ -33,6 +33,7 @@ The blocks below are v1's design and verification text, moved here word for word
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
@@ -53,7 +54,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | CUP-K13 | No row can stop recovery for good: bounded tries then a gap, a redactor panic is a gap, progress saved each row | internal/catchup:TestSlowRowEscalatesToGap, internal/catchup:TestSlowRowTriesPerLevel, internal/catchup:TestRedactorPanicLeavesGap, internal/catchup:TestPauseKeepsFinishedRows, internal/catchup:TestLongRowsDoNotWedgeRecovery, internal/catchup:TestLongPromptRowNeverWedgesRecovery |
 | CUP-K14 | Recovery redacts with the union of the baseline and current rules | internal/catchup:TestBoundedRedactMatchesFullRedaction, internal/catchup:TestRedactorCleaningAndKeyMarkerReplicas |
 | CUP-K15 | Removing a capture removes the record that could bring it back, under the session lock, only if unchanged; a blocked record stays | internal/catchup:TestForgetKeepsRecoveryFromBringingBackARemovedCapture, internal/catchup:TestForgetKeepsARecordThatKeepsTheChatOffTheRecord, internal/catchup:TestPruneKeepsARecordSavedAgainAfterTheListing, internal/catchup:TestPruneKeepsARecordSavedBeforeItLocks, internal/catchup:TestPruneLeavesARecordThatAloneKeepsAChatOffTheRecord |
-| CUP-K16 | Format drift is detected and reported | internal/catchup:TestDriftSignal, internal/catchup:TestDriftNeedsBlindTurnsInARow, internal/catchup:TestDriftRecordFollowsTheDrift, internal/hook:TestOnlyStopsWithAReplyCountTowardDrift |
+| CUP-K16 | Format drift is detected and reported, and tests never depend on machine speed (untested: independence from speed) | internal/catchup:TestDriftSignal, internal/catchup:TestDriftNeedsBlindTurnsInARow, internal/catchup:TestDriftRecordFollowsTheDrift, internal/hook:TestOnlyStopsWithAReplyCountTowardDrift |
 
 ## Since the split
 

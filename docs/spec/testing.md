@@ -138,10 +138,11 @@ To try a slow machine, put a `git` first on PATH that runs `/bin/sleep 0.3` befo
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| EVL-K07 | Tests run in a temporary home with the environment's git configuration cleared, never on the real machine | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment |
+| EVL-K07 | Tests run in a temporary home with the environment's git configuration cleared, never on the real machine (untested: the temporary home) | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment |
 | EVL-K08 | Tests never depend on machine speed, and a latency gate lives outside go test | none yet |
 | EVL-K15 | The parsers have fuzzers: the row scan, the segment reader, the page parse and scan | internal/catchup:FuzzRowScan, internal/searchindex:FuzzSegmentReader, internal/threadpage:FuzzParse, internal/threadpage:FuzzScanner |
 

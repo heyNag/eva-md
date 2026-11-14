@@ -206,6 +206,7 @@ The binary declares the highest schema it supports.
 ## Must keep
 
 The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
 
 | Id | Item | Tests |
 | --- | --- | --- |
@@ -217,7 +218,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | PGS-K09 | A person's text is never lost: other sections kept byte for byte, locked, verified or unreadable pages never written | internal/threadpage:TestParseKeepsTimelineAndSections, internal/update:TestProtectedPagesAreSkipped, internal/update:TestConflictIsRetriedOnTheEditedPage, internal/knowledgepage:TestPagesEvaMdLeavesAlone, internal/knowledgepage:TestSupersedeKeepsWhatAPersonAdded |
 | PGS-K10 | Render and Parse round-trip, as the fuzz and property tests specify | internal/threadpage:TestRoundTrip, internal/threadpage:TestItemLineRoundTrip, internal/threadpage:TestApplyProperties, internal/threadpage:FuzzParse, internal/threadpage:FuzzScanner |
 | PGS-K15 | Every supersede and drop of knowledge or a rule leaves a Timeline line and keeps its history | internal/knowledgepage:TestSupersedeAndDropKeepHistory, internal/update:TestPassWritesTheRulesPages, internal/update:TestSettleSkippedRules, internal/update:TestALockedRulesPageLeavesNoTimelineLine |
-| PGS-K17 | Times keep their own offset, and as_of only moves forward | internal/threadpage:TestItemLineRoundTrip, internal/threadpage:TestItemLineForms |
+| PGS-K17 | Times keep their own offset, and as_of only moves forward | internal/threadpage:TestItemLineRoundTrip, internal/threadpage:TestItemLineForms, internal/update:TestNoChangePassStampsAsOf |
 | STO-K17 | Pages stay plain Markdown with small frontmatter that round-trips byte for byte | internal/okfadapter:TestMetadataGoldenRoundTrip, internal/okfadapter:TestFullFixtureWiki, internal/threadpage:TestPagesThroughOKF |
 | OKF-K13 | Model text is escaped before saving, so it cannot forge markup | internal/threadpage:TestEscape, internal/threadpage:TestEscaperCorpusThroughOKF, internal/threadpage:TestRenderEscapesFreeText |
 
