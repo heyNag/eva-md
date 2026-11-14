@@ -35,7 +35,7 @@ func gitHomeFixture(t *testing.T, extra string) (paths.Dirs, string) {
 	for _, name := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_TEMPLATE_DIR", "GIT_SSH", "GIT_SSH_COMMAND"} {
 		t.Setenv(name, "")
 	}
-	gitconfig := "[user]\nname = Eva Fixture\nemail = fixture@example.invalid\n[commit]\ngpgsign = false\n[init]\ndefaultBranch = main\n" + extra
+	gitconfig := "[user]\nname = Eva Fixture\nemail = fixture@example.invalid\n[commit]\ngpgsign = false\n[init]\ndefaultBranch = main\n" + gitQuiet + extra
 	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(gitconfig), 0o600); err != nil {
 		t.Fatal(err)
 	}

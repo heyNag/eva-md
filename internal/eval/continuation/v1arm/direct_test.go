@@ -58,7 +58,7 @@ func newTrial(t *testing.T, h adapter.Host, s fakeScript) aTrial {
 	for _, dir := range []string{d.Home, d.Tmp, d.Bin, d.Workspace, d.Grade} {
 		mkdir(t, dir)
 	}
-	write(t, filepath.Join(d.Home, ".gitconfig"), "[user]\n\tname = Made Up\n\temail = made-up@example.invalid\n")
+	write(t, filepath.Join(d.Home, ".gitconfig"), "[user]\n\tname = Made Up\n\temail = made-up@example.invalid\n[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n")
 	if err := os.Symlink(testBinary(t), filepath.Join(d.Bin, "eva-md")); err != nil {
 		t.Fatal(err)
 	}

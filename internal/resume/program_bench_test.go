@@ -32,6 +32,9 @@ func BenchmarkProgramRunFiles(b *testing.B) {
 			b.Setenv("HOME", home)
 			b.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 			b.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(gitQuiet), 0o600); err != nil {
+				b.Fatal(err)
+			}
 			o := Options{Dirs: paths.Dirs{State: filepath.Join(home, "state"), Share: filepath.Join(home, "share"), Config: filepath.Join(home, "config")},
 				Config: config.Config{WikiPath: filepath.Join(home, "wiki")}, Project: identity.Project{Kind: identity.KindRepo, Key: "github.com__team__resume", Slug: "resume", Remote: "github.com/team/resume", Branch: "main"},
 				Host: "claude-code", Session: "new-chat", Variant: "startup", Now: time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)}

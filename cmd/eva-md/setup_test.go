@@ -111,7 +111,7 @@ func (f *fakeSetup) realGit(t *testing.T) {
 	if realGitPath == "" {
 		t.Fatal("git is not installed")
 	}
-	gitconfig := "[user]\n\tname = Eva Fixture\n\temail = fixture@example.invalid\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[ssh]\n\tvariant = simple\n"
+	gitconfig := "[user]\n\tname = Eva Fixture\n\temail = fixture@example.invalid\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[ssh]\n\tvariant = simple\n" + gitQuiet
 	if err := os.WriteFile(os.Getenv("GIT_CONFIG_GLOBAL"), []byte(gitconfig), 0o600); err != nil {
 		t.Fatal(err)
 	}

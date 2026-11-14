@@ -930,6 +930,9 @@ func benchRepo(b *testing.B) (Cache, string) {
 	b.Setenv("HOME", home)
 	b.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	b.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(gitQuiet), 0o600); err != nil {
+		b.Fatal(err)
+	}
 	repo := filepath.Join(home, "repo")
 	for _, args := range [][]string{{"init", "-q", "-b", "main", repo}, {"-C", repo, "-c", "user.name=B", "-c", "user.email=b@example.com", "commit", "-q", "--allow-empty", "-m", "x"}, {"-C", repo, "remote", "add", "origin", "https://github.com/acme/bench.git"}} {
 		cmd := exec.Command("git", args...)

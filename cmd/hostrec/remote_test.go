@@ -161,7 +161,7 @@ func TestPushSendsEachCommitByItselfWithTheDeployKey(t *testing.T) {
 	if err := os.WriteFile(standIn, []byte("#!/bin/sh\ntouch "+shellQuote(called)+"\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	accountConfig := "[gpg]\n\tformat = ssh\n[gpg \"ssh\"]\n\tprogram = " + standIn + "\n[user]\n\tsigningkey = /made/up/key.pub\n\tname = Made Up Account\n\temail = account@example.invalid\n[commit]\n\tgpgsign = true\n"
+	accountConfig := "[gpg]\n\tformat = ssh\n[gpg \"ssh\"]\n\tprogram = " + standIn + "\n[user]\n\tsigningkey = /made/up/key.pub\n\tname = Made Up Account\n\temail = account@example.invalid\n[commit]\n\tgpgsign = true\n" + gitQuiet
 	for _, p := range []string{os.Getenv("GIT_CONFIG_GLOBAL"), filepath.Join(h.home, ".gitconfig")} {
 		if err := os.WriteFile(p, []byte(accountConfig), 0o644); err != nil {
 			t.Fatal(err)

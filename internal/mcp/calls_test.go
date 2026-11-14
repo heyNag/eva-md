@@ -39,7 +39,7 @@ type fixture struct {
 func newFixture(t *testing.T) fixture {
 	t.Helper()
 	d := isolated(t)
-	writeFile(t, os.Getenv("GIT_CONFIG_GLOBAL"), "[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n")
+	writeFile(t, os.Getenv("GIT_CONFIG_GLOBAL"), "[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n"+gitQuiet)
 	repo := t.TempDir()
 	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", "git@github.com:team/orders.git"}, {"commit", "-q", "--allow-empty", "-m", "start"}} {
 		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {

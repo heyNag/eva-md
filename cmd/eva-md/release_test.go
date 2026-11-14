@@ -180,11 +180,12 @@ func newFakeMac(t *testing.T) *fakeMac {
 			t.Fatal(err)
 		}
 	}
-	// Maintenance is off: git starts it in the background after a commit in
-	// the wiki or a push to its remote, and its lock stays in the objects
-	// folder after the command returns, so a walk of either could see a file
-	// come and go (TestFakeMacStartsNoMaintenance).
-	gitconfig := "[user]\n\tname = Eva Fixture\n\temail = fixture@example.invalid\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[maintenance]\n\tauto = false\n"
+	// Maintenance and automatic gc are off: git starts them in the
+	// background after a commit in the wiki or a push to its remote, and
+	// their lock stays in the objects folder after the command returns, so a
+	// walk of either could see a file come and go
+	// (TestFakeMacStartsNoMaintenance).
+	gitconfig := "[user]\n\tname = Eva Fixture\n\temail = fixture@example.invalid\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n" + gitQuiet
 	if err := os.WriteFile(os.Getenv("GIT_CONFIG_GLOBAL"), []byte(gitconfig), 0o600); err != nil {
 		t.Fatal(err)
 	}

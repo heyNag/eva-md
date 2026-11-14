@@ -3,6 +3,7 @@ package spec
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"maps"
 	"slices"
@@ -16,14 +17,15 @@ import (
 // races the removal of the test's temporary folder and the next command's
 // locks. So a test file that gives git a configuration of its own, in a
 // package whose tests commit, clone, fetch or push, turns both off in it,
-// with gc.auto set to 0 and maintenance.auto to false. All is read from
-// the source, so what it cannot tell is not held: a configuration written
-// through a path neither the environment's nor one the package's tests
-// set GIT_CONFIG_GLOBAL to, settings given in another file or package, a
-// second configuration in the same file that leaves them out, git started
-// by a program found other than by the name git, a function reached other
-// than by a call of its name, and a command that starts the background
-// work under another name, as a merge or a pull.
+// with gc.auto set to 0 and maintenance.auto to false, in its own text or
+// in a constant of the module it names. All is read from the source, so
+// what it cannot tell is not held: a configuration written through a path
+// neither the environment's nor one the package's tests set
+// GIT_CONFIG_GLOBAL to, settings another file gives, a second
+// configuration in the same file that leaves them out, git started by a
+// program found other than by the name git, a function reached other than
+// by a call of its name, and a command that starts the background work
+// under another name, as a merge or a pull.
 
 // backgroundCommands are git's commands after which git may start its
 // background work.
@@ -70,17 +72,67 @@ func gitCalls(src source, f goFile, n ast.Node) []*ast.CallExpr {
 }
 
 // literals are the values of n's string literals, in the order they
-// stand.
+// stand, literals joined with + read as one.
 func literals(n ast.Node) []string {
 	var out []string
 	ast.Inspect(n, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok {
-			if s, ok := literal(lit); ok {
+		if x, ok := n.(ast.Expr); ok {
+			if s, ok := joined(x); ok {
 				out = append(out, s)
+				return false
 			}
 		}
 		return true
 	})
+	return out
+}
+
+// joined is the value of a string literal, or of string literals joined
+// with +, and whether x is one.
+func joined(x ast.Expr) (string, bool) {
+	switch x := x.(type) {
+	case *ast.BasicLit:
+		return literal(x)
+	case *ast.ParenExpr:
+		return joined(x.X)
+	case *ast.BinaryExpr:
+		if x.Op != token.ADD {
+			return "", false
+		}
+		a, ok := joined(x.X)
+		if !ok {
+			return "", false
+		}
+		b, ok := joined(x.Y)
+		return a + b, ok
+	}
+	return "", false
+}
+
+// settingsText is what a test file gives as text: its string literals,
+// and the values of the constants of the module it names, followed
+// through the constants they name.
+func settingsText(src source, f goFile) []string {
+	out := literals(f.file)
+	seen := map[string]bool{}
+	var follow func(in goFile, n ast.Node, depth int)
+	follow = func(in goFile, n ast.Node, depth int) {
+		ast.Inspect(n, func(n ast.Node) bool {
+			x, ok := n.(ast.Expr)
+			if !ok {
+				return true
+			}
+			key := moduleName(in, x)
+			if c, ok := src.consts[key]; ok && !seen[key] && depth < 8 {
+				seen[key] = true
+				out = append(out, literals(c.value)...)
+				follow(c.f, c.value, depth+1)
+			}
+			_, sel := x.(*ast.SelectorExpr)
+			return !sel
+		})
+	}
+	follow(f, f.file, 0)
 	return out
 }
 
@@ -223,6 +275,12 @@ func setsGlobal(call *ast.CallExpr) (string, bool) {
 	return types.ExprString(call.Args[1]), true
 }
 
+// isIdent says whether x is a name alone.
+func isIdent(x ast.Expr) bool {
+	_, ok := x.(*ast.Ident)
+	return ok
+}
+
 // rigOf says how a test file gives git a configuration of its own, or "":
 // it sets GIT_CONFIG_GLOBAL with Setenv; writes the file the environment's
 // GIT_CONFIG_GLOBAL names, or a file named as one of globals, the values
@@ -249,14 +307,22 @@ func rigOf(src source, f goFile, globals map[string]bool) string {
 		s, _ := literal(call.Args[0])
 		return ok && os != "" && id.Name == os && s == "GIT_CONFIG_GLOBAL"
 	}
-	// Names given the global configuration's path from the environment.
+	// Names given the global configuration's path from the environment:
+	// assigned it, or ranging over a list that holds it.
 	fromEnv := map[string]bool{}
 	ast.Inspect(f.file, func(n ast.Node) bool {
-		if as, ok := n.(*ast.AssignStmt); ok && len(as.Lhs) == len(as.Rhs) {
-			for i, rhs := range as.Rhs {
-				if id, ok := as.Lhs[i].(*ast.Ident); ok && getenv(rhs) {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			for i, rhs := range n.Rhs {
+				if id, ok := n.Lhs[i].(*ast.Ident); ok && len(n.Lhs) == len(n.Rhs) && getenv(rhs) {
 					fromEnv[id.Name] = true
 				}
+			}
+		case *ast.RangeStmt:
+			list, ok := n.X.(*ast.CompositeLit)
+			id, named := n.Value.(*ast.Ident)
+			if ok && named && slices.ContainsFunc(list.Elts, getenv) {
+				fromEnv[id.Name] = true
 			}
 		}
 		return true
@@ -343,14 +409,17 @@ func checkGitRigs(files []goFile, listed map[string]string) []string {
 	var problems []string
 	src := sourceOf(files)
 	scope := backgroundScope(files)
-	globals := map[string]map[string]bool{} // by package, the values its tests set GIT_CONFIG_GLOBAL to
+	// By package, the values its tests set GIT_CONFIG_GLOBAL to, as their
+	// source, but a name alone, which means what it does only where it is
+	// given.
+	globals := map[string]map[string]bool{}
 	for _, f := range files {
 		if !f.test {
 			continue
 		}
 		ast.Inspect(f.file, func(n ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok {
-				if v, ok := setsGlobal(call); ok {
+				if v, ok := setsGlobal(call); ok && !isIdent(call.Args[1]) {
 					if globals[f.pkg] == nil {
 						globals[f.pkg] = map[string]bool{}
 					}
@@ -370,7 +439,7 @@ func checkGitRigs(files []goFile, listed map[string]string) []string {
 			continue
 		}
 		rigs[f.path] = true
-		gc, maintenance := offSettings(literals(f.file))
+		gc, maintenance := offSettings(settingsText(src, f))
 		_, isListed := listed[f.path]
 		var missing []string
 		if !gc {
@@ -397,7 +466,11 @@ func checkGitRigs(files []goFile, listed map[string]string) []string {
 // backgroundOn are the test files that give git a configuration of their
 // own in a package whose tests commit, clone, fetch or push, yet do not
 // turn git's background work off in it themselves, each with its reason.
-var backgroundOn = map[string]string{}
+var backgroundOn = map[string]string{
+	"cmd/eva-md/uninstall_test.go":                 "TestFakeMacStartsNoMaintenance holds that the fake Mac's own git config, which release_test.go writes, starts no maintenance after a commit and a push; settings given to its git with -c would hide what it holds",
+	"internal/eval/continuation/task/main_test.go": "its git config is a decoy the program must not read: Prepare's git, which commits, runs with an empty global config and gc.auto=0 and maintenance.auto=false given with -c (workspace.go), and the tests' own git only reads",
+	"internal/store/migrate/run_test.go":           "it rewrites the global config as a person's, a core.excludesFile or a signing that fails, to show what the program does with it; the program's git (git.go) and the tests' gitT (helpers_test.go) are given gc.auto=0 and maintenance.auto=false with -c, and the one commit it runs with neither fails by design",
+}
 
 // Every test rig that gives git a configuration of its own, in a package
 // whose tests commit, clone, fetch or push, turns git's background work

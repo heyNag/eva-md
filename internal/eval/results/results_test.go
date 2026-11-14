@@ -36,7 +36,7 @@ func isolate(t *testing.T) string {
 		t.Setenv(name, "")
 		os.Unsetenv(name)
 	}
-	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte("[user]\nname = Eva Fixture\nemail = fixture@example.invalid\n[commit]\ngpgsign = false\n[init]\ndefaultBranch = main\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte("[user]\nname = Eva Fixture\nemail = fixture@example.invalid\n[commit]\ngpgsign = false\n[init]\ndefaultBranch = main\n[gc]\nauto = 0\n[maintenance]\nauto = false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return home

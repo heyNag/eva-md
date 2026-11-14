@@ -1,6 +1,7 @@
 package resume
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,9 @@ func TestFence(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(gitQuiet), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct{ text, fence string }{
 		{"plain text", "````"},
 		{"one ` and two ``", "````"},

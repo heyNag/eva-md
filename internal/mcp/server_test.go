@@ -52,6 +52,12 @@ func await(t *testing.T, ch <-chan struct{}, what string) {
 	}
 }
 
+// gitQuiet turns git's background work off in a test's git config: after
+// a commit, a clone, a fetch or a push git may otherwise start its
+// maintenance in the background, which outlives the command and races the
+// removal of the test's folders and the next command's locks.
+const gitQuiet = "[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n"
+
 // isolated gives a test its own home and git config.
 func isolated(t *testing.T) paths.Dirs {
 	t.Helper()
@@ -59,6 +65,9 @@ func isolated(t *testing.T) paths.Dirs {
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(gitQuiet), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("EVA_MD_INNER", "")
 	d, err := paths.Default()
 	if err != nil {

@@ -115,6 +115,10 @@ printf -- '-----BEGIN SSH SIGNATURE-----\nZmFrZQ==\n-----END SSH SIGNATURE-----\
 	defaultBranch = main
 [push]
 	followTags = true
+[gc]
+	auto = 0
+[maintenance]
+	auto = false
 [url "%s"]
 	insteadOf = %s
 `, filepath.Join(home, "signing-key.pub"), signer, e.origin, githubOrigin), 0o600)
