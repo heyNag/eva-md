@@ -2444,6 +2444,19 @@ class CodeBriefs(unittest.TestCase):
         (counted,) = [n for n in ast.walk(loop) if isinstance(n, ast.If) and n.test is decision]
         self.assertIn("passed_over += 1", ast.unparse(counted))
         self.assertFalse([n for n in ast.walk(loop) if isinstance(n, ast.Constant) and isinstance(n.value, str) and "code moved" in n.value])
+        # Counted, with those that had a count killed, and nothing more: no
+        # else, and nothing that leaves the loop's turn early.
+        self.assertEqual([ast.unparse(s) for s in counted.body], ["passed_over += 1", "killed += KILLED in counts"])
+        self.assertEqual(counted.orelse, [])
+        self.assertFalse([n for n in ast.walk(loop) if isinstance(n, (ast.Continue, ast.Break, ast.Return, ast.Raise))])
+        # Every brief, passed over or not, keeps its time among the samples:
+        # appended in the loop's own body, after the decision, once.
+        body = [ast.unparse(s) for s in loop.body]
+        self.assertIn(counted, loop.body)
+        self.assertEqual(body.count("briefs.append(elapsed)"), 1)
+        self.assertGreater(body.index("briefs.append(elapsed)"), loop.body.index(counted))
+        self.assertEqual([n for n in ast.walk(fn) if isinstance(n, ast.Call) and ast.unparse(n.func) == "briefs.append"],
+                         [s.value for s in loop.body if ast.unparse(s) == "briefs.append(elapsed)"])
         # The config goes once the loop ends, however it ends; then more
         # than one in two passed over fails.
         tried = self.within(loop, parents, ast.Try)
@@ -2452,6 +2465,17 @@ class CodeBriefs(unittest.TestCase):
         self.assertEqual(ast.unparse(share.test), "not code_briefs_allowed(passed_over, len(briefs))")
         self.assertIsInstance(share.body[0], ast.Raise)
         self.assertGreater(share.lineno, tried.end_lineno)
+        # Between the late hooks' say and the share, how many were passed
+        # over, of how many, and how many with a count killed is said on
+        # stderr, beside the report, when any was.
+        block = parents[share]
+        stmts = block.body if share in block.body else block.orelse
+        between = [ast.unparse(s) for s in stmts[stmts.index(tried)+1:stmts.index(share)]]
+        self.assertEqual(between, [
+            "say_late('code_brief', 'SessionStart', briefs)",
+            "said = code_briefs_said(passed_over, killed, len(briefs))",
+            "if said:\n    print(said, file=sys.stderr, flush=True)",
+        ])
 
     def within(self, node, parents, kind):
         while node in parents:
