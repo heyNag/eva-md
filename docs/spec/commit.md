@@ -92,7 +92,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 | STO-K11 | Writers and the commit share one secret test | internal/wikigit:TestSecretLines, internal/update:TestKnowledgeSecretScan, internal/systempage:TestIdentifiersPassSecretsDoNot |
 | STO-K12 | Never commit over a merge, rebase, cherry-pick, revert, unmerged paths or a detached HEAD | internal/wikigit:TestGuardsRefuse |
 | STO-K13 | Commit records hold counts, reasons and wiki-relative paths only | internal/wikigit:TestCommitAndPush, internal/wikigit:TestSecretLeftOutIdentifiersCommitted |
-| STO-K14 | Hooks run no git and no network for maintain: a stat, an exclusive create, and a detached start after the output (untested: no git or network) | internal/hook:TestDailyMaintainStartsOnce, internal/hook:TestLateCaptureStartsNoMaintain, internal/hook:TestPushRetrySpacing |
+| STO-K14 | Hooks run no git and no network for maintain: a stat, an exclusive create, and a detached start after the output | internal/hook:TestDailyMaintainStartsOnce, internal/hook:TestLateCaptureStartsNoMaintain, internal/hook:TestPushRetrySpacing, internal/hook:TestHooksStartNothingOutside |
 | STO-K15 | The user's signing and sign-in settings are never changed, and a failed signature is not retried in a loop | internal/wikigit:TestDeclinedSignatureFails, internal/wikigit:TestMissingSignerFails, internal/wikiinit:TestSignatureFailureIsNotRetried |
 | STO-K18 | Validation errors are counted, never a reason to skip a commit | internal/wikigit:TestValidationErrorsDoNotStopCommit |
 

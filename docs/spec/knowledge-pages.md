@@ -132,7 +132,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| RCL-K01 | Recall and pointers read local bounded files only, run no git, model or network, and inject nothing on an error (untested: no git, model or network, and p95 under 50 ms) | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates |
+| RCL-K01 | Recall and pointers read bounded local files; no git, model or network; nothing injected on error | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates, internal/hook:TestHooksStartNothingOutside, check:scripts/benchmark.py |
 | RCL-K02 | Anything injected is read strictly, by path, with no link, one hard link and a size bound; a rebuild replaces an index the readers refuse | internal/knowledgepage:TestReadIndexStrict, internal/hook:TestRecallNeedsTheIndex, internal/knowledgepage:TestRefreshRewritesAnIndexTheReadersRefuse |
 | RCL-K03 | Indexes are rebuildable caches written atomically under the wiki lock; pages are the truth | internal/knowledgepage:TestRefreshRepairs, internal/knowledgepage:TestSaveRebuildsAfterAFailedWrite, internal/knowledgepage:TestRefreshWithoutTheFolder |
 | RCL-K06 | Each recalled line carries its tag and the label says what the tags rest on | internal/hook:TestRecallLabelNamesTheTagsShown, internal/hook:TestRecallLineWithoutATag, internal/resume:TestLabelsSayWhatObservedRestsOn |

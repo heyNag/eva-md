@@ -99,7 +99,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 | --- | --- | --- |
 | SET-K12 | Hand-edited files are read strictly: no link or FIFO, a size cap, literal values never echoed, a pasted secret named by line | internal/config:TestBoundedPrivateConfigReads, internal/config:TestLoadAnswersIsStrict, internal/config:TestParseAnswersRefusesBadValues, internal/config:TestReadErrorNamesFileOnce, cmd/eva-md:TestSetupReportsTheAnswersFilesProblems |
 | SET-K13 | Exclusions match the written and resolved path and every parent; path before identity, remote before any marker | internal/config:TestExcluded, internal/config:TestExcludedSymlinkAliases, internal/config:TestRemoteExclusionForms, internal/hook:TestGuardsAndOrdering |
-| SET-K20 | Every time limit of setup is a variable tests raise once | none yet |
+| SET-K20 | Every time limit of setup is a variable tests raise once (untested: that no test changes one later) | internal/spec:TestEveryTimeLimitIsRaised |
 
 ## Since the split
 

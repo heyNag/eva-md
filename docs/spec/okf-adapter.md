@@ -145,7 +145,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 | STO-K06 | Writes that belong together land under one lock, and the commit stages under it too | internal/okfadapter:TestLockedHoldsTheLockAcrossWrites, internal/wikigit:TestBusyWhileAPageWriteHoldsTheWikiLock, internal/wikigit:TestWikiLockIsTheAdapterLock |
 | STO-K07 | Locked and verified pages are found in every YAML shape, and a body that smuggles frontmatter is refused before the save | internal/okfadapter:TestIsLocked, internal/okfadapter:TestIsVerified, internal/okfadapter:TestSmugglesFrontmatter, internal/okfadapter:TestBodyDelimiterRejection |
 | STO-K17 | Pages stay plain Markdown with small frontmatter that round-trips byte for byte | internal/okfadapter:TestMetadataGoldenRoundTrip, internal/okfadapter:TestFullFixtureWiki, internal/threadpage:TestPagesThroughOKF |
-| OKF-K01 | One package owns the page codec, and nothing else parses or writes frontmatter | none yet |
+| OKF-K01 | One package owns the page codec, and nothing else parses or writes frontmatter (untested: that no other package parses frontmatter) | internal/spec:TestEachLibraryHasOneImporter |
 | OKF-K02 | One wiki lock that the kernel frees when a process dies, and a way to hold it across writes | internal/okfadapter:TestLockedHoldsTheLockAcrossWrites, internal/okfadapter:TestBusyLockReportsErrLockBusy |
 | OKF-K03 | Create never overwrites, and an update compares the raw bytes' hash | internal/okfadapter:TestCreateUpdateAndNoOp, internal/okfadapter:TestConcurrentCreateAndCAS |
 | OKF-K04 | A save that would change only the timestamp is skipped | internal/okfadapter:TestCreateUpdateAndNoOp, internal/okfadapter:TestSaveWritesOnlyThePageAndTheLog |

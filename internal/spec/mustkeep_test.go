@@ -557,9 +557,9 @@ func TestEachMustKeepFaultIsCaught(t *testing.T) {
 			edit(t, dir, e.file, row, "| OKF-K12 |   | "+strings.Join(e.tests, ", ")+" |")
 		}, []string{`^docs/spec/okf-adapter.md:[0-9]+: the item of OKF-K12 is empty or over 200 characters$`}},
 		{"an untested part on a row no test holds", func(t *testing.T, dir string) {
-			e, row := rowOf(t, dir, "CAP-K05")
+			e, row := rowOf(t, dir, "MCP-K16")
 			edit(t, dir, e.file, row, strings.Replace(row, " | none yet |", " (untested: all of it) | none yet |", 1))
-		}, []string{`^docs/spec/hooks.md:[0-9]+: CAP-K05 says what of it no test holds, but its tests cell is "none yet"$`}},
+		}, []string{`^docs/spec/hooks.md:[0-9]+: MCP-K16 says what of it no test holds, but its tests cell is "none yet"$`}},
 		{"an item that reads differently in a second spec", func(t *testing.T, dir string) {
 			mk, _ := readMustKeep(dir)
 			var rows []keepEntry

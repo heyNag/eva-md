@@ -139,7 +139,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| PRD-K01 | Hooks fail closed and stay fast: exit 0, panics contained, Codex Stop gets {}, no model or network (untested: no model or network, and the p95 targets) | internal/hook:TestMalformedMissingAndPanicOutput, internal/hook:TestDeadlinesAndNoLateCapture, internal/hook:TestRunOutOfTimeIsMarkedFailed |
+| PRD-K01 | Hooks fail closed and stay fast: exit 0, panics contained, Codex Stop gets {}, no model or network | internal/hook:TestMalformedMissingAndPanicOutput, internal/hook:TestDeadlinesAndNoLateCapture, internal/hook:TestRunOutOfTimeIsMarkedFailed, internal/hook:TestHooksStartNothingOutside, internal/hook:TestHookLinksNothingThatConnects, check:scripts/benchmark.py |
 | PRD-K02 | Redaction before disk is the union of the baseline and current rules, fails closed, and runs again on model output and the staged diff | internal/redact:TestNoSecretVersion1Removed, internal/inbox:TestRedactionTruncationAndFailClosed, internal/update:TestValidateRedactsCapsAndEscapes |
 | PRD-K03 | The inbox is the word-for-word truth, append-only and private, never committed; the indexes are caches | internal/inbox:TestConcurrentAppend, internal/inbox:TestPermissionsAndRefs, internal/wikigit:TestLeavesOutWhatIsNeverCommitted |
 | PRD-K04 | Resume works with no model, from the inbox and live git | internal/resume:TestCrossHostStartupClearAndLineage, internal/hook:TestAutomaticCrossHostResumeAndOneFallback, cmd/eva-md:TestBriefAndShowCLIResumeAcrossHosts |
@@ -152,7 +152,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 | PRD-K11 | Codex hook trust survives binary upgrades because the plugin folder stays byte-identical and calls a stable path | internal/install:TestBinaryOnlyReinstallKeepsCodexTrust, internal/install:TestPluginFolderBytes |
 | PRD-K12 | One hardened environment for every git call, and the identity cache that keeps capture fast | internal/wikigit:TestEveryGitDropsTheSameVariables, internal/resume:TestLiveGitRunsWithTheReadEnvironment, internal/hook:TestCaptureUsesIdentityCache |
 | PRD-K13 | A chat a program runs is told by its entrypoint, so automation never becomes the user | internal/hook:TestHeadlessChatPromptsAreHostPrompts, internal/catchup:TestHeadlessReadsTheRecord |
-| PRD-K14 | Tests never touch the real machine or depend on its speed; the fact scripts seed live evaluation (untested: the temporary home, and independence from speed) | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment, internal/update/accuracy:TestScripts |
+| PRD-K14 | Tests never touch the real machine or depend on its speed; the fact scripts seed live evaluation (untested: a home read by code a test runs, and other timing) | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment, internal/update/accuracy:TestScripts, internal/spec:TestTestsRunInATemporaryHome, internal/spec:TestEveryTimeLimitIsRaised, internal/spec:TestSleepsAndSkipsArePinned |
 | PRD-K15 | Only eva's name shows, uninstall never removes the wiki, and destructive commands preview first | internal/install:TestUninstallAll, cmd/eva-md:TestUninstallPreviewRemovesNothing, cmd/eva-md:TestInboxClearPreviewsThenRemoves |
 
 ## Since the split

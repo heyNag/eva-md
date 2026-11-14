@@ -114,8 +114,8 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 | SET-K09 | Only a standalone clone at its root whose remotes name the requested one gets the scaffold, and only its paths are staged | internal/wikiinit:TestRefusals, internal/wikiinit:TestGitIgnoresInheritedRepository, cmd/eva-md:TestSetupRefusesAFolderThatIsAnotherClone |
 | SET-K10 | The wiki folder is not home, a protected or synced folder, or eva-md's own, judged through links and case; it is 0700 | internal/wikiinit:TestProtectedLocations, internal/wikiinit:TestCheckFolder, internal/wikiinit:TestInitAcceptsAFolderTypedInAnotherCase, cmd/eva-md:TestSetupRefusesProtectedFolderFlag |
 | SET-K11 | A rerun after a failed first commit resumes; .DS_Store is tolerated; a leftover save lock is removed first | cmd/eva-md:TestSetupResumesAWikiWhoseFirstCommitFailed, internal/wikiinit:TestRerunAfterFailedSignatureToleratesDSStore, internal/wikiinit:TestAFolderWithOnlyDSStoreIsEmpty, internal/wikiinit:TestAdoptionRemovesTheSavesLockFile |
-| SET-K19 | Setup makes no model call | none yet |
-| SET-K20 | Every time limit of setup is a variable tests raise once | none yet |
+| SET-K19 | Setup makes no model call | cmd/eva-md:TestSetupMakesNoModelCall |
+| SET-K20 | Every time limit of setup is a variable tests raise once (untested: that no test changes one later) | internal/spec:TestEveryTimeLimitIsRaised |
 
 ## Since the split
 
