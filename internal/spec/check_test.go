@@ -537,6 +537,44 @@ func checkSpec(root string, d doc) []string {
 	if !strings.Contains(d.text[last.end:], "\n## Since the split\n") {
 		problems = append(problems, d.name+": it doesn't end with ## Since the split, after its blocks")
 	}
+	return append(problems, checkBulletHomes(d, codePath.FindAllStringSubmatch(h["Paths"], -1))...)
+}
+
+// packages is a verification bullet's title and the packages it names
+// in parentheses straight after it.
+var packages = regexp.MustCompile("^- \\*\\*([^*]+)\\*\\* \\((`[^)]*)\\)")
+
+// cli is the CLI's folder, which holds every command.
+const cli = "cmd/eva-md"
+
+// checkBulletHomes holds each verification bullet of a spec that names its
+// packages to the spec's paths: a bullet joins the component of its
+// packages, so at least one of them is a path the spec's header names, or
+// is under or holds one. The CLI's folder, which holds every command,
+// counts only where the header names it whole.
+func checkBulletHomes(d doc, paths [][]string) []string {
+	var problems []string
+	for _, b := range d.blocks {
+		if b.source != verificationIndex {
+			continue
+		}
+		outsideFences(b.text, func(_ int, l string) {
+			m := packages.FindStringSubmatch(l)
+			if m == nil {
+				return
+			}
+			var named []string
+			for _, p := range codePath.FindAllStringSubmatch(m[2], -1) {
+				named = append(named, p[1])
+				for _, q := range paths {
+					if p[1] == q[1] || strings.HasPrefix(p[1], q[1]+"/") || (p[1] != cli && strings.HasPrefix(q[1], p[1]+"/")) {
+						return
+					}
+				}
+			}
+			problems = append(problems, fmt.Sprintf("%s: the bullet %q names %s, and none is among the spec's paths: a bullet joins the component of its packages", d.name, m[1], strings.Join(named, ", ")))
+		})
+	}
 	return problems
 }
 

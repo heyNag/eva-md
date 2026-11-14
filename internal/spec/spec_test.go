@@ -35,6 +35,18 @@ func TestTheSplitHolds(t *testing.T) {
 	if len(tr.records) < 18 || len(tr.specs) < 10 {
 		t.Errorf("read %d records and %d specs", len(tr.records), len(tr.specs))
 	}
+	// The check that a bullet sits with its packages reads most of them.
+	named := 0
+	for _, b := range blocks[verificationIndex] {
+		outsideFences(b.text, func(_ int, l string) {
+			if packages.MatchString(l) {
+				named++
+			}
+		})
+	}
+	if named < 30 {
+		t.Errorf("only %d verification bullets name their packages as the check reads them", named)
+	}
 }
 
 // copyFile copies a file of the repository into dst, under the same name.
@@ -318,6 +330,79 @@ func TestEachCheckCatchesAFault(t *testing.T) {
 		{"a broken link in an index", func(t *testing.T, dir string) {
 			edit(t, dir, designIndex, "(spec/INDEX.md)", "(spec/INDEXES.md)")
 		}, `^docs/design.md:[0-9]+: the link spec/INDEXES.md leads nowhere$`},
+		{"a spec without its title", func(t *testing.T, dir string) {
+			edit(t, dir, redaction, "# Redaction\n", "Redaction\n")
+		}, `^docs/spec/redaction.md: a spec opens with its title$`},
+		{"a spec that names no component", func(t *testing.T, dir string) {
+			edit(t, dir, redaction, "- **Component:** Redactor\n", "")
+		}, `^docs/spec/redaction.md: its header names no component$`},
+		{"a spec not frozen", func(t *testing.T, dir string) {
+			edit(t, dir, redaction, "- **Status:** v1 as built, frozen on 2026-11-14", "- **Status:** v1 as built")
+			edit(t, dir, specIndex, "| `internal/redact` | v1 as built, frozen on 2026-11-14 |", "| `internal/redact` | v1 as built |")
+		}, `^docs/spec/redaction.md: its status "v1 as built" is not "v1 as built, frozen on <date>"$`},
+		{"INDEX.md and a header disagree on the paths alone", func(t *testing.T, dir string) {
+			edit(t, dir, specIndex, "| Redactor | `internal/redact` |", "| Redactor | `internal/redact/baseline` |")
+		}, "^docs/spec/INDEX.md gives docs/spec/redaction.md as"},
+		{"INDEX.md and a header disagree on the status alone", func(t *testing.T, dir string) {
+			edit(t, dir, specIndex, "| `internal/redact` | v1 as built, frozen on 2026-11-14 |", "| `internal/redact` | v1 as built, frozen on 2026-11-13 |")
+		}, "^docs/spec/INDEX.md gives docs/spec/redaction.md as"},
+		{"a spec INDEX.md lists twice", func(t *testing.T, dir string) {
+			text := read(t, dir, specIndex)
+			r := "| [redaction.md](redaction.md) | Redactor | `internal/redact` | v1 as built, frozen on 2026-11-14 |\n"
+			if !strings.Contains(text, r) {
+				t.Fatalf("%s doesn't hold %q", specIndex, r)
+			}
+			write(t, dir, specIndex, text+r)
+		}, "^docs/spec/INDEX.md lists docs/spec/redaction.md twice$"},
+		{"a file in docs/spec that is not Markdown", func(t *testing.T, dir string) {
+			write(t, dir, "docs/spec/notes.txt", "notes\n")
+		}, "^docs/spec/notes.txt: docs/spec holds only .md files$"},
+		{"a block numbered 000", func(t *testing.T, dir string) {
+			edit(t, dir, redaction, "<!-- v1 docs/verification.md 002 -->", "<!-- v1 docs/verification.md 000 -->")
+		}, "^docs/spec/redaction.md: a block of docs/verification.md numbered 000"},
+		{"a spec's last section before its last block", func(t *testing.T, dir string) {
+			edit(t, dir, redaction, "## Since the split", "## Later")
+			edit(t, dir, redaction, "<!-- v1 docs/verification.md 002 -->", "## Since the split\n\n<!-- v1 docs/verification.md 002 -->")
+		}, "^docs/spec/redaction.md: it doesn't end with ## Since the split, after its blocks$"},
+		{"a verification bullet away from its packages", func(t *testing.T, dir string) {
+			// Block 038 back in setup-2.md, where the split first put it.
+			const from, to = "docs/spec/install.md", "docs/spec/setup-2.md"
+			d, _ := parse(from, read(t, dir, from))
+			b := d.blocks[len(d.blocks)-1]
+			if b.source != verificationIndex || b.ordinal != 38 {
+				t.Fatalf("%s's last block is %03d of %s, not 038 of %s", from, b.ordinal, b.source, verificationIndex)
+			}
+			moved := "<!-- v1 docs/verification.md 038 -->" + b.text
+			edit(t, dir, from, moved, "")
+			text := read(t, dir, to)
+			i := strings.LastIndex(text, "<!-- /v1 -->")
+			write(t, dir, to, text[:i]+moved+text[i:])
+			edit(t, dir, verificationIndex, "and the wiki's mode | [spec/install.md](spec/install.md) |", "and the wiki's mode | [spec/setup-2.md](spec/setup-2.md) |")
+		}, `^docs/spec/setup-2.md: the bullet "Setup's install checks, [^"]*" names internal/install, internal/update, internal/wikigit, internal/health, cmd/eva-md, and none is among the spec's paths`},
+		{"a record row outside docs/decisions", func(t *testing.T, dir string) {
+			text := read(t, dir, decisionsIndex)
+			write(t, dir, decisionsIndex, text+"\n| [Overview](spec/overview.md) | 2026-10-30 | Accepted |\n")
+		}, "^docs/decisions.md lists docs/spec/overview.md, which is not a record there$"},
+		{"a record row of no file", func(t *testing.T, dir string) {
+			text := read(t, dir, decisionsIndex)
+			write(t, dir, decisionsIndex, text+"\n| [Gone](decisions/2026-10-30-gone.md) | 2026-10-30 | Accepted |\n")
+		}, "^docs/decisions.md lists docs/decisions/2026-10-30-gone.md, which is not a record there$"},
+		{"a record the index gives another date", func(t *testing.T, dir string) {
+			edit(t, dir, decisionsIndex, "| [Goal](decisions/2026-10-30-goal.md) | 2026-10-30 | Accepted |", "| [Goal](decisions/2026-10-30-goal.md) | 2026-10-31 | Accepted |")
+		}, "^docs/decisions.md gives docs/decisions/2026-10-30-goal.md as \"Goal\", 2026-10-31, Accepted"},
+		{"a record the index gives another title", func(t *testing.T, dir string) {
+			edit(t, dir, decisionsIndex, "| [Goal](decisions/2026-10-30-goal.md) | 2026-10-30 | Accepted |", "| [The goal](decisions/2026-10-30-goal.md) | 2026-10-30 | Accepted |")
+		}, "^docs/decisions.md gives docs/decisions/2026-10-30-goal.md as \"The goal\""},
+		{"a record's sections out of their order", func(t *testing.T, dir string) {
+			text := read(t, dir, record)
+			c := strings.Index(text, "## Consequences\n")
+			r := strings.Index(text, "## Reopens\n")
+			e := strings.Index(text, "## Reopened by")
+			if c < 0 || r < c || e < r {
+				t.Fatalf("%s's sections are not where the seed looks", record)
+			}
+			write(t, dir, record, text[:c]+text[r:e]+text[c:r]+text[e:])
+		}, `^docs/decisions/2026-10-30-goal.md: its sections are \["Context" "Decision" "Reopens" "Consequences" "Reopened by"\]`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -350,7 +435,7 @@ func TestWhatABlockMayChangePasses(t *testing.T) {
 		return strings.Replace(s, " the ", "   the\t", 2)
 	})
 	text := read(t, dir, overview)
-	write(t, dir, overview, text+"\nIn code, `[x](nowhere.md)` and\n\n```\n[y](nowhere.md)\n```\n")
+	write(t, dir, overview, text+"\nIn code, `[x](nowhere.md)` and\n\n```\n[y](nowhere.md)\n```\n\n~~~\n[z](nowhere.md)\n~~~\n\n<!-- [w](nowhere.md) -->\n")
 	if problems := check(dir); len(problems) > 0 {
 		t.Fatalf("%q", problems)
 	}
@@ -391,7 +476,7 @@ func TestWords(t *testing.T) {
 
 // A heading's anchor is the one a host gives it, a repeat numbered.
 func TestAnchors(t *testing.T) {
-	got := anchors("# 7. Decisions for the owner\n## Project `now.md`\n## Gaps (watch okf)\n```\n# Not a heading\n```\n## Gaps (watch okf)\n")
+	got := anchors("# 7. Decisions for the owner\n## Project `now.md`\n## Gaps (watch okf)\n```\n# Not a heading\n```\n~~~\n# Not a heading\n~~~\n## Gaps (watch okf)\n")
 	for _, a := range []string{"7-decisions-for-the-owner", "project-nowmd", "gaps-watch-okf", "gaps-watch-okf-1"} {
 		if !got[a] {
 			t.Errorf("no anchor %q in %v", a, got)
@@ -402,9 +487,10 @@ func TestAnchors(t *testing.T) {
 	}
 }
 
-// A link inside a code span or a fence is not read; one beside it is.
+// A link inside a code span, a fence of either kind or a comment is not
+// read; one beside it is.
 func TestBlankCode(t *testing.T) {
-	d := doc{name: path.Join(specDir, "x.md"), text: "a `[x](one.md)` b [y](two.md) ``c `[z](three.md)` d``\n```\n[w](four.md)\n```\n[v](five.md)\n"}
+	d := doc{name: path.Join(specDir, "x.md"), text: "a `[x](one.md)` b [y](two.md) ``c `[z](three.md)` d``\n```\n[w](four.md)\n```\n~~~\n[u](six.md)\n~~~\n<!-- [t](seven.md)\n[s](eight.md) -->\n[v](five.md)\n"}
 	var got []string
 	for _, r := range refs(d) {
 		got = append(got, r.dest)

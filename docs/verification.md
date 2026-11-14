@@ -52,7 +52,7 @@ Every bold bullet title, in its order, beside the file that now holds it:
 | okf's lock file | [spec/okf-adapter.md](spec/okf-adapter.md) |
 | Health, setup and CLI | [spec/health.md](spec/health.md) |
 | Field report | [spec/field-report.md](spec/field-report.md) |
-| Setup's install checks, the live check's CLI, what uninstall finds unsaved, and the wiki's mode | [spec/setup-2.md](spec/setup-2.md) |
+| Setup's install checks, the live check's CLI, what uninstall finds unsaved, and the wiki's mode | [spec/install.md](spec/install.md) |
 | Public wording | [spec/cli.md](spec/cli.md) |
 | Docs that match the CLI and the tests | [spec/cli.md](spec/cli.md) |
 | Only eva's name | [spec/cli.md](spec/cli.md) |
