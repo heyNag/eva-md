@@ -133,13 +133,14 @@ func estimate(p plan) cost.Usage {
 }
 
 // overEstimate stops host for the rest of the job, with the switch
-// token_budget on, when its weighted tokens today and need, the next pass's
-// estimate, would pass the day's budget. A pass that lands exactly on it
-// runs.
-func (r *run) overEstimate(host string, need cost.Usage) string {
+// token_budget on, when its weighted tokens today and the estimate of p,
+// the next pass, would pass the day's budget. A pass that lands exactly on
+// it runs. Off, it works out no estimate.
+func (r *run) overEstimate(host string, p plan) string {
 	if !TokenBudget.On(r.j.Config) {
 		return ""
 	}
+	need := estimate(p)
 	spent := Spent(r.log, host, r.j.now())
 	budget := r.j.Config.TokenBudget()
 	after := spent

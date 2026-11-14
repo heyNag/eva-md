@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/catchup"
-	"github.com/heyNag/eva-md/internal/cost"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/knowledgepage"
 	"github.com/heyNag/eva-md/internal/okfadapter"
@@ -121,7 +120,7 @@ func (r *run) pass(ctx context.Context, c *chatFile) bool {
 	case planSkip:
 		return r.skip(c, p.rec, p.reason, p.end, p.more, p.off)
 	}
-	stop, retry := r.gate(p.rec.Host, p.rec.Session, p.label, estimate(p))
+	stop, retry := r.gate(p)
 	if stop != "" {
 		return false
 	}
@@ -303,19 +302,20 @@ func (r *run) parent(ctx context.Context, a area, host, sid, branch string) (*th
 	return &pt.page.Now, pb
 }
 
-// gate checks what may stop a pass that needs a model call: the host's
+// gate checks what may stop p, a pass that needs a model call: the host's
 // stops, then the session's quarantine, then, with the switch token_budget
-// on, whether need, the pass's estimate, would take the host's tokens today
-// past its budget. It returns the reason it stopped, and whether the pass
-// is a quarantined session's one retry on a day after the quarantine began.
-func (r *run) gate(host, sid, label string, need cost.Usage) (stop string, retry bool) {
+// on, whether the pass's estimate would take the host's tokens today past
+// its budget. It returns the reason it stopped, and whether the pass is a
+// quarantined session's one retry on a day after the quarantine began.
+func (r *run) gate(p plan) (stop string, retry bool) {
+	host := p.rec.Host
 	if stop := r.hostStop(host); stop != "" {
 		return stop, false
 	}
-	if stop, retry = r.quarantine(host, sid, label); stop != "" {
+	if stop, retry = r.quarantine(host, p.rec.Session, p.label); stop != "" {
 		return stop, false
 	}
-	if stop := r.overEstimate(host, need); stop != "" {
+	if stop := r.overEstimate(host, p); stop != "" {
 		return stop, false
 	}
 	return "", retry
@@ -539,8 +539,8 @@ func saveFailure(err error) string {
 }
 
 // effort is the effort a run for host and model starts at: the config's
-// (see effortFor), resolved against the host's table, or lower where today's run log shows
-// it refused (see startEffort).
+// (see effortFor), resolved against the host's table, or lower where
+// today's run log shows it refused (see startEffort).
 func (r *run) effort(host, model string) (string, error) {
 	h, ok := lookupHost(host)
 	if !ok {
