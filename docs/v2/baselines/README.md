@@ -285,8 +285,23 @@ The third round's rule is the gate's from run 160, the push that merged it, and 
 | 188 | 1c17786 | not judged |
 | 189 | ae62e22 | not judged |
 | 190 | 03d6553 | not judged |
+| 191 | b27a172 | not judged |
+| 192 | dca581a | not judged |
+| 193 | b8924db | not judged |
+| 194 | 3319eef | not judged |
+| 195 | cb8e9b2 | not judged |
+| 196 | 47a8460 | pass |
+| 197 | 7f6e71b | not judged |
+| 198 | a861d45 | not judged |
+| 199 | 6037fe4 | pass |
+| 200 | ca15703 | not judged |
+| 201 | a9dc7bd | not judged |
+| 202 | 4adfb87 | not judged |
+| 203 | b5537ba | not judged |
+| 204 | 4a93540 | not judged |
+| 205 | 8b1361e | pass |
 
-Of these thirty-one runs the rule judged two. Run 180 began timing at a load of 8.0 and passed, with one figure too noisy to judge; its push changed files under `cmd/` and `internal/`, all of them the evaluation's, which the binary does not hold, so by the rule above it counts neither way. Run 186 began at a load of 3.0 and passed; its push changed a workflow and a document only, so it counts, and the count stands at 1. The other twenty-nine were too noisy to judge. The test jobs of runs 175 and 182 to 184 were cancelled by their own time limits, and those of runs 185 to 187 failed on go test's ten minutes for a package, which says nothing of the gate: its job ran and gave its artifact each time.
+Of these forty-six runs the rule judged five. Run 180 began timing at a load of 8.0 and passed, with one figure too noisy to judge; its push changed files under `cmd/` and `internal/`, all of them the evaluation's, which the binary does not hold, so by the rule above it counts neither way. Run 186 began at a load of 3.0 and passed; its push changed a workflow and a document only, so it counts, and the count stood at 1. Run 196 began at a load of 9.0 and passed; its push added a package under `internal/` that the binary does not hold, so it counts neither way. Run 199 began at 11.8 and passed; its push changed documents only, against a base whose own push had changed the benchmark's scripts and no file the rule names, so it counts, and the count stands at 2. Run 205 began at 5.5 and passed; its push changed `internal/health` (HO-12a, whose code runs in a hook) and the release workflow, so it counts neither way, and it is that package's latency verdict. The other forty-one were too noisy to judge; those from run 191 on began at loads of 2.9 to 16.8. The test jobs of runs 175 and 182 to 184 were cancelled by their own time limits, and those of runs 185 to 187 failed on go test's ten minutes for a package, which says nothing of the gate: its job ran and gave its artifact each time. The test jobs of runs 200 and 202 failed in the driver's tests (a fake host that gave no version), which says nothing of the gate either.
 
 ## What the counters cost
 

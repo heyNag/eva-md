@@ -62,7 +62,7 @@ Rules every card carries, so they are said once here:
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | building since 2026-11-14 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | merged; its switch `install_manifest` stays off until HO-20 or HO-27 turns it on; HO-20's card starts from the rulings in its last section |
-| [HO-12a](HO-12a.md) | Health's host names through the adapter | merged; its latency is read from CI's `latency` job |
+| [HO-12a](HO-12a.md) | Health's host names through the adapter | merged; CI's latency gate passed on its merge (run 205) |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after DV-12b (HO-12a is merged) |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
@@ -73,7 +73,7 @@ Rules every card carries, so they are said once here:
 | [HO-13b](HO-13b.md) | Every release carries a signed manifest | after the readout and HO-13a |
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
-| [EV-11](EV-11.md) | Ownership and size checks | merged; owed: DV-13's `paths` block, once DV-12b is merged; EV-11b is the ledger of what leaves the binary and when |
+| [EV-11](EV-11.md) | Ownership and size checks | merged; EV-11b is the ledger of what leaves the binary and when |
 | [EV-11b](EV-11b.md) | The size ledger: what leaves the binary, and when | merged; by its first reading the end state is 47,030 lines against the ceiling's 53,694 |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
 | [IF-01b](IF-01b.md) | The reader's fake | merged |
