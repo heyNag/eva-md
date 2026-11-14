@@ -119,8 +119,9 @@ func costFixture(t *testing.T, d paths.Dirs) time.Time {
 // line a host of what its updates spent over the 7 days: each token count
 // and the weighted sum, model calls and passes, chats organized and the
 // weighted tokens per chat, and the shares unchanged and below the effort
-// asked; its JSON holds the same figures. Off, the report is as before,
-// line for line and in its JSON. Neither shows the planted marker.
+// asked. Its JSON is as before, on or off, since the field report, which
+// carries these figures, has a format whose keys are pinned. Off, the
+// report is as before, line for line. Neither shows the planted marker.
 func TestTheUpdateReportsCostSection(t *testing.T) {
 	want := []string{
 		"cost, claude-code: tokens 2500 in, 3100 cached in, 460 out, 5110 weighted; 4 model calls in 3 passes; 2 chats organized, 2555 weighted tokens a chat; unchanged 33%, below the effort asked 33%",
@@ -169,17 +170,8 @@ func TestTheUpdateReportsCostSection(t *testing.T) {
 		if !reflect.DeepEqual(f.Cost, wantCost) {
 			t.Fatalf("cost %+v", f.Cost)
 		}
-		var back UpdateFigures
-		if err := json.Unmarshal(data, &back); err != nil || !reflect.DeepEqual(back, f) {
-			t.Fatalf("JSON %s: %v", data, err)
-		}
-		var offBack, onBack map[string]any
-		if json.Unmarshal(offJSON, &offBack) != nil || json.Unmarshal(data, &onBack) != nil {
-			t.Fatal("JSON doesn't decode")
-		}
-		delete(onBack, "cost")
-		if !reflect.DeepEqual(onBack, offBack) {
-			t.Fatalf("the JSON differs beside its cost:\n%s\n%s", offJSON, data)
+		if string(data) != string(offJSON) {
+			t.Fatalf("the JSON differs with the switch on:\n%s\n%s", offJSON, data)
 		}
 	}
 }

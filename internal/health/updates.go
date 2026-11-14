@@ -54,8 +54,10 @@ type UpdateFigures struct {
 	Default  int `json:"model_default"`
 	Other    int `json:"model_other"`
 	// Cost is what each host's updates spent, with the update's switch
-	// token_budget on (see costSection); off, it is absent.
-	Cost []HostCost `json:"cost,omitempty"`
+	// token_budget on (see costSection); off, it is nil. Lines words it; it
+	// is kept out of the JSON, since the field report carries these
+	// figures in a format whose keys are pinned.
+	Cost []HostCost `json:"-"`
 }
 
 // Spread is a set of values: how many, their median, 95th percentile by the
