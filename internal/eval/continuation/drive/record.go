@@ -23,12 +23,17 @@ const RunsFile = "runs.jsonl"
 // recordVersion is the format of a Record.
 const recordVersion = 1
 
-// How a run ended, besides a code of stopCodes: every trial planned was
-// run or counted not run, or the run stopped on an error of its own.
+// How a run ended, besides a code of stopCodes and EndedArmStopped: every
+// trial planned was run or counted not run, or the run stopped on an error
+// of its own.
 const (
 	EndedDone  = "done"
 	EndedError = "error"
 )
+
+// Ends lists every way a run ends, a closed list, in a fixed order: a
+// Record's Ended is one of them.
+var Ends = []string{EndedDone, EndedError, CodeNoUsage, CodeMemoryOff, CodeHiddenFound, EndedArmStopped}
 
 // Record is what one run did: a JSON line appended to RunsFile in the
 // results folder when the run ends, however it ends, once its folder under
@@ -58,8 +63,8 @@ type Record struct {
 	Tokens   int64          `json:"tokens"`
 	Rows     int            `json:"rows"`
 	Kept     bool           `json:"kept"` // whether the trials' folders were kept
-	// Ended is EndedDone, EndedError, or the code of stopCodes that stopped
-	// the run.
+	// Ended is one of Ends: EndedDone, EndedError, the code of stopCodes
+	// that stopped the run, or EndedArmStopped.
 	Ended string `json:"ended"`
 }
 
@@ -96,7 +101,7 @@ func (r Record) check() string {
 		return "a count is out of range"
 	case len(r.Unjudged) != len(Codes):
 		return "unjudged does not count each code once"
-	case r.Ended != EndedDone && r.Ended != EndedError && !slices.Contains(stopCodes, r.Ended):
+	case !slices.Contains(Ends, r.Ended):
 		return "ended is not a way a run ends"
 	}
 	counted := r.Judged + r.NotRun
@@ -115,6 +120,11 @@ func (r Record) check() string {
 	}
 	if slices.Contains(stopCodes, r.Ended) && r.Unjudged[r.Ended] < 1 {
 		return "ended names a code no trial was left unjudged by"
+	}
+	// A run its condition stopped counts every trial planned: the one it
+	// stopped at is not run, as each after it is.
+	if r.Ended == EndedArmStopped && (counted != r.Planned || r.NotRun < 1) {
+		return "a run its condition stopped does not count each trial planned once, the one it stopped at not run"
 	}
 	return ""
 }

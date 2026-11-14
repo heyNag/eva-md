@@ -46,6 +46,9 @@ type trialResult struct {
 	version  string
 	model    string
 	tokens   int64 // what the ceiling counts, judged or not
+	// stopped says the condition stopped the run before the trial started
+	// (ErrStopRun): it is counted not run.
+	stopped bool
 }
 
 // trial runs the trial n of task t.
@@ -158,6 +161,16 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	var launch Launch
 	if p.arm.Prepare != nil {
 		l, err := p.arm.Prepare(ctx, tr)
+		if errors.Is(err, ErrStopRun) {
+			res.stopped = true
+			return res, nil
+		}
+		// What the condition spent before it left the trial unjudged counts
+		// toward the ceiling, as what After returns does.
+		var u *Unjudged
+		if errors.As(err, &u) && u.Cost.Tokens > 0 {
+			res.tokens += u.Cost.Tokens
+		}
 		if code, err := unjudgedCode(err); code != "" || err != nil {
 			res.unjudged = code
 			return res, err
@@ -584,7 +597,8 @@ type callOutput struct {
 // runCall is runGroup that, given files, keeps in them what the call
 // printed as it is read: the first limit bytes of stdout, those runGroup
 // gives, in one, and as many of stderr, then also a pipe of its own, in
-// the other. It closes the files, and a failure to write or close them is
+// the other, and once the wait has ended, how it ended, in the third
+// (exitLine). It closes the files, and a failure to write or close them is
 // the result's traceErr; the call runs to its end all the same.
 func runCall(ctx context.Context, cli string, args, env []string, dir string, limit int, files *callFiles) (callOutput, error) {
 	r, w, err := os.Pipe()
@@ -630,13 +644,18 @@ func runCall(ctx context.Context, cli string, args, env []string, dir string, li
 		err = cmd.Wait()
 		_ = killGroup(cmd.Process.Pid)
 	}
-	held := time.NewTimer(WaitDelay)
-	defer held.Stop()
+	// Whether the call's context had ended once its wait did: the driver
+	// killed its group, at its time limit or at the run's end.
+	ended := ctx.Err() != nil
+	timer := time.NewTimer(WaitDelay)
+	defer timer.Stop()
+	held := false
 	for done := 0; done < len(readers); {
 		select {
 		case <-copied:
 			done++
-		case <-held.C:
+		case <-timer.C:
+			held = true
 			for _, r := range readers {
 				_ = r.Close()
 			}
@@ -653,7 +672,8 @@ func runCall(ctx context.Context, cli string, args, env []string, dir string, li
 	}
 	c := callOutput{out: stdout.buffer.Bytes(), over: stdout.over}
 	if files != nil {
-		c.traceErr = errors.Join(sinks[0].ferr, sinks[1].ferr)
+		_, xerr := io.WriteString(files.exit, exitLine(cmd.ProcessState, ended, held))
+		c.traceErr = errors.Join(sinks[0].ferr, sinks[1].ferr, xerr)
 		if cerr := closeFiles(files); c.traceErr == nil {
 			c.traceErr = cerr
 		}
@@ -667,7 +687,7 @@ func closeFiles(files *callFiles) error {
 	if files == nil {
 		return nil
 	}
-	return errors.Join(files.stdout.Close(), files.stderr.Close())
+	return errors.Join(files.stdout.Close(), files.stderr.Close(), files.exit.Close())
 }
 
 // killGroup kills the process group pid leads.
