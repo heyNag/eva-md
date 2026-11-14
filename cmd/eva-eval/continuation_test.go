@@ -362,8 +362,14 @@ func TestContinuationRunStopsOnNoUsage(t *testing.T) {
 				if _, err := os.Stat(filepath.Join(r.base, "out", results.FileName)); !os.IsNotExist(err) {
 					t.Fatal("a run with no usage wrote rows")
 				}
-				if starts := len(r.calls(t)); starts != 2 {
-					t.Fatalf("%d calls, want the version and one chat", starts)
+				// Codex lists its features before its chat, to turn its web
+				// tools off.
+				want := 2
+				if host == "codex" {
+					want = 3
+				}
+				if starts := len(r.calls(t)); starts != want {
+					t.Fatalf("%d calls, want the version, Codex's list of features, and one chat", starts)
 				}
 				records, err := drive.LoadRuns(filepath.Join(r.base, "out"))
 				if err != nil || len(records) != 1 || records[0].Ended != drive.CodeNoUsage || records[0].Host != host {
@@ -431,9 +437,10 @@ func TestContinuationRunTrace(t *testing.T) {
 	})
 	slices.Sort(kept)
 	var want []string
-	for _, call := range []string{"1-version", "2-chat", "3-chat"} {
+	for _, call := range []string{"1-version", "2-tools", "3-chat", "4-chat"} {
 		for _, ext := range []string{".exit", ".stderr", ".stdout"} {
-			// Two trials, each with its three calls.
+			// Two trials, each with its four calls: Codex lists its
+			// features before its chats.
 			want = append(want, call+ext, call+ext)
 		}
 	}
