@@ -407,6 +407,15 @@
       ]
     },
     {
+      "name": "spike.records_added",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
       "name": "fidelity.fact_recall",
       "unit": "ratio",
       "direction": "higher",
