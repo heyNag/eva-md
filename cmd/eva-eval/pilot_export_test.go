@@ -348,7 +348,24 @@ func TestPilotExportRefusesBeforeAnyCheck(t *testing.T) {
 	if err := os.Symlink(src, linkToSrc); err != nil {
 		t.Fatal(err)
 	}
-	srcBefore, clashBefore := snapshot(t, src), snapshot(t, clash)
+	// A folder Load does not take, whose name it does not show: its line
+	// names it folder-2, a label --task does not take for an id.
+	labelled := copyTasksAsTheyAre(t, "d04")
+	if err := os.Mkdir(filepath.Join(labelled, "zz-not-a-task-name"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The tasks spelt in another letter case: on a file system that ignores
+	// case, as macOS's does, it is a second name of the folder that no link
+	// gives, and the folder to write lies inside the tasks through it;
+	// elsewhere it is a folder that does not exist.
+	otherCase := filepath.Join(filepath.Dir(src), strings.ToUpper(filepath.Base(src)))
+	caseWhy := "the folder to write is in no folder that exists"
+	if a, err := os.Stat(otherCase); err == nil {
+		if b, err := os.Stat(src); err == nil && os.SameFile(a, b) {
+			caseWhy = "the folder to write lies inside the tasks folder"
+		}
+	}
+	srcBefore, clashBefore, labelledBefore := snapshot(t, src), snapshot(t, clash), snapshot(t, labelled)
 	// why is what stderr says of each, so a refusal is not passed for
 	// another, such as a clash for the write that fails after it.
 	why := map[string]string{
@@ -358,6 +375,8 @@ func TestPilotExportRefusesBeforeAnyCheck(t *testing.T) {
 		"a --task with no id":        "a flag of pilot export is unknown or has no value",
 		"an unknown --task id":       "a task named by --task is not in the tasks folder",
 		"a --task that is a value":   "a task named by --task is not in the tasks folder",
+		"a --task that is a label":   "a task named by --task is not in the tasks folder",
+		"inside them in other case":  caseWhy,
 		"a folder that is not empty": "the folder to write is not empty",
 		"a file":                     "the folder to write is not a folder",
 		"a link to an empty folder":  "the folder to write is a link",
@@ -388,6 +407,10 @@ func TestPilotExportRefusesBeforeAnyCheck(t *testing.T) {
 		"a --task that is a value": {args: func(out string) []string {
 			return []string{"--tasks", src, "--out", out, "--task", "pebblewick"}
 		}},
+		"a --task that is a label": {args: func(out string) []string {
+			return []string{"--tasks", labelled, "--out", out, "--task", "folder-2"}
+		}},
+		"inside them in other case": {setup: func(string) string { return filepath.Join(otherCase, "out") }},
 		"a folder that is not empty": {
 			setup: func(base string) string {
 				write(t, filepath.Join(base, "out", "left.txt"), "x\n")
@@ -450,7 +473,26 @@ func TestPilotExportRefusesBeforeAnyCheck(t *testing.T) {
 			t.Errorf("%s: the export wrote", name)
 		}
 	}
-	if !reflect.DeepEqual(snapshot(t, src), srcBefore) || !reflect.DeepEqual(snapshot(t, clash), clashBefore) {
+	// The scratch folder the check runs in, made in TMPDIR, would lie inside
+	// the empty folder to write: refused, and the folder is left empty.
+	t.Run("TMPDIR inside the folder to write", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "out")
+		if err := os.Mkdir(out, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("TMPDIR", out)
+		code, stdout, errOut := cmd("pilot", "export", "--tasks", src, "--out", out)
+		if code != 2 || stdout != "" || !strings.HasPrefix(errOut, "eva-eval: ") ||
+			!strings.Contains(errOut, "the scratch folder, in TMPDIR, would be inside the folder to write") {
+			t.Errorf("%d %q %q", code, stdout, errOut)
+		}
+		noValue(t, words, stdout, errOut)
+		if entries, err := os.ReadDir(out); err != nil || len(entries) != 0 {
+			t.Errorf("the folder to write holds %d entries, %v", len(entries), err)
+		}
+	})
+	if !reflect.DeepEqual(snapshot(t, src), srcBefore) || !reflect.DeepEqual(snapshot(t, clash), clashBefore) ||
+		!reflect.DeepEqual(snapshot(t, labelled), labelledBefore) {
 		t.Error("the export wrote into the tasks")
 	}
 	_, _, errOut := cmd("pilot")

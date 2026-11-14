@@ -206,20 +206,32 @@ func load(dir string) ([]task.Task, []*task.Error, error) {
 
 // named keeps the tasks and refusals whose id is one of ids, or every one
 // when ids is empty. An id that names nothing in the folder is refused,
-// and not shown, since it is the caller's own text.
+// and not shown, since it is the caller's own text. A refusal is named
+// only by an id: the folder-<n> that Load gives a folder whose name it
+// does not show is a label, and no task's id.
 func named(tasks []task.Task, refused []*task.Error, ids []string) ([]task.Task, []*task.Error, error) {
 	if len(ids) == 0 {
 		return tasks, refused, nil
 	}
+	namedBy := func(e *task.Error, id string) bool { return e.Task == id && !isLabel(e.Task) }
 	for _, id := range ids {
 		if !slices.ContainsFunc(tasks, func(t task.Task) bool { return t.ID == id }) &&
-			!slices.ContainsFunc(refused, func(e *task.Error) bool { return e.Task == id }) {
+			!slices.ContainsFunc(refused, func(e *task.Error) bool { return namedBy(e, id) }) {
 			return nil, nil, usage("a task named by --task is not in the tasks folder")
 		}
 	}
 	tasks = slices.DeleteFunc(slices.Clone(tasks), func(t task.Task) bool { return !slices.Contains(ids, t.ID) })
-	refused = slices.DeleteFunc(slices.Clone(refused), func(e *task.Error) bool { return !slices.Contains(ids, e.Task) })
+	refused = slices.DeleteFunc(slices.Clone(refused), func(e *task.Error) bool {
+		return !slices.ContainsFunc(ids, func(id string) bool { return namedBy(e, id) })
+	})
 	return tasks, refused, nil
+}
+
+// isLabel reports whether s is folder-<n>, the label Load gives a folder
+// it does not name. No id the pilot's rules let through has that form.
+func isLabel(s string) bool {
+	n, ok := strings.CutPrefix(s, "folder-")
+	return ok && n != "" && strings.Trim(n, "0123456789") == ""
 }
 
 // oneOwnerEach refuses two tasks that name one repository: the export's
@@ -424,9 +436,49 @@ func writeNew(path string, r io.Reader, perm fs.FileMode) error {
 	return out.Close()
 }
 
-// inside reports whether path is dir or lies inside it, both made absolute
-// with their links resolved as far as they exist.
+// inside reports whether path is dir or lies inside it, by name or by the
+// folder each name reaches: a folder can have a second name that no link
+// gives, such as a spelling in another letter case on a file system that
+// ignores case, a firmlink or a bind mount.
 func inside(path, dir string) bool {
+	return insideByName(path, dir) || insideByIdentity(path, dir)
+}
+
+// insideByIdentity reports whether dir is the folder path names, or one of
+// the folders above it, by the file each name reaches. The path is walked
+// up both as given, made absolute, and with its links resolved, since a
+// name above a link is not the link target's parent.
+func insideByIdentity(path, dir string) bool {
+	d, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	starts := []string{abs}
+	if real, err := resolved(abs); err == nil {
+		starts = append(starts, real)
+	}
+	for _, p := range starts {
+		for {
+			if info, err := os.Stat(p); err == nil && os.SameFile(info, d) {
+				return true
+			}
+			parent := filepath.Dir(p)
+			if parent == p {
+				break
+			}
+			p = parent
+		}
+	}
+	return false
+}
+
+// insideByName reports whether path is dir or lies inside it, both made
+// absolute with their links resolved as far as they exist.
+func insideByName(path, dir string) bool {
 	p, errP := resolved(path)
 	d, errD := resolved(dir)
 	if errP != nil || errD != nil {

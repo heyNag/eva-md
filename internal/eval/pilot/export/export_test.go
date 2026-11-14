@@ -208,26 +208,96 @@ func TestCopyFile(t *testing.T) {
 
 // Export writes what it checked, with each test of the pilot's check
 // bounded by the limit it is given: a limit of 0, which has passed before
-// any test starts, refuses the task, and nothing is written.
+// any test starts, refuses the tasks, and nothing is written. Its minutes
+// are the largest of the tasks exported: d04's 35, which comes before
+// h05's 20, so neither the last task's nor the smallest would give it.
 func TestExportTakesItsLimit(t *testing.T) {
 	src := t.TempDir()
-	if err := os.CopyFS(filepath.Join(src, "d04"), os.DirFS(filepath.Join(committed(t), "d04"))); err != nil {
+	for _, id := range []string{"d04", "h05"} {
+		if err := os.CopyFS(filepath.Join(src, id), os.DirFS(filepath.Join(committed(t), id))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := filepath.Join(src, "d04", "task.json")
+	data, err := os.ReadFile(file)
+	if err != nil || strings.Count(string(data), `"minutes": 20`) != 1 {
+		t.Fatalf("d04's minutes: %v", err)
+	}
+	if err := os.WriteFile(file, []byte(strings.Replace(string(data), `"minutes": 20`, `"minutes": 35`, 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out := filepath.Join(t.TempDir(), "out")
 	r, err := Export(context.Background(), Options{Tasks: src, Out: out, Limit: 0})
-	if err != nil || r.Written || len(r.Tasks) != 1 || r.Tasks[0].Rule == nil {
+	if err != nil || r.Written || len(r.Tasks) != 2 || r.Tasks[0].Rule == nil || r.Tasks[1].Rule == nil {
 		t.Fatalf("a limit no test meets: %+v, %v", r, err)
 	}
 	if _, err := os.Lstat(out); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a refused task was written: %v", err)
 	}
 	r, err = Export(context.Background(), Options{Tasks: src, Out: out, Limit: time.Hour})
-	if err != nil || !r.Written || r.Minutes != 20 || len(r.Tasks) != 1 || r.Tasks[0].Refused() {
+	if err != nil || !r.Written || r.Minutes != 35 || len(r.Tasks) != 2 || r.Tasks[0].Refused() || r.Tasks[1].Refused() {
 		t.Fatalf("a limit of an hour: %+v, %v", r, err)
 	}
 	info, err := os.Stat(out)
 	if err != nil || info.Mode().Perm() != 0o700 {
 		t.Errorf("the folder written: %v, %v", info.Mode().Perm(), err)
+	}
+}
+
+// A path lies inside the tasks folder when it reaches that folder, or a
+// folder below it, by any name. The walk by the folder itself is held here
+// to names through a link, the one second name a test can make without
+// privilege on every system; a spelling in another letter case is held to
+// what the file system says of it, and on macOS, whose file system ignores
+// case and whose links do not explain that name, it is the walk by the
+// folder itself that refuses it.
+func TestInsideByTheFolderItself(t *testing.T) {
+	base := t.TempDir()
+	tasks := filepath.Join(base, "tasks")
+	if err := os.MkdirAll(filepath.Join(tasks, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(base, "tasksx"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(tasks, alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{
+		tasks, filepath.Join(tasks, "out"), filepath.Join(tasks, "sub", "new", "out"),
+		alias, filepath.Join(alias, "out"), filepath.Join(alias, "sub", "new", "out"),
+	} {
+		if !insideByIdentity(p, tasks) || !inside(p, tasks) {
+			t.Errorf("%s is not inside the tasks", p)
+		}
+	}
+	for _, p := range []string{base, filepath.Join(base, "out"), filepath.Join(base, "tasksx", "out"), filepath.Join(base, "none", "out")} {
+		if insideByIdentity(p, tasks) || inside(p, tasks) {
+			t.Errorf("%s is inside the tasks", p)
+		}
+	}
+	if insideByIdentity(filepath.Join(base, "out"), filepath.Join(base, "none")) {
+		t.Error("a path is inside a folder that does not exist")
+	}
+
+	other := filepath.Join(base, "TASKS")
+	a, errA := os.Stat(other)
+	b, errB := os.Stat(tasks)
+	oneFolder := errA == nil && errB == nil && os.SameFile(a, b)
+	if got := inside(filepath.Join(other, "out"), tasks); got != oneFolder {
+		t.Errorf("a path through the tasks spelt in another case is inside them %v, and they are one folder %v", got, oneFolder)
+	}
+}
+
+// Only folder-<n> is the label Load gives a folder it does not name.
+func TestIsLabel(t *testing.T) {
+	for s, want := range map[string]bool{
+		"folder-1": true, "folder-12": true, "folder-": false, "folder-1a": false,
+		"d04": false, "afolder-1": false, "folder1": false,
+	} {
+		if isLabel(s) != want {
+			t.Errorf("isLabel(%q) is %v", s, !want)
+		}
 	}
 }
