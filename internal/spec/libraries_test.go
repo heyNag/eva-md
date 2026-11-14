@@ -32,17 +32,24 @@ func required(t *testing.T, root string) []string {
 	block := false
 	s := bufio.NewScanner(f)
 	for s.Scan() {
-		fields := strings.Fields(strings.TrimSpace(strings.SplitN(s.Text(), "//", 2)[0]))
-		switch {
-		case len(fields) == 2 && fields[0] == "require" && fields[1] == "(":
-			block = true
-		case block && len(fields) == 1 && fields[0] == ")":
-			block = false
-		case block && len(fields) == 2:
-			out = append(out, fields[0])
-		case len(fields) == 3 && fields[0] == "require":
-			out = append(out, fields[1])
+		line := strings.TrimSpace(strings.SplitN(s.Text(), "//", 2)[0])
+		if rest, ok := strings.CutPrefix(line, "require"); ok && !block && (rest == "" || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '(') {
+			line = strings.TrimSpace(rest)
+			if line, block = strings.CutPrefix(line, "("); !block {
+				if fields := strings.Fields(line); len(fields) > 0 {
+					out = append(out, fields[0])
+				}
+				continue
+			}
 		}
+		if !block {
+			continue
+		}
+		line, end := strings.CutSuffix(strings.TrimSpace(line), ")")
+		if fields := strings.Fields(line); len(fields) > 0 {
+			out = append(out, fields[0])
+		}
+		block = !end
 	}
 	if err := s.Err(); err != nil {
 		t.Fatal(err)
@@ -105,9 +112,11 @@ func TestEachLibraryHasOneImporter(t *testing.T) {
 }
 
 // The check fails a second importer of the page library, one of a package
-// under its path, a second of the TOML library, a third module, and an
-// owner that no longer imports its library; a test that imports either
-// passes.
+// under its path, a second of the TOML library, in any folder of the
+// module, its root included, a third module, however its require is
+// written, and an owner that no longer imports its library; a test that
+// imports either passes, and so does a file in testdata or in another
+// module.
 func TestASecondImporterIsFound(t *testing.T) {
 	const okf, toml = "github.com/okf-memory/okf-agent-memory", "github.com/BurntSushi/toml"
 	base := map[string]string{
@@ -135,6 +144,23 @@ func TestASecondImporterIsFound(t *testing.T) {
 		{"a third module", map[string]string{
 			"go.mod": base["go.mod"] + "\nrequire example.com/more v1.0.0\n",
 		}, []string{`^go\.mod requires example\.com/more, which no package is named to import$`}},
+		{"a third module in a block with no space", map[string]string{
+			"go.mod": base["go.mod"] + "\nrequire(\n\texample.com/third v1.0.0 // indirect\n)\n",
+		}, []string{`^go\.mod requires example\.com/third, which no package is named to import$`}},
+		{"a third module in a block of one line", map[string]string{
+			"go.mod": base["go.mod"] + "\nrequire ( example.com/third v1.0.0 )\n",
+		}, []string{`^go\.mod requires example\.com/third, which no package is named to import$`}},
+		{"an importer in a folder of its own", map[string]string{
+			"tools/x/x.go": "package x\n\nimport _ \"" + okf + "/pkg/okf\"\n",
+		}, []string{`^tools/x/x\.go:3 imports github\.com/okf-memory/okf-agent-memory/pkg/okf, which only internal/okfadapter may import$`}},
+		{"an importer at the root", map[string]string{
+			"x.go": "package evamd\n\nimport _ \"" + toml + "\"\n",
+		}, []string{`^x\.go:3 imports github\.com/BurntSushi/toml, which only internal/config may import$`}},
+		{"an importer in testdata or another module", map[string]string{
+			"tools/testdata/x.go": "package x\n\nimport _ \"" + okf + "/pkg/okf\"\n",
+			"tools/other/go.mod":  "module example.com/other\n",
+			"tools/other/x.go":    "package other\n\nimport _ \"" + okf + "/pkg/okf\"\n",
+		}, nil},
 		{"an owner that no longer imports it", map[string]string{
 			"internal/config/c.go": "package config\n",
 		}, []string{`^internal/config never imports github\.com/BurntSushi/toml, so the check read the wrong source$`}},

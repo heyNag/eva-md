@@ -1,7 +1,6 @@
 package spec
 
 import (
-	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -15,7 +14,8 @@ import (
 )
 
 // The module's Go source, as the checks on what the source holds read it:
-// each file of cmd/ and internal/, outside testdata, parsed with its
+// each Go file of the module, outside testdata, vendor, hidden folders,
+// folders whose names start with _ and other modules, parsed with its
 // comments. Reading the source, not a command's listing, keeps these
 // checks to files: they pass as root and take seconds.
 
@@ -31,41 +31,41 @@ type goFile struct {
 	fset *token.FileSet
 }
 
-// sources parses every Go file under cmd/ and internal/ at root, but those
-// in a testdata or hidden folder, and fails the test on one that does not
-// parse.
+// sources parses every Go file of the module at root, but those the go
+// command leaves out of it too, in a testdata, vendor, hidden or _ folder
+// or another module, and fails the test on one that does not parse.
 func sources(t *testing.T, root string) []goFile {
 	t.Helper()
 	fset := token.NewFileSet()
 	var files []goFile
-	for _, top := range []string{"cmd", "internal"} {
-		if _, err := os.Stat(filepath.Join(root, top)); errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		err := filepath.WalkDir(filepath.Join(root, top), func(path string, d fs.DirEntry, err error) error {
-			switch {
-			case err != nil:
-				return err
-			case d.IsDir() && (d.Name() == "testdata" || strings.HasPrefix(d.Name(), ".")):
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir() && path != root && (d.Name() == "testdata" || d.Name() == "vendor" || strings.HasPrefix(d.Name(), ".") || strings.HasPrefix(d.Name(), "_")):
+			return filepath.SkipDir
+		case d.IsDir() && path != root:
+			if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
 				return filepath.SkipDir
-			case d.IsDir() || !strings.HasSuffix(d.Name(), ".go"):
-				return nil
 			}
-			f, err := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
-			if err != nil {
-				return err
-			}
-			rel, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			rel = filepath.ToSlash(rel)
-			files = append(files, goFile{path: rel, pkg: filepath.ToSlash(filepath.Dir(rel)), test: strings.HasSuffix(rel, "_test.go"), file: f, fset: fset})
 			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
+		case d.IsDir() || !strings.HasSuffix(d.Name(), ".go"):
+			return nil
 		}
+		f, err := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		files = append(files, goFile{path: rel, pkg: filepath.ToSlash(filepath.Dir(rel)), test: strings.HasSuffix(rel, "_test.go"), file: f, fset: fset})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	return files
 }
