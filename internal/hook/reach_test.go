@@ -29,9 +29,10 @@ import (
 // BRF-K01, RCL-K01, STO-K14, and the hooks' half of SRC-K12): the programs
 // it starts, the packages it links, and the search index.
 
-// outside are the programs a hook never starts: git, which commits and
-// pushes a wiki and fetches from a remote, what reaches a network, and the
-// hosts' CLIs, whose headless runs are model calls.
+// outside are the programs the tests watch a hook start: git, which a hook
+// may run only to read (see readOnly) and which commits, pushes and fetches
+// for others, what reaches a network, and the hosts' CLIs, whose headless
+// runs are model calls; a hook starts none of the last three.
 var outside = []string{"git", "ssh", "curl", "claude", "codex"}
 
 // standIns puts a recording stand-in for each program of outside first on
