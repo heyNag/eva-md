@@ -93,7 +93,7 @@ func QuickNotice(ctx context.Context, d paths.Dirs, c config.Config, activeHost 
 		running := len(activeHost) > 0 && activeHost[0] == string(reviewer.ID)
 		b, valid := readBeat(d, string(reviewer.ID), "SessionStart", now)
 		if !running && (!valid || !b.At.After(info.ModTime())) {
-			return "eva.md: review its hooks in " + reviewer.Names.App + " /hooks; run eva-md doctor to verify."
+			return "eva.md: review its hooks in Codex /hooks; run eva-md doctor to verify."
 		}
 	}
 	if len(activeHost) > 0 {
