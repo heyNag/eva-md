@@ -121,7 +121,7 @@ func madeUpServer(t *testing.T, h *testHome) (server, bare, mainSHA string) {
 		t.Fatal(err)
 	}
 	for _, argv := range [][]string{{"add", "README.md"}, {"-c", "user.name=Made Up", "-c", "user.email=made-up@example.invalid", "commit", "-q", "-m", "README"}, {"push", "-q", bare, "main"}} {
-		if out, err := gitIn(seed, argv...); err != nil {
+		if out, err := gitIn(seed, append([]string{"-c", "gc.auto=0", "-c", "maintenance.auto=false"}, argv...)...); err != nil {
 			t.Fatalf("%v: %s", err, out)
 		}
 	}

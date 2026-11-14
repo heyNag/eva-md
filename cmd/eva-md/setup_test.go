@@ -1187,14 +1187,14 @@ func TestGitSigningReadsGitsBooleans(t *testing.T) {
 		"gpgsign = true": "openpgp", "gpgsign = yes": "openpgp", "gpgsign = on": "openpgp", "gpgsign = 1": "openpgp", "gpgsign": "openpgp",
 		"gpgsign = false": "", "gpgsign = no": "", "gpgsign = 0": "",
 	} {
-		if err := os.WriteFile(global, []byte("[commit]\n\t"+setting+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(global, []byte("[commit]\n\t"+setting+"\n"+gitQuiet), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if got := gitSigning(context.Background(), home); got != want {
 			t.Errorf("%q: signing %q, want %q", setting, got, want)
 		}
 	}
-	if err := os.WriteFile(global, []byte("[commit]\n\tgpgsign = yes\n[gpg]\n\tformat = ssh\n"), 0o600); err != nil {
+	if err := os.WriteFile(global, []byte("[commit]\n\tgpgsign = yes\n[gpg]\n\tformat = ssh\n"+gitQuiet), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := gitSigning(context.Background(), home); got != "ssh" {
