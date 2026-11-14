@@ -169,6 +169,16 @@ func (a Arm) check(version bool) error {
 // rounds is how many rounds a runs.
 func (a Arm) rounds() int { return max(a.Repeat, 1) }
 
+// The most a reply may report: no sum of a run's figures can then pass
+// what a row holds exactly.
+const (
+	maxCount   = 1 << 40
+	maxSeconds = 1e7
+)
+
+// count reports a count a reply may give.
+func count(n int) bool { return n >= 0 && n <= maxCount }
+
 // check reports a reply whose figures are out of range or whose words are
 // not ids, which no recording or row may hold.
 func (r Reply) check() error {
@@ -177,10 +187,10 @@ func (r Reply) check() error {
 		return errors.New("the reason is not a short id")
 	case r.Effort != "" && !idPattern.MatchString(r.Effort):
 		return errors.New("the effort used is not an id")
-	case r.TokensIn < 0 || r.TokensOut < 0 || r.Attempts < 0 || (r.CachedIn != nil && *r.CachedIn < 0):
-		return errors.New("a count is negative")
-	case math.IsNaN(r.Seconds) || math.IsInf(r.Seconds, 0) || r.Seconds < 0:
-		return errors.New("the seconds are not a finite figure of at least 0")
+	case !count(r.TokensIn) || !count(r.TokensOut) || !count(r.Attempts) || (r.CachedIn != nil && !count(*r.CachedIn)):
+		return fmt.Errorf("a count is not from 0 to %d", maxCount)
+	case math.IsNaN(r.Seconds) || r.Seconds < 0 || r.Seconds > maxSeconds:
+		return fmt.Errorf("the seconds are not a figure from 0 to %g", float64(maxSeconds))
 	}
 	return nil
 }

@@ -279,6 +279,8 @@ func TestReplayRefuses(t *testing.T) {
 		{"a count with a fraction", editLine(t, rec, 1, set("attempts", 1.5)), a},
 		{"a negative count", editLine(t, rec, 1, set("tokens_out", -1)), a},
 		{"a negative cached count", editLine(t, rec, 1, set("tokens_cached_in", -1)), a},
+		{"a count too large", editLine(t, rec, 1, set("tokens_in", maxCount+1)), a},
+		{"seconds too many", editLine(t, rec, 1, set("seconds", maxSeconds*2)), a},
 		{"negative seconds", editLine(t, rec, 1, set("seconds", -0.5)), a},
 		{"another format", editLine(t, rec, 1, set("v", 2)), a},
 		{"a round from 0", editLine(t, rec, 1, set("round", 0)), a},
@@ -395,6 +397,9 @@ func TestKeep(t *testing.T) {
 		{"{\"t\":\"a\u2028b\"}", "{\"t\":\"a\u2028b\"}"},
 		{`{"a":1,"a":2}`, `{"a":1,"a":2}`},
 		{`[1]`, `[1]`},
+		{`null`, ``},
+		{" null\n", ``},
+		{`"null"`, `"null"`},
 		{`{"a":1}{"b":2}`, ""},
 		{`{"a":1,}`, ""},
 		{"```json\n{}\n```", ""},
@@ -520,6 +525,9 @@ func TestRunRefuses(t *testing.T) {
 		"negative cached input":    func(r *Reply) { r.CachedIn = &neg },
 		"seconds not a figure":     func(r *Reply) { r.Seconds = nan },
 		"infinite seconds":         func(r *Reply) { r.Seconds = math.Inf(1) },
+		"seconds too many":         func(r *Reply) { r.Seconds = maxSeconds + 1 },
+		"tokens too many":          func(r *Reply) { r.TokensIn = maxCount + 1 },
+		"cached input too much":    func(r *Reply) { n := maxCount + 1; r.CachedIn = &n },
 		"negative seconds":         func(r *Reply) { r.Seconds = -1 },
 	} {
 		c := &canned{t: t, f: f}

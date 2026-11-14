@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"slices"
 	"unicode/utf8"
 )
@@ -56,16 +55,16 @@ var (
 )
 
 // keep is the answer an arm keeps of output: its compact form, when it is
-// valid UTF-8, one JSON value and at most MaxOutput bytes; else nil, which
-// reads as no JSON. What is kept is what is parsed, sent back in a repair
-// input and recorded, so a replay reads the very bytes the run read; keep
-// of what keep gave is the same.
+// valid UTF-8, one JSON value other than null and at most MaxOutput bytes;
+// else nil, which reads as no JSON. What is kept is what is parsed, sent
+// back in a repair input and recorded, so a replay reads the very bytes
+// the run read; keep of what keep gave is the same.
 func keep(output []byte) []byte {
 	if len(output) == 0 || len(output) > MaxOutput || !utf8.Valid(output) || !json.Valid(output) {
 		return nil
 	}
 	var b bytes.Buffer
-	if json.Compact(&b, output) != nil {
+	if json.Compact(&b, output) != nil || b.String() == "null" {
 		return nil
 	}
 	return b.Bytes()
@@ -242,8 +241,6 @@ func readLine(data []byte) (line, error) {
 		return line{}, errors.New("a failed call gives an answer")
 	case len(l.Output) > MaxOutput:
 		return line{}, errors.New("the answer is longer than an arm keeps")
-	case math.IsNaN(l.Seconds):
-		return line{}, errors.New("the seconds are not a figure")
 	}
 	r := Reply{Reason: l.Reason, TokensIn: l.TokensIn, TokensOut: l.TokensOut, Attempts: l.Attempts, CachedIn: l.TokensCachedIn,
 		Seconds: l.Seconds, Effort: l.EffortUsed}
