@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"maps"
 	"math"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -523,10 +529,17 @@ func TestSpec(t *testing.T) {
 // was built on.
 func TestNoLibraryName(t *testing.T) {
 	re := regexp.MustCompile(`(?i)okf`)
-	for _, err := range []error{ErrProtected, ErrNoKey, ErrRepeated, ErrNotWritten, ErrTooLarge} {
+	errs := map[string]error{"ErrProtected": ErrProtected, "ErrNoKey": ErrNoKey, "ErrRepeated": ErrRepeated,
+		"ErrNotWritten": ErrNotWritten, "ErrTooLarge": ErrTooLarge, "ErrUnreadable": ErrUnreadable}
+	for name, err := range errs {
 		if re.MatchString(err.Error()) {
-			t.Errorf("%q names the library", err)
+			t.Errorf("%s, %q, names the library", name, err)
 		}
+	}
+	// The list is every exported error of the package, so a new one is
+	// checked too.
+	if got, want := exportedErrors(t), slices.Sorted(maps.Keys(errs)); !slices.Equal(got, want) {
+		t.Errorf("the package exports the errors %v; the test checks %v", got, want)
 	}
 	files, err := os.ReadDir(".")
 	if err != nil {
@@ -548,4 +561,43 @@ func TestNoLibraryName(t *testing.T) {
 			t.Errorf("%s names the library", f.Name())
 		}
 	}
+}
+
+// exportedErrors lists, sorted, the package's exported variables whose
+// names start with Err, as go/parser finds them in its files but tests.
+func exportedErrors(t *testing.T) []string {
+	t.Helper()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	fset := token.NewFileSet()
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range f.Decls {
+			g, ok := decl.(*ast.GenDecl)
+			if !ok || g.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range g.Specs {
+				for _, id := range spec.(*ast.ValueSpec).Names {
+					if id.IsExported() && strings.HasPrefix(id.Name, "Err") {
+						names = append(names, id.Name)
+					}
+				}
+			}
+		}
+	}
+	slices.Sort(names)
+	if len(names) == 0 {
+		t.Fatal("go/parser finds no exported error")
+	}
+	return names
 }
