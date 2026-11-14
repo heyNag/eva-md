@@ -74,9 +74,8 @@ func jobSteps(text string) []workflowStep {
 // runBlock is a step's run block, its lines without their indent, as the
 // runner writes it to the script it runs.
 func (s workflowStep) runBlock() (string, error) {
-	at := slices.IndexFunc(s.lines, func(line string) bool {
-		return strings.HasPrefix(strings.TrimLeft(strings.TrimPrefix(strings.TrimSpace(line), "- "), " "), "run:")
-	})
+	key := regexp.MustCompile(`^(?:      - |        )run:`)
+	at := slices.IndexFunc(s.lines, key.MatchString)
 	if at < 0 {
 		return "", errors.New("it has no run")
 	}
