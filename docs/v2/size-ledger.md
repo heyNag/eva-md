@@ -97,12 +97,12 @@ The v1 files those commits changed that no (a) row holds, whose changes stay in 
 ## The end state
 
 ```ledger
-counted-at: d89c4293e4c2
-built: 67373
+counted-at: 5a3aa4e1aa01
+built: 68223
 leaves-v1: 20801
 leaves-instruments: 5883
 leaves: 26684
 not-yet-called: 9328
-end-state: 50017
+end-state: 50867
 ceiling: 53694
 ```

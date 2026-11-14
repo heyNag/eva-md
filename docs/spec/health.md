@@ -151,3 +151,8 @@ A host with no chat and no hook run in 14 days, and no install in the last day, 
 The verdict is a counted loss past its bar, else the stage furthest past its bar by lag over bar, with its lag, bar and reason, else that every stage is within its bar; the report's JSON carries it as `verdict`.
 The search index row of an index that covers less than all of the inbox ends "; search scans the rest".
 Status with the switch on still writes nothing, starts no host command and makes no network call.
+
+**2026-11-14, HO-12c: one prepared line at a chat's start, behind the same switch.**
+With `[switches] health = true`, `eva-md doctor --notice` writes each host's line, the most severe relevant condition of a closed list of 14 types, to `<state>/health/notice.json`; it prints nothing and exits 0.
+`docs/spec/resume.md` says when a chat start shows the line, and `docs/spec/hooks.md` what the hooks do for it.
+With the switch on the doctor prints the verdict first, by test.

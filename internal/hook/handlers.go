@@ -91,6 +91,9 @@ type turn struct {
 	jobs      []job
 	// guarded is set once the run has passed the guards, at atGuarded.
 	guarded bool
+	// shown is the id of the prepared health line the run's output carries,
+	// set once that output is built (see notice.go).
+	shown string
 }
 
 // job is a detached eva-md command a handler asks for: its command line
@@ -108,10 +111,11 @@ type job struct {
 const (
 	reasonDaily     = "daily"      // the day's maintain
 	reasonPushRetry = "push_retry" // the retry of a pending push
+	reasonHealth    = "health"     // the chat start's health line, prepared
 )
 
 // reasons is the closed list of a job's reasons.
-var reasons = []string{reasonDaily, reasonPushRetry, update.TriggerGap, update.TriggerStop, update.TriggerEnd, update.TriggerCompact, update.TriggerStart}
+var reasons = []string{reasonDaily, reasonPushRetry, update.TriggerGap, update.TriggerStop, update.TriggerEnd, update.TriggerCompact, update.TriggerStart, reasonHealth}
 
 // ask adds j to the jobs of the run, with arguments of its own, so no
 // handler that changes them later changes another job's.
@@ -120,14 +124,38 @@ func (t *turn) ask(j job) {
 	t.jobs = append(t.jobs, j)
 }
 
-// run runs the handlers at point at, in the order of their places.
+// run runs the handlers at point at, in the order of their places. At a
+// chat's launch each handler is recovered on its own (see launchOne).
 func (t *turn) run(at point) {
 	if at == atGuarded {
 		t.guarded = true
 	}
 	for _, h := range handlers {
-		if h.at == at {
+		switch {
+		case h.at != at:
+		case at == atLaunch:
+			t.launchOne(h)
+		default:
 			h.run(t)
 		}
 	}
+}
+
+// launchOne runs a handler at atLaunch. One that panics starts nothing of
+// its own and stops no other: the run's jobs are put back as they were
+// before it ran, and the next handler runs on them, so a fault there still
+// starts every job the launch judged due, the day's maintain, whose
+// attempt file the launch took already, among them.
+func (t *turn) launchOne(h handler) {
+	jobs := make([]job, len(t.jobs))
+	for i, j := range t.jobs {
+		j.args = slices.Clone(j.args)
+		jobs[i] = j
+	}
+	defer func() {
+		if recover() != nil {
+			t.jobs = jobs
+		}
+	}()
+	h.run(t)
 }

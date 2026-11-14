@@ -63,9 +63,19 @@ func due(env Env, j job, now time.Time, started *bool) bool {
 		*started = firstOfDay(env.Dirs.State, now)
 		return *started
 	case reasonPushRetry:
-		return !*started && retryDue(env.Dirs, now)
+		return !*started && retryDue(env.Dirs, now, retryTimer(env.Config))
 	}
 	return true
+}
+
+// retryTimer names the file whose date spaces the push checks: with the
+// switch health on, push-checked, so no healthy state holds a file whose
+// name says a retry is pending; off, v1's push-retry.
+func retryTimer(c config.Config) string {
+	if health.Switch.On(c) {
+		return "push-checked"
+	}
+	return "push-retry"
 }
 
 // firstOfDay creates the day's attempt marker, and reports whether this
@@ -87,11 +97,11 @@ func firstOfDay(state string, now time.Time) bool {
 
 // retryDue reports whether a push retry is due: the newest commit record's
 // push pending, as a check finds it at most every 30 minutes, by the
-// modification time of <state>/commit/push-retry, which every check sets to
-// now, due or not. Between checks a chat start costs one stat; a check adds
-// a read of the newest commit records.
-func retryDue(dirs paths.Dirs, now time.Time) bool {
-	const marker = "push-retry"
+// modification time of <state>/commit/<marker>, the timer (see
+// retryTimer), which every check sets to now, due or not. Between checks a
+// chat start costs one stat; a check adds a read of the newest commit
+// records.
+func retryDue(dirs paths.Dirs, now time.Time, marker string) bool {
 	if info, err := os.Lstat(filepath.Join(dirs.State, "commit", marker)); err == nil {
 		if age := now.Sub(info.ModTime()); age >= 0 && age < retryEvery {
 			return false

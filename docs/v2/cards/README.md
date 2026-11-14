@@ -64,7 +64,7 @@ Rules every card carries, so they are said once here:
 | [HO-11](HO-11.md) | The install manifest | merged; its switch `install_manifest` stays off until HO-20 or HO-27 turns it on; HO-20's card starts from the rulings in its last section |
 | [HO-12a](HO-12a.md) | Health's host names through the adapter | merged; CI's latency gate passed on its merge (run 205) |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | merged, behind the switch `health`, which is off |
-| [HO-12c](HO-12c.md) | One line, prepared outside the hook | building since 2026-11-14 |
+| [HO-12c](HO-12c.md) | One line, prepared outside the hook | merged, behind the switch `health`, which is off |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | merged, behind the switches `token_budget` and `low_effort_default`, which are off |
 | [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | merged |
 | [DV-11b](DV-11b.md) | The runner's Codex backend | merged, with a second round for the lead's ruling that a run with no known event is never `ok` |

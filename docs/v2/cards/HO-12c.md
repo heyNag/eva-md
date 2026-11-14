@@ -34,6 +34,9 @@ internal/hook/notice_test.go
 internal/hook/resume.go
 internal/hook/maintain.go
 internal/hook/handlers.go
+internal/hook/handlers_test.go
+internal/hook/hook.go
+internal/hook/wake_test.go
 cmd/eva-md/commands.go
 cmd/eva-md/notice_test.go
 README.md
@@ -65,3 +68,27 @@ Written when HO-12b merged (its card's "As merged" says what it left for this pa
 4. **The documents** are the lead's at the merge: give one sentence a line for `docs/spec/health.md`'s "Since the split" (it has about 800 bytes of room, so few and short; say which of them could go to `docs/spec/hooks.md` or the spec that holds the chat-start notice instead) and for `docs/known-limitations.md`. README's doctor line is this part's own, in the paths block.
 5. **The check** is the scoped one the order names, not the whole suite; the latency gate is run once, against origin/main, when the machine is quiet, with the switch off and with it on.
 
+## The lead's rulings at the merge, 2026-11-14
+
+1. **Three more files are in the paths block**, each for a reason the reviews gave: `internal/hook/hook.go` (the hook's output write says whether it reached the host, so a line that did not is not recorded as shown), `internal/hook/handlers_test.go` (its list of the package's handlers gains this part's two) and `internal/hook/wake_test.go` (the reason word `health` is the hooks' and not the worker's wake's, so `eva-md work --wake --reason health` stays refused and `wake.go` is unchanged).
+2. **A line is shown when it was prepared in the last 24 hours, not 2** (item 4 and its acceptance line said 2). With 2 hours, a chat start more than two hours after the last one showed nothing and only asked, so a person whose starts are hours apart never saw a line. A line prepared before its condition closed can so be shown once; the same start asks for a fresh check (docs/known-limitations.md says so).
+3. **The closed list stays closed**: an update held for a day by a failed MCP server has no condition of its own, and shows once three passes in a row have failed (`update.failing`); `status` and `doctor` show the hold at once.
+4. **The hosts' own event names are no names of a fault.** `heartbeats/claude-code/PostToolUseFailure.json` and `StopFailure.json` are named for the host's events, which a healthy install fires whenever a tool call fails; plan section 13.4 is about files eva-md names for a state of its own (`needs-trust.json`, `push-retry`). The healthy fixture's word check passes over the hosts' event names under `heartbeats/`.
+
+## As merged
+
+Merged on 2026-11-14 from `pkg/ho-12c-r1`, after two reviews (contract: two major, four minor; protection: two major, eight minor; every major mended, the minors mended or ruled on above) and a verification that accepted it with three minor points: the lead ruled on the first (24 hours), widened the paths block for the second, and added the case the third missed (no instance on either side). In the merge the lead also mended one line of the replay's rig, which EV-10c's check of the source, merged an hour before, refused (it read the home from the environment where the check could not see that the test had set it), and made the healthy fixture fire a failed tool call and pass over the hosts' event names (ruling 4). Behind the switch `health`, off by default; off, the hook calls v1's notice, by test, and nothing here runs.
+
+**What was built beyond the card's words**, each asked by a review or needed by the healthy month:
+
+- `trust.review` also waits for a Codex chat more than 5 minutes after the flag, since a flag met the day after install would else show the trust line at every Claude Code start on install day; when Codex's chat folder cannot be read the flag alone raises it. A Codex hook in a folder eva-md does not capture counts as the flag met. A flag that does not read as install writes it is pending, and is never removed.
+- `commit.stale` and `push.stale` from a stage past its budget wait until the day's attempt marker is an hour old: v1 commits at the day's first event, so on a Monday the weekend's changes are past 48 hours until that maintain has run.
+- `update.signin` is also raised when the newest failure in a row is `auth`, since v1's hold lasts only the day.
+- Each hook event is judged on its newest 8 runs in 7 days, so a fault after a healthy week shows after 4 failures, not 10.
+- The wiki states the update and the commit refuse raise `wiki.unreadable` or `wiki.instance`, with both lines reworded.
+- `shown.json` keeps `{"id","at"}` and adds `earlier`, the other ids shown in the last 24 hours, so two hosts with different lines do not show them again at every other start.
+- A check cut short by its time limit marks the notice as checked. `doctor --notice` with another flag, and `status --notice`, are usage errors.
+
+**Known and left** (docs/known-limitations.md has the first five): no condition for a day's hold by a failed MCP server; a line prepared before its condition closed may be shown once; `shown.json` has no lock; `doctor --report` names the kind of v1's notice (HO-23 moves `QuickNotice`); the benchmark cannot turn the switch on. **The card that turns the switch on by default** gives the benchmark's stand-in a `doctor --notice` that writes `notice.json`: without it every brief asks for the job, and the padded-inbox scenario's count of spawns fails, as the fixer's scratch run showed. A flag that is a link is judged by the link's own time, which no test can set back.
+
+**The latency gate.** With the switch off, `not judged` twice on the build machine (the builder's run at loads of 2.4 to 3.6, the fixer's at 3.8, on 4 CPUs), every scenario ok. With it on, on a scratch copy of the gate whose stand-in writes the notice, `not judged` again, with the chat-start medians flat or lower. No verdict yet: the lead runs the gate from the commit before HO-12b's merge once no builder runs, for HO-12b, DV-13 and this part together, and writes it here. By reading the code, with the switch on a brief pays one stat and a chat start two small reads in place of v1's checks, and a write of `shown.json` only after a line is shown.
