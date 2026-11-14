@@ -54,3 +54,11 @@ The card's checker left these to the lead.
 - **DIR is made with mode 0700**, since the run-book runs the chat as a second user who must not read it.
 - **The pilot's own grading turns Go's telemetry off too.** This card also owns `internal/eval/pilot/task/grade.go` and its test, for that alone: before any test, grading writes `off` as Go's telemetry mode into the home it gives go, as EV-17g does for the continuation's, with a test that a stub failing without the file passes. Nothing else in the pilot's `task` package changes.
 - If the continuation's check refuses one of the ten exported tasks, the builder stops and reports, as the card says; no task is edited to pass.
+
+## As merged
+
+Merged from `pkg/ev-03b-r1` on 2026-11-14, after a review, one fix round and a verification that accepted it. A restart of the machine cut the first builder off with its work committed; a second read that work against the card, found one gap (a link given with a slash after it got past the refusal of a link) and finished. The review's major fault: a second name for the tasks folder that is no link, as a spelling in another letter case is on macOS, let the export write into the tasks. The export now compares the folders themselves, not their names. On Linux no test can make such a second name, so that part of the fix is held by a case only CI's macOS job runs.
+
+The continuation's check accepted all ten exported tasks as they are: none was edited.
+
+Known and left: the test of the largest `minutes` would pass a rule that kept the first task's; and until EV-17g lands, the continuation's own grading, which this package's test runs through `continuation check`, still gives go a home with telemetry on, in a scratch folder outside any test's own.
