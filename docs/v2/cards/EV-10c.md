@@ -53,7 +53,7 @@ Any file of the program; any existing test; the words inside a `<!-- v1 ... -->`
 
 Merged on 2026-11-14 from `pkg/ev-10c-r1`, after one review (protection: five major, five minor, all answered, each with seeds that fail without the mend) and a verification that accepted it with three minor points, which the lead mended in the merge. Two were forms `internal/release`'s guard read as the run of record: a key with a space before its colon, and the suite inside a block of several lines; each has its seeds now. The third was the words "(untested: a program started by its full path)", which CAP-K05 and PRD-K01 carried and BRF-K01, RCL-K01 and STO-K14, resting on the same test, did not. Tests only: no file of the program changed, and of the existing tests only the example row of `TestEachMustKeepFaultIsCaught` (CAP-K05 has tests now, so it uses MCP-K16).
 
-**The tables.** Of 291 items tests hold 276 wholly, 14 in part and 1 not yet (MCP-K16, open with the owner); before this package 270, 10 and 11. In part, each with its untested words in its row: PRD-K01, PRD-K14, CAP-K05, CUP-K16, BRF-K01, RCL-K01, SRC-K19, SYS-K17, STO-K14, OKF-K01, SET-K20, EVL-K07, EVL-K08 and EVL-K13.
+**The tables.** Of 291 items tests hold 276 wholly, 14 in part and 1 not yet (MCP-K16, decided on 2026-11-14: v2's capture drops the arguments, and its test comes with that package); before this package 270, 10 and 11. In part, each with its untested words in its row: PRD-K01, PRD-K14, CAP-K05, CUP-K16, BRF-K01, RCL-K01, SRC-K19, SYS-K17, STO-K14, OKF-K01, SET-K20, EVL-K07, EVL-K08 and EVL-K13.
 
 **What the tests found, and the lead's rulings.**
 
