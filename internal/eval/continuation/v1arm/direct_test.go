@@ -141,7 +141,7 @@ func TestAStalledCommandIsUnjudged(t *testing.T) {
 				}
 				writeJSON(t, filepath.Join(dir, "sign-in.json"), signInScript{Dir: tr.record, Stall: pipe})
 				tr.Env = append(tr.Env, signInVar+"="+filepath.Join(dir, "sign-in.json"))
-				a.signIn = link
+				tr.Options.SignIn = link
 			}
 			_, err := a.prepare(t.Context(), tr.Trial)
 			var u *drive.Unjudged
@@ -222,7 +222,7 @@ func TestAStalledCommandsGroupIsKilled(t *testing.T) {
 				}
 				writeJSON(t, filepath.Join(dir, "sign-in.json"), signInScript{Dir: tr.record, Stall: pipe, Grandchild: g})
 				tr.Env = append(tr.Env, signInVar+"="+filepath.Join(dir, "sign-in.json"))
-				a.signIn = link
+				tr.Options.SignIn = link
 			}
 			_, err := a.prepare(t.Context(), tr.Trial)
 			var u *drive.Unjudged
@@ -286,7 +286,7 @@ func TestTheRunsEndIsNoTrialsFailure(t *testing.T) {
 				}
 				writeJSON(t, filepath.Join(dir, "sign-in.json"), signInScript{Dir: tr.record, Stall: pipe})
 				tr.Env = append(tr.Env, signInVar+"="+filepath.Join(dir, "sign-in.json"))
-				a.signIn = link
+				tr.Options.SignIn = link
 			}
 			var err error
 			if strings.HasPrefix(name, "a lock") {
@@ -342,6 +342,56 @@ func TestAfterWaitsBeforeItSums(t *testing.T) {
 	if err != nil || cost != (drive.Cost{Tokens: 42, Ms: 9}) {
 		t.Fatalf("%+v, %v", cost, err)
 	}
+}
+
+// The arm's Spent waits, as After does, while a job holds a lock, and only
+// then sums the run log; once the run has ended it waits for nothing and
+// sums what the run log holds. Neither counts toward the stop rule.
+func TestSpentSumsTheRunLog(t *testing.T) {
+	h := adapter.All()[0]
+	record := func(tr drive.Trial, tokens int) {
+		t.Helper()
+		if err := writeRecord(stateDir(tr), update.Record{Host: string(h.ID), Session: "made-up-new-chat-3", Outcome: update.OutcomeOK, TokensIn: tokens, TokensOut: 2, DurationMS: 9}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("the run goes on", func(t *testing.T) {
+		tr := newTrial(t, h, fakeScript{})
+		a := testArm()
+		unlock, busy, err := paths.TryLock(filepath.Join(stateDir(tr.Trial), "locks"), updateLock)
+		if err != nil || busy {
+			t.Fatal(err)
+		}
+		var once sync.Once
+		a.held = func(string) {
+			once.Do(func() {
+				record(tr.Trial, 40)
+				unlock()
+			})
+		}
+		if cost := a.spentSoFar(t.Context(), tr.Trial); cost != (drive.Cost{Tokens: 42, Ms: 9}) {
+			t.Fatalf("%+v", cost)
+		}
+		if first := a.state(tr.Trial).first; first != [2]string{} {
+			t.Fatalf("Spent counted toward the stop rule: %q", first)
+		}
+	})
+	t.Run("the run has ended", func(t *testing.T) {
+		tr := newTrial(t, h, fakeScript{})
+		record(tr.Trial, 70)
+		a := testArm()
+		unlock, busy, err := paths.TryLock(filepath.Join(stateDir(tr.Trial), "locks"), maintainLock)
+		if err != nil || busy {
+			t.Fatal(err)
+		}
+		defer unlock()
+		a.held = func(string) { t.Error("Spent waited for a lock after the run's end") }
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if cost := a.spentSoFar(ctx, tr.Trial); cost != (drive.Cost{Tokens: 72, Ms: 9}) {
+			t.Fatalf("%+v", cost)
+		}
+	})
 }
 
 // plant writes made-up inbox lines into the trial's inbox.
@@ -490,10 +540,16 @@ func TestAfterSumsTheRunLog(t *testing.T) {
 	}
 }
 
+// signedIn is o with the sign-in program path, as --sign-in gives it.
+func signedIn(o drive.Options, path string) drive.Options {
+	o.SignIn = path
+	return o
+}
+
 // Check refuses a run with no eva-md, one whose build lacks the evaluation
 // tag or cannot be read, a --pass-env of either of the seam's variables,
-// and a --sign-in that is not a program; a run that gives each right
-// passes.
+// and a --sign-in, read from the run's options, that is not a program; a
+// run that gives each right passes.
 func TestCheck(t *testing.T) {
 	dir := tempDir(t)
 	program := filepath.Join(dir, "program")
@@ -504,7 +560,7 @@ func TestCheck(t *testing.T) {
 	plain := filepath.Join(dir, "plain")
 	write(t, plain, "not a program\n")
 	good := drive.Options{EvaMD: testBinary(t), PassEnv: []string{"MADE_UP_KEY"}}
-	if err := (&arm{signIn: program}).check(good); err != nil {
+	if err := (&arm{}).check(signedIn(good, program)); err != nil {
 		t.Fatal(err)
 	}
 	for name, c := range map[string]struct {
@@ -528,7 +584,7 @@ func TestCheck(t *testing.T) {
 				skipTagCheck = false
 				t.Cleanup(func() { skipTagCheck = true })
 			}
-			err := (&arm{signIn: c.signIn}).check(c.o)
+			err := (&arm{}).check(signedIn(c.o, c.signIn))
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("%v", err)
 			}

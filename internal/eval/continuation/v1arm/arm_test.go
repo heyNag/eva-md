@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/heyNag/eva-md/internal/eval/continuation/drive"
+	"github.com/heyNag/eva-md/internal/eval/continuation/report"
 	"github.com/heyNag/eva-md/internal/eval/continuation/task"
 	"github.com/heyNag/eva-md/internal/eval/results"
 	"github.com/heyNag/eva-md/internal/host/adapter"
@@ -357,8 +358,9 @@ func childChats(t *testing.T, record string) []int {
 }
 
 // When the first two trials of a run both end setup_failed or
-// update_failed, the third stops the run before it starts anything; a
-// later failure is counted and the run goes on.
+// update_failed, the third stops the run before it starts anything: the
+// run ends arm_stopped, the third and the fourth counted not run, and the
+// report reads its folder; a later failure is counted and the run goes on.
 func TestARunStopsWhenItsFirstTwoTrialsFail(t *testing.T) {
 	for name, c := range map[string]struct {
 		setupFail []int
@@ -376,15 +378,40 @@ func TestARunStopsWhenItsFirstTwoTrialsFail(t *testing.T) {
 				r.eva.Updates = c.updates
 			}
 			s, out, err := r.run()
-			if err == nil || !strings.Contains(err.Error(), "first two trials") || s.Unjudged[drive.CodeSetupFailed]+s.Unjudged[drive.CodeUpdateFailed] != 2 || s.NotRun != 1 {
+			var stopped *drive.Stopped
+			if !errors.As(err, &stopped) || stopped.Code != drive.EndedArmStopped ||
+				s.Unjudged[drive.CodeSetupFailed]+s.Unjudged[drive.CodeUpdateFailed] != 2 || s.NotRun != 2 || s.Judged != 0 ||
+				!strings.Contains(out, "trial hidden-banner.t3 and the 1 after it: not run, the condition stopped the run\n") {
 				t.Fatalf("unjudged %v, not run %d, %v\n%s", s.Unjudged, s.NotRun, err, out)
 			}
 			if n := count(r.calls(), "setup"); n != 2 {
 				t.Fatalf("setup ran %d times", n)
 			}
+			// The record ends arm_stopped and counts each trial planned once:
+			// two unjudged, the third and the fourth not run.
 			records, rerr := drive.LoadRuns(r.opts.Out)
-			if rerr != nil || len(records) != 1 || records[0].Ended != drive.EndedError {
-				t.Fatalf("the run's record: %+v, %v", records, rerr)
+			if rerr != nil || len(records) != 1 {
+				t.Fatalf("the run's records: %+v, %v", records, rerr)
+			}
+			rec := records[0]
+			sum := rec.Judged + rec.NotRun
+			for _, n := range rec.Unjudged {
+				sum += n
+			}
+			if rec.Ended != drive.EndedArmStopped || rec.Planned != 4 || sum != rec.Planned || rec.NotRun != 2 {
+				t.Fatalf("the run's record: %+v", rec)
+			}
+			// The report reads the folder.
+			tasks, err := task.LoadAll(r.opts.Tasks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f, err := report.ReadFolder(r.opts.Out, task.Catalogue())
+			if err != nil {
+				t.Fatalf("the report cannot read the folder: %v", err)
+			}
+			if _, err := report.Build(tasks, []report.Folder{f}, nil); err != nil {
+				t.Fatalf("the report refuses the folder: %v", err)
 			}
 		})
 	}
@@ -488,6 +515,71 @@ func TestTheRunLogsSpendIsCounted(t *testing.T) {
 	records, err := drive.LoadRuns(r.opts.Out)
 	if err != nil || len(records) != 1 || records[0].Tokens != chat+350 || records[0].Ended != drive.CodeMemoryOff {
 		t.Fatalf("the run's record: %+v, %v", records, err)
+	}
+}
+
+// What an update spent before it ended update_failed, by the run log, counts
+// toward --max-tokens and in the run's record, though the trial is
+// unjudged; a failed trial whose run log holds nothing counts nothing.
+func TestAFailedUpdatesSpendIsCounted(t *testing.T) {
+	h := adapter.All()[0]
+	for name, c := range map[string]struct {
+		update fakeUpdate
+		tokens int64
+		notRun int
+	}{
+		"a failed pass": {fakeUpdate{Line: "1 pass: 1 failed", Outcome: update.OutcomeFailed, TokensIn: 300, TokensOut: 40, DurationMS: 900}, 340, 1},
+		"no pass":       {fakeUpdate{Line: "nothing pending"}, 0, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, h)
+			r.eva.Updates = []fakeUpdate{c.update}
+			r.opts.Trials, r.opts.MaxTokens = 2, 300
+			s, out, err := r.run()
+			if err != nil || s.Judged != 0 || s.Unjudged[drive.CodeUpdateFailed] != 2-c.notRun || s.NotRun != c.notRun || s.Tokens != c.tokens {
+				t.Fatalf("unjudged %v, not run %d, tokens %d, %v\n%s", s.Unjudged, s.NotRun, s.Tokens, err, out)
+			}
+			if c.notRun == 1 && !strings.Contains(out, "not run, --max-tokens reached") {
+				t.Fatalf("the ceiling was not reached:\n%s", out)
+			}
+			if chats := r.chats(); len(chats) != 0 {
+				t.Fatalf("%d chats", len(chats))
+			}
+			records, err := drive.LoadRuns(r.opts.Out)
+			if err != nil || len(records) != 1 || records[0].Tokens != c.tokens || records[0].Ended != drive.EndedDone {
+				t.Fatalf("the run's record: %+v, %v", records, err)
+			}
+		})
+	}
+}
+
+// What an update that passed spent counts toward --max-tokens and in the
+// run's record when the chat after it is left unjudged, as a rate-limited
+// or an empty one is: the driver asks the arm's Spent, since After is not
+// asked.
+func TestAnUnjudgedChatsUpdateSpendIsCounted(t *testing.T) {
+	h := adapter.All()[0]
+	for name, set := range map[string]func(r *rig){
+		"rate_limited": func(r *rig) { r.host.RateLimited = true },
+		"host_failed":  func(r *rig) { r.host.Empty = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, h)
+			r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 ok", Outcome: update.OutcomeOK, TokensIn: 300, TokensOut: 40, DurationMS: 900}}
+			set(r)
+			r.opts.Trials, r.opts.MaxTokens = 2, 300
+			s, out, err := r.run()
+			if err != nil || s.Judged != 0 || s.Unjudged[name] != 1 || s.NotRun != 1 || s.Tokens != 340 {
+				t.Fatalf("unjudged %v, not run %d, tokens %d, %v\n%s", s.Unjudged, s.NotRun, s.Tokens, err, out)
+			}
+			if !strings.Contains(out, "not run, --max-tokens reached") {
+				t.Fatalf("the ceiling was not reached:\n%s", out)
+			}
+			records, err := drive.LoadRuns(r.opts.Out)
+			if err != nil || len(records) != 1 || records[0].Tokens != 340 || records[0].Ended != drive.EndedDone {
+				t.Fatalf("the run's record: %+v, %v", records, err)
+			}
+		})
 	}
 }
 
