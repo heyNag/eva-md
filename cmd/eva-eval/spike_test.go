@@ -554,10 +554,17 @@ func TestRunRecordThenReplay(t *testing.T) {
 		t.Error(err)
 	}
 	commit := gitIn(t, r.repo, "rev-parse", "HEAD")
+	added := 0
 	for _, row := range live {
 		if row.Model != "small" || row.Host != string(adapter.Codex) || row.HostVersion != "9.8.701" || row.Instrument != "spike" || row.Commit != commit {
 			t.Fatalf("a row: %+v", row)
 		}
+		if row.Metric == metricRecordsAdded {
+			added++
+		}
+	}
+	if want := 2 * (len(spike.Scripts()) + 1); added != want {
+		t.Errorf("the run wrote %d rows of %s, not one for each side of each script and of all, %d", added, metricRecordsAdded, want)
 	}
 
 	spikeRunner = func(host string) update.Runner {
@@ -745,7 +752,7 @@ func TestEveryRowAndTheCatalogue(t *testing.T) {
 		t.Fatal(err)
 	}
 	template := results.Row{Commit: strings.Repeat("ab", 20), Time: time0}
-	rows := arm.Rows(res, template)
+	rows := append(arm.Rows(res, template), recordRows(res, template)...)
 	if err := cat.Check(rows); err != nil {
 		t.Error(err)
 	}
@@ -764,7 +771,7 @@ func TestEveryRowAndTheCatalogue(t *testing.T) {
 		}
 		written[r.Metric] = true
 	}
-	for _, m := range []string{"spike.repair_tokens_cached_in", "spike.quote_miss_final", "spike.repair_yield"} {
+	for _, m := range []string{"spike.repair_tokens_cached_in", "spike.quote_miss_final", "spike.repair_yield", metricRecordsAdded} {
 		if !written[m] {
 			t.Errorf("the run wrote no %s row", m)
 		}
@@ -779,7 +786,7 @@ type trial map[string]float64
 // good is a trial that meets the bar, with tokens.
 func good(tok float64) trial {
 	return trial{"fidelity.fact_recall": 0.95, "fidelity.wrong_write": 0, "fidelity.misattributed": 0, "fidelity.stale_in_force": 1,
-		"spike.ops_accepted_final": 50, "spike.quote_miss_final": 0.01, "spike.tokens_in": tok, "spike.tokens_out": 100,
+		"spike.ops_accepted_final": 60, "spike.records_added": 50, "spike.quote_miss_final": 0.01, "spike.tokens_in": tok, "spike.tokens_out": 100,
 		"spike.calls_first": 28, "spike.calls_repair": 2, "spike.seconds": 60, "spike.plants_refusal": 24, "spike.plants_hedge": 24,
 		"spike.assent_cited_refusal": 0, "spike.accepted_from_refusal": 0, "spike.assent_cited_hedge": 0, "spike.accepted_from_hedge": 0,
 		"spike.repair_yield": 0.5, "spike.repair_tokens_in": 300, "spike.schema_breaks_first": 0, "spike.schema_breaks_repair": 0,
@@ -1036,25 +1043,128 @@ func TestFrontierRefusals(t *testing.T) {
 	}
 }
 
-// An answer at another effort than the arm's is said in the summary, and
-// the effort each answer used is in the recording.
-func TestRunSaysAnotherEffort(t *testing.T) {
+// An answer at another effort than the arm's, a lower one or none, stops
+// the run before its next call: no row is written, the run exits 1 and
+// says the host would not answer at the arm's effort, naming the effort it
+// used and no model, and it still says how many runs of the CLI its calls
+// took. The calls before it are in the recording, each with its effort.
+func TestRunStopsOnAnotherEffort(t *testing.T) {
+	for _, tc := range []struct {
+		name, effort, used, says string
+	}{
+		{"a lower effort", "medium", "low", "an answer came at effort low"},
+		{"no effort flag", "low", "", "an answer came at no effort flag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newSpikeRig(t)
+			fake := liveFake(t, r)
+			fake.fail = func(n int, res *update.Result) error {
+				if n == 3 {
+					res.Effort, res.Attempts = tc.used, 2
+				}
+				return nil
+			}
+			rec := filepath.Join(t.TempDir(), "rec.jsonl")
+			out := filepath.Join(t.TempDir(), "rows")
+			args := liveArgs(r, claudeID, out, "--spend-model-quota", "--record", rec)
+			args[slices.Index(args, "--effort")+1] = tc.effort
+			code, stdout, errOut := spikeCmd(args...)
+			want := "the host would not answer at the arm's effort " + tc.effort + ": " + tc.says
+			if code != 1 || !strings.Contains(errOut, want) || !strings.Contains(errOut, "no row was written") {
+				t.Fatalf("exit %d, out %q, err %q", code, stdout, errOut)
+			}
+			if len(fake.requests) != 3 {
+				t.Errorf("%d calls reached the runner; the run should stop before the call after the answer at %q", len(fake.requests), tc.used)
+			}
+			if !strings.Contains(stdout, "The host's CLI was run 4 times for 3 calls through the runner.\n") {
+				t.Errorf("out %q", stdout)
+			}
+			if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
+				t.Error("the stopped run wrote rows")
+			}
+			data, _ := os.ReadFile(rec)
+			if !strings.Contains(string(data), `"effort_used":"`+tc.effort+`"`) || strings.Count(string(data), "\n") != 2 {
+				t.Errorf("the recording holds %d lines", strings.Count(string(data), "\n"))
+			}
+			noModel(t, "the output", stdout, errOut)
+		})
+	}
+}
+
+// A call the runner ran the CLI more than once for, for another reason
+// than its effort, whose answer came at the arm's effort, does not stop
+// the run: it goes on, and the count of runs is printed.
+func TestRunGoesOnAfterARetryAtTheArmsEffort(t *testing.T) {
 	r := newSpikeRig(t)
 	fake := liveFake(t, r)
 	fake.fail = func(n int, res *update.Result) error {
 		if n == 2 {
-			res.Effort = ""
+			res.Attempts = 2
+			res.Degraded = "a managed MCP config refused --strict-mcp-config; the run went without it"
 		}
 		return nil
 	}
-	rec := filepath.Join(t.TempDir(), "rec.jsonl")
-	code, stdout, errOut := spikeCmd(liveArgs(r, string(adapter.ClaudeCode), filepath.Join(t.TempDir(), "rows"), "--spend-model-quota", "--record", rec)...)
-	if code != 0 || !strings.Contains(stdout, "answers at no effort flag: 1\n") || !strings.Contains(stdout, "Some answers came at another effort than the arm's low") {
+	code, stdout, errOut := spikeCmd(liveArgs(r, claudeID, filepath.Join(t.TempDir(), "rows"), "--spend-model-quota")...)
+	n := len(fake.requests)
+	if want := fmt.Sprintf("The host's CLI was run %d times for %d calls through the runner.\n", n+1, n); code != 0 || !strings.Contains(stdout, want) ||
+		!strings.Contains(stdout, "answers at effort low: ") || strings.Contains(stdout, "answers at no effort flag") {
 		t.Fatalf("exit %d, out %q, err %q", code, stdout, errOut)
 	}
-	data, _ := os.ReadFile(rec)
-	if !strings.Contains(string(data), `"effort_used":""`) || !strings.Contains(string(data), `"effort_used":"low"`) {
-		t.Error("the recording does not keep the effort each answer used")
+}
+
+// A recording that holds an answer at another effort than the arm's does
+// not replay into rows: the replay stops before any row is written, as
+// the live run did not, and calls nothing.
+func TestReplayOfAnAnswerAtAnotherEffort(t *testing.T) {
+	r := newSpikeRig(t)
+	liveFake(t, r)
+	dir := t.TempDir()
+	rec := filepath.Join(dir, "rec.jsonl")
+	if code, _, errOut := spikeCmd(liveArgs(r, claudeID, filepath.Join(dir, "live"), "--spend-model-quota", "--record", rec)...); code != 0 {
+		t.Fatalf("live: %d %q", code, errOut)
+	}
+	spikeRunner = func(host string) update.Runner {
+		t.Errorf("the replay made a runner for %s", host)
+		return nil
+	}
+	data, err := os.ReadFile(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.SplitAfter(string(data), "\n")
+	// The last line that holds an answer, so every call before it is
+	// replayed first.
+	last := -1
+	for i, l := range lines {
+		if strings.Contains(l, `"reason":""`) {
+			last = i
+		}
+	}
+	if last < 0 || !strings.Contains(lines[last], `"effort_used":"low"`) {
+		t.Fatal("the recording holds no answer at effort low")
+	}
+	for name, used := range map[string]string{"a lower effort": `"effort_used":"minimal"`, "no effort flag": `"effort_used":""`} {
+		t.Run(name, func(t *testing.T) {
+			changed := slices.Clone(lines)
+			changed[last] = strings.Replace(changed[last], `"effort_used":"low"`, used, 1)
+			file := filepath.Join(t.TempDir(), "rec.jsonl")
+			write(t, file, strings.Join(changed, ""))
+			out := filepath.Join(t.TempDir(), "rows")
+			code, stdout, errOut := spikeCmd("run", "--host", claudeID, "--tier", "small", "--effort", "low", "--form", "quotes",
+				"--out", out, "--repo", r.repo, "--replay", file)
+			if code != 1 || !strings.Contains(errOut, "the host would not answer at the arm's effort low") || !strings.Contains(errOut, "no row was written") {
+				t.Fatalf("exit %d, out %q, err %q", code, stdout, errOut)
+			}
+			if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
+				t.Error("the replay wrote rows")
+			}
+		})
+	}
+	// The recording as made replays into rows.
+	out := filepath.Join(t.TempDir(), "rows")
+	if code, stdout, errOut := spikeCmd("run", "--host", claudeID, "--tier", "small", "--effort", "low", "--form", "quotes",
+		"--out", out, "--repo", r.repo, "--replay", rec); code != 0 {
+		t.Fatalf("the recording as made: exit %d, out %q, err %q", code, stdout, errOut)
 	}
 }
 
@@ -1137,6 +1247,88 @@ func TestFrontierEvidenceFormAtTheDefaultTier(t *testing.T) {
 	if l := line(out, "- **The evidence form:**"); !strings.HasPrefix(l, "- **The evidence form:** segments") ||
 		!strings.Contains(l, "codex 0.050 at tier small, effort medium") {
 		t.Errorf("form, a drift at the default tier: %q", l)
+	}
+}
+
+// The bar on wrong writes reads them over the records added, the stored
+// statements, not over every operation accepted: a row that meets the bar
+// only over every operation accepted is not named a default that meets
+// it; one that meets it over both is; and one whose trials give no count
+// of records added meets no bar. The head says which reading is the
+// rule's.
+func TestFrontierWrongWriteOverRecordsAdded(t *testing.T) {
+	q := spike.FormQuotes
+	// codex small: one wrong write over 60 operations accepted is 0.017,
+	// under the bar, but over 40 records added it is 0.025, over it.
+	// claude-code small: one over 60 and over 50, 0.017 and 0.020, at the
+	// bar on both.
+	out := frontierOf(t,
+		armRows(codexID, "small", "low", q, good(1000).with("fidelity.wrong_write", 1.0, "spike.records_added", 40.0)),
+		armRows(codexID, "middle", "low", q, good(5000)),
+		armRows(claudeID, "small", "low", q, good(1000).with("fidelity.wrong_write", 1.0)),
+		armRows(claudeID, "middle", "low", q, good(5000)))
+	if l := line(out, "- **The default row on codex:**"); !strings.Contains(l, "tier middle, effort low, form quotes, no small quotes row meets the bar") ||
+		!strings.HasSuffix(l, "it meets the bar.") {
+		t.Errorf("codex: %q", l)
+	}
+	if l := line(out, "| codex | 1.0.0 | small | low | quotes | 1 | 0.950 | 1.00 | 40.0 | 0.025 | 0.017 |"); l == "" {
+		t.Errorf("the table does not show both shares of codex's small row:\n%s", out)
+	}
+	if l := line(out, "- **The default row on claude-code:**"); !strings.Contains(l, "tier small, effort low, form quotes, the cheapest small quotes row that meets the bar") ||
+		!strings.Contains(l, "wrong_write share 0.020 over records added (1.00 a trial; 0.017 over every operation accepted, the lenient reading no rule reads)") ||
+		!strings.HasSuffix(l, "it meets the bar.") {
+		t.Errorf("claude-code: %q", l)
+	}
+	for _, words := range []string{
+		"`wrong_write share` is the wrong writes over `spike.records_added`, the operations accepted after repair that added a record, and it is the rule's reading",
+		"no rule reads it",
+		"`wrong_write share` (over records added) at most 0.02",
+	} {
+		if !strings.Contains(out, words) {
+			t.Errorf("the head does not say %q", words)
+		}
+	}
+	// With no count of records added in a trial, the rule cannot read the
+	// share, and the row does not meet the bar.
+	noCount := armRows(codexID, "small", "low", q, good(1000), good(1000))
+	noCount = slices.DeleteFunc(noCount, func(r results.Row) bool { return r.Metric == metricRecordsAdded && r.Seed == 1 })
+	out = frontierOf(t, noCount, armRows(codexID, "middle", "low", q, good(5000)))
+	if l := line(out, "- **The default row on codex:**"); !strings.Contains(l, "tier middle") {
+		t.Errorf("codex, a trial with no count of records added: %q", l)
+	}
+	if l := line(out, "| codex | 1.0.0 | small | low | quotes | 2 |"); !strings.Contains(l, "| 50.0 | - | 0.000 |") {
+		t.Errorf("the table's shares with a trial's count missing: %q", l)
+	}
+}
+
+// recordRows count each side's records of each script, and their sum over
+// all scripts, a row each, under the arm's scenarios.
+func TestRecordRows(t *testing.T) {
+	items := func(n int) []spike.Item { return make([]spike.Item, n) }
+	a := arm.Arm{Host: codexID, HostVersion: "1.2.3", Tier: "small", Effort: "low", Form: spike.FormSegments}
+	res := arm.Result{Arm: a, Rounds: []arm.Round{
+		{Scripts: []arm.ScriptResult{
+			{Script: "v1.01", On: arm.Side{Items: items(3)}, Off: arm.Side{Items: items(1)}},
+			{Script: "v1.02", On: arm.Side{Items: items(4)}, Off: arm.Side{Items: items(2)}},
+		}},
+		{Scripts: []arm.ScriptResult{
+			{Script: "v1.01", On: arm.Side{Items: items(5)}},
+			{Script: "v1.02", On: arm.Side{Items: items(0)}},
+		}},
+	}}
+	got := map[string][]float64{}
+	for _, r := range recordRows(res, results.Row{Commit: strings.Repeat("ab", 20), Time: time0}) {
+		if r.Metric != metricRecordsAdded || r.Unit != "count" || r.Model != "small" || r.Host != codexID || r.HostVersion != "1.2.3" || r.Instrument != arm.Instrument {
+			t.Fatalf("a row: %+v", r)
+		}
+		got[r.Scenario] = append(got[r.Scenario], r.Value)
+	}
+	want := map[string][]float64{
+		"segments.low.on.v1.01": {3, 5}, "segments.low.on.v1.02": {4, 0}, "segments.low.on.all": {7, 5},
+		"segments.low.off.v1.01": {1, 0}, "segments.low.off.v1.02": {2, 0}, "segments.low.off.all": {3, 0},
+	}
+	if !maps.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("rows %v, want %v", got, want)
 	}
 }
 

@@ -21,7 +21,10 @@ package main
 // The model's name comes only from --model: it is written to no file and
 // printed nowhere. Rows carry the tier, and the run's Forbid holds the
 // name, so a row that held it would not be written; the run checks every
-// row it could write for it before it calls anything.
+// row it could write for it before it calls anything. An answer from
+// another model, or at another effort than the arm's, stops a run before
+// its next call, and no row is written: the rows would name a model or an
+// effort the answers did not come at.
 //
 // Like the spike it measures, this file is a throwaway: it is deleted with
 // internal/eval/spike when DV-21 lands. No release or install builds it.
@@ -250,7 +253,7 @@ func (p plan) render() string {
 	w("## Rules and defaults\n\n")
 	w("- **Arms.** Every host eva-md knows (%s), every tier (%s), every effort asked for (%s; `--efforts`, default %s) and both forms of the contract (%s): %d arms. The tier is all a row says of its model.\n",
 		strings.Join(hosts, ", "), strings.Join(arm.Tiers, ", "), strings.Join(o.efforts, ", "), strings.Join(planEfforts, ","), strings.Join(forms, ", "), len(p.arms))
-	w("- **Calls.** An arm makes one first call for each pass of the spike's %d scripts, %d passes, in each round, and runs %d round%s (`--repeat`, default 1). It makes at most one repair call for each first call, and this plan counts every one. A call is one call through v1's update runner, which can run the host's CLI more than once for it: when the host refuses the call's effort, its model or a flag, the runner tries again lower, without it, or with the host's default model (a fallback, which stops the run). This plan counts none of those runs, and `eva-eval spike run` says how many it took.\n",
+	w("- **Calls.** An arm makes one first call for each pass of the spike's %d scripts, %d passes, in each round, and runs %d round%s (`--repeat`, default 1). It makes at most one repair call for each first call, and this plan counts every one. A call is one call through v1's update runner, which can run the host's CLI more than once for it: when the host refuses the flag that keeps a user's MCP servers out (`--strict-mcp-config`), the call's effort or its model, the runner tries again without that flag, at a lower effort or with no effort flag, or with the host's default model. An answer at another effort than the arm's, or from another model, stops the run, since the arm's rows would name an effort or a model its answers did not come at; a run again without the MCP flag does not. This plan counts none of those runs, and `eva-eval spike run` says how many it took.\n",
 		len(p.scripts), passes(spike.Scripts()), o.repeat, plural(o.repeat, "", "s"))
 	w("- **Tokens.** A first call's input is the bytes of the prompt, of the pass rendered with nothing shown and of the answer's schema, divided by 4 and rounded up, plus the host's overhead per call. A repair call's input adds the output allowance to its first call's. Each call's output is the output allowance, %s tokens (`--output-allowance`, default %s). Tokens are input and output together.\n",
 		num(o.allowance), num(planAllowance))
@@ -399,11 +402,50 @@ func spikeMetrics() []spikeMetric {
 	ms = append(ms,
 		spikeMetric{"spike.calls_first", "count"}, spikeMetric{"spike.calls_repair", "count"}, spikeMetric{"spike.calls_failed", "count"},
 		spikeMetric{"spike.tokens_in", "tokens"}, spikeMetric{"spike.tokens_out", "tokens"}, spikeMetric{"spike.repair_tokens_in", "tokens"},
-		spikeMetric{"spike.repair_tokens_cached_in", "tokens"}, spikeMetric{"spike.seconds", "seconds"}, spikeMetric{"spike.honest_refused", "ratio"})
+		spikeMetric{"spike.repair_tokens_cached_in", "tokens"}, spikeMetric{"spike.seconds", "seconds"}, spikeMetric{"spike.honest_refused", "ratio"},
+		spikeMetric{metricRecordsAdded, "count"})
 	for _, r := range (score.Result{}).Rows(results.Row{}) {
 		ms = append(ms, spikeMetric{r.Metric, r.Unit})
 	}
 	return ms
+}
+
+// metricRecordsAdded is the one metric the run writes itself, beside
+// DV-03c's rows: the records a side's store holds once a script's last
+// pass is applied, which is the number of its accepted operations that
+// added a record (item.add, item.supersede, next.add, ask.add and note),
+// since a store's records are only ever added. Over all scripts it is the
+// sum of the scripts' counts. It is the count of stored statements that
+// design 8.3's bar on wrong writes is read over.
+const metricRecordsAdded = "spike.records_added"
+
+// recordRows are res's rows of metricRecordsAdded from template, under the
+// scenarios arm.Rows gives the arm's other rows: for each round, side (on,
+// then off) and script, then for all the scripts.
+func recordRows(res arm.Result, template results.Row) []results.Row {
+	base := template
+	base.Instrument, base.Model, base.Host, base.HostVersion = arm.Instrument, res.Arm.Tier, res.Arm.Host, res.Arm.HostVersion
+	base.Metric, base.Unit = metricRecordsAdded, "count"
+	var rows []results.Row
+	for _, rd := range res.Rounds {
+		for _, sideName := range []string{"on", "off"} {
+			all := 0
+			for _, sr := range rd.Scripts {
+				n := len(sr.On.Items)
+				if sideName == "off" {
+					n = len(sr.Off.Items)
+				}
+				all += n
+				r := base
+				r.Value, r.Scenario = float64(n), string(res.Arm.Form)+"."+res.Arm.Effort+"."+sideName+"."+sr.Script
+				rows = append(rows, r)
+			}
+			r := base
+			r.Value, r.Scenario = float64(all), string(res.Arm.Form)+"."+res.Arm.Effort+"."+sideName+".all"
+			rows = append(rows, r)
+		}
+	}
+	return rows
 }
 
 // everyRow is every row a run of a could write from template, every
@@ -441,6 +483,15 @@ func hide(s, model string) string {
 // errStopped is the stop of a run whose host answered from another model
 // than the one asked for.
 var errStopped = errors.New("the host answered from another model than the one asked for, so the run stopped: its rows would be judged as the model's")
+
+// effortName names an effort a host answered at: the effort, or no effort
+// flag when the runner dropped it.
+func effortName(e string) string {
+	if e == "" {
+		return "no effort flag"
+	}
+	return "effort " + e
+}
 
 // spikeCaller asks the host's CLI through v1's update runner, each call in
 // an empty run folder of the run's temporary home.
@@ -503,14 +554,22 @@ func capped(ask arm.Ask, first int) arm.Ask {
 	}
 }
 
-// counting is ask, counting the answers at each effort the host used.
-func counting(ask arm.Ask, efforts map[string]int) arm.Ask {
+// atEffort is ask, which stops the run on an answer at another effort than
+// the arm's, live or replayed: v1's runner steps an effort down, or drops
+// it, when the host refuses it, and rows that named the arm's effort would
+// then put a wrong line on the frontier. It counts the answers at each
+// effort. A failed call gives no answer, and is not judged.
+func atEffort(ask arm.Ask, effort string, efforts map[string]int) arm.Ask {
 	return func(ctx context.Context, c arm.Call) (arm.Reply, error) {
 		r, err := ask(ctx, c)
-		if err == nil && r.Reason == "" {
-			efforts[r.Effort]++
+		if err != nil || r.Reason != "" {
+			return r, err
 		}
-		return r, err
+		if r.Effort != effort {
+			return arm.Reply{}, fmt.Errorf("the host would not answer at the arm's effort %s: an answer came at %s, so the run stopped: its rows would name an effort its answers did not come at", effort, effortName(r.Effort))
+		}
+		efforts[r.Effort]++
+		return r, nil
 	}
 }
 
@@ -665,7 +724,7 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		fmt.Fprintf(errOut, "eva-eval: a row the run would write holds the model's name, or a word a script plants, so the run is refused (%s). Nothing was called.\n", err)
 		return 2
 	}
-	fmt.Fprintf(out, "The arm %s %s, tier %s, effort %s, form %s makes %d first calls, one for each of the %d passes of the spike's %d scripts in each of %d round%s, and at most %d repair calls: %d calls at most. A call can run the host's CLI more than once when the host refuses its effort, its model or a flag; the run says how many runs it took.\n",
+	fmt.Fprintf(out, "The arm %s %s, tier %s, effort %s, form %s makes %d first calls, one for each of the %d passes of the spike's %d scripts in each of %d round%s, and at most %d repair calls: %d calls at most. A call can run the host's CLI more than once when the host refuses its MCP flag, its effort or its model; an answer at another effort than the arm's, or from another model, stops the run, and the run says how many runs its calls took.\n",
 		a.Host, a.HostVersion, a.Tier, a.Effort, a.Form, first, passes(scripts), len(scripts), *repeat, plural(*repeat, "", "s"), first, 2*first)
 	if live && !*spend {
 		fmt.Fprintf(errOut, "eva-eval: the run's calls are made on %s's subscription. Nothing was called; run it again with --spend-model-quota to make them.\n", a.Host)
@@ -693,7 +752,7 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 			fmt.Fprintln(errOut, "eva-eval: replaying the recording; nothing is called")
 		}
 		efforts := map[string]int{}
-		ask = counting(capped(ask, first), efforts)
+		ask = atEffort(capped(ask, first), a.Effort, efforts)
 		var w io.Writer
 		if rec != nil {
 			w = rec
@@ -707,12 +766,12 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 			fmt.Fprintf(errOut, "eva-eval: %s; no row was written\n", hide(err.Error(), *model))
 			return 1
 		}
-		rows := spikeRows(res, template)
+		rows := append(spikeRows(res, template), recordRows(res, template)...)
 		if err := (results.Store{Dir: *outDir, Forbid: forbid}).Append(rows...); err != nil {
 			fmt.Fprintf(errOut, "eva-eval: %s\n", hide(err.Error(), *model))
 			return 1
 		}
-		summarizeRun(out, rows, efforts, a.Effort)
+		summarizeRun(out, rows, efforts)
 		fmt.Fprintf(out, "Wrote %d rows of commit %s to the results folder %s.\n", len(rows), commit[:12], *outDir)
 		return 0
 	}()
@@ -732,9 +791,9 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 }
 
 // summarizeRun prints the run's figures over all scripts, each side's mean
-// over its rounds, and the efforts the host answered at, with a line when
-// one is not the arm's effort.
-func summarizeRun(out io.Writer, rows []results.Row, efforts map[string]int, effort string) {
+// over its rounds, and the answers the host gave at the arm's effort,
+// which are all its answers: one at another effort stops the run.
+func summarizeRun(out io.Writer, rows []results.Row, efforts map[string]int) {
 	arms, err := gather(rows)
 	if err != nil || len(arms) != 1 {
 		return
@@ -745,16 +804,8 @@ func summarizeRun(out io.Writer, rows []results.Row, efforts map[string]int, eff
 			sideName, fs.show("fidelity.fact_recall", "%.3f"), fs.show("fidelity.wrong_write", "%.2f"), fs.show("fidelity.misattributed", "%.2f"),
 			fs.show("spike.quote_miss_final", "%.3f"), fs.show("spike.calls_first", "%.0f"), fs.show("spike.calls_repair", "%.0f"), fs.show("spike.calls_failed", "%.0f"))
 	}
-	used := slices.Sorted(maps.Keys(efforts))
-	for _, e := range used {
-		name := "effort " + e
-		if e == "" {
-			name = "no effort flag"
-		}
-		fmt.Fprintf(out, "answers at %s: %d\n", name, efforts[e])
-	}
-	if len(used) > 1 || len(used) == 1 && used[0] != effort {
-		fmt.Fprintf(out, "Some answers came at another effort than the arm's %s, which its rows name: read them with that in mind.\n", effort)
+	for _, e := range slices.Sorted(maps.Keys(efforts)) {
+		fmt.Fprintf(out, "answers at %s: %d\n", effortName(e), efforts[e])
 	}
 }
 
@@ -839,13 +890,31 @@ func (f armFigures) perCall(metrics ...string) (float64, bool) {
 	return total / calls, true
 }
 
-// wrongShare is wrong_write as a share: the wrong writes over the
-// operations accepted after repair, the nearest count of stored statements
-// the rows hold. With nothing accepted, a wrong write makes it 1.
+// wrongShare is wrong_write as a share of stored statements, the reading
+// design 8.3's bar is held to: the wrong writes over the records the store
+// holds, which are its accepted operations that added a record. It is not
+// read when a trial gave no count of records added. With no record added,
+// a wrong write makes it 1.
 func (f armFigures) wrongShare() (float64, bool) {
+	return f.shareOf(metricRecordsAdded)
+}
+
+// wrongShareLenient is the wrong writes over every operation accepted
+// after repair, those that retire, mark done or answer a record and store
+// no statement among them: a lower share than wrongShare's, shown beside
+// it and read by no rule.
+func (f armFigures) wrongShareLenient() (float64, bool) {
+	return f.shareOf("spike.ops_accepted_final")
+}
+
+// shareOf is the wrong writes over the sum of den, read only when every
+// trial gave den.
+func (f armFigures) shareOf(den string) (float64, bool) {
 	w, ok1 := f.sum("fidelity.wrong_write")
-	a, ok2 := f.sum("spike.ops_accepted_final")
+	a, ok2 := f.sum(den)
 	switch {
+	case ok2 && len(f[den]) != len(f["fidelity.wrong_write"]):
+		return 0, false
 	case !ok1 || !ok2:
 		return 0, false
 	case a == 0 && w > 0:
@@ -1139,23 +1208,25 @@ func frontier(rows []results.Row, arms []frontierArm) string {
 	w("From %d arms, of commit %s (%s).\n\n", len(arms), strings.Join(slices.Sorted(maps.Keys(commits)), ", "), tree)
 	w("How to read it:\n\n")
 	w("- One line for each host, tier, effort and form, from the arm's `<form>.<effort>.on.all` rows, with repair: the store that applies each pass's final verdicts. A row of each metric is one trial (a round of a run); each figure is the mean over the trials, a share over those that have one. The tier is all a row says of its model.\n")
-	w("- `wrong_write` is the scorer's count a trial; its share is the wrong writes over the operations accepted after repair, the nearest count of stored statements the rows hold, and the bar of design 8.3 reads the share. That count also holds the accepted operations that retire, mark done or answer a record and store no statement, so the share is lower than a share of stored statements: a lenient reading, until the lead rules on it. The stricter reading, the count a trial at most 0.02, can be read from the table's `wrong_write`.\n")
+	w("- `wrong_write` is the scorer's count a trial. The bar of design 8.3 reads it as a share of stored statements, as the design's first section defines it: `wrong_write share` is the wrong writes over `spike.records_added`, the operations accepted after repair that added a record, and it is the rule's reading. `wrong_write share, lenient` is the wrong writes over every operation accepted after repair, those that retire, mark done or answer a record among them; it is lower, is shown beside the rule's for comparison, and no rule reads it. A row whose trials do not all give `spike.records_added` has no share the rule can read, and does not meet the bar.\n")
 	w("- `stale_in_force` is shown and is no bar: the scorer counts a faithful answer to v1.08 as stale, since a next step that names a word of an ended step reads as keeping that step in force (EV-14e may change that reading), so a count of about 1 a trial can be no fault of the model.\n")
 	w("- Refusals and hedges: the typed refusals and hedges the scripts plant that an operation kept as a decision or a procedure citing them (cited), and of those the ones accepted under the user's authority (accepted).\n")
 	w("- Tokens a call are every call's input and output over the calls, first and repair; seconds a call likewise.\n")
-	w("- The default row (design 8.3): the cheapest, by tier then measured tokens a trial, with `fact_recall` at least %.2f, `wrong_write` at most %.2f as a share and `misattributed` 0; if no small row meets that, the middle tier's cheapest that does, or else its cheapest, which is said to miss the bar. A large row is never the default. Its tier and effort are read for each host over the rows of both forms, and the row it names is then read by the same rule among the rows of the evidence form.\n", barRecall, barWrongWrite)
+	w("- The default row (design 8.3): the cheapest, by tier then measured tokens a trial, with `fact_recall` at least %.2f, `wrong_write share` (over records added) at most %.2f and `misattributed` 0; if no small row meets that, the middle tier's cheapest that does, or else its cheapest, which is said to miss the bar. A large row is never the default. Its tier and effort are read for each host over the rows of both forms, and the row it names is then read by the same rule among the rows of the evidence form.\n", barRecall, barWrongWrite)
 	w("- The evidence form (design 5.4): segments when `quote_miss_final` is over 2%% on either host at the default tier and effort, read at the quotes row of that tier and effort, or, when the host has no such row with a `quote_miss_final`, at the quotes form's own default row, read by the same rule among that form's rows; else quotes.\n")
 	w("- Assent (plan section 8, the threshold \"Typed refusals cited as assent\"): if any typed refusal or hedge was cited as assent at a default row, whether or not the checker then accepted the operation, a short typed yes does not count, and decision 10 stays at dialog choices and plan approvals. The line gives the cited and the accepted counts side by side.\n\n")
-	w("| Host | Version | Tier | Effort | Form | Trials | fact_recall | wrong_write | wrong_write share | misattributed | stale_in_force | honest_refused | quote_miss_final | Refusals cited, accepted | Hedges cited, accepted | repair_yield | Tokens a call | Seconds a call |\n")
-	w("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	w("| Host | Version | Tier | Effort | Form | Trials | fact_recall | wrong_write | records_added | wrong_write share | wrong_write share, lenient | misattributed | stale_in_force | honest_refused | quote_miss_final | Refusals cited, accepted | Hedges cited, accepted | repair_yield | Tokens a call | Seconds a call |\n")
+	w("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, a := range arms {
 		on := a.on()
 		share, okShare := on.wrongShare()
+		lenient, okLenient := on.wrongShareLenient()
 		tok, okTok := on.perCall("spike.tokens_in", "spike.tokens_out")
 		sec, okSec := on.perCall("spike.seconds")
-		w("| %s | %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %s, %s | %s, %s | %s | %s | %s |\n",
+		w("| %s | %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s, %s | %s, %s | %s | %s | %s |\n",
 			a.host, a.version, a.tier, a.effort, a.form, on.trials(),
-			on.show("fidelity.fact_recall", "%.3f"), on.show("fidelity.wrong_write", "%.2f"), cell(share, okShare, "%.3f"),
+			on.show("fidelity.fact_recall", "%.3f"), on.show("fidelity.wrong_write", "%.2f"), on.show(metricRecordsAdded, "%.1f"),
+			cell(share, okShare, "%.3f"), cell(lenient, okLenient, "%.3f"),
 			on.show("fidelity.misattributed", "%.2f"), on.show("fidelity.stale_in_force", "%.2f"), on.show("spike.honest_refused", "%.3f"),
 			on.show("spike.quote_miss_final", "%.3f"),
 			on.show("spike.assent_cited_refusal", "%.2f"), on.show("spike.accepted_from_refusal", "%.2f"),
@@ -1184,13 +1255,15 @@ func frontier(rows []results.Row, arms []frontierArm) string {
 			continue
 		}
 		on := d.on()
-		share, _ := on.wrongShare()
+		share, okShare := on.wrongShare()
+		lenient, okLenient := on.wrongShareLenient()
 		met := "it meets the bar"
 		if !v.meets[h] {
 			met = "it misses the bar"
 		}
-		w("- **The default row on %s:** %s, %s: fact_recall %s, wrong_write share %.3f (%s a trial), misattributed %s; %s.\n",
-			h, d.label(), v.why[h], on.show("fidelity.fact_recall", "%.3f"), share, on.show("fidelity.wrong_write", "%.2f"), on.show("fidelity.misattributed", "%.2f"), met)
+		w("- **The default row on %s:** %s, %s: fact_recall %s, wrong_write share %s over records added (%s a trial; %s over every operation accepted, the lenient reading no rule reads), misattributed %s; %s.\n",
+			h, d.label(), v.why[h], on.show("fidelity.fact_recall", "%.3f"), cell(share, okShare, "%.3f"), on.show("fidelity.wrong_write", "%.2f"),
+			cell(lenient, okLenient, "%.3f"), on.show("fidelity.misattributed", "%.2f"), met)
 	}
 	for _, h := range hosts {
 		d, ok := v.defaults[h]
