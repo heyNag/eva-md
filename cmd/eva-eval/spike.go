@@ -582,6 +582,11 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	if err := checkResults(*outDir); err != nil {
 		return refuse("--out: " + err.Error())
 	}
+	if *record != "" {
+		if _, err := os.Lstat(*record); !errors.Is(err, fs.ErrNotExist) {
+			return refuse("--record must name a file that does not exist yet")
+		}
+	}
 	var forbid []string
 	for _, s := range scripts {
 		forbid = append(forbid, scenario.Forbid(s.Scenario)...)
@@ -660,7 +665,7 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 			fmt.Fprintf(errOut, "eva-eval: %s\n", hide(err.Error(), *model))
 			return 1
 		}
-		summarizeRun(out, rows, efforts)
+		summarizeRun(out, rows, efforts, a.Effort)
 		fmt.Fprintf(out, "Wrote %d rows of commit %s to the results folder %s.\n", len(rows), commit[:12], *outDir)
 		return 0
 	}()
@@ -680,8 +685,9 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 }
 
 // summarizeRun prints the run's figures over all scripts, each side's mean
-// over its rounds, and the efforts the host answered at.
-func summarizeRun(out io.Writer, rows []results.Row, efforts map[string]int) {
+// over its rounds, and the efforts the host answered at, with a line when
+// one is not the arm's effort.
+func summarizeRun(out io.Writer, rows []results.Row, efforts map[string]int, effort string) {
 	arms, err := gather(rows)
 	if err != nil || len(arms) != 1 {
 		return
@@ -699,6 +705,9 @@ func summarizeRun(out io.Writer, rows []results.Row, efforts map[string]int) {
 			name = "no effort flag"
 		}
 		fmt.Fprintf(out, "answers at %s: %d\n", name, efforts[e])
+	}
+	if len(used) > 1 || len(used) == 1 && used[0] != effort {
+		fmt.Fprintf(out, "Some answers came at another effort than the arm's %s, which its rows name: read them with that in mind.\n", effort)
 	}
 }
 

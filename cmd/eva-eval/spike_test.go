@@ -350,6 +350,10 @@ func TestRunRefusals(t *testing.T) {
 		{"a bad cli", func(r *spikeRig, out, rec string) []string {
 			return liveArgs(r, codex, out, "--spend-model-quota", "--cli", "bin/codex")
 		}, "is not the absolute path"},
+		{"a recording that exists", func(r *spikeRig, out, rec string) []string {
+			write(t, rec, "kept\n")
+			return liveArgs(r, codex, out, "--spend-model-quota", "--record", rec)
+		}, "--record must name a file that does not exist yet"},
 		{"repeat", func(r *spikeRig, out, rec string) []string {
 			return liveArgs(r, codex, out, "--spend-model-quota", "--repeat", "0")
 		}, "--repeat must be"},
@@ -369,7 +373,11 @@ func TestRunRefusals(t *testing.T) {
 			if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
 				t.Error("a refused run made its results folder")
 			}
-			if !strings.HasPrefix(tc.name, "replay") && tc.name != "record and replay" {
+			if tc.name == "a recording that exists" {
+				if data, _ := os.ReadFile(rec); string(data) != "kept\n" {
+					t.Error("the refused run changed the recording that was there")
+				}
+			} else if !strings.HasPrefix(tc.name, "replay") && tc.name != "record and replay" {
 				if _, err := os.Stat(rec); !errors.Is(err, fs.ErrNotExist) {
 					t.Error("a refused run made its recording")
 				}
@@ -1010,5 +1018,27 @@ func TestFrontierRefusals(t *testing.T) {
 		if strings.Contains(errOut, "zq-made-up-name") {
 			t.Errorf("%s: the error names the model", name)
 		}
+	}
+}
+
+// An answer at another effort than the arm's is said in the summary, and
+// the effort each answer used is in the recording.
+func TestRunSaysAnotherEffort(t *testing.T) {
+	r := newSpikeRig(t)
+	fake := liveFake(t, r)
+	fake.fail = func(n int, res *update.Result) error {
+		if n == 2 {
+			res.Effort = ""
+		}
+		return nil
+	}
+	rec := filepath.Join(t.TempDir(), "rec.jsonl")
+	code, stdout, errOut := spikeCmd(liveArgs(r, string(adapter.ClaudeCode), filepath.Join(t.TempDir(), "rows"), "--spend-model-quota", "--record", rec)...)
+	if code != 0 || !strings.Contains(stdout, "answers at no effort flag: 1\n") || !strings.Contains(stdout, "Some answers came at another effort than the arm's low") {
+		t.Fatalf("exit %d, out %q, err %q", code, stdout, errOut)
+	}
+	data, _ := os.ReadFile(rec)
+	if !strings.Contains(string(data), `"effort_used":""`) || !strings.Contains(string(data), `"effort_used":"low"`) {
+		t.Error("the recording does not keep the effort each answer used")
 	}
 }
