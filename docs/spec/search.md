@@ -103,6 +103,33 @@ Only the agent runs it, when it needs an earlier chat; no hook ever does.
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| CAP-K15 | An entry is trusted only in the file its host, session and project name, and nothing said off the record reaches search | internal/inbox:TestWalkYieldsWhatSearchCanMatch, internal/inbox:TestWalkResumesFromAPosition, internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile |
+| SRC-K01 | Nothing is shown from the cache: every candidate is read again from the inbox and checked, and the index stores no text | internal/resume:TestSearchIndexAndScanAgree, internal/resume:TestSearchFindsALineAtAStaleCandidatesNumber, internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile, internal/resume:TestSearchDeadAndStaleFiles |
+| SRC-K02 | Off-the-record ranges are never indexed, printed or counted | internal/resume:TestSearchPrivacy, internal/resume:TestSearchSkipsOffTheRecordRanges, internal/searchindex:TestOffRecordAndUntrustedNeverIndexed, internal/inbox:TestWalkYieldsWhatSearchCanMatch |
+| SRC-K03 | An entry must belong to the file it is read from | internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile, internal/inbox:TestWalkYieldsWhatSearchCanMatch, internal/searchindex:TestOffRecordAndUntrustedNeverIndexed |
+| SRC-K04 | Files open through a pinned root that refuses links, odd files and swapped inodes | internal/inbox:TestOpenSessionRefusesLinks, internal/resume:TestWikiInstanceAndProjectGuards |
+| SRC-K05 | One line a hit, cleaned and escaped so stored text cannot start a line or pose as a speaker | internal/resume:TestSearchSnippetCannotStartALine, internal/resume:TestShowDoesNotTrustSpeakerOrDateMetadata, internal/resume:TestSearchPrintsIdentifiersAsStored |
+| SRC-K06 | The byte prefilter never hides a match | internal/resume:TestSearchFindsTermsThatJSONEscapes, internal/resume:TestSearchIgnoresCaseBeyondASCII |
+| SRC-K07 | When the index finds nothing, the files it covers are scanned | internal/resume:TestSearchFallsBackToTheScan |
+| SRC-K08 | A fault in the index never takes search down: it falls back to a full scan and names a damaged folder | internal/resume:TestSearchRecoversFromAnIndexPanic, internal/resume:TestSearchRecoversFromAFaultAfterPartialMatches, internal/resume:TestSearchDamagedFolderScans |
+| SRC-K10 | A replaced or rewritten file is seen by its generation, inode and line ends | internal/resume:TestSearchDeadAndStaleFiles, internal/resume:TestSearchRewrittenFileShowsEachLineOnce, internal/searchindex:TestMergeDropsDeadGenerations |
+| SRC-K13 | Counts not checked say about, a deadline says cut short, and unreadable files, pages and folders are named | internal/resume:TestSearchPhraseCountSaysAbout, internal/resume:TestSearchCutShortStillReports, internal/resume:TestSearchCountsUnreadableFiles, internal/resume:TestSearchNamesAnUnreadablePage, internal/resume:TestSearchDeadlineDuringVerification |
+| SRC-K14 | Time and memory are bounded: streamed reads, only the best hits kept, capped lines and blocks | internal/resume:TestSearchLimitAndMore, internal/resume:TestSearchSmokeThousandSessions, internal/searchindex:TestCandidatesKeepTheBestK, internal/searchindex:TestLineNumbersAcrossTails, internal/searchindex:TestRefreshBudgetNewestFirst |
+| SRC-K15 | A wiki folder counts only when its now page proves the project's remote; the default scope is the project and the general area | internal/resume:TestSearchNamesAFolderWithoutANowPage, internal/resume:TestSearchScopeIsTheProjectAndGeneralUnlessAll, internal/resume:TestSearchPageScopeAndContract |
+| SRC-K16 | Ranking weighs tool lines, puts an exact path before a whole repo, and dates Now items by their prompt | internal/searchindex:TestBM25HandComputed, internal/resume:TestSearchFindsSystemPagesByNameAndCode, internal/resume:TestSearchDatesANowItemByItsPrompt |
+| SRC-K17 | Pages are found by a file they cite or a folder holding it, and tokens split at camelCase and digits | internal/resume:TestSearchFindsSystemPagesByNameAndCode, internal/searchindex:TestTokenize, internal/searchindex:TestPrefixAndShortTokens |
+| SRC-K18 | Show ends a section as the page model does, caps a Timeline, and prints a full id where a short ref is ambiguous | internal/resume:TestShowSectionsSkipFencedHeadings, internal/resume:TestShowTimelineChoosesDateGroups, internal/resume:TestSearchPrintsTheFullIDForASharedPrefix, internal/resume:TestShowAcceptsFullSessionID |
+| SRC-K19 | Search tests run with and without the index and compare hits; segments are byte-flipped and fuzzed; no test depends on speed (untested: independence from speed) | internal/resume:TestSearchIndexAndScanAgree, internal/searchindex:TestSegmentByteFlips, internal/searchindex:FuzzSegmentReader |
+| SYS-K16 | The Unverified section is tagged unverified in search hits | internal/resume:TestSearchFindsSystemLines |
+| MCP-K05 | Everything returned is labelled as data and cleaned against forgery | internal/mcp:TestSearchFindsWhatShowOpens, internal/mcp:TestInstructions, internal/resume:TestSearchSnippetCannotStartALine |
+
 ## Since the split
 
 No change yet.

@@ -30,6 +30,32 @@ The blocks below are v1's design and verification text, moved here word for word
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| CAP-K10 | Off the record survives a missed hook: the control is honoured first, held in marker and record, and keeps compaction summaries out | internal/hook:TestMissedOffRecordHookPausesNextCapture, internal/hook:TestCompactionSummaryAfterOffRecordIsNotStored, internal/hook:TestCompactionSummaryAfterRecoveredOffRecordIsNotStored, internal/hook:TestDeferredRecoveryKeepsOnlyEventNames, internal/catchup:TestOffRecordMarksChatAsHavingBeenOff |
+| CAP-K16 | One writer a session: the session lock serializes hooks and transcript recovery | internal/session:TestTryLockTakesTheSessionsLockWithoutWaiting, internal/catchup:TestPruneLeavesTheRecordOfASessionAHookHolds |
+| CUP-K01 | Only a transcript a hook named is ever opened; the hosts' stores are never swept | internal/catchup:TestOpenTranscriptKeepsRecoverysRules, internal/catchup:TestRecordSaysWhyATranscriptIsMissing |
+| CUP-K02 | A transcript opens only by an absolute path named for the session, inside the host's store, as a regular singly linked file, following no link | internal/catchup:TestTranscriptPathAndReplacementRefused, internal/catchup:TestOpenTranscriptKeepsRecoverysRules, internal/catchup:TestInStoreFollowsSymlinks, internal/catchup:TestOpenUnregisteredKeepsRecoverysPathRules |
+| CUP-K03 | A Codex transcript's opening record must match the session and folder | internal/catchup:TestCodexFinalPhaseAndIdentity |
+| CUP-K04 | Device, inode and size are checked every pass, so a replaced or shrunk file is never read at a stale offset | internal/catchup:TestTranscriptPathAndReplacementRefused, internal/catchup:TestTranscriptTruncatedInPlaceStartsAgainAtItsEnd, internal/catchup:TestNewBaselineDropsTheBlindSpan |
+| CUP-K05 | A record control is read from raw text in every user row: beside an attachment, indented or punctuated, and in a row too large to decode | internal/catchup:TestControlBesideAttachmentIsHonoured, internal/catchup:TestIndentedPrivacyControlMissedByHook, internal/catchup:TestOversizedRowControlIsHonoured, internal/catchup:TestCtlTextMatchesRecordControl, internal/catchup:TestRowScanMatchesParser, internal/catchup:TestLongRowFindsARecordControl |
+| CUP-K06 | The off-the-record block is saved before the markers and asserted again; recovery never turns capture back on | internal/catchup:TestOffRecordMarksChatAsHavingBeenOff, internal/catchup:TestExplicitOffRecordIsMarked, internal/catchup:TestOversizedScanResumesAcrossPasses, internal/hook:TestMissedOffRecordHookPausesNextCapture |
+| CUP-K07 | Going off or back on the record moves the cursor to the transcript's end first, so nothing said off the record is recovered | internal/catchup:TestOffRecordCannotBeRecoveredAfterResume, internal/catchup:TestLargeBacklogDoesNotSkipPrivacyBoundary, internal/catchup:TestLaterChunkPrivacyStopsCurrentCaptureUntilRecovered |
+| CUP-K08 | A chat once off the record keeps its compaction summaries out | internal/hook:TestCompactionSummaryAfterRecoveredOffRecordIsNotStored, internal/catchup:TestOffRecordMarksChatAsHavingBeenOff |
+| CUP-K09 | A size limit never takes a chat off the record; it leaves a gap written before the cursor moves | internal/catchup:TestOversizedGapWrittenBeforeCursorMoves, internal/catchup:TestOversizedImageRowDoesNotStopCapture, internal/catchup:TestOversizedScanResumesAcrossPasses, internal/catchup:TestCodexOversizedRows |
+| CUP-K10 | Authorship by allowlist: only a typed Claude prompt is the person's; meta, sidechain, agent, compaction and synthetic rows never are | internal/catchup:TestHostRowsAreNeverUserPrompts, internal/catchup:TestClaudeCompactionSummariesAreNotUserPrompts, internal/catchup:TestRepeatedWordsWithoutTurnIDAndRetry |
+| CUP-K11 | Synthetic placeholders and API errors are not replies, and a program-run chat's prompts are never stored as the person's | internal/catchup:TestClaudeSyntheticAndAPIErrorRowsAreNotReplies, internal/catchup:TestHeadlessChatPromptsAreNotRecovered, internal/hook:TestHeadlessChatTranscriptPromptsAreNotRecovered |
+| CUP-K12 | Recovered rows are the main thread's, with no agent id, and are never filed under another project or branch | internal/catchup:TestRecoveredRowsCarryNoSubagentID, internal/catchup:TestCodexTurnInAnotherFolderDoesNotStopRecovery, internal/catchup:TestEventWithoutTranscriptStartsNewBaselineOnBranchChange |
+| CUP-K13 | No row can stop recovery for good: bounded tries then a gap, a redactor panic is a gap, progress saved each row | internal/catchup:TestSlowRowEscalatesToGap, internal/catchup:TestSlowRowTriesPerLevel, internal/catchup:TestRedactorPanicLeavesGap, internal/catchup:TestPauseKeepsFinishedRows, internal/catchup:TestLongRowsDoNotWedgeRecovery, internal/catchup:TestLongPromptRowNeverWedgesRecovery |
+| CUP-K14 | Recovery redacts with the union of the baseline and current rules | internal/catchup:TestBoundedRedactMatchesFullRedaction, internal/catchup:TestRedactorCleaningAndKeyMarkerReplicas |
+| CUP-K15 | Removing a capture removes the record that could bring it back, under the session lock, only if unchanged; a blocked record stays | internal/catchup:TestForgetKeepsRecoveryFromBringingBackARemovedCapture, internal/catchup:TestForgetKeepsARecordThatKeepsTheChatOffTheRecord, internal/catchup:TestPruneKeepsARecordSavedAgainAfterTheListing, internal/catchup:TestPruneKeepsARecordSavedBeforeItLocks, internal/catchup:TestPruneLeavesARecordThatAloneKeepsAChatOffTheRecord |
+| CUP-K16 | Format drift is detected and reported, and tests never depend on machine speed (untested: independence from speed) | internal/catchup:TestDriftSignal, internal/catchup:TestDriftNeedsBlindTurnsInARow, internal/catchup:TestDriftRecordFollowsTheDrift, internal/hook:TestOnlyStopsWithAReplyCountTowardDrift |
+
 ## Since the split
 
 No change yet.

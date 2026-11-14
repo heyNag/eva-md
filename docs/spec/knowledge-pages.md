@@ -125,6 +125,31 @@ Part of the [knowledge map](map.md).
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| RCL-K01 | Recall and pointers read local bounded files only, run no git, model or network, and inject nothing on an error (untested: no git, model or network, and p95 under 50 ms) | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates |
+| RCL-K02 | Anything injected is read strictly, by path, with no link, one hard link and a size bound; a rebuild replaces an index the readers refuse | internal/knowledgepage:TestReadIndexStrict, internal/hook:TestRecallNeedsTheIndex, internal/knowledgepage:TestRefreshRewritesAnIndexTheReadersRefuse |
+| RCL-K03 | Indexes are rebuildable caches written atomically under the wiki lock; pages are the truth | internal/knowledgepage:TestRefreshRepairs, internal/knowledgepage:TestSaveRebuildsAfterAFailedWrite, internal/knowledgepage:TestRefreshWithoutTheFolder |
+| RCL-K06 | Each recalled line carries its tag and the label says what the tags rest on | internal/hook:TestRecallLabelNamesTheTagsShown, internal/hook:TestRecallLineWithoutATag, internal/resume:TestLabelsSayWhatObservedRestsOn |
+| RCL-K07 | Scope is closed by default: own project and all-projects facts, another project only by its whole owner path | internal/knowledgepage:TestRecallScope, internal/knowledgepage:TestPromptNamesAProject, internal/knowledgepage:TestProjectName, internal/hook:TestRecallKeepsToTheChatsScope |
+| RCL-K08 | A weak match adds nothing, and a score does not grow with the index | internal/knowledgepage:TestRecallPrecision, internal/knowledgepage:TestRecallScoreHoldsAtEverySize, internal/knowledgepage:TestRecallRules, internal/hook:TestNamedPrecision |
+| RCL-K13 | Saving knowledge is idempotent, never reuses an id, leaves locked, verified and damaged pages alone, keeps a person's text and escapes free text | internal/knowledgepage:TestSaveIsIdempotent, internal/knowledgepage:TestIDsAreNeverReused, internal/knowledgepage:TestPagesEvaMdLeavesAlone, internal/knowledgepage:TestVerifiedForms, internal/knowledgepage:TestSupersedeKeepsWhatAPersonAdded, internal/knowledgepage:TestHostileTextIsEscaped |
+| PGS-K06 | Ids are never reused, past retired lines and pages | internal/threadpage:TestApplyIDsNeverReused, internal/threadpage:TestMaxIDSeesEveryPart, internal/knowledgepage:TestIDsAreNeverReused |
+| PGS-K07 | The same update applied twice changes nothing | internal/threadpage:TestApplyTwiceChangesNothing, internal/knowledgepage:TestSaveIsIdempotent |
+| PGS-K09 | A person's text is never lost: other sections kept byte for byte, locked, verified or unreadable pages never written | internal/threadpage:TestParseKeepsTimelineAndSections, internal/update:TestProtectedPagesAreSkipped, internal/update:TestConflictIsRetriedOnTheEditedPage, internal/knowledgepage:TestPagesEvaMdLeavesAlone, internal/knowledgepage:TestSupersedeKeepsWhatAPersonAdded |
+| PGS-K11 | The hot path reads a thread page to its Now's end and the recall index by path, refusing links | internal/resume:TestLongPageKeepsItsNow, internal/knowledgepage:TestReadIndexStrict, internal/hook:TestRecallNeedsTheIndex |
+| PGS-K12 | The recall index, the map and the indexes are caches rebuilt from the pages | internal/knowledgepage:TestRefreshRepairs, internal/knowledgepage:TestRefreshWithoutTheFolder, internal/knowledgepage:TestRefreshRebuildsALargeMap |
+| PGS-K13 | Another project's knowledge comes through a shared system page or by name; scope all needs the user's own words | internal/knowledgepage:TestRecallScope, internal/knowledgepage:TestPromptNamesAProject, internal/update:TestKnowledgeScope, internal/update:TestKnowledgeScopeOfASupersede |
+| PGS-K15 | Every supersede and drop of knowledge or a rule leaves a Timeline line and keeps its history | internal/knowledgepage:TestSupersedeAndDropKeepHistory, internal/update:TestPassWritesTheRulesPages, internal/update:TestSettleSkippedRules, internal/update:TestALockedRulesPageLeavesNoTimelineLine |
+| PGS-K16 | Model output is redacted again, and every line a knowledge save writes passes the commit's scan first | internal/update:TestValidateRedactsCapsAndEscapes, internal/update:TestKnowledgeSecretScan, internal/update:TestKnowledgeSecretScanPassesPlainText |
+| SYS-K15 | Sibling scope for recall comes from pages listing two or more repos | internal/systempage:TestReposIndex, internal/systempage:TestReposIndexGoesWithTheLastSharedPage, internal/hook:TestRecallKeepsToTheChatsScope |
+| EVL-K11 | Recall's precision-first floor and a score independent of index size are held in CI | internal/knowledgepage:TestRecallPrecision, internal/knowledgepage:TestRecallScoreHoldsAtEverySize |
+
 ## Since the split
 
 No change yet.

@@ -70,6 +70,10 @@ The blocks below are v1's design and verification text, moved here word for word
 
 <!-- /v1 -->
 
+## Must keep
+
+No must-keep item of [findings.md](../v2/findings.md) is this component's: it was built after the audit that listed what v1 must keep.
+
 ## Since the split
 
 No change yet.

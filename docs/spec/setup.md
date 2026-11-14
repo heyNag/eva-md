@@ -98,6 +98,25 @@ Then it looks before it asks, and asks only what it can't work out:
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| STO-K15 | The user's signing and sign-in settings are never changed, and a failed signature is not retried in a loop | internal/wikigit:TestDeclinedSignatureFails, internal/wikigit:TestMissingSignerFails, internal/wikiinit:TestSignatureFailureIsNotRetried |
+| STO-K16 | A commit the remote never had is shown before the first push | internal/wikiinit:TestBeforePush |
+| SET-K05 | A chosen repo is read from a temporary shallow copy, and a slow read is never taken for an empty repo | cmd/eva-md:TestPeekRemote, cmd/eva-md:TestPeekRemoteOutOfTime, cmd/eva-md:TestSetupUsesARepoWithContent |
+| SET-K06 | A missing wiki folder is never cloned again from an empty repo or another wiki | cmd/eva-md:TestSetupClonesAMissingWikiAgain, internal/wikiinit:TestInitKeepsTheConfiguredWikiOfAnEmptyRepo |
+| SET-K07 | Install's checks run before any wiki is made or pushed, and a failed install rolls back | cmd/eva-md:TestSetupStopsWhereInstallWouldRefuse, cmd/eva-md:TestSetupChecklistStopsAtTheFirstProblem, internal/install:TestPreflightNeedsNoConfig, internal/install:TestInterruptRollsBackInstall |
+| SET-K08 | The first commit's author and signing are shown before the first push; no force push, no retried signature or push | cmd/eva-md:TestSetupShowsTheFirstCommitBeforePushing, internal/wikiinit:TestBeforePush, internal/wikiinit:TestSignatureFailureIsNotRetried |
+| SET-K09 | Only a standalone clone at its root whose remotes name the requested one gets the scaffold, and only its paths are staged | internal/wikiinit:TestRefusals, internal/wikiinit:TestGitIgnoresInheritedRepository, cmd/eva-md:TestSetupRefusesAFolderThatIsAnotherClone |
+| SET-K10 | The wiki folder is not home, a protected or synced folder, or eva-md's own, judged through links and case; it is 0700 | internal/wikiinit:TestProtectedLocations, internal/wikiinit:TestCheckFolder, internal/wikiinit:TestInitAcceptsAFolderTypedInAnotherCase, cmd/eva-md:TestSetupRefusesProtectedFolderFlag |
+| SET-K11 | A rerun after a failed first commit resumes; .DS_Store is tolerated; a leftover save lock is removed first | cmd/eva-md:TestSetupResumesAWikiWhoseFirstCommitFailed, internal/wikiinit:TestRerunAfterFailedSignatureToleratesDSStore, internal/wikiinit:TestAFolderWithOnlyDSStoreIsEmpty, internal/wikiinit:TestAdoptionRemovesTheSavesLockFile |
+| SET-K19 | Setup makes no model call | none yet |
+| SET-K20 | Every time limit of setup is a variable tests raise once | none yet |
+
 ## Since the split
 
 No change yet.

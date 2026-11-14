@@ -132,6 +132,29 @@ Its own benchmark also supports eva-md's choice of search without a model. Plain
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| PRD-K01 | Hooks fail closed and stay fast: exit 0, panics contained, Codex Stop gets {}, no model or network (untested: no model or network, and the p95 targets) | internal/hook:TestMalformedMissingAndPanicOutput, internal/hook:TestDeadlinesAndNoLateCapture, internal/hook:TestRunOutOfTimeIsMarkedFailed |
+| PRD-K02 | Redaction before disk is the union of the baseline and current rules, fails closed, and runs again on model output and the staged diff | internal/redact:TestNoSecretVersion1Removed, internal/inbox:TestRedactionTruncationAndFailClosed, internal/update:TestValidateRedactsCapsAndEscapes |
+| PRD-K03 | The inbox is the word-for-word truth, append-only and private, never committed; the indexes are caches | internal/inbox:TestConcurrentAppend, internal/inbox:TestPermissionsAndRefs, internal/wikigit:TestLeavesOutWhatIsNeverCommitted |
+| PRD-K04 | Resume works with no model, from the inbox and live git | internal/resume:TestCrossHostStartupClearAndLineage, internal/hook:TestAutomaticCrossHostResumeAndOneFallback, cmd/eva-md:TestBriefAndShowCLIResumeAcrossHosts |
+| PRD-K05 | Provenance is enforced by code: speakers, dates and refs from entries, tags checked, other prompts never the user's | internal/update:TestValidateSpeakerTags, internal/update:TestValidateResolvesRefs, internal/update:TestPastedSpans |
+| PRD-K06 | The watermark moves only after a validated, synced save; compare-and-swap; history kept; protected pages never written | internal/update:TestSaveFailureKeepsTheWatermark, internal/update:TestKillMidSave, internal/okfadapter:TestConcurrentCreateAndCAS |
+| PRD-K07 | Injected memory is fenced and labelled as data, and cross-project recall is scoped | internal/resume:TestFence, internal/resume:TestFreeTextCannotForgeSpeakerHeaders, internal/knowledgepage:TestRecallScope |
+| PRD-K08 | Off the record, exclusions, markers only while recovery is behind, and an unreadable config captures nothing and says so | internal/hook:TestOffRecordAndResume, internal/hook:TestGuardsAndOrdering, internal/hook:TestDeferredRecoveryKeepsOnlyEventNames |
+| PRD-K09 | Update runs cannot recurse or use tools | internal/update:TestChildEnvironmentIsAnAllowlist, internal/update:TestRequestsThatCannotRunAreRefused, internal/update:TestClaudeArgumentsMatchTheDesign |
+| PRD-K10 | Instance and remote are checked on every write, commit and push; never a force or rewrite; signing unchanged; explicit staging with a scan | internal/update:TestWikiSchemaAndInstanceAreChecked, internal/wikigit:TestGuardsRefuse, internal/wikigit:TestDivergedRemoteIsLeftAlone |
+| PRD-K11 | Codex hook trust survives binary upgrades because the plugin folder stays byte-identical and calls a stable path | internal/install:TestBinaryOnlyReinstallKeepsCodexTrust, internal/install:TestPluginFolderBytes |
+| PRD-K12 | One hardened environment for every git call, and the identity cache that keeps capture fast | internal/wikigit:TestEveryGitDropsTheSameVariables, internal/resume:TestLiveGitRunsWithTheReadEnvironment, internal/hook:TestCaptureUsesIdentityCache |
+| PRD-K13 | A chat a program runs is told by its entrypoint, so automation never becomes the user | internal/hook:TestHeadlessChatPromptsAreHostPrompts, internal/catchup:TestHeadlessReadsTheRecord |
+| PRD-K14 | Tests never touch the real machine or depend on its speed; the fact scripts seed live evaluation (untested: the temporary home, and independence from speed) | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment, internal/update/accuracy:TestScripts |
+| PRD-K15 | Only eva's name shows, uninstall never removes the wiki, and destructive commands preview first | internal/install:TestUninstallAll, cmd/eva-md:TestUninstallPreviewRemovesNothing, cmd/eva-md:TestInboxClearPreviewsThenRemoves |
+
 ## Since the split
 
 No change yet.

@@ -159,6 +159,24 @@ Plugin `eva-md` in a separate marketplace folder, `~/.local/share/eva-md/marketp
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| MCP-K07 | Plugin folders hold no version or build id and render the same each time, so a binary-only release keeps Codex's trust | internal/install:TestPluginFolderBytes, internal/install:TestBinaryOnlyReinstallKeepsCodexTrust |
+| MCP-K08 | Plugins load in place: rendered again only when bytes change, swapped atomically, never deleted while installed | internal/install:TestBinaryOnlyReinstallKeepsCodexTrust, internal/install:TestUpgradeWhenTheHostRefusesToAddAnInstalledPlugin, internal/install:TestFailedUpgradeRestoresOldPluginBytes, internal/install:TestIncompleteRollbackKeepsLoadableFiles |
+| MCP-K09 | One marketplace folder a host, and the Codex manifest in the form that exposes hooks | internal/install:TestPluginFolderBytes, internal/host/adapter:TestPluginHoldsV1sValues |
+| MCP-K10 | Claude Code's hook command in exec form, Codex's a shell string that ends by printing {}, a context limit only where context returns | internal/install:TestGeneratedHookContracts, internal/install:TestPluginFolderBytes |
+| MCP-K11 | PostToolUse stays async on both hosts, and SessionEnd keeps within the host's fixed limit | internal/install:TestPluginFolderBytes |
+| MCP-K12 | The SessionStart matcher covers startup, resume, clear, compact and fork | internal/install:TestPluginFolderBytes |
+| MCP-K15 | eva-md never writes host settings and never grants Codex hook trust | internal/install:TestFirstInstallOnTheFakeHosts, internal/install:TestUpgradeFrom2026_11_5OnTheFakeHosts |
+| MCP-K17 | Only eva's name shows: the server, the tools and the plugin | cmd/eva-md:TestMCPCommand, internal/mcp:TestToolListIsFixedAndSmall, internal/install:TestPluginFolderBytes |
+| OPS-K05 | Plugin folders carry no version or date and are rewritten only when bytes change | internal/install:TestPluginFolderBytes, internal/install:TestBinaryOnlyReinstallKeepsCodexTrust |
+| OPS-K15 | Releases need main, green checks and an approval or signed tag; provenance is checked against one signer; actions are pinned | internal/release:TestReleaseChecksProvenanceAgainstOneSigner, internal/release:TestReleaseWorkflowPinsEveryAction, internal/release:TestReleaseCutWorkflowNeedsAnApproval, internal/release:TestReleaseStopsAtTheFirstFailedCheck, internal/release:TestReleasePlanStopsAtTheFirstFailedCheck |
+
 ## Since the split
 
 No change yet.

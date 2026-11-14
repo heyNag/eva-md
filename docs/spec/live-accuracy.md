@@ -103,6 +103,17 @@ Without the flag a run, or a replay, stops on a timeout.
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| EVL-K03 | Canned and live answers go through one loop over the production path | internal/update:TestAccuracyLiveRun, internal/update/accuracy/live:TestRunStops |
+| EVL-K05 | A refused answer costs, and host failures or a model fallback stop the run unjudged | internal/update/accuracy/live:TestARefusedAnswerCountsAgainstTheTarget, internal/update/accuracy/live:TestARefusalLeavesTheGuardUnjudged, internal/update/accuracy/live:TestRunCountsRefusedAnswers, cmd/live-accuracy:TestARejectedModelStopsTheRun, cmd/live-accuracy:TestAFailureStopsTheRun |
+| EVL-K06 | The live run needs its flags, states its calls first, uses a temporary home, and no release builds it | cmd/live-accuracy:TestRefusals, cmd/live-accuracy:TestNoReleaseBuildsIt, cmd/live-accuracy:TestOnlyItImportsTheSuite, cmd/live-accuracy:TestRun |
+
 ## Since the split
 
 **2026-11-14, ST-04b: the recording goes with a pages folder that cannot be made.**

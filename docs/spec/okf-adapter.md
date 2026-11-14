@@ -130,6 +130,39 @@ eva-md opens no issues or pull requests on okf. Each gap below is covered on top
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| STO-K01 | Page writes go through one boundary: no-clobber create, compare-and-swap on a hash, and no save that changes only the generated line | internal/okfadapter:TestCreateUpdateAndNoOp, internal/okfadapter:TestConcurrentCreateAndCAS, internal/okfadapter:TestCreateUpdateFailures |
+| STO-K02 | The wiki lock is a file lock in the state folder that a dead process cannot leave behind | internal/okfadapter:TestLockedHoldsTheLockAcrossWrites, internal/okfadapter:TestBusyLockReportsErrLockBusy, internal/wikigit:TestWikiLockIsTheAdapterLock |
+| STO-K03 | Temporary file, sync, rename and folder sync come before any watermark moves | internal/okfadapter:TestSIGKILLDuringSaveExcludesTemporaryFiles, internal/update:TestKillMidSave |
+| STO-K04 | No link is followed anywhere in a page's path; .git and control characters are refused; the root is checked again | internal/okfadapter:TestSymlinkAndPathProtections, internal/okfadapter:TestOpenedWikiRefusesReplacedRoot, internal/okfadapter:TestInitRefusesIndexSymlink, internal/okfadapter:TestCreateUpdateFailures |
+| STO-K05 | Hooks read bounded data: opening reads no page, and bounded reads stop at their limit | internal/okfadapter:TestReadMaxRefusesAPageOverItsLimit, internal/okfadapter:TestReadHeadStopsAtTheMarker |
+| STO-K06 | Writes that belong together land under one lock, and the commit stages under it too | internal/okfadapter:TestLockedHoldsTheLockAcrossWrites, internal/wikigit:TestBusyWhileAPageWriteHoldsTheWikiLock, internal/wikigit:TestWikiLockIsTheAdapterLock |
+| STO-K07 | Locked and verified pages are found in every YAML shape, and a body that smuggles frontmatter is refused before the save | internal/okfadapter:TestIsLocked, internal/okfadapter:TestIsVerified, internal/okfadapter:TestSmugglesFrontmatter, internal/okfadapter:TestBodyDelimiterRejection |
+| STO-K17 | Pages stay plain Markdown with small frontmatter that round-trips byte for byte | internal/okfadapter:TestMetadataGoldenRoundTrip, internal/okfadapter:TestFullFixtureWiki, internal/threadpage:TestPagesThroughOKF |
+| OKF-K01 | One package owns the page codec, and nothing else parses or writes frontmatter | none yet |
+| OKF-K02 | One wiki lock that the kernel frees when a process dies, and a way to hold it across writes | internal/okfadapter:TestLockedHoldsTheLockAcrossWrites, internal/okfadapter:TestBusyLockReportsErrLockBusy |
+| OKF-K03 | Create never overwrites, and an update compares the raw bytes' hash | internal/okfadapter:TestCreateUpdateAndNoOp, internal/okfadapter:TestConcurrentCreateAndCAS |
+| OKF-K04 | A save that would change only the timestamp is skipped | internal/okfadapter:TestCreateUpdateAndNoOp, internal/okfadapter:TestSaveWritesOnlyThePageAndTheLog |
+| OKF-K05 | Temporary file, sync, rename and a sync of every folder touched come before any watermark moves | internal/okfadapter:TestSIGKILLDuringSaveExcludesTemporaryFiles |
+| OKF-K06 | No link is followed on read or write, and the root must be a real folder with a regular index | internal/okfadapter:TestSymlinkAndPathProtections, internal/okfadapter:TestInitRefusesIndexSymlink, internal/okfadapter:TestOpenedWikiRefusesReplacedRoot |
+| OKF-K07 | Hooks read bounded data only | internal/okfadapter:TestReadMaxRefusesAPageOverItsLimit, internal/okfadapter:TestReadHeadStopsAtTheMarker |
+| OKF-K08 | A locked or verified page is never overwritten, and no agent write can add a verification | internal/okfadapter:TestIsLocked, internal/okfadapter:TestIsVerified, internal/knowledgepage:TestPagesEvaMdLeavesAlone, internal/update:TestProtectedPagesAreSkipped |
+| OKF-K09 | Unknown frontmatter keys, verified and sources survive an update | internal/okfadapter:TestMetadataGoldenRoundTrip, internal/okfadapter:TestSerializeIsWhatCreateSaves |
+| OKF-K10 | Pages save again byte for byte apart from generated, and no upgrade rewrites them | internal/okfadapter:TestMetadataGoldenRoundTrip, internal/okfadapter:TestFullFixtureWiki |
+| OKF-K11 | Page ids with control characters, traversal, deep nesting or reserved names are refused | internal/okfadapter:TestCreateUpdateFailures, internal/okfadapter:TestSymlinkAndPathProtections |
+| OKF-K12 | Every save carries a valid actor, host and model, with a safe fallback | internal/okfadapter:TestActorAndIndexLine |
+| OKF-K13 | Model text is escaped before saving, so it cannot forge markup | internal/threadpage:TestEscape, internal/threadpage:TestEscaperCorpusThroughOKF, internal/threadpage:TestRenderEscapesFreeText |
+| OKF-K14 | Index lines keep the OKF form, sorted and rebuilt, titles escaped | internal/okfadapter:TestActorAndIndexLine, internal/okfadapter:TestFullFixtureWiki |
+| OKF-K15 | Folders 0700, other files 0600, and errors in eva-md's own words with the errno kept | internal/okfadapter:TestPermissions, internal/okfadapter:TestSaveFailureNamesNoTemporaryFile, internal/okfadapter:TestSaveFailureNamesNoLockFile, internal/okfadapter:TestOkfFailure, internal/okfadapter:TestUnremovableOkfLock |
+| OKF-K16 | Pages stay OKF v0.2 conformant: frontmatter with a non-empty type | internal/okfadapter:TestFullFixtureWiki, internal/okfadapter:TestInitOpen |
+| OKF-K17 | The tests of a kill during a save and of concurrent writers are kept | internal/okfadapter:TestSIGKILLDuringSaveExcludesTemporaryFiles, internal/okfadapter:TestConcurrentCreateAndCAS, internal/okfadapter:TestLockedHoldsTheLockAcrossWrites |
+
 ## Since the split
 
 No change yet.
