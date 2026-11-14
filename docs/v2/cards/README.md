@@ -61,7 +61,7 @@ Rules every card carries, so they are said once here:
 | [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | merged |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | building since 2026-11-14 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
-| [HO-11](HO-11.md) | The install manifest | building since 2026-11-14 |
+| [HO-11](HO-11.md) | The install manifest | merged; its switch `install_manifest` stays off until HO-20 or HO-27 turns it on; HO-20's card starts from the rulings in its last section; the design owes its words, which wait for EV-10a's merge |
 | [HO-12a](HO-12a.md) | Health's host names through the adapter | merged; its latency is read from CI's `latency` job |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after DV-12b (HO-12a is merged) |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
