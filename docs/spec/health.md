@@ -118,6 +118,22 @@ Codex trust is stored in `~/.codex/config.toml`, which eva-md never reads or wri
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| CAP-K20 | Each event keeps its run history and a stamp for a run that captured nothing by design | internal/hook:TestHeartbeatsKeepTheLastRuns, internal/hook:TestUncapturedRunsStampTheTimeOnly, internal/hook:TestUncapturedStampIsWrittenInPlace, internal/hook:TestStampsWrittenAtOnceLeaveOneWhole, internal/health:TestCaptureFreshnessCountsTheUncapturedStamp |
+| OPS-K01 | Hosts are registered only through their own CLIs; host settings and trust records are never read or written | internal/install:TestFirstInstallOnTheFakeHosts, internal/install:TestInstallRunsTheAdaptersCommands, internal/health:TestTrustProtocolIsReadOnly |
+| OPS-K16 | The chat-start notice is bounded, local and content-free, reading only file tails | internal/health:TestQuickNoticeQuietWhenHealthy, internal/health:TestRecordsAreReadFromTheEnd, internal/health:TestQuickNoticeChecksOnlyOtherHost |
+| OPS-K17 | Capture freshness reads folder metadata within a bound, and the uncaptured stamp prevents false alarms | internal/health:TestCaptureFreshnessReadsLargeStores, internal/health:TestCaptureFreshnessCountsTheUncapturedStamp, internal/health:TestCaptureFreshnessReadsCodexsNewestDays |
+| OPS-K18 | The trust notice clears only on a real, newer Codex chat start, and the running hook is not warned | internal/health:TestTrustNoticeRejectsSpoofedHeartbeatAndFlag, internal/health:TestFirstTrustedCodexChatHasNoTrustNotice |
+| OPS-K19 | The trust probe is read-only, wants exactly 7 events and no duplicate or diagnostic, each host on its own budget | internal/health:TestTrustProtocolIsReadOnly, internal/health:TestPartialTrustIsNotSevenEvents, internal/health:TestDuplicateAndDiagnosticsNeverPassTrust, internal/health:TestStalledInventoryDoesNotHideTrust |
+| OPS-K20 | status never writes; the doctor repairs only derived indexes, under the wiki lock, in a wiki of this instance | internal/health:TestStatusLeavesTheCodeStatus, internal/health:TestStatusLeavesTheKnowledgeIndex, internal/health:TestStatusLeavesTheNamesIndex, internal/health:TestDoctorWritesTheNamesIndexAgain, internal/health:TestDoctorWithTheWikiBusy |
+| OPS-K21 | Only eva's name is shown, and counts rather than captured content | internal/health:TestFieldReportHoldsNoText, internal/hook:TestRecordsHoldNoContent, internal/update:TestRunLogHoldsNoEntryText |
+
 ## Since the split
 
 No change yet.

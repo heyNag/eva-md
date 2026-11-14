@@ -19,11 +19,11 @@ Every bold bullet title, in its order, beside the file that now holds it:
 | --- | --- |
 | Redaction | [spec/redaction.md](spec/redaction.md) |
 | Transcript recovery | [spec/catchup.md](spec/catchup.md) |
-| Hooks | [spec/hooks.md](spec/hooks.md) |
+| Hooks | [spec/hooks-checks.md](spec/hooks-checks.md) |
 | Resume briefs | [spec/brief.md](spec/brief.md) |
 | Search | [spec/search.md](spec/search.md) |
 | Search index | [spec/search-index.md](spec/search-index.md) |
-| Removing captured chats | [spec/inbox.md](spec/inbox.md) |
+| Removing captured chats | [spec/inbox-clear.md](spec/inbox-clear.md) |
 | Show by section | [spec/search.md](spec/search.md) |
 | Install | [spec/install.md](spec/install.md) |
 | Releases, install, upgrade and uninstall | [spec/releases.md](spec/releases.md) |
@@ -32,10 +32,10 @@ Every bold bullet title, in its order, beside the file that now holds it:
 | Thread pages | [spec/wiki-format.md](spec/wiki-format.md) |
 | Update input and validator | [spec/update-checks.md](spec/update-checks.md) |
 | Accuracy suite | [spec/update-checks.md](spec/update-checks.md) |
-| Headless runners | [spec/update-model.md](spec/update-model.md) |
+| Headless runners | [spec/update-runners.md](spec/update-runners.md) |
 | Live accuracy run | [spec/live-accuracy.md](spec/live-accuracy.md) |
-| Update job | [spec/update-job.md](spec/update-job.md) |
-| Update job, later fixes | [spec/update-job.md](spec/update-job.md) |
+| Update job | [spec/update-job-checks.md](spec/update-job-checks.md) |
+| Update job, later fixes | [spec/update-job-checks.md](spec/update-job-checks.md) |
 | Standing rules and pasted text | [spec/wiki-format.md](spec/wiki-format.md) |
 | System pages | [spec/system-pages.md](spec/system-pages.md) |
 | Prompt pointers | [spec/system-pages.md](spec/system-pages.md) |
@@ -43,7 +43,7 @@ Every bold bullet title, in its order, beside the file that now holds it:
 | Prompt recall | [spec/knowledge-pages.md](spec/knowledge-pages.md) |
 | Code refs and staleness | [spec/code-refs.md](spec/code-refs.md) |
 | MCP server | [spec/mcp-server.md](spec/mcp-server.md) |
-| Program-run chats, tool lines and hook failures | [spec/hooks.md](spec/hooks.md) |
+| Program-run chats, tool lines and hook failures | [spec/hooks-checks.md](spec/hooks-checks.md) |
 | Daily commit, push and lint | [spec/commit.md](spec/commit.md) |
 | Verified pages and okf's body rule | [spec/okf-adapter.md](spec/okf-adapter.md) |
 | log.md | [spec/okf-adapter.md](spec/okf-adapter.md) |

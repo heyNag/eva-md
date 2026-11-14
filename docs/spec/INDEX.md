@@ -17,9 +17,12 @@ A spec's `## Since the split` says what later packages changed; [the decision re
 | [field-report.md](field-report.md) | init / install / uninstall / doctor: the field report | `internal/health` | v1 as built, frozen on 2026-11-14 |
 | [health.md](health.md) | init / install / uninstall / doctor: the doctor | `internal/health` | v1 as built, frozen on 2026-11-14 |
 | [hooks.md](hooks.md) | Hook dispatcher | `internal/hook` | v1 as built, frozen on 2026-11-14 |
+| [hooks-checks.md](hooks-checks.md) | Hook dispatcher: its offline checks | `internal/hook` | v1 as built, frozen on 2026-11-14 |
 | [hosts.md](hosts.md) | The hosts: what is observed and what is not | `internal/host/adapter` | v1 as built, frozen on 2026-11-14 |
 | [identity.md](identity.md) | Identity resolver | `internal/identity` | v1 as built, frozen on 2026-11-14 |
 | [inbox.md](inbox.md) | Inbox store | `internal/inbox`, `cmd/eva-md/inbox.go` | v1 as built, frozen on 2026-11-14 |
+| [inbox-clear.md](inbox-clear.md) | Inbox store: removing captured chats | `internal/inbox`, `cmd/eva-md/inbox.go` | v1 as built, frozen on 2026-11-14 |
+| [install-design.md](install-design.md) | init / install / uninstall / doctor: install and uninstall, as designed | `internal/install`, `cmd/eva-md/uninstall.go` | v1 as built, frozen on 2026-11-14 |
 | [install.md](install.md) | init / install / uninstall / doctor: install and uninstall | `internal/install`, `cmd/eva-md/uninstall.go` | v1 as built, frozen on 2026-11-14 |
 | [knowledge-pages.md](knowledge-pages.md) | Knowledge pages | `internal/knowledgepage`, `internal/hook/recall.go` | v1 as built, frozen on 2026-11-14 |
 | [live-accuracy.md](live-accuracy.md) | The live accuracy run (a developer's command) | `cmd/live-accuracy`, `internal/update/accuracy/live` | v1 as built, frozen on 2026-11-14 |
@@ -43,7 +46,9 @@ A spec's `## Since the split` says what later packages changed; [the decision re
 | [testing.md](testing.md) | The test suite | `cmd/eva-md`, `internal` | v1 as built, frozen on 2026-11-14 |
 | [update-checks.md](update-checks.md) | Updater and validator: their offline checks | `internal/update`, `internal/update/accuracy` | v1 as built, frozen on 2026-11-14 |
 | [update-job.md](update-job.md) | Updater: the job | `internal/update`, `cmd/eva-md/update.go` | v1 as built, frozen on 2026-11-14 |
+| [update-job-checks.md](update-job-checks.md) | Updater: the job's offline checks | `internal/update`, `cmd/eva-md/update.go` | v1 as built, frozen on 2026-11-14 |
 | [update-model.md](update-model.md) | Updater: input, model selection and output | `internal/update` | v1 as built, frozen on 2026-11-14 |
+| [update-runners.md](update-runners.md) | Updater: the headless runners' offline checks | `internal/update` | v1 as built, frozen on 2026-11-14 |
 | [update-triggers.md](update-triggers.md) | Updater: triggers and job control | `internal/update`, `internal/hook/trigger.go`, `internal/hook/spawn.go` | v1 as built, frozen on 2026-11-14 |
 | [validator.md](validator.md) | Validator | `internal/update/validate.go` | v1 as built, frozen on 2026-11-14 |
 | [wiki-format.md](wiki-format.md) | Renderer + okf adapter: the renderer, and the wiki's layout | `internal/threadpage`, `internal/wikiinit` | v1 as built, frozen on 2026-11-14 |

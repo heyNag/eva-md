@@ -37,7 +37,7 @@ Every heading this file had, in its order, beside the file that now holds it, so
 | Background update | [spec/update-job.md](spec/update-job.md) |
 | Daily commit and push | [spec/commit.md](spec/commit.md) |
 | Setup and init of a new wiki | [spec/setup.md](spec/setup.md) |
-| Install and uninstall | [spec/install.md](spec/install.md) |
+| Install and uninstall | [spec/install-design.md](spec/install-design.md) |
 | The install scripts and upgrade | [spec/releases.md](spec/releases.md) |
 | Health check | [spec/health.md](spec/health.md) |
 | Field report | [spec/field-report.md](spec/field-report.md) |

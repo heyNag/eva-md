@@ -28,6 +28,18 @@ The blocks below are v1's design and verification text, moved here word for word
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+An item that tests hold only in part ends with what of it no test holds, as `(untested: ...)`.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| SET-K14 | Identity fails closed: a git failure never falls back to the general area | internal/identity:TestCorruptRepositoryFailsClosed, internal/identity:TestResolveNamesTheStatusGitExitedWith |
+| SET-K15 | Read-only git is hardened and bounded, with a short limit | internal/identity:TestGitReadDeadlineAndHardening, internal/identity:TestGitDoesNotRunFSMonitor, internal/identity:TestGitEnvTurnsLazyFetchesOff, internal/identity:TestGitOutputIsBounded, internal/identity:TestGitTraceChangesNothing |
+| SET-K16 | Distinct remotes keep distinct keys, token-like keys are hashed, and the cache derives keys under today's rules | internal/identity:TestDistinctRemotesHaveDistinctKeys, internal/identity:TestTokenLikeNamesGetPlainKeys, internal/identity:TestCacheKeyFollowsTheRedactionRules |
+| SET-K17 | The identity cache is used only on an unchanged fingerprint and is checked against real git | internal/identity:TestCacheDifferential, internal/identity:TestCacheInvalidation, internal/identity:TestCacheBadEntriesFallBack, internal/identity:TestCacheHitStartsNoGit |
+
 ## Since the split
 
 No change yet.
