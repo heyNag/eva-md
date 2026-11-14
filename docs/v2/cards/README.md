@@ -62,7 +62,7 @@ Rules every card carries, so they are said once here:
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | building since 2026-11-14 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | building since 2026-11-14 |
-| [HO-12a](HO-12a.md) | Health's host names through the adapter | ready; after DV-12b, which adds a file to the same package |
+| [HO-12a](HO-12a.md) | Health's host names through the adapter | building since 2026-11-14, beside DV-12b, which adds two files to the same package: the later of the two to merge brings them under this card's work |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
@@ -98,7 +98,7 @@ Rules every card carries, so they are said once here:
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; EV-17f adds the check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03); it also settles grading as another user and the build cache grading uses (EV-17g checks a chat's reach for hidden files) |
 | [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | building since 2026-11-14; two reviewers; its first run on a real release is the owner's next cut |
-| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | ready, since the counters release is cut (2026.11.13); after DV-12b, which changes two of its files |
+| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | building since 2026-11-14, beside DV-12b, which changes a line in each of two of its files; while it builds nothing else edits `docs/design.md`, `docs/verification.md` or `docs/decisions.md` |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
 
 SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner. A fifth part, e, was added after one run of CI failed in a way its log could not explain: it makes the death of a git child by a signal say which signal.
