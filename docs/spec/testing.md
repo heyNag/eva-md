@@ -142,8 +142,8 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| EVL-K07 | Tests run in a temporary home with the environment's git configuration cleared, never on the real machine (untested: the temporary home) | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment |
-| EVL-K08 | Tests never depend on machine speed, and a latency gate lives outside go test | none yet |
+| EVL-K07 | Tests run in a temporary home with the environment's git configuration cleared, never on the real machine (untested: a home read by code a test runs, or by a test before it sets one) | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment, internal/spec:TestTestsRunInATemporaryHome |
+| EVL-K08 | Tests never depend on machine speed, and a latency gate lives outside go test (untested: timing other than sleeps and limits) | internal/spec:TestEveryTimeLimitIsRaised, internal/spec:TestSleepsAndSkipsArePinned, check:scripts/benchmark.py, check:scripts/bench/test_gate.py |
 | EVL-K15 | The parsers have fuzzers: the row scan, the segment reader, the page parse and scan | internal/catchup:FuzzRowScan, internal/searchindex:FuzzSegmentReader, internal/threadpage:FuzzParse, internal/threadpage:FuzzScanner |
 
 ## Since the split

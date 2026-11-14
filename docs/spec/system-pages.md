@@ -87,7 +87,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| RCL-K01 | Recall and pointers read local bounded files only, run no git, model or network, and inject nothing on an error (untested: no git, model or network, and p95 under 50 ms) | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates |
+| RCL-K01 | Recall and pointers read bounded local files; no git, model or network; nothing injected on error (untested: a program started by its full path) | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates, internal/hook:TestHooksStartNothingOutside, check:scripts/benchmark.py |
 | RCL-K05 | A line the secret scan flags, or that cleaning would change, is dropped, never altered | internal/hook:TestRecallBlockFits, internal/hook:TestPointerFits, internal/resume:TestPointersAreCleanedAsWikiText |
 | RCL-K09 | A page is not sent twice in a chat, nor at all if the brief listed it; a startup or clear starts over | internal/hook:TestPromptRecallsKnowledge, internal/hook:TestRecallSkipsTheBriefsConstraints, internal/hook:TestClearRecallsAgain, internal/hook:TestPointersSkipTheBriefsPages, internal/hook:TestClearStartsTheStateOver |
 | RCL-K14 | A pointer never names a page that is gone, and a code note shows only when measured at the cited commits | internal/hook:TestPointersNeedTheIndex, internal/hook:TestPointerCarriesTheCodeNote, internal/hook:TestPromptNoteFromAPass |
@@ -102,7 +102,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 | SYS-K13 | A write checks each cited path exists at its commit, never waiting on a clone | internal/systempage:TestWriteChecksCodeInAClone |
 | SYS-K15 | Sibling scope for recall comes from pages listing two or more repos | internal/systempage:TestReposIndex, internal/systempage:TestReposIndexGoesWithTheLastSharedPage, internal/hook:TestRecallKeepsToTheChatsScope |
 | SYS-K16 | The Unverified section is tagged unverified in search hits | internal/resume:TestSearchFindsSystemLines |
-| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed | none yet |
+| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed (untested: bounds held in constants, and other timing) | internal/spec:TestEveryTimeLimitIsRaised, internal/spec:TestSleepsAndSkipsArePinned |
 
 ## Since the split
 

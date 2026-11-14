@@ -87,11 +87,11 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| EVL-K07 | Tests run in a temporary home with the environment's git configuration cleared, never on the real machine (untested: the temporary home) | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment |
-| EVL-K08 | Tests never depend on machine speed, and a latency gate lives outside go test | none yet |
+| EVL-K07 | Tests run in a temporary home with the environment's git configuration cleared, never on the real machine (untested: a home read by code a test runs, or by a test before it sets one) | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment, internal/spec:TestTestsRunInATemporaryHome |
+| EVL-K08 | Tests never depend on machine speed, and a latency gate lives outside go test (untested: timing other than sleeps and limits) | internal/spec:TestEveryTimeLimitIsRaised, internal/spec:TestSleepsAndSkipsArePinned, check:scripts/benchmark.py, check:scripts/bench/test_gate.py |
 | EVL-K11 | Recall's precision-first floor and a score independent of index size are held in CI | internal/knowledgepage:TestRecallPrecision, internal/knowledgepage:TestRecallScoreHoldsAtEverySize |
-| EVL-K13 | macOS is the run of record, and a failure seen only on Linux is reported, never patched around | none yet |
-| EVL-K14 | CI's actions are pinned by commit and its token is read-only (untested: the read-only token) | internal/release:TestReleaseWorkflowPinsEveryAction |
+| EVL-K13 | macOS is the run of record, and a failure seen only on Linux is reported, never patched around (untested: the reporting) | internal/release:TestCIIsTheRunOfRecord |
+| EVL-K14 | CI's actions are pinned by commit and its token is read-only | internal/release:TestReleaseWorkflowPinsEveryAction, internal/release:TestCIIsTheRunOfRecord |
 
 ## Since the split
 

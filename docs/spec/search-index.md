@@ -99,9 +99,9 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 | SRC-K09 | Cache writes are crash-safe: synced temporary files, the manifest last, retired segments kept for readers, checksums, a free-space check | internal/searchindex:TestManifestBoundsAndLeftovers, internal/searchindex:TestPruneKeepsRecentSegments, internal/searchindex:TestSegmentByteFlips, internal/searchindex:TestFreeSpaceRefusal, internal/searchindex:TestConcurrentAppendersAndIndexer |
 | SRC-K10 | A replaced or rewritten file is seen by its generation, inode and line ends | internal/resume:TestSearchDeadAndStaleFiles, internal/resume:TestSearchRewrittenFileShowsEachLineOnce, internal/searchindex:TestMergeDropsDeadGenerations |
 | SRC-K11 | Clearing chats holds the index folders and drops each cleared project's index | internal/searchindex:TestHoldDropsAFoldersIndexWhole, internal/searchindex:TestHoldIsBusyWhileAWriterHoldsAFolder |
-| SRC-K12 | Hooks never read or write the index, and the MCP search writes no file and takes no lock (untested: the hooks' half) | internal/mcp:TestServerWritesNothing |
+| SRC-K12 | Hooks never read or write the index, and the MCP search writes no file and takes no lock | internal/mcp:TestServerWritesNothing, internal/hook:TestHooksIgnoreTheSearchIndex |
 | SRC-K17 | Pages are found by a file they cite or a folder holding it, and tokens split at camelCase and digits | internal/resume:TestSearchFindsSystemPagesByNameAndCode, internal/searchindex:TestTokenize, internal/searchindex:TestPrefixAndShortTokens |
-| SRC-K19 | Search tests run with and without the index and compare hits; segments are byte-flipped and fuzzed; no test depends on speed (untested: independence from speed) | internal/resume:TestSearchIndexAndScanAgree, internal/searchindex:TestSegmentByteFlips, internal/searchindex:FuzzSegmentReader |
+| SRC-K19 | Search tests run with and without the index and compare hits; segments are byte-flipped and fuzzed; no test depends on speed (untested: timing other than sleeps and limits) | internal/resume:TestSearchIndexAndScanAgree, internal/searchindex:TestSegmentByteFlips, internal/searchindex:FuzzSegmentReader, internal/spec:TestEveryTimeLimitIsRaised, internal/spec:TestSleepsAndSkipsArePinned |
 
 ## Since the split
 

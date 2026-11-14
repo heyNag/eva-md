@@ -95,9 +95,9 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| CAP-K18 | Capture p95 under 50 ms and the brief under 300 ms, checked by the benchmark | none yet |
-| EVL-K09 | The benchmark is isolated and checks what the hooks do as well as how fast | none yet |
-| EVL-K10 | Capture p95 under 50 ms, the startup brief under 300 ms, a prompt under 50 ms and SessionEnd under 200 ms | none yet |
+| CAP-K18 | Capture p95 under 50 ms and the brief under 300 ms, checked by the benchmark | check:scripts/benchmark.py, internal/spec:TestTheBenchmarkHoldsTheSpecsTargets |
+| EVL-K09 | The benchmark is isolated and checks what the hooks do as well as how fast | check:scripts/benchmark.py, internal/spec:TestTheBenchmarkHoldsTheSpecsTargets |
+| EVL-K10 | Capture p95 under 50 ms, the startup brief under 300 ms, a prompt under 50 ms and SessionEnd under 200 ms | check:scripts/benchmark.py, check:scripts/bench/test_gate.py, internal/spec:TestTheBenchmarkHoldsTheSpecsTargets |
 
 ## Since the split
 

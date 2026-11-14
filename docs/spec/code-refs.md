@@ -93,7 +93,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 | SYS-K11 | Unchanged is never claimed for a path the commit lacks or with nothing counted, and a status at other commits is ignored | internal/coderef:TestAPathTheCommitLacks, internal/coderef:TestMovementSince, internal/coderef:TestStatus, internal/resume:TestBriefTakesNoCountTheStatusCantMeasure |
 | SYS-K12 | The code status is local, private, read without links within a bound, and holds no subject; a printed subject is redacted and cut | internal/coderef:TestSaveLoadMerge, internal/coderef:TestLast |
 | SYS-K13 | A write checks each cited path exists at its commit, never waiting on a clone | internal/systempage:TestWriteChecksCodeInAClone |
-| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed | none yet |
+| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed (untested: bounds held in constants, and other timing) | internal/spec:TestEveryTimeLimitIsRaised, internal/spec:TestSleepsAndSkipsArePinned |
 
 ## Since the split
 

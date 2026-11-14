@@ -140,7 +140,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| BRF-K01 | The brief needs no model or network; any failure gives no context and the hook still exits 0 (untested: no model or network) | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/hook:TestSessionStartBudgetAndMarkerErrors |
+| BRF-K01 | The brief needs no model or network; any failure gives no context and the hook still exits 0 (untested: a program started by its full path) | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/hook:TestSessionStartBudgetAndMarkerErrors, internal/hook:TestHooksStartNothingOutside, internal/hook:TestHooksInAGitProjectOnlyReadGit, internal/hook:TestHooksInAPartialCloneFetchNothing, internal/hook:TestHookLinksNothingThatConnects |
 | BRF-K04 | Off-the-record ranges leave the brief, and no brief comes while a chat is off the record or its transcript is unread | internal/resume:TestGeneralAgeScopeOffRecordAndFailure, internal/resume:TestOpeningRequestFromHeadRead, internal/hook:TestCompactResumeAndOffRecordSuppression, internal/hook:TestOffRecordAndResume |
 | BRF-K07 | Another branch's Now comes only as labelled lineage at a startup or clear, never on a resume, fork or compact | internal/resume:TestResumeNeverInjectsAnotherBranchNow, internal/resume:TestResumeReportsLiveGitWithoutAnotherBranchPage, internal/resume:TestStartupLineageNowNamesItsBranch, internal/resume:TestStartupKeepsOwnBranchNow, internal/resume:TestCompactDoesNotBorrowAnotherSession |
 | BRF-K13 | A brief not delivered is given again with the next prompt | internal/hook:TestBriefTooCloseToDeadlineIsRetried, internal/hook:TestDeliveryRecordsTheFirstPromptFallback |
