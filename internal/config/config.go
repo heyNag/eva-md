@@ -83,7 +83,7 @@ type Config struct {
 	// spend a day while the update's switch token_budget is on: uncached
 	// input, plus cached input at a tenth, plus output at five times. 0, or
 	// absent, is DefaultDailyTokenBudget.
-	DailyTokenBudget int64 `toml:"daily_token_budget,omitempty"`
+	DailyTokenBudget int64 `toml:"daily_token_budget,omitzero"`
 	// ReminderEvery spaces the one-line memory reminder the prompt hook adds:
 	// on a chat's first prompt, then every ReminderEvery prompts. Default 5;
 	// 0 turns it off.
