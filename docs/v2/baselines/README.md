@@ -279,8 +279,14 @@ The third round's rule is the gate's from run 160, the push that merged it, and 
 | 182 | 02aed0d | not judged |
 | 183 | c2ca020 | not judged |
 | 184 | 9e06c2e | not judged |
+| 185 | 5447fa1 | not judged |
+| 186 | 234de46 | pass |
+| 187 | 8125166 | not judged |
+| 188 | 1c17786 | not judged |
+| 189 | ae62e22 | not judged |
+| 190 | 03d6553 | not judged |
 
-Of these twenty-five runs the rule judged one: run 180, which began timing at a load of 8.0 and passed, with one figure too noisy to judge. Its push changed files under `cmd/` and `internal/`, all of them the evaluation's, which the binary does not hold; by the rule above it counts neither way, so the count stands at 0. The other twenty-four were too noisy to judge. The test jobs of runs 175 and 182 to 184 were cancelled by their own time limits, which says nothing of the gate: its job ran and gave its artifact each time.
+Of these thirty-one runs the rule judged two. Run 180 began timing at a load of 8.0 and passed, with one figure too noisy to judge; its push changed files under `cmd/` and `internal/`, all of them the evaluation's, which the binary does not hold, so by the rule above it counts neither way. Run 186 began at a load of 3.0 and passed; its push changed a workflow and a document only, so it counts, and the count stands at 1. The other twenty-nine were too noisy to judge. The test jobs of runs 175 and 182 to 184 were cancelled by their own time limits, and those of runs 185 to 187 failed on go test's ten minutes for a package, which says nothing of the gate: its job ran and gave its artifact each time.
 
 ## What the counters cost
 
