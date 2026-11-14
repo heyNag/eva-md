@@ -29,10 +29,6 @@ type wfJob struct {
 // plainKey is a node with a plain key, and the value after it.
 var plainKey = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.$/-]*:(?:\s+(.*)|$)`)
 
-// yamlComment is where a comment that ends a line starts: a # after a space or
-// a tab.
-var yamlComment = regexp.MustCompile(`[ \t]#`)
-
 // jobID is a job's key, as GitHub names jobs.
 var jobID = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
@@ -44,9 +40,8 @@ var blockScalar = regexp.MustCompile(`^[|>](?:[1-9][-+]?|[-+][1-9]?)?$`)
 // col is the column of its key, past the dashes of the sequence entries it
 // opens, or for an entry with no key the column of its last dash (its
 // indent when it has none); value is what follows the key, or the entry's
-// scalar, with a comment that ends the line taken off: one that starts the
-// node, or a # after a space or a tab. A key is plain letters, digits and
-// _ . $ / -, then a colon and a space or the line's end.
+// scalar, with a comment that ends the line taken off. A key is plain
+// letters, digits and _ . $ / -, then a colon and a space or the line's end.
 func node(line string) (col int, value string) {
 	rest := strings.TrimLeft(line, " ")
 	col = len(line) - len(rest)
@@ -57,10 +52,8 @@ func node(line string) (col int, value string) {
 		col += len(rest) - len(after)
 		rest = after
 	}
-	if strings.HasPrefix(rest, "#") {
-		rest = ""
-	} else if m := yamlComment.FindStringIndex(rest); m != nil {
-		rest = rest[:m[0]]
+	if i := strings.Index(rest, " #"); i >= 0 {
+		rest = rest[:i]
 	}
 	rest = strings.TrimSpace(rest)
 	if m := plainKey.FindStringSubmatch(rest); m != nil {
