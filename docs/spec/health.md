@@ -136,4 +136,18 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 ## Since the split
 
-No change yet.
+**2026-11-14, HO-12b: each stage's lag beside its bar, the counted losses and a verdict, behind a switch that is off.**
+With `[switches] health = true`, `eva-md status` and `eva-md doctor` add a row for each stage's lag and for each host's counted losses, and print a verdict first; off, the default, every row and exit code is v1's.
+A lag runs from the oldest thing still waiting at its stage, never from a file's date.
+Capture lags from the host's newest hook run, or its install when that is newer, while its chat folder holds a chat newer than that by more than 5 minutes.
+Organizing lags from the oldest entry past its session's watermark in every session file of the inbox, and past its bar gives the worker's reason for the host's oldest waiting work.
+The commit lags from the oldest update that saved pages after the newest commit run that committed or found nothing, and the push from the oldest commit run whose push has not succeeded since, each while git counts something waiting.
+The bars are 5 minutes, 5 minutes, 24 hours and 10 minutes, and the budgets 1 hour, 24 hours, 48 hours and 72 hours.
+A stage's row passes within its budget, saying "past its bar" past the bar, fails past the budget, and is UNKNOWN only when its evidence can't be read, saying which.
+A stage whose work is off, as the capture of a host eva-md is not installed for, organizing with `updates = false`, and the commit and push with `commits = false`, shows its lag, is held to no budget, and is named apart in the verdict.
+The losses row counts, over 7 days, the prompts, replies and tool lines a host's hooks held back or kept as a name only, of its hook runs, and the closed turns with a prompt and no stored reply, of its closed turns; a count it could not finish is said to be a floor.
+A loss past 0.5% fails its row and leaves none of that host's capture lag, capture freshness or hook failures rows, nor the hooks held back row, PASS.
+A host with no chat and no hook run in 14 days, and no install in the last day, has one PASS row in place of all its rows.
+The verdict is a counted loss past its bar, else the stage furthest past its bar by lag over bar, with its lag, bar and reason, else that every stage is within its bar; the report's JSON carries it as `verdict`.
+The search index row of an index that covers less than all of the inbox ends "; search scans the rest".
+Status with the switch on still writes nothing, starts no host command and makes no network call.

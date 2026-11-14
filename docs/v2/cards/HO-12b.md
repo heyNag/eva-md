@@ -48,3 +48,23 @@ cmd/eva-md/commands.go
 - A loss just past its bar leaves no capture row of that host PASS and leads the verdict; at the bar it does not.
 - Verdict goldens: all within bars; organizing furthest with each of `work.Status`'s six reasons from a fake job; commit furthest.
 - `status` writes nothing: the state folder and the wiki are the same before and after, by test. No host command or network call is made, and a marker planted in inbox entries appears in no row or verdict.
+
+## As merged
+
+Merged on 2026-11-14 from `pkg/ho-12b-r1`, after one review (contract: one major, four minor, all mended) and a verification that accepted it with two minor points, which the lead mended in the merge (a session not changed in the 7 days is no longer counted as unread when the check's time runs out; a test holds the push stage off with `commits = false`). Behind the switch `health`, off by default; off, v1's goldens pass byte for byte and no existing test changed.
+
+**What part c starts from.** `Stage` has three fields beyond this card's list: `Unread` (what evidence could not be read: the row is UNKNOWN), `Notes` (what is counted apart) and `Off` (the stage's work is off by the owner's choice: capture of a host eva-md is not installed for, organizing with `updates = false`, the commit and push with `commits = false`). An off stage shows its lag, is held to no budget, never fails and is never the verdict's furthest stage: part c raises no condition from one. `unusedHost` in `verdict.go` is how a host is counted as used or not. `newestClaudeChat` in `watchdog.go` takes its window as a parameter; the hook's call passes v1's 24 hours.
+
+**The lead's rulings.**
+
+- A counted loss past its bar turns the host's capture rows to FAIL, as built, not UNKNOWN: status and doctor exit 1 while the loss lasts, since a loss is what the rows exist to show.
+- With `commits = false` or `updates = false` the stages are shown and held to no budget, as the fixer built them: a configuration a person chose is not a failure for good.
+- Organizing whose reason is that the owner paused the host or excluded a project is still held to its budget, as the verdict's golden for that reason has it; only the config switches and a missing install make a stage off.
+- A host eva-md is not installed for, but in use, keeps its rows, and its capture lag reads "not measured", as v1's capture freshness is UNKNOWN there.
+- A brief held back is a delivery and no capture loss; a turn the host failed or that was interrupted is closed and no loss; without a wiki there are no organizing, commit or push rows; a host nobody uses loses all its rows, its organizing lag included (docs/known-limitations.md says so).
+- The commit lag falls back to the last commit run when no update that saved pages is on record after it, and the push lag to the last good push; with neither on record the row is UNKNOWN. The commit stage reads at most 62 days of the run log, by calendar date.
+- Each host has a row of its own for the losses, `<host> capture losses`, which the card did not name.
+
+**Known and left.** The printing of the verdict in `cmd/eva-md/commands.go` has no test: the paths block held no test file of the command. `TestStagesAndWhatTheyCannotRead` fails for root by design, as three of the package's older tests do. The Busy exclusion in `wikiStages` can change no result (wikigit writes every busy record with its push skipped), so no test holds it.
+
+**The latency gate.** Twice `not judged` on the cloud machine (loads 3.5 and 3.9 to 7.9 on 4 CPUs), every scenario ok; CI's `latency` job for the merge is the run of record. The hook's only new cost is the registrations at start and a parameter of `newestClaudeChat`.
