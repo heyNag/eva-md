@@ -55,7 +55,7 @@ Rules every card carries, so they are said once here:
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records; SEAM-0f mends the hook test that depends on speed |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | merged; owed before LG-20: the hand-over decoder counts line breaks once, not once for each line |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
-| [LG-22a](LG-22a.md) | The project registry's types, the project id as a function of a key, and its fake | building since 2026-11-14; LG-22's first part, with no caller |
+| [LG-22a](LG-22a.md) | The project registry's types, the project id as a function of a key, and its fake | merged; LG-22's first part, with no caller |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
 | [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | merged |
