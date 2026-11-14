@@ -28,7 +28,7 @@ func init() {
 		run:      continuation,
 	})
 	addContinuation("run", continuationCommand{
-		synopsis: "run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--spend-model-quota]",
+		synopsis: "run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--trace DIR] [--spend-model-quota]",
 		run:      continuationRun,
 	})
 	addContinuation("check", continuationCommand{
@@ -115,6 +115,7 @@ func continuationRun(ctx context.Context, args []string, out, errOut io.Writer) 
 	f.StringVar(&o.EvaMD, "eva-md", "", "")
 	f.StringVar(&o.Repo, "repo", ".", "")
 	f.BoolVar(&o.KeepTrials, "keep-trials", false, "")
+	f.StringVar(&o.Trace, "trace", "", "")
 	f.BoolVar(&o.Spend, "spend-model-quota", false, "")
 	if err := f.Parse(args); err != nil {
 		// The flag package's message can quote a value, so it is not shown.
