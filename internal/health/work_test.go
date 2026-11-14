@@ -447,8 +447,46 @@ func TestABackoffsClassIsTheFailureThatStartedIt(t *testing.T) {
 	if len(codex) != 1 || codex[0].Reason != work.WaitHeld || codex[0].Class != update.ReasonRateLimit || !codex[0].NextTry.Equal(workNow.Add(5*time.Minute)) {
 		t.Errorf("a backoff after a rate limit, then a watermark: %+v", codex)
 	}
-	if got := backoffClass([]string{update.ReasonWatermark}); got != update.StopBackoff {
-		t.Errorf("a row with no backoff's failure: %q", got)
+	// A success that made no call ends v1's row of failures but not its
+	// backoff, which passes over a record with no call: the class is still
+	// the rate limit that started the backoff.
+	appendRecord(t, d, update.Record{At: workNow.Add(90 * time.Second).Format(time.RFC3339), Host: update.HostCodex, Session: "other", Outcome: update.OutcomeNoChange})
+	codex = nil
+	for _, w := range UpdateWaits(t.Context(), d, c, "update", workNow.Add(2*time.Minute), nil) {
+		if w.Host == update.HostCodex {
+			codex = append(codex, w)
+		}
+	}
+	if len(codex) != 1 || codex[0].Reason != work.WaitHeld || codex[0].Class != update.ReasonRateLimit || !codex[0].NextTry.Equal(workNow.Add(5*time.Minute)) {
+		t.Errorf("a backoff after a rate limit, then a success with no call: %+v", codex)
+	}
+	if got := backoffClass([]update.Record{{Host: update.HostCodex, Outcome: update.OutcomeFailed, Reason: update.ReasonWatermark}}, update.HostCodex); got != update.StopBackoff {
+		t.Errorf("a log with no backoff's failure: %q", got)
+	}
+	// backoffClass passes over the records v1's backoff passes over: on any
+	// log of two records, it names a failure exactly when v1 backs off.
+	kinds := []update.Record{
+		{Outcome: update.OutcomeFailed, Reason: update.ReasonRateLimit, Calls: 1},
+		{Outcome: update.OutcomeFailed, Reason: update.ReasonRateLimit},
+		{Outcome: update.OutcomeFailed, Reason: update.ReasonCLIMissing},
+		{Outcome: update.OutcomeFailed, Reason: update.ReasonWatermark},
+		{Outcome: update.OutcomeFailed, Reason: update.ReasonTimeout, Calls: 1},
+		{Outcome: update.OutcomeOK, Calls: 1},
+		{Outcome: update.OutcomeNoChange},
+		{Outcome: update.OutcomeSkipped, Reason: update.ReasonWatermark},
+	}
+	for _, a := range kinds {
+		for _, b := range kinds {
+			log := []update.Record{a, b}
+			for i := range log {
+				log[i].Host, log[i].Session, log[i].At = update.HostCodex, "s", workNow.Add(time.Duration(i)*time.Second).Format(time.RFC3339)
+			}
+			class := backoffClass(log, update.HostCodex)
+			backs := !update.Host(log, update.HostCodex, workNow).BackoffUntil.IsZero()
+			if backs != (class != update.StopBackoff) {
+				t.Errorf("%+v then %+v: class %q, v1 backs off %v", a, b, class, backs)
+			}
+		}
 	}
 	for _, reason := range []string{update.ReasonRateLimit, update.ReasonHostError, update.ReasonWikiError, update.ReasonCLIMissing,
 		update.ReasonAuth, update.ReasonMCPFailed, update.ReasonInvalidOutput, update.ReasonToolUsed, update.ReasonPageRefused,

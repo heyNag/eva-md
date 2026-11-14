@@ -196,7 +196,7 @@ func UpdateWaits(ctx context.Context, d paths.Dirs, c config.Config, kind string
 			case s.Held != "":
 				w.Reason, w.Class, w.NextTry = work.WaitHeld, s.Held, tomorrow
 			case now.Before(s.BackoffUntil):
-				w.Reason, w.Class, w.NextTry = work.WaitHeld, backoffClass(s.Failures), s.BackoffUntil
+				w.Reason, w.Class, w.NextTry = work.WaitHeld, backoffClass(records, host), s.BackoffUntil
 			case slices.ContainsFunc(s.Quarantined, func(q string) bool { return sameSession(q, sid) }):
 				w.Reason, w.Class, w.NextTry = work.WaitHeld, update.StopQuarantined, tomorrow
 			case s.Calls >= c.DailyCap:
@@ -215,13 +215,22 @@ func UpdateWaits(ctx context.Context, d paths.Dirs, c config.Config, kind string
 // quarantine").
 var backoffReasons = []string{update.ReasonRateLimit, update.ReasonHostError, update.ReasonWikiError, update.ReasonCLIMissing}
 
-// backoffClass is the class of a host's backoff: the newest failure in its
-// row of failures, newest first, that starts a backoff, passing over one
-// that does not, such as a watermark that made no call, which the backoff
-// passes over too; or backoff when the row holds none.
-func backoffClass(failures []string) string {
-	if i := slices.IndexFunc(failures, func(r string) bool { return slices.Contains(backoffReasons, r) }); i >= 0 {
-		return failures[i]
+// backoffClass is the class of host's backoff, by the run log's records,
+// oldest first: the reason of the host's newest record that made a call, or
+// found its CLI missing, which is the failure the backoff's end counts from,
+// since the backoff passes over every other record, such as a watermark or
+// a success that made no call; or backoff when that record is no failure
+// that starts one.
+func backoffClass(records []update.Record, host string) string {
+	for i := len(records) - 1; i >= 0; i-- {
+		r := records[i]
+		if r.Host != host || r.Calls == 0 && r.Reason != update.ReasonCLIMissing {
+			continue
+		}
+		if r.Outcome == update.OutcomeFailed && slices.Contains(backoffReasons, r.Reason) {
+			return r.Reason
+		}
+		break
 	}
 	return update.StopBackoff
 }
