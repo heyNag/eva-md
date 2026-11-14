@@ -347,12 +347,18 @@ func TestRowsAreCopies(t *testing.T) {
 // Each host's lowest row starts at the lowest version of it the docs record
 // eva-md being checked on, so a version the docs name always has a row, and
 // its source says so. A version is recorded as the host's app or CLI name,
-// then N.N.N.
+// then N.N.N, in the docs, the specs v1's design was split into, the
+// decision records or README.md; a line break between the name and the
+// number, as a spec's rewrapped line may have, is read as a space.
 func TestLowestRowIsTheLowestVersionRecorded(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
-	if err != nil {
-		t.Fatal(err)
+	var files []string
+	for _, dir := range []string{"docs", filepath.Join("docs", "spec"), filepath.Join("docs", "decisions")} {
+		found, err := filepath.Glob(filepath.Join(root, dir, "*.md"))
+		if err != nil || len(found) == 0 {
+			t.Fatalf("no docs in %s: %v", dir, err)
+		}
+		files = append(files, found...)
 	}
 	files = append(files, filepath.Join(root, "README.md"))
 	var text strings.Builder
@@ -365,7 +371,7 @@ func TestLowestRowIsTheLowestVersionRecorded(t *testing.T) {
 		text.WriteByte('\n')
 	}
 	for _, h := range All() {
-		re := regexp.MustCompile(`(?i)\b(?:` + regexp.QuoteMeta(h.Names.App) + `|` + regexp.QuoteMeta(h.Names.CLI) + `) (\d+\.\d+\.\d+)\b`)
+		re := regexp.MustCompile(`(?i)\b(?:` + regexp.QuoteMeta(h.Names.App) + `|` + regexp.QuoteMeta(h.Names.CLI) + `)\s+(\d+\.\d+\.\d+)\b`)
 		lowest, seen := "", [3]int{}
 		for _, m := range re.FindAllStringSubmatch(text.String(), -1) {
 			if v, ok := parseVersion(m[1]); ok && (lowest == "" || compare(v, seen) < 0) {
