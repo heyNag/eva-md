@@ -1,6 +1,7 @@
 package score_test
 
 import (
+	"cmp"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -648,8 +649,9 @@ func TestUnaskedSlot(t *testing.T) {
 }
 
 // echoes is a made-up scenario with two corrections and the agent's
-// reply that echoes both old values, which ends at the next line.
-func echoes() scenario.Scenario {
+// reply that echoes both old values, which ends at the next line. The
+// echo of the queue's value names the reference ref.
+func echoes(ref string) scenario.Scenario {
 	at := func(m int) time.Time { return time.Date(2026, 3, 2, 9, m, 0, 0, time.UTC) }
 	user := func(m int, text string, plants ...string) scenario.Turn {
 		return scenario.Turn{At: at(m), Author: event.AuthorTyped, Kind: event.KindPrompt, Text: text, Plants: plants}
@@ -669,14 +671,14 @@ func echoes() scenario.Scenario {
 			user(2, "Keep the logs in bravo, LOGS-1.", "b1"),
 			user(3, "Correction: run the queue on gamma, QUEUE-2.", "a2"),
 			user(4, "Correction: keep the logs in delta, LOGS-2.", "b2"),
-			{At: at(5), Author: event.AuthorAgent, Kind: event.KindReply, Text: "Done: the queue runs on alpha, QUEUE-8, and the logs stay in bravo, LOGS-8.",
+			{At: at(5), Author: event.AuthorAgent, Kind: event.KindReply, Text: "Done: the queue runs on alpha, " + ref + ", and the logs stay in bravo, LOGS-8.",
 				Plants: []string{"ea", "eb"}},
 			user(6, "Nothing to note here."),
 		}}},
 		Facts: []scenario.Fact{
 			fact("a1", scenario.AuthorityUser, "", "QUEUE-1", "alpha"), fact("b1", scenario.AuthorityUser, "", "LOGS-1", "bravo"),
 			fact("a2", scenario.AuthorityUser, "a1", "QUEUE-2", "gamma"), fact("b2", scenario.AuthorityUser, "b1", "LOGS-2", "delta"),
-			fact("ea", scenario.AuthorityOther, "", "QUEUE-8", "alpha"), fact("eb", scenario.AuthorityOther, "", "LOGS-8", "bravo"),
+			fact("ea", scenario.AuthorityOther, "", ref, "alpha"), fact("eb", scenario.AuthorityOther, "", "LOGS-8", "bravo"),
 		},
 	}
 }
@@ -687,33 +689,43 @@ func echoes() scenario.Scenario {
 // kept in force by an item that holds the old value alone, one that holds
 // the echo in full beside the correction, and one that holds the echo of
 // one correction beside the other correction, whose replaced value it is
-// not. The cost, recorded: value matching cannot read a negation, so an
-// item that takes the echoed value beside the correction is spared too.
+// not. An echo that repeats the old line whole, its reference too, is
+// spared by part only, as the old line is: an item that names that line
+// whole as history holds the echo in full, and keeps it in force. The
+// cost, recorded: value matching cannot read a negation, so an item that
+// takes the echoed value beside the correction is spared too.
 func TestCorrectionsEcho(t *testing.T) {
-	sc := echoes()
-	if err := sc.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if bad := clean(sc, score.Score(sc, score.Ideal(sc))); len(bad) != 0 {
-		t.Fatalf("the ideal store: %v", bad)
+	for _, ref := range []string{"QUEUE-8", "QUEUE-1"} {
+		sc := echoes(ref)
+		if err := sc.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if bad := clean(sc, score.Score(sc, score.Ideal(sc))); len(bad) != 0 {
+			t.Fatalf("the ideal store: %v", bad)
+		}
 	}
 	line := func(seq int) score.Source { return score.Source{Session: "5eed0005", Seq: int64(seq)} }
 	for _, tc := range []struct {
+		ref   string // the echo's reference, if not QUEUE-8
 		text  string
 		lines []int
 		stale []string
 	}{
-		{"Run the queue on gamma, QUEUE-2, corrected from alpha", []int{3, 5}, nil},
-		{"Run the queue on gamma, QUEUE-2, corrected from alpha", []int{1, 3, 5}, nil},
-		{"Keep the logs in delta, LOGS-2, not bravo", []int{2, 4, 5}, nil},
-		{"Run the queue on gamma, QUEUE-2; not alpha, keep the logs in delta, LOGS-2, not bravo", []int{3, 4, 5}, nil},
-		{"Run the queue on alpha, not gamma, QUEUE-2", []int{3, 5}, nil}, // the cost
-		{"Run the queue on alpha", []int{5}, []string{"ea"}},
-		{"Run the queue on alpha", []int{1, 5}, []string{"a1", "ea"}},
-		{"Run the queue on gamma, QUEUE-2; the agent said alpha, QUEUE-8", []int{3, 5}, []string{"ea"}},
-		{"Keep the logs in delta, LOGS-2; the queue on alpha", []int{4, 5}, []string{"ea"}},
-		{"Keep the logs in delta, LOGS-2; the queue on alpha", []int{1, 4, 5}, []string{"a1", "ea"}},
+		{"", "Run the queue on gamma, QUEUE-2, corrected from alpha", []int{3, 5}, nil},
+		{"", "Run the queue on gamma, QUEUE-2, corrected from alpha", []int{1, 3, 5}, nil},
+		{"", "Keep the logs in delta, LOGS-2, not bravo", []int{2, 4, 5}, nil},
+		{"", "Run the queue on gamma, QUEUE-2; not alpha, keep the logs in delta, LOGS-2, not bravo", []int{3, 4, 5}, nil},
+		{"", "Run the queue on alpha, not gamma, QUEUE-2", []int{3, 5}, nil}, // the cost
+		{"", "Run the queue on alpha", []int{5}, []string{"ea"}},
+		{"", "Run the queue on alpha", []int{1, 5}, []string{"a1", "ea"}},
+		{"", "Run the queue on gamma, QUEUE-2; the agent said alpha, QUEUE-8", []int{3, 5}, []string{"ea"}},
+		{"", "Keep the logs in delta, LOGS-2; the queue on alpha", []int{4, 5}, []string{"ea"}},
+		{"", "Keep the logs in delta, LOGS-2; the queue on alpha", []int{1, 4, 5}, []string{"a1", "ea"}},
+		{"QUEUE-1", "Run the queue on gamma, QUEUE-2, corrected from alpha", []int{3, 5}, nil},
+		{"QUEUE-1", "Run the queue on gamma, QUEUE-2, corrected from alpha, QUEUE-1", []int{3, 5}, []string{"ea"}},
+		{"QUEUE-1", "Run the queue on gamma, QUEUE-2, corrected from alpha, QUEUE-1", []int{1, 3, 5}, []string{"a1", "ea"}},
 	} {
+		sc := echoes(cmp.Or(tc.ref, "QUEUE-8"))
 		ex := score.Ideal(sc)
 		var sources []score.Source
 		for _, l := range tc.lines {
@@ -734,7 +746,7 @@ func TestCorrectionsEcho(t *testing.T) {
 			want = score.StaleInForce
 		}
 		if got := r.Items[len(r.Items)-1].Outcome; got != want || !slices.Equal(stale, tc.stale) || r.Metrics.StaleInForce != len(tc.stale) {
-			t.Errorf("%q, citing %v: the item is %s, kept in force %v, metrics %+v; want %s and %v", tc.text, tc.lines, got, stale, r.Metrics, want, tc.stale)
+			t.Errorf("%q, citing %v, echo %s: the item is %s, kept in force %v, metrics %+v; want %s and %v", tc.text, tc.lines, sc.Facts[4].Slots[0].Value, got, stale, r.Metrics, want, tc.stale)
 		}
 	}
 }

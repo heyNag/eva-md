@@ -116,9 +116,10 @@ func plantedAt(sc scenario.Scenario, id string) (Source, scenario.Turn, bool) {
 // the first item that stores it, a fact that must be stored and is still
 // in force. value_wrong replaces the last of the fact's values a wrong one
 // can be read for, date_dropped and cond_dropped remove its date or
-// condition, each where the item's text holds it as said or in a form;
-// wrong_voice changes the item's tag; moved files an active item in the
-// fact's next permitted kind other than a dated line. stale_kept adds an
+// condition, each where the item's text holds it as said or in a form
+// and the fact asks it of the item's kind; wrong_voice changes the item's
+// tag; moved files an active item in the fact's next permitted kind other
+// than a dated line. stale_kept adds an
 // active item for the first fact that ended and has a kind other than a
 // dated line, as Ideal would write it in force, and invented adds an
 // active item that cites nothing. It returns ErrNotApplicable when no
@@ -167,7 +168,7 @@ func Distort(ex Export, sc scenario.Scenario, d Distortion) (Export, error) {
 		switch d {
 		case DistortValueWrong:
 			for _, sl := range slices.Backward(fact.Slots) {
-				if w, ok := wrongValue(sl); ok && holdsLiteral(it.Text, sl) {
+				if w, ok := wrongValue(sl); ok && asked(fact, sl, it.Kind) && holdsLiteral(it.Text, sl) {
 					it.Text = replaceLiterals(it.Text, sl, w)
 					return out, nil
 				}
@@ -178,7 +179,7 @@ func Distort(ex Export, sc scenario.Scenario, d Distortion) (Export, error) {
 				class = scenario.SlotCond
 			}
 			for _, sl := range fact.Slots {
-				if sl.Class == class && holdsLiteral(it.Text, sl) {
+				if sl.Class == class && asked(fact, sl, it.Kind) && holdsLiteral(it.Text, sl) {
 					it.Text = replaceLiterals(it.Text, sl, "")
 					return out, nil
 				}

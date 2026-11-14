@@ -392,6 +392,12 @@ func (s *scorer) tied(it Item, r *read, f, held int, full []int) bool {
 	return held > 0
 }
 
+// asked reports whether fact f asks slot sl of an item of kind: of every
+// kind but one f permits and leaves sl unasked of.
+func asked(f scenario.Fact, sl scenario.Slot, kind scenario.Kind) bool {
+	return !slices.Contains(sl.Unasked, kind) || !slices.Contains(f.Kinds, kind)
+}
+
 // echoes reports whether an item, which holds in full the facts full and
 // part of fact f, holds in full a fact that ended some other fact h, and
 // every slot of f it holds is a slot of h: what it holds of f repeats what
@@ -415,7 +421,7 @@ func (s *scorer) echoes(r *read, f int, full []int) bool {
 func (s *scorer) match(t text, f scenario.Fact, kind scenario.Kind) (int, Outcome) {
 	held, worst := 0, -1
 	for _, sl := range f.Slots {
-		if slices.Contains(sl.Unasked, kind) && slices.Contains(f.Kinds, kind) {
+		if !asked(f, sl, kind) {
 			continue
 		}
 		if t.holds(sl) {
