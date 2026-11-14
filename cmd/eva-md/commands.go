@@ -50,7 +50,7 @@ func init() {
 		return runDoctor(ctx, args, out, errOut)
 	}
 	register(command{name: "doctor", file: "commands.go", place: 70,
-		synopsis: []string{"eva-md doctor [--json] [--live]", "eva-md doctor --report"},
+		synopsis: []string{"eva-md doctor [--json] [--live]", "eva-md doctor --report", "eva-md doctor --notice"},
 		run:      doctor})
 	register(command{name: "status", file: "commands.go", place: 80,
 		synopsis: []string{"eva-md status [--json] [--updates]"},
@@ -333,8 +333,18 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 	live := f.Bool("live", false, "")
 	updates := f.Bool("updates", false, "")
 	report := f.Bool("report", false, "")
+	notice := f.Bool("notice", false, "")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return usage(errOut, "invalid arguments for "+args[0])
+	}
+	if *notice && args[0] != "doctor" {
+		return usage(errOut, "status takes no --notice; run eva-md doctor --notice")
+	}
+	if *notice && (*asJSON || *live || *updates || *report) {
+		return usage(errOut, "doctor --notice takes no other flag")
+	}
+	if *notice {
+		return runNotice(ctx)
 	}
 	if *report && args[0] != "doctor" {
 		return usage(errOut, "status takes no --report; run eva-md doctor --report")
@@ -392,6 +402,25 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 	if r.Failed() {
 		return 1
 	}
+	return 0
+}
+
+// runNotice runs eva-md doctor --notice, the job a chat start asks for
+// with the switch health on: it prepares the line a chat start may show
+// (see health.Prepare), prints nothing, and exits 0 whatever happens, as a
+// job no person watches.
+func runNotice(ctx context.Context) (code int) {
+	defer func() {
+		_ = recover()
+		code = 0
+	}()
+	d, err := paths.Default()
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
+	_ = health.Prepare(ctx, d, time.Now())
 	return 0
 }
 
