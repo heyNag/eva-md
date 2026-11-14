@@ -14,7 +14,9 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/host/adapter"
@@ -129,7 +131,8 @@ func entryOf(name string, data []byte) fileEntry {
 
 // manifestUnit is one unit of the manifest. A unit this binary does not
 // render keeps raw, and is written back as it was; its root and paths are
-// still read, since its files may sit in a folder this binary renders.
+// still checked, and a root in a folder this binary renders stops install
+// and uninstall (listedIn).
 type manifestUnit struct {
 	ID, Host, Plugin, Root string
 	Generation             *int
@@ -187,9 +190,32 @@ func take(obj map[string]json.RawMessage, key string, v any) (bool, error) {
 }
 
 // cleanRel says whether p is a clean, relative, slash-separated path that
-// stays under the folder it is relative to.
+// stays under the folder it is relative to, with no control character.
 func cleanRel(p string) bool {
-	return p != "" && p == path.Clean(p) && !path.IsAbs(p) && p != "." && p != ".." && !strings.HasPrefix(p, "../")
+	return p != "" && p == path.Clean(p) && !path.IsAbs(p) && p != "." && p != ".." && !strings.HasPrefix(p, "../") &&
+		!strings.ContainsFunc(p, unicode.IsControl)
+}
+
+// shown is text a manifest holds, fit for a one-line message: cut to 80
+// characters, and quoted with its escapes when it has a character that
+// doesn't print.
+func shown(s string) string {
+	if r := []rune(s); len(r) > 80 {
+		s = string(r[:80]) + "…"
+	}
+	if strings.ContainsFunc(s, func(r rune) bool { return !strconv.IsPrint(r) }) {
+		return strconv.Quote(s)
+	}
+	return s
+}
+
+// shownIn is rel, a path a manifest holds, under dir, which is eva-md's own
+// and shown whole.
+func shownIn(dir, rel string) string {
+	if s := shown(rel); s != rel {
+		return dir + string(filepath.Separator) + s
+	}
+	return filepath.Join(dir, filepath.FromSlash(rel))
 }
 
 func isHex256(s string) bool {
@@ -207,8 +233,9 @@ func isHex256(s string) bool {
 // parseManifest reads a manifest's bytes. Format 1 is the only one this
 // release reads; every unit's root is a folder under marketplace/, and
 // every file's path is clean, relative and stays under its root. A unit
-// this binary renders has its own host, plugin and root, and a hash and a
-// size for each file.
+// this binary renders has its own host, plugin and root, generation 0 for
+// the hooks unit, and a hash and a size for each file. A message shows the
+// manifest's own text only through shown.
 func parseManifest(data []byte) (*manifest, error) {
 	var top map[string]json.RawMessage
 	if json.Unmarshal(data, &top) != nil || top == nil {
@@ -244,14 +271,20 @@ func parseManifest(data []byte) (*manifest, error) {
 		}
 		ids[u.ID] = true
 		spec, known := knownUnit(u.ID)
+		// Only an id this release knows is named as it is written.
+		name := shown(u.ID)
 		hasRoot, err := take(obj, "root", &u.Root)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unit %s: %w", name, err)
+		}
+		var files []map[string]json.RawMessage
+		if _, err := take(obj, "files", &files); err != nil {
+			return nil, fmt.Errorf("unit %s: %w", name, err)
 		}
 		// A unit of a later release with no folder, such as a printed MCP
 		// entry, has no root and lists no file.
-		if (hasRoot || known || len(obj["files"]) > 0) && (!cleanRel(u.Root) || !strings.HasPrefix(u.Root, "marketplace/")) {
-			return nil, fmt.Errorf("unit %s has its root outside marketplace/", u.ID)
+		if (hasRoot || known || len(files) > 0) && (!cleanRel(u.Root) || !strings.HasPrefix(u.Root, "marketplace/")) {
+			return nil, fmt.Errorf("unit %s has its root outside marketplace/", name)
 		}
 		if known {
 			for _, kv := range []struct {
@@ -259,42 +292,43 @@ func parseManifest(data []byte) (*manifest, error) {
 				v   *string
 			}{{"host", &u.Host}, {"plugin", &u.Plugin}} {
 				if _, err := take(obj, kv.key, kv.v); err != nil {
-					return nil, err
+					return nil, fmt.Errorf("unit %s: %w", name, err)
 				}
 			}
-			if u.Host != spec.host || u.Plugin != pluginID || u.Root != spec.root {
-				return nil, fmt.Errorf("unit %s is not where this release renders it", u.ID)
+			if spec.hooks {
+				u.Generation = new(int)
+				if _, err := take(obj, "generation", u.Generation); err != nil {
+					return nil, fmt.Errorf("unit %s: %w", name, err)
+				}
 			}
-		}
-		if known && spec.hooks {
-			u.Generation = new(int)
-			if _, err := take(obj, "generation", u.Generation); err != nil {
-				return nil, err
+			// A unit this release renders, laid out as a later release lays
+			// it out, is one it can't read: it renders only generation 0, in
+			// its own folder.
+			if u.Host != spec.host || u.Plugin != pluginID || u.Root != spec.root || u.Generation != nil && *u.Generation != 0 {
+				return nil, fmt.Errorf("unit %s is laid out by a later release: its host, plugin, root or generation is not what this release renders", name)
 			}
-		}
-		var files []map[string]json.RawMessage
-		if _, err := take(obj, "files", &files); err != nil {
-			return nil, err
 		}
 		seen := map[string]bool{}
 		for _, f := range files {
 			var e fileEntry
 			if _, err := take(f, "path", &e.Path); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("unit %s: %w", name, err)
 			}
 			if !cleanRel(e.Path) || seen[e.Path] {
-				return nil, fmt.Errorf("unit %s lists a path that is not clean, leaves its root or is listed twice", u.ID)
+				return nil, fmt.Errorf("unit %s lists a path that is not clean, leaves its root or is listed twice", name)
 			}
 			seen[e.Path] = true
 			if known {
-				if _, err := take(f, "sha256", &e.SHA256); err != nil {
-					return nil, err
+				hasSum, err := take(f, "sha256", &e.SHA256)
+				if err != nil {
+					return nil, fmt.Errorf("unit %s: %w", name, err)
 				}
-				if _, err := take(f, "size", &e.Size); err != nil {
-					return nil, err
+				hasSize, err := take(f, "size", &e.Size)
+				if err != nil {
+					return nil, fmt.Errorf("unit %s: %w", name, err)
 				}
-				if !isHex256(e.SHA256) || e.Size < 0 {
-					return nil, fmt.Errorf("unit %s lists %s without its hash or size", u.ID, e.Path)
+				if !hasSum || !hasSize || !isHex256(e.SHA256) || e.Size < 0 {
+					return nil, fmt.Errorf("unit %s lists %s without its hash or size", name, shown(e.Path))
 				}
 				if len(f) > 0 {
 					e.extra = f
@@ -453,27 +487,26 @@ func (m *manifest) ownListed(spec unitSpec) map[string]*fileEntry {
 }
 
 // listedIn is every path, relative to spec's folder, that the manifest says
-// is eva-md's there: the unit's own list, and the files of any other unit
-// that fall in the folder. Without a manifest it is nil.
-func (m *manifest) listedIn(spec unitSpec) map[string]bool {
+// is eva-md's there, as the unit's own list; without a manifest it is nil.
+// A unit this binary does not render, with its root in spec's folder,
+// stops install and uninstall instead: the folder swap and uninstall would
+// remove its folder, which is left alone until the release that renders it
+// says otherwise (HO-20). share is the data folder, for the message.
+func (m *manifest) listedIn(spec unitSpec, share string) (map[string]bool, error) {
 	if m == nil {
-		return nil
+		return nil, nil
+	}
+	for _, u := range m.Units {
+		if u.raw != nil && u.Root != "" && (u.Root == spec.root || strings.HasPrefix(u.Root, spec.root+"/")) {
+			return nil, fmt.Errorf("install: %s is the folder of a unit this release does not render, which %s lists; install the release that wrote it",
+				shownIn(share, u.Root), filepath.Join(share, manifestFile))
+		}
 	}
 	listed := map[string]bool{}
 	for p := range m.ownListed(spec) {
 		listed[p] = true
 	}
-	for _, u := range m.Units {
-		if u.ID == spec.id {
-			continue
-		}
-		for _, f := range u.Files {
-			if rel, ok := strings.CutPrefix(path.Join(u.Root, f.Path), spec.root+"/"); ok {
-				listed[rel] = true
-			}
-		}
-	}
-	return listed
+	return listed, nil
 }
 
 // entries lists files, as rendered, sorted by path.

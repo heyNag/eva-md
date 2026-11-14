@@ -186,6 +186,56 @@ func TestManifestUpgradeFromEachFixture(t *testing.T) {
 	}
 }
 
+// Uninstall adopts a v1 folder as install does: with the switch on and no
+// manifest, a release that no longer renders a path v1 rendered uninstalls
+// over each fixture, preview and apply, removing the plugin folders and
+// writing no manifest; with the switch off it is refused as in v1.
+func TestManifestUninstallAdoptsEachFixture(t *testing.T) {
+	later := dropping("plugins/eva-md/.mcp.json")
+	for _, dir := range installedFixtures(t) {
+		for _, on := range []bool{false, true} {
+			t.Run(filepath.Base(dir)+", switch "+strconv.FormatBool(on), func(t *testing.T) {
+				home, dirs := newHome(t)
+				layDown(t, home, fixtureAt(t, dir, home))
+				setManifestSwitch(t, dirs, on)
+				f := &fakeHost{dirs: dirs, installed: map[string]bool{"claude": true, "codex": true}, markets: map[string]bool{"claude": true, "codex": true}}
+				before := snapshot(t, home)
+				for _, apply := range []bool{false, true} {
+					r, err := uninstallRendered(context.Background(), UninstallOptions{Dirs: dirs, Apply: apply}, f.run, later)
+					if !on {
+						if err == nil || !strings.Contains(err.Error(), "unexpected") {
+							t.Fatalf("switch off, uninstall (apply %v) = %v, want v1's refusal", apply, err)
+						}
+						continue
+					}
+					if err != nil {
+						t.Fatalf("uninstall (apply %v) over %s: %v", apply, dir, err)
+					}
+					if slices.ContainsFunc(r.Actions, func(a string) bool { return strings.Contains(a, "install manifest") }) {
+						t.Errorf("uninstall names a manifest there is none of: %v", r.Actions)
+					}
+					if !apply {
+						if moved := changed(before, snapshot(t, home)); len(moved) != 0 {
+							t.Errorf("the preview changed %v", moved)
+						}
+					}
+				}
+				if !on {
+					if moved := changed(before, snapshot(t, home)); len(moved) != 0 || len(mutateCalls(f.calls)) != 0 {
+						t.Errorf("a refusal changed %v and ran %v", moved, mutateCalls(f.calls))
+					}
+					return
+				}
+				for _, path := range []string{marketplacePath(dirs.Share, "claude"), marketplacePath(dirs.Share, "codex"), manifestPath(dirs)} {
+					if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+						t.Errorf("uninstall left %s: %v", path, err)
+					}
+				}
+			})
+		}
+	}
+}
+
 // A v1 folder holding a file v1 never rendered is not adopted: with the
 // switch on and no manifest, install and uninstall still refuse it.
 func TestManifestAdoptsOnlyV1Paths(t *testing.T) {

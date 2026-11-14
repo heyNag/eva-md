@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"unicode"
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -490,8 +491,8 @@ func TestManifestForeignFileOrFolderStops(t *testing.T) {
 // laterManifest is a manifest a later release might write over the current
 // install: each unit lists what the current build renders and a file it
 // no longer renders, with fields this build does not know at each level,
-// and a unit it does not render whose folder is beside eva-md's and one
-// whose files sit in Codex's folder.
+// a unit it does not render whose folder is beside eva-md's, and one with
+// no folder.
 func laterManifest(t *testing.T, dirs paths.Dirs) []byte {
 	t.Helper()
 	binary := filepath.Join(dirs.Share, "bin", "eva-md")
@@ -519,7 +520,6 @@ func laterManifest(t *testing.T, dirs paths.Dirs) []byte {
 	units = append(units,
 		map[string]any{"id": "codex/tools", "host": "codex", "plugin": "eva-md-tools@eva-md", "root": "marketplace/codex-tools", "registered": true,
 			"files": []any{map[string]any{"path": "tools.json", "sha256": sum([]byte("{}\n")), "size": 3}}},
-		map[string]any{"id": "codex/extra", "root": "marketplace/codex/plugins/eva-md-extra", "files": []any{map[string]any{"path": "extra.json"}}},
 		map[string]any{"id": "generic/mcp", "printed": true},
 	)
 	data, err := json.MarshalIndent(map[string]any{"format": 1, "machine": "w-made-up", "units": units, "schema_reads": map[string]any{"store": []int{1, 2}}}, "", "  ")
@@ -548,15 +548,12 @@ func TestManifestKeepsALaterReleasesFieldsAndUnits(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	extra := filepath.Join(marketplacePath(opts.Dirs.Share, "codex"), "plugins", "eva-md-extra", "extra.json")
 	tools := filepath.Join(opts.Dirs.Share, "marketplace", "codex-tools", "tools.json")
-	for _, path := range []string{extra, tools} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.MkdirAll(filepath.Dir(tools), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tools, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	later := laterManifest(t, opts.Dirs)
 	if err := os.WriteFile(manifestPath(opts.Dirs), later, 0o600); err != nil {
@@ -573,7 +570,7 @@ func TestManifestKeepsALaterReleasesFieldsAndUnits(t *testing.T) {
 			removals++
 		}
 	}
-	if removals != 3 {
+	if removals != 2 {
 		t.Errorf("the install named %d removals: %v", removals, result.Actions)
 	}
 	wantFolders(t, opts.Dirs, render)
@@ -633,7 +630,7 @@ func TestManifestKeepsALaterReleasesFieldsAndUnits(t *testing.T) {
 	if json.Unmarshal(data, &left) != nil {
 		t.Fatal("no manifest of what a later release installed")
 	}
-	if units := byID(left); len(units) != 3 || !equalJSON(units["codex/tools"], byID(was)["codex/tools"]) || !equalJSON(left["machine"], was["machine"]) {
+	if units := byID(left); len(units) != 2 || !equalJSON(units["codex/tools"], byID(was)["codex/tools"]) || !equalJSON(left["machine"], was["machine"]) {
 		t.Errorf("uninstall left %s", data)
 	}
 }
@@ -748,6 +745,95 @@ func TestManifestFailedInstall(t *testing.T) {
 			wantManifestMatchesDisk(t, opts.Dirs, "claude", "codex")
 		}
 	})
+	// The rollback puts the first release's folders back, then stops: the
+	// plugin Claude Code had does not verify once re-added. The manifest
+	// written before the first change is left, and must list the files of
+	// the first release, which the folders now hold: from a manifest on
+	// disk and from an adopted v1 folder, and with the switch then on or
+	// off, the next install of the second release removes the one it does
+	// not render.
+	t.Run("rollback stops after the folders are back", func(t *testing.T) {
+		for _, fromV1 := range []bool{false, true} {
+			for _, onAfter := range []bool{false, true} {
+				var opts Options
+				var f *fakeHost
+				if fromV1 {
+					home, dirs := newHome(t)
+					layDown(t, home, fixtureAt(t, installedFixtures(t)[0], home))
+					f = &fakeHost{dirs: dirs, installed: map[string]bool{"claude": true, "codex": true}, markets: map[string]bool{"claude": true, "codex": true}}
+					opts = Options{Dirs: dirs, Binary: newBinary(t), Host: "all"}
+					setManifestSwitch(t, dirs, true)
+				} else {
+					opts, f = setup(t)
+					setManifestSwitch(t, opts.Dirs, true)
+					if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+						t.Fatal(err)
+					}
+				}
+				first := folders(t, opts.Dirs)
+				delete(f.installed, "codex")
+				codexFailed, claudeAdds := false, 0
+				run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+					command := host + " " + strings.Join(args, " ")
+					if strings.HasPrefix(command, "codex plugin add ") && !codexFailed {
+						codexFailed = true
+						return nil, errors.New("synthetic failure")
+					}
+					if strings.HasPrefix(command, "claude plugin install ") {
+						claudeAdds++
+					}
+					// The rollback's re-add of Claude Code's plugin, after
+					// the folders are restored, does not verify.
+					if claudeAdds >= 2 && strings.HasPrefix(command, "claude plugin list") {
+						return nil, errors.New("synthetic failure")
+					}
+					return f.run(ctx, host, args...)
+				}
+				_, err := runInstallWith(context.Background(), opts, run, second)
+				if err == nil || !strings.Contains(err.Error(), "rollback incomplete") {
+					t.Fatalf("v1 %v: the failed install = %v", fromV1, err)
+				}
+				if claudeAdds < 2 {
+					t.Fatalf("v1 %v: the rollback did not get as far as the re-add", fromV1)
+				}
+				now := folders(t, opts.Dirs)
+				if !maps.EqualFunc(now, first, func(a, b map[string][]byte) bool { return maps.EqualFunc(a, b, bytes.Equal) }) {
+					t.Fatalf("v1 %v: the rollback did not put the first release's folders back", fromV1)
+				}
+				m, data := readDiskManifest(t, opts.Dirs)
+				if m == nil {
+					t.Fatalf("v1 %v: no manifest after a rollback that stopped", fromV1)
+				}
+				for host, files := range now {
+					listed := map[string]bool{}
+					for _, u := range m.Units {
+						if u.Root == "marketplace/"+host {
+							var names []string
+							for _, f := range u.Files {
+								listed[f.Path] = true
+								names = append(names, f.Path)
+							}
+							if !slices.IsSorted(names) {
+								t.Errorf("v1 %v: the manifest lists %s's files unsorted: %v", fromV1, host, names)
+							}
+						}
+					}
+					for name := range files {
+						if !listed[name] {
+							t.Errorf("v1 %v: the manifest does not list %s in the %s folder: %s", fromV1, name, host, data)
+						}
+					}
+				}
+				setManifestSwitch(t, opts.Dirs, onAfter)
+				f.installed["claude"], f.installed["codex"] = true, true
+				if _, err := runInstallWith(context.Background(), opts, f.run, second); err != nil {
+					t.Fatalf("v1 %v, switch %v: the next install: %v", fromV1, onAfter, err)
+				}
+				wantFolders(t, opts.Dirs, second)
+				wantManifestMatchesDisk(t, opts.Dirs, "claude", "codex")
+			}
+		}
+	})
 }
 
 // Each unreadable manifest stops install, its dry run and preflight, and
@@ -792,11 +878,26 @@ func TestManifestUnreadable(t *testing.T) {
 		"too large":                     `{"format":1,"units":[]` + strings.Repeat(" ", manifestLimit) + `}`,
 		"a link":                        "",
 		"a folder":                      "",
+		"the path ..":                   doc(unit("claude-code/plugin", "marketplace/claude", "..")),
+		"the path .":                    doc(unit("claude-code/plugin", "marketplace/claude", ".")),
+		"a new line in a path":          doc(unit("claude-code/plugin", "marketplace/claude", "a\nb")),
+		"an escape in a later root":     doc(unit("codex/tools", "marketplace/tools\x1b[2J", "x")),
+		"a unit of another plugin":      `{"format":1,"units":[{"id":"claude-code/plugin","host":"claude-code","plugin":"eva-md-tools@eva-md","root":"marketplace/claude","files":[]}]}`,
+		"a later generation":            `{"format":1,"units":[{"id":"codex/hooks","host":"codex","plugin":"eva-md@eva-md","root":"marketplace/codex","generation":1,"files":[]}]}`,
+		"the hooks unit as hosts.md 4.5 lays it out": `{"format":1,"units":[{"id":"codex/hooks","host":"codex","plugin":"eva-md@eva-md","root":"marketplace/codex/plugins/eva-md","generation":1,"files":[]}]}`,
+		"a file with no size":                        `{"format":1,"units":[{"id":"claude-code/plugin","host":"claude-code","plugin":"eva-md@eva-md","root":"marketplace/claude","files":[{"path":"x","sha256":"` + strings.Repeat("ab", 32) + `"}]}]}`,
+		"a negative size":                            `{"format":1,"units":[{"id":"claude-code/plugin","host":"claude-code","plugin":"eva-md@eva-md","root":"marketplace/claude","files":[{"path":"x","sha256":"` + strings.Repeat("ab", 32) + `","size":-1}]}]}`,
+		// A manifest's own text reaches the message only escaped and cut.
+		"an id with a new line": `{"format":1,"units":[{"id":` + quote("x\nFAKE: second line") + `,"root":"bin","files":[]}]}`,
+		"an id with an escape":  `{"format":1,"units":[{"id":` + quote("x\x1b[2J") + `,"root":"bin","files":[]}]}`,
+		"a long id":             `{"format":1,"units":[{"id":"` + strings.Repeat("x", 200000) + `","root":"bin","files":[]}]}`,
 	}
 	for name, content := range forms {
 		wantNoRealPath(t, name, []byte(content))
 	}
 	forms["readable"] = doc(unit("codex/tools", "marketplace/tools", "x"))
+	// A later release's unit with no folder, such as a printed MCP entry.
+	forms["readable, a unit with no folder"] = `{"format":1,"units":[{"id":"generic/mcp","files":[]},{"id":"generic/other"}]}`
 	for name, content := range forms {
 		t.Run(name, func(t *testing.T) {
 			opts, f := setup(t)
@@ -843,7 +944,7 @@ func TestManifestUnreadable(t *testing.T) {
 				_, err := uninstall(context.Background(), opts.Dirs, apply, f.run)
 				errs = append(errs, err)
 			}
-			if name == "readable" {
+			if strings.HasPrefix(name, "readable") {
 				for _, err := range errs {
 					if err != nil {
 						t.Errorf("a readable manifest: %v", err)
@@ -852,8 +953,8 @@ func TestManifestUnreadable(t *testing.T) {
 				return
 			}
 			for i, err := range errs {
-				if err == nil || !strings.Contains(err.Error(), path+" can't be read") || strings.Contains(err.Error(), "\n") {
-					t.Errorf("run %d = %v, want one line naming %s", i, err, path)
+				if err == nil || !strings.Contains(err.Error(), path+" can't be read") || strings.ContainsFunc(err.Error(), unicode.IsControl) || len(err.Error()) > 1024 {
+					t.Errorf("run %d = %.2000q, want one short line naming %s", i, err, path)
 				}
 			}
 			if moved := changed(before, snapshot(t, home)); len(moved) != 0 || len(mutateCalls(f.calls)) != 0 {
@@ -927,4 +1028,229 @@ func TestManifestChangedDuringPreflight(t *testing.T) {
 	if moved := changed(before, snapshot(t, home)); len(moved) != 0 || len(mutateCalls(f.calls)) != 0 {
 		t.Errorf("the uninstall changed %v and ran %v", moved, mutateCalls(f.calls))
 	}
+}
+
+// The removed list is rechecked under the lock: a file the manifest lists
+// and the second release does not render that goes between preflight and
+// the lock stops install before any change, though the folder still
+// differs from what the release renders.
+func TestManifestRemovedChangedDuringPreflight(t *testing.T) {
+	opts, f := setup(t)
+	setManifestSwitch(t, opts.Dirs, true)
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Dir(filepath.Dir(filepath.Dir(opts.Dirs.Share)))
+	gone := filepath.Join(pluginPath(opts.Dirs.Share, "codex"), "skills", "eva-md-digest", "SKILL.md")
+	var before map[string]node
+	run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		if before == nil && installLocked(t, opts.Dirs) {
+			if err := os.Remove(gone); err != nil {
+				t.Fatal(err)
+			}
+			before = snapshot(t, home)
+		}
+		return f.run(ctx, host, args...)
+	}
+	f.calls = nil
+	_, err := runInstallWith(context.Background(), opts, run, dropping("plugins/eva-md/skills/"))
+	if before == nil {
+		t.Fatal("no host command ran under the install lock")
+	}
+	if err == nil || !strings.Contains(err.Error(), "generated files changed during preflight") {
+		t.Fatalf("the install = %v", err)
+	}
+	if moved := changed(before, snapshot(t, home)); len(moved) != 0 || len(mutateCalls(f.calls)) != 0 {
+		t.Errorf("the install changed %v and ran %v", moved, mutateCalls(f.calls))
+	}
+}
+
+// addUnit adds unit to the manifest on disk.
+func addUnit(t *testing.T, dirs paths.Dirs, unit map[string]any) {
+	t.Helper()
+	_, data := readDiskManifest(t, dirs)
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["units"] = append(m["units"].([]any), unit)
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantNoRealPath(t, "the made-up manifest", data)
+	if err := os.WriteFile(manifestPath(dirs), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A unit this build does not render whose folder is in, or is, a plugin
+// folder this build renders stops install, its dry run, and uninstall and
+// its preview, with one line naming that folder, changing nothing: the
+// folder swap or uninstall would remove it, and the manifest would then
+// list files that are gone. An install of the other host only goes on.
+func TestManifestNestedUnitStops(t *testing.T) {
+	for _, root := range []string{"marketplace/codex/plugins/eva-md-hooks", "marketplace/codex"} {
+		t.Run(root, func(t *testing.T) {
+			opts, f := setup(t)
+			setManifestSwitch(t, opts.Dirs, true)
+			if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+				t.Fatal(err)
+			}
+			hooks := filepath.Join(opts.Dirs.Share, filepath.FromSlash(root), "hooks.json")
+			if err := os.MkdirAll(filepath.Dir(hooks), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(hooks, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			addUnit(t, opts.Dirs, map[string]any{"id": "codex/hooks-later", "host": "codex", "plugin": "eva-md-hooks@eva-md", "root": root, "registered": true,
+				"files": []any{map[string]any{"path": "hooks.json", "sha256": sum([]byte("{}\n")), "size": 3}}})
+			home := filepath.Dir(filepath.Dir(filepath.Dir(opts.Dirs.Share)))
+			before := snapshot(t, home)
+			f.calls = nil
+			folder := filepath.Join(opts.Dirs.Share, filepath.FromSlash(root))
+			want := func(what string, err error) {
+				t.Helper()
+				if err == nil || !strings.Contains(err.Error(), folder+" is the folder of a unit this release does not render") || strings.Contains(err.Error(), "\n") {
+					t.Errorf("%s = %v", what, err)
+				}
+			}
+			later := dropping("plugins/eva-md/.mcp.json")
+			for _, dry := range []bool{true, false} {
+				o := opts
+				o.DryRun = dry
+				_, err := runInstallWith(context.Background(), o, f.run, later)
+				want("install", err)
+			}
+			for _, apply := range []bool{false, true} {
+				_, err := uninstallRendered(context.Background(), UninstallOptions{Dirs: opts.Dirs, Apply: apply}, f.run, later)
+				want("uninstall", err)
+			}
+			if moved := changed(before, snapshot(t, home)); len(moved) != 0 || len(mutateCalls(f.calls)) != 0 {
+				t.Errorf("a refusal changed %v and ran %v", moved, mutateCalls(f.calls))
+			}
+			o := opts
+			o.Host = "claude"
+			if _, err := runInstallWith(context.Background(), o, f.run, later); err != nil {
+				t.Fatalf("the install of Claude Code only: %v", err)
+			}
+			if data, err := os.ReadFile(hooks); err != nil || string(data) != "{}\n" {
+				t.Errorf("the later unit's file: %q %v", data, err)
+			}
+			m, _ := readDiskManifest(t, opts.Dirs)
+			if i := slices.IndexFunc(m.Units, func(u diskUnit) bool { return u.ID == "codex/hooks-later" }); i < 0 || len(m.Units[i].Files) != 1 {
+				t.Errorf("the later unit is no longer listed as it was: %v", m.Units)
+			}
+		})
+	}
+}
+
+// Uninstall reads the manifest as install does. This build's uninstall
+// over a later release's layout, which lists a file this build does not
+// render, with no install between them and the switch off, removes the
+// plugin folders and the manifest, and its preview says so.
+func TestManifestUninstallOverALaterLayout(t *testing.T) {
+	opts, f := setup(t)
+	setManifestSwitch(t, opts.Dirs, true)
+	later := adding("plugins/eva-md/skills/eva-md-later/SKILL.md", "a later skill")
+	if _, err := runInstallWith(context.Background(), opts, f.run, later); err != nil {
+		t.Fatal(err)
+	}
+	setManifestSwitch(t, opts.Dirs, false)
+	home := filepath.Dir(filepath.Dir(filepath.Dir(opts.Dirs.Share)))
+	before := snapshot(t, home)
+	preview, err := uninstallRendered(context.Background(), UninstallOptions{Dirs: opts.Dirs}, f.run, render)
+	if err != nil {
+		t.Fatalf("the preview over a later layout: %v", err)
+	}
+	if !slices.Contains(preview.Actions, "the install manifest, "+manifestPath(opts.Dirs)) {
+		t.Errorf("the preview does not name the manifest: %v", preview.Actions)
+	}
+	if moved := changed(before, snapshot(t, home)); len(moved) != 0 {
+		t.Errorf("the preview changed %v", moved)
+	}
+	if _, err := uninstallRendered(context.Background(), UninstallOptions{Dirs: opts.Dirs, Apply: true}, f.run, render); err != nil {
+		t.Fatalf("the uninstall over a later layout: %v", err)
+	}
+	for _, path := range []string{marketplacePath(opts.Dirs.Share, "claude"), marketplacePath(opts.Dirs.Share, "codex"), manifestPath(opts.Dirs)} {
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("uninstall left %s: %v", path, err)
+		}
+	}
+}
+
+// Uninstall keeps a later release's units listed, and says so; with --all,
+// which removes the data folder, its preview names the manifest and the
+// folder of each such unit, and keeps their registrations.
+func TestManifestUninstallSaysWhatALaterReleaseKeeps(t *testing.T) {
+	opts, f := setup(t)
+	setManifestSwitch(t, opts.Dirs, true)
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	tools := filepath.Join(opts.Dirs.Share, "marketplace", "codex-tools")
+	if err := os.MkdirAll(tools, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tools, "tools.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	addUnit(t, opts.Dirs, map[string]any{"id": "codex/tools", "host": "codex", "plugin": "eva-md-tools@eva-md", "root": "marketplace/codex-tools", "registered": true,
+		"files": []any{map[string]any{"path": "tools.json", "sha256": sum([]byte("{}\n")), "size": 3}}})
+	addUnit(t, opts.Dirs, map[string]any{"id": "generic/mcp", "files": []any{}})
+	all, err := uninstallRendered(context.Background(), UninstallOptions{Dirs: opts.Dirs, All: true}, f.run, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"the install manifest, " + manifestPath(opts.Dirs) + ", which lists what a later release installed", "the folder of a later release's unit, " + tools} {
+		if !slices.Contains(all.Actions, want) {
+			t.Errorf("the --all preview does not say %q: %v", want, all.Actions)
+		}
+	}
+	if !slices.Contains(all.Kept, "the host registrations of a later release's units, which this release does not make") {
+		t.Errorf("the --all preview keeps %v", all.Kept)
+	}
+	r, err := uninstallRendered(context.Background(), UninstallOptions{Dirs: opts.Dirs, Apply: true}, f.run, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(r.Kept, manifestPath(opts.Dirs)+", which lists what a later release installed") {
+		t.Errorf("uninstall keeps %v", r.Kept)
+	}
+	if slices.ContainsFunc(r.Actions, func(a string) bool { return strings.HasPrefix(a, "the install manifest") }) {
+		t.Errorf("uninstall says it removes the manifest it keeps: %v", r.Actions)
+	}
+	m, _ := readDiskManifest(t, opts.Dirs)
+	if m == nil || len(m.Units) != 2 || m.Units[0].ID != "codex/tools" || m.Units[1].ID != "generic/mcp" {
+		t.Errorf("uninstall left %v", m)
+	}
+	if data, err := os.ReadFile(filepath.Join(tools, "tools.json")); err != nil || string(data) != "{}\n" {
+		t.Errorf("the later unit's folder: %q %v", data, err)
+	}
+}
+
+// A manifest that has only Codex's unit, as `install --host codex` leaves
+// it, gets Claude Code's unit first, in the adapter's order.
+func TestManifestUnitOrder(t *testing.T) {
+	opts, f := setup(t)
+	setManifestSwitch(t, opts.Dirs, true)
+	codex := opts
+	codex.Host = "codex"
+	if _, err := runInstall(context.Background(), codex, f.run); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := readDiskManifest(t, opts.Dirs); m == nil || len(m.Units) != 1 || m.Units[0].ID != "codex/hooks" {
+		t.Fatalf("after Codex alone: %v", m)
+	}
+	claude := opts
+	claude.Host = "claude"
+	if _, err := runInstall(context.Background(), claude, f.run); err != nil {
+		t.Fatal(err)
+	}
+	m, data := readDiskManifest(t, opts.Dirs)
+	if m == nil || len(m.Units) != 2 || m.Units[0].ID != "claude-code/plugin" || m.Units[1].ID != "codex/hooks" {
+		t.Errorf("after Claude Code: %s", data)
+	}
+	wantManifestMatchesDisk(t, opts.Dirs, "claude", "codex")
 }

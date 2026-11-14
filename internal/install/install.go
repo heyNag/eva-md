@@ -267,7 +267,9 @@ func runInstallWith(ctx context.Context, opts Options, run runner, render render
 	reviewHost := ""
 	for _, p := range plans {
 		p.changed = true
-		p.listed = man.listedIn(unitOf(p.host))
+		if p.listed, err = man.listedIn(unitOf(p.host), opts.Dirs.Share); err != nil {
+			return result, err
+		}
 		if share != nil {
 			p.changed, p.removed, err = treeChanged(share, filepath.Join("marketplace", p.host), p.files, p.listed, false)
 			if err != nil {
@@ -458,6 +460,16 @@ func runInstallWith(ctx context.Context, opts Options, run runner, render render
 			return result, err
 		}
 	}
+	// The manifest is written before needs-trust.json, the last step that
+	// can fail, which the rollback does not remove.
+	if man != nil && changes {
+		wrote, e := putManifest(ctx, share, man.installed(plans), &manOnDisk)
+		manWritten = manWritten || wrote
+		if e != nil {
+			err = e
+			return result, err
+		}
+	}
 	if result.NeedsTrust {
 		state, e := paths.OpenRoot(opts.Dirs.State, true)
 		if e != nil {
@@ -467,14 +479,6 @@ func runInstallWith(ctx context.Context, opts Options, run runner, render render
 		defer state.Close()
 		err = paths.WriteFileAtomicAt(ctx, state, "needs-trust.json", []byte("{\"host\":\""+reviewHost+"\",\"needs_trust\":true}\n"), 0o600)
 		if err != nil {
-			return result, err
-		}
-	}
-	if man != nil && changes {
-		wrote, e := putManifest(ctx, share, man.installed(plans), &manOnDisk)
-		manWritten = manWritten || wrote
-		if e != nil {
-			err = e
 			return result, err
 		}
 	}

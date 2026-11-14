@@ -133,7 +133,11 @@ func uninstallRendered(ctx context.Context, opts UninstallOptions, run runner, r
 			if e != nil {
 				return result, e
 			}
-			if _, _, e = treeChanged(root, filepath.Join("marketplace", host), files, man.listedIn(unitOf(host)), false); e != nil {
+			listed, e := man.listedIn(unitOf(host), dirs.Share)
+			if e != nil {
+				return result, e
+			}
+			if _, _, e = treeChanged(root, filepath.Join("marketplace", host), files, listed, false); e != nil {
 				return result, e
 			}
 		}
@@ -172,6 +176,20 @@ func uninstallRendered(ctx context.Context, opts UninstallOptions, run runner, r
 			result.Actions = append(result.Actions, "the install manifest, "+manifestPath)
 		} else if !opts.All {
 			result.Kept = append(result.Kept, manifestPath+", which lists what a later release installed")
+		} else {
+			// --all removes the data folder, and with it the manifest and the
+			// folders of a later release's units; their registrations with
+			// the hosts are that release's to remove.
+			result.Actions = append(result.Actions, "the install manifest, "+manifestPath+", which lists what a later release installed")
+			for _, u := range manAfter.Units {
+				if u.Root == "" {
+					continue
+				}
+				if _, e := root.Lstat(filepath.FromSlash(u.Root)); e == nil {
+					result.Actions = append(result.Actions, "the folder of a later release's unit, "+shownIn(dirs.Share, u.Root))
+				}
+			}
+			result.Kept = append(result.Kept, "the host registrations of a later release's units, which this release does not make")
 		}
 	}
 	ourLink := ownLink(link, result.Binary)
