@@ -105,7 +105,10 @@ func costFixture(t *testing.T, d paths.Dirs) time.Time {
 			TokensIn: in, TokensCachedIn: cached, TokensOut: out, Effort: effort, EffortUsed: used, DurationMS: 1000}
 	}
 	plantRunLog(t, d,
-		rec(0, "3f2a91c0", update.OutcomeOK, "", 1, 4000, 3000, 300, "max", "max"),
+		// Two passes answered below the effort they asked for, one found
+		// nothing to change, so the two shares differ, and 2 of 3 rounds to
+		// 67%, not down to 66%.
+		rec(0, "3f2a91c0", update.OutcomeOK, "", 1, 4000, 3000, 300, "max", "high"),
 		rec(0, "4a3b92d1", update.OutcomeNoChange, "", 1, 1000, 0, 100, "max", "high"),
 		rec(2, "5b4ca3e2", update.OutcomeFailed, update.ReasonInvalidOutput, 2, 600, 100, 60, "max", "max"),
 		// The 8th day, outside the 7 the report reads.
@@ -124,7 +127,7 @@ func costFixture(t *testing.T, d paths.Dirs) time.Time {
 // report is as before, line for line. Neither shows the planted marker.
 func TestTheUpdateReportsCostSection(t *testing.T) {
 	want := []string{
-		"cost, claude-code: tokens 2500 in, 3100 cached in, 460 out, 5110 weighted; 4 model calls in 3 passes; 2 chats organized, 2555 weighted tokens a chat; unchanged 33%, below the effort asked 33%",
+		"cost, claude-code: tokens 2500 in, 3100 cached in, 460 out, 5110 weighted; 4 model calls in 3 passes; 2 chats organized, 2555 weighted tokens a chat; unchanged 33%, below the effort asked 67%",
 		"cost, codex: tokens 0 in, 0 cached in, 0 out, 0 weighted; 0 model calls in 0 passes; 0 chats organized, 0 weighted tokens a chat; unchanged none, below the effort asked none",
 	}
 	var offLines []string
@@ -164,7 +167,7 @@ func TestTheUpdateReportsCostSection(t *testing.T) {
 			t.Fatalf("report:\n%s\nwant the report with the switch off and:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
 		}
 		wantCost := []HostCost{
-			{Host: update.HostClaude, TokensIn: 2500, CachedIn: 3100, TokensOut: 460, Weighted: 5110, Calls: 4, Passes: 3, Organized: 2, PerChat: 2555, NoChange: 1, BelowEffort: 1},
+			{Host: update.HostClaude, TokensIn: 2500, CachedIn: 3100, TokensOut: 460, Weighted: 5110, Calls: 4, Passes: 3, Organized: 2, PerChat: 2555, NoChange: 1, BelowEffort: 2},
 			{Host: update.HostCodex},
 		}
 		if !reflect.DeepEqual(f.Cost, wantCost) {

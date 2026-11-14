@@ -22,8 +22,9 @@ const budgetMarker = "zqbudgetplanted"
 // budgetFixture makes a home with a wiki, the worker on, eva-md work
 // --status's clock at workNow, a Claude Code chat and a Codex chat waiting
 // for an update, and today's run log: Claude Code's one pass spent 2,000
-// weighted tokens, Codex's 10. change sets the rest of the config.
-func budgetFixture(t *testing.T, change func(*config.Config)) {
+// weighted tokens, Codex's 10. change sets the rest of the config. It
+// returns the run log's file.
+func budgetFixture(t *testing.T, change func(*config.Config)) string {
 	t.Helper()
 	d, _ := updateFixture(t, tangerine)
 	saved := workClock
@@ -48,6 +49,7 @@ func budgetFixture(t *testing.T, change func(*config.Config)) {
 	if err := os.WriteFile(file, log, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return file
 }
 
 // reasons is each host's reason among the update job's waits at now.
@@ -127,4 +129,52 @@ func TestTheWorkerWaitsOnTheTokenBudget(t *testing.T) {
 			}
 		})
 	}
+}
+
+// With the switch token_budget on and the budget reached by both hosts, a
+// wait for another reason keeps it: a host held for sign-in still waits
+// for sign-in, one in a backoff is still held, and with updates off both
+// are off. Only a wait for the size or quiet rule is deferred by the
+// budget.
+func TestTheBudgetLeavesOtherWaitsTheirReason(t *testing.T) {
+	reached := func(c *config.Config) {
+		c.Switches["token_budget"] = true
+		c.DailyTokenBudget = 10
+	}
+	t.Run("held and backed off", func(t *testing.T) {
+		file := budgetFixture(t, reached)
+		var lines []byte
+		for host, reason := range map[string]string{update.HostClaude: update.ReasonAuth, update.HostCodex: update.ReasonRateLimit} {
+			line, err := json.Marshal(update.Record{At: workNow.Add(-time.Minute).Format(time.RFC3339), Host: host, Session: "4a3b92d1-" + budgetMarker,
+				Outcome: update.OutcomeFailed, Reason: reason, Calls: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines = append(append(lines, line...), '\n')
+		}
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write(lines); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]work.WaitReason{update.HostClaude: work.WaitSignIn, update.HostCodex: work.WaitHeld}
+		if got := reasons(t, workNow); !maps.Equal(got, want) {
+			t.Fatalf("waits %v, want %v", got, want)
+		}
+	})
+	t.Run("updates off", func(t *testing.T) {
+		budgetFixture(t, func(c *config.Config) {
+			reached(c)
+			c.Updates = false
+		})
+		want := map[string]work.WaitReason{update.HostClaude: work.WaitOff, update.HostCodex: work.WaitOff}
+		if got := reasons(t, workNow); !maps.Equal(got, want) {
+			t.Fatalf("waits %v, want %v", got, want)
+		}
+	})
 }

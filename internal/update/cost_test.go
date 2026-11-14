@@ -352,6 +352,17 @@ func TestTheTokenBudgetDefersPasses(t *testing.T) {
 	if want := fmt.Sprintf("claude-code: stopped: budget (about %d of %d thousand weighted tokens today)\n", thousands(1000+est), thousands(1000+est)); !strings.Contains(e.log.String(), want) {
 		t.Fatalf("log lacks %q:\n%s", want, e.log)
 	}
+	// A person's run is stopped too, as daily_cap stops one, by the day's
+	// tokens themselves, before any estimate is worked out.
+	e.log.Reset()
+	manual = e.job()
+	manual.Manual = true
+	if s, err := manual.Session(context.Background(), chats[2].host, chats[2].session); err != nil || len(s.Records) != 0 || !s.Stopped(StopBudget) || calls(e.fake) != 2 || e.mark(files[2]).Offset != 0 {
+		t.Fatalf("a person's run with the budget reached: %+v %v\n%s", s, err, e.log)
+	}
+	if want := fmt.Sprintf("claude-code: stopped: budget (about %d of %d thousand weighted tokens today)\n", thousands(1000+est), thousands(1000+est)); !strings.Contains(e.log.String(), want) {
+		t.Fatalf("a person's run: log lacks %q:\n%s", want, e.log)
+	}
 	// No pass that was deferred left a record.
 	records, err := Days(e.dirs.State, e.clock, 1)
 	if err != nil || len(records) != 2 || outcomes(Summary{Records: records}) != "ok, ok" {
