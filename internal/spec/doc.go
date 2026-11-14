@@ -23,6 +23,12 @@
 //   - A record's name, title, fields and date agree, and every relative
 //     link outside code, in the specs, the records and the indexes,
 //     resolves, its anchor included.
+//   - Each spec's Must keep table places the audit's items with the tests,
+//     or the checks a workflow runs, that hold them (mustkeep_test.go).
+//   - What the module's source holds, read with go/parser: one importer
+//     for each library, every time limit raised before the tests run, the
+//     tests' sleeps and skips counted, the git environment cleared where
+//     tests start git, and the benchmark held to the specs' targets.
 //
 // The package builds nothing into eva-md: its code is in its tests.
 package spec
