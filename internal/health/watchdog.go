@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/catchup"
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/paths"
 )
 
@@ -24,7 +25,7 @@ func init() {
 // heartbeat, then the capture's freshness, the hooks' failures, transcript
 // recovery's format drift and the hooks' times.
 func inspectHooks(ctx context.Context, r *Report, d paths.Dirs, now time.Time) {
-	for _, host := range []string{"claude-code", "codex"} {
+	for _, host := range updateHosts {
 		for _, event := range hostEvents(host) {
 			b, valid := readBeat(d, host, event, now)
 			if !valid {
@@ -53,12 +54,11 @@ func inspectHooks(ctx context.Context, r *Report, d paths.Dirs, now time.Time) {
 	}
 }
 
+// hostEvents are a host's hook events, by its id, in the order its rows
+// list them; none for an id eva-md doesn't know.
 func hostEvents(host string) []string {
-	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PreCompact", "SessionEnd"}
-	if host == "claude-code" {
-		return append(events, "PostToolUseFailure", "StopFailure", "PostCompact", "PostModelSwitch")
-	}
-	return append(events, "Interrupt")
+	h, _ := adapter.ByID(host)
+	return h.Events()
 }
 
 // The hook failure check: of a host's last hookWindow runs in hookDays, half
@@ -182,7 +182,7 @@ func captureFreshness(parent context.Context, d paths.Dirs, host string, now tim
 		check.Detail = "no owned plugin installation to correlate"
 		return check
 	}
-	info, err := os.Lstat(filepath.Join(d.Share, "marketplace", cli(host), ".eva-md-managed"))
+	info, err := os.Lstat(filepath.Join(marketplace(d, host), ".eva-md-managed"))
 	if err != nil {
 		return check
 	}
@@ -203,10 +203,13 @@ func captureFreshness(parent context.Context, d paths.Dirs, host string, now tim
 	defer cancel()
 	var activity time.Time
 	var complete bool
-	if host == "codex" {
-		activity, complete = newestCodexChat(ctx, filepath.Join(home, ".codex", "sessions"), now)
-	} else {
-		activity, complete = newestClaudeChat(ctx, filepath.Join(home, ".claude", "projects"), now)
+	h, _ := adapter.ByID(host)
+	chats := h.Chats()
+	switch dir := filepath.Join(home, filepath.FromSlash(chats.Folder)); chats.Layout {
+	case adapter.PerDay:
+		activity, complete = newestCodexChat(ctx, dir, now)
+	case adapter.PerProject:
+		activity, complete = newestClaudeChat(ctx, dir, now)
 	}
 	switch {
 	case !complete:
@@ -443,12 +446,10 @@ func holdsChat(ctx context.Context, root *os.Root, name string, left *int) (chat
 }
 
 // store names the folder of a host's chats that transcript recovery and
-// the capture-freshness check read.
+// the capture-freshness check read, by the host's id, as a person reads it.
 func store(host string) string {
-	if host == "codex" {
-		return "~/.codex/sessions"
-	}
-	return "~/.claude/projects"
+	h, _ := adapter.ByID(host)
+	return "~/" + h.Chats().Folder
 }
 
 // hostBeats reads the host's heartbeats: the time of the newest of any
@@ -473,10 +474,9 @@ func hostBeats(d paths.Dirs, host string, now time.Time) (latest time.Time, move
 	return latest, named.TranscriptElsewhere
 }
 
-// moves names the variable that moves a host's folder elsewhere.
+// moves names the variable that moves a host's folder elsewhere, by the
+// host's id.
 func moves(host string) string {
-	if host == "codex" {
-		return "CODEX_HOME"
-	}
-	return "CLAUDE_CONFIG_DIR"
+	h, _ := adapter.ByID(host)
+	return h.Chats().MovedBy
 }

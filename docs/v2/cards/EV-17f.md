@@ -47,3 +47,14 @@ The card's checker left these to the lead.
 
 - The step stands in the build job, as carded: it reads the bytes Build sums, and the verify job's check of the sums ties them to what is published.
 - HO-13b's card now says how its release job's condition must be written so that this card's check passes it.
+
+## As merged
+
+Merged on 2026-11-14 (33be386, from `pkg/ev-17f-r1`, after two reviews, one round of fixes and a verification that accepted it).
+
+- **Stricter than the card, and the lead confirms it:** the check is the step right before the upload, not anywhere after Build, so no later step can change a binary that was read. The step only reads, so another step may stand between Build and it; HO-13b's manifest step goes there (its card says so).
+- The test reads every line of the step and of the jobs, quoted keys and keys with a space before the colon included; it allows only `TAG` in the workflow's own `env` and none on the build job, and runs the step's script with the runner's variables set. A later package that adds a workflow variable, or writes a job's key another way, changes the test with it.
+- The test builds `./cmd/eva-md` with no network. On a clone whose module cache is empty, `go test ./internal/release` alone fails with "run go mod download in the repository first"; under `go test ./...` and in CI the modules are there.
+- Known and left: a step's script that read the runner's variables without naming them (through `/proc`, or `set` with no arguments) is not caught by the reading of its text.
+- **Owed: `docs/verification.md`**, which EV-10a holds while it builds. After "...or if the release's own build, for each of its targets, records a build tag or holds the evaluation build's code": "; and the release workflow's build job reads each binary it built, in the step right before the upload, with `go version -m` and its bytes, and fails on one that is not eva-md's command, records a build tag or holds either mark of the evaluation build's code, which `internal/release/release_tagcheck_test.go` holds in place and runs, with the runner's variables set, on the release's own build, the same build with the tag, and made-up binaries".
+- The step runs for the first time at the owner's next release.

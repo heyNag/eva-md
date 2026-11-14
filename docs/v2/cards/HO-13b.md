@@ -46,3 +46,7 @@ docs/known-limitations.md
 ## Added by the lead on 2026-11-13
 
 EV-17f's test reads every job's condition in the release workflow. Where this card makes the release job run when the signing job passed or was skipped, and never when it failed, the condition holds `!failure()` as one of its parts joined by `&&`, has no `||` outside brackets and never names `always()`, as `if: ${{ !failure() && !cancelled() }}` does. The usual `always() && needs.sign.result != 'failure'` fails that test, which this card does not own.
+
+## Added by the lead on 2026-11-14
+
+EV-17f, as merged, holds its check of the binaries to be the step right before the upload in the build job. If this card's manifest is made by a step of its own in that job, the step stands between Build and that check, never after it: `TestReleaseTagCheckStandsBeforeTheUpload` fails otherwise. The same test allows only `TAG` in the workflow's `env` and no `env` on the build job; a variable this card adds there changes that test with it, inside this card's paths or with the lead's leave.

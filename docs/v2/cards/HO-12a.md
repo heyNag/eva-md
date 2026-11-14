@@ -36,3 +36,13 @@ Existing test files of `internal/health` and `cmd/eva-md`, which pass unchanged.
 - A test holds `update.HostClaude` and `update.HostCodex` equal to `adapter.ClaudeCode` and `adapter.Codex`.
 - The doctor's features rule is pinned on the inputs HO-10b found where install's rule and the doctor's differ, and gives the doctor's answer on each.
 - The diff adds no import of `internal/hook`, `internal/update` or `internal/install` to a file that lacked it.
+
+## As merged
+
+Merged on 2026-11-14 (a4c9b31, from `pkg/ho-12a-r1`, after one review, one round of fixes and a verification that accepted it). It merged before DV-12b; its builder tried DV-12b's two new files of `internal/health` with it, and the build, the count of literals and health's tests passed, so DV-12b brings nothing of this card's to change.
+
+- **Beyond the card's list:** the doctor's trust row and its probe act on the host whose plugin needs a review, and the features row on a host that has a features command (both HO-10b's fields); the inbox file prefix in `status.go` goes through the adapter too.
+- **For a host name eva-md does not know** (no caller passes one) the answers differ from v1's: absent with no app (v1 fell back to Codex), not installed, and the notice at a chat's start checks every host but the active one.
+- Sentences that name a host inside a longer text stay as they were, since what a person sees does not change; the Codex review notice stays one literal, which `TestEveryNoticeHasItsKind` reads.
+- The two literals left in the CLI are in `main.go` and `mcp.go`, outside this card.
+- **The latency gate was not run** on this machine, which was too busy to judge: the notice at a chat's start runs in a hook and now looks hosts up in the adapter (a few small copies, no file read or process more). CI's `latency` job on the merge is the run of record; the lead reads it.

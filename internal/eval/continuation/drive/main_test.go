@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,16 +36,18 @@ func TestMain(m *testing.M) {
 // is read from, the fixture's tasks and repositories, a work folder, a
 // results folder, and the fake host's script and record.
 type rig struct {
-	t      *testing.T
+	t      testing.TB
 	base   string // the test's folder, links resolved
 	opts   Options
 	script fakehost.Script
 	file   string // the script's file
 	clock  time.Time
 	tmp    string // the temporary root the rig gives the driver
-	// ended says how each chat call of the rig's runs ended, as the driver
-	// saw it, for diagnose.
-	ended []string
+	// ended are the calls of the CLI the rig's runs made, in order, as the
+	// driver saw each end, for diagnose, which may read them while a run a
+	// test's hang guard gave up on still adds to them.
+	mu    sync.Mutex
+	ended []callEnd
 }
 
 // traced makes the rig's next run keep a trace, in a folder of its own
@@ -54,10 +59,14 @@ func (r *rig) traced(name string) {
 // diagnose says what the rig's runs did, for a test that fails: each of
 // the fake's calls, by its process, with how it ended by its own record
 // (or that it has none: something ended it from outside, or its runtime
-// did, or it killed itself as its script asked); how each chat call ended
-// as the driver saw it and what it was read as; and, when the last run
-// kept a trace, what each call printed, its first 2 KB. Only made-up data
-// passes through a rig, so nothing a real run holds is shown.
+// did, or it killed itself as its script asked), and each end the fake
+// recorded of a process that recorded no call, a fault before its record;
+// each call of the CLI the driver made, the version's and the web tools'
+// list among them, by its process, with how its wait ended, what a chat
+// call was read as, and whether the fake recorded that process at all,
+// or that it made none; and, when the last run kept a trace, what each
+// call printed, its first 2 KB. Only made-up data passes through a rig,
+// so nothing a real run holds is shown.
 func (r *rig) diagnose() string {
 	r.t.Helper()
 	var b strings.Builder
@@ -70,18 +79,27 @@ func (r *rig) diagnose() string {
 		for j, e := range ends {
 			if !used[j] && e.Pid == c.Pid {
 				used[j] = true
-				end = fmt.Sprintf("exit %d", e.Exit)
-				if e.Fault != "" {
-					end += ", " + e.Fault
-				}
+				end = fakeEnd(e)
 				break
 			}
 		}
 		fmt.Fprintf(&b, "  %d: pid %d, %s %s, session %q: %s\n", i+1, c.Pid, c.Host, c.Mode, c.Session, end)
 	}
-	b.WriteString("the chat calls as the driver saw them:\n")
-	for i, e := range r.ended {
-		fmt.Fprintf(&b, "  %d: %s\n", i+1, e)
+	for j, e := range ends {
+		if !used[j] {
+			fmt.Fprintf(&b, "  pid %d, no call recorded: %s\n", e.Pid, fakeEnd(e))
+		}
+	}
+	b.WriteString("the calls of the CLI as the driver saw them:\n")
+	r.mu.Lock()
+	ended := slices.Clone(r.ended)
+	r.mu.Unlock()
+	for i, e := range ended {
+		fmt.Fprintf(&b, "  %d: %s; the fake's record: %s\n", i+1, endedAs(e), recordOf(e.Pid, calls, ends))
+	}
+	if len(ended) == 0 {
+		// As when the probe found no CLI to run, and so gave no version.
+		b.WriteString("  none\n")
 	}
 	if r.opts.Trace == "" {
 		b.WriteString("no trace kept\n")
@@ -106,25 +124,81 @@ func (r *rig) diagnose() string {
 	return b.String()
 }
 
-// endedAs is how a chat call ended, by the error its wait gave, and what
-// it was read as.
-func endedAs(err error, rep report) string {
-	how := "exit status 0"
-	if err != nil {
-		how = err.Error()
+// fakeEnd is an end the fake recorded: its exit and its fault.
+func fakeEnd(e fakehost.End) string {
+	end := fmt.Sprintf("exit %d", e.Exit)
+	if e.Fault != "" {
+		end += ", " + e.Fault
 	}
-	return fmt.Sprintf("%s; read as answered %v, fail %q, session %q, usage %v", how, rep.Answered, rep.Fail, rep.Session, rep.Usage)
+	return end
+}
+
+// recordOf says what the fake recorded of the process pid: a call, an
+// end, both or neither. A process with neither never reached its record:
+// it died first, as one its runtime ended does, or failed to read its
+// script, or was not the fake at all.
+func recordOf(pid int, calls []fakehost.Call, ends []fakehost.End) string {
+	if pid == 0 {
+		return "none, the call did not start"
+	}
+	var parts []string
+	for _, c := range calls {
+		if c.Pid == pid {
+			parts = append(parts, "a "+c.Mode+" call")
+		}
+	}
+	for _, e := range ends {
+		if e.Pid == pid {
+			parts = append(parts, "an end, "+fakeEnd(e))
+		}
+	}
+	if len(parts) == 0 {
+		return "nothing, it never reached its record"
+	}
+	return strings.Join(parts, " and ")
+}
+
+// endedAs is how a call of the CLI ended as the driver saw it: which call,
+// its process, how its wait ended by the error's kind, and what a chat
+// call was read as.
+func endedAs(e callEnd) string {
+	s := fmt.Sprintf("%s, pid %d, %s", e.Call, e.Pid, waitKind(e.Err))
+	if e.Over {
+		s += ", its output past its limit"
+	}
+	if e.Call == traceChat {
+		rep := e.Report
+		s += fmt.Sprintf("; read as answered %v, fail %q, session %q, usage %v", rep.Answered, rep.Fail, rep.Session, rep.Usage)
+	}
+	return s
+}
+
+// waitKind is how a call's wait ended, by its error's kind, with no path:
+// "exit status N" or "signal: NAME" for an exit or a signal, and "no exit:"
+// then the error for any other, a program that could not be started or an
+// output held past the wait.
+func waitKind(err error) string {
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return "exit status 0"
+	case errors.As(err, &exit):
+		return exit.Error()
+	}
+	return "no exit: " + pathless(err).Error()
 }
 
 // useTempFolders makes roots the driver's temporary folders for the test.
-func useTempFolders(t *testing.T, roots ...string) {
+func useTempFolders(t testing.TB, roots ...string) {
 	t.Helper()
 	was := TempFolders
 	TempFolders = roots
 	t.Cleanup(func() { TempFolders = was })
 }
 
-func newRig(t *testing.T, facts int) *rig {
+// newRig makes a rig for the test t, whose output, should it fail, ends
+// with what diagnose says.
+func newRig(t testing.TB, facts int) *rig {
 	t.Helper()
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -175,8 +249,19 @@ func newRig(t *testing.T, facts int) *rig {
 		MaxSessions: 100, MaxTokens: 1 << 40, SessionTimeout: time.Hour,
 		PassEnv: []string{fakehost.ScriptVar}, Repo: repo, Spend: true,
 		Clock: func() time.Time { r.clock = r.clock.Add(time.Second); return r.clock },
-		ended: func(err error, rep report) { r.ended = append(r.ended, endedAs(err, rep)) },
+		ended: func(e callEnd) {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			r.ended = append(r.ended, e)
+		},
 	}
+	// Registered after the test's folder, so it runs before that folder is
+	// removed.
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Log("what the rig's runs did:\n" + r.diagnose())
+		}
+	})
 	return r
 }
 
@@ -227,14 +312,14 @@ func (r *rig) commit() string {
 	return git(r.t, r.opts.Repo, "rev-parse", "HEAD")
 }
 
-func mkdir(t *testing.T, dir string) {
+func mkdir(t testing.TB, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func write(t *testing.T, path, body string) {
+func write(t testing.TB, path, body string) {
 	t.Helper()
 	mkdir(t, filepath.Dir(path))
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -242,7 +327,7 @@ func write(t *testing.T, path, body string) {
 	}
 }
 
-func git(t *testing.T, dir string, args ...string) string {
+func git(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
 	if err != nil {

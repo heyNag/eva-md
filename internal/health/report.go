@@ -176,7 +176,11 @@ func Field(ctx context.Context, d paths.Dirs, now time.Time) FieldReport {
 	case !complete:
 		r.Parts["record"] = PartIncomplete
 	default:
-		r.Parts["record"] = partState(record.Sessions[update.HostClaude]+record.Sessions[update.HostCodex] > 0)
+		sessions := 0
+		for _, host := range updateHosts {
+			sessions += record.Sessions[host]
+		}
+		r.Parts["record"] = partState(sessions > 0)
 	}
 
 	switch {
