@@ -56,13 +56,13 @@ a notice that is not JSON
 {"type":"result","subtype":"success","is_error":false,"session_id":"s-9","usage":{"input_tokens":1,"output_tokens":1},"modelUsage":{"m-b":{"inputTokens":10,"cacheCreationInputTokens":5,"cacheReadInputTokens":100,"outputTokens":3},"m-a":{"inputTokens":20,"cacheReadInputTokens":200,"outputTokens":40}}}
 `)
 	got := readStreamJSON(out)
-	want := report{Session: "s-9", AgentEvents: 3, PromptTokens: 335, CachedTokens: 300, OutputTokens: 43, Model: "m-a", Answered: true, Usage: true}
+	want := report{Session: "s-9", AgentEvents: 3, PromptTokens: 335, CachedTokens: 300, OutputTokens: 43, Model: "m-a", Answered: true, Usage: true, Spent: 378}
 	if got != want {
 		t.Fatalf("%+v, want %+v", got, want)
 	}
 	usage := readStreamJSON([]byte(`{"type":"assistant","message":{"model":"m-c","content":[]}}` + "\n" +
 		`{"type":"result","is_error":true,"api_error_status":429,"session_id":"s-2","usage":{"input_tokens":4,"cache_creation_input_tokens":2,"cache_read_input_tokens":6,"output_tokens":9}}`))
-	if want := (report{Session: "s-2", PromptTokens: 12, CachedTokens: 6, OutputTokens: 9, Model: "m-c", Fail: CodeRateLimited, Usage: true}); usage != want {
+	if want := (report{Session: "s-2", PromptTokens: 12, CachedTokens: 6, OutputTokens: 9, Model: "m-c", Fail: CodeRateLimited, Usage: true, Spent: 21}); usage != want {
 		t.Fatalf("%+v, want %+v", usage, want)
 	}
 	// Sign-in and rate limit have their codes; any other error, a failure
@@ -106,7 +106,7 @@ func TestReadExecJSON(t *testing.T) {
 {"type":"turn.completed","model":"m-x","usage":{"input_tokens":500,"cached_input_tokens":300,"output_tokens":20}}
 {"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":30,"output_tokens":2}}
 `)
-	if got, want := readExecJSON(out), (report{Session: "th-1", AgentEvents: 2, PromptTokens: 550, CachedTokens: 330, OutputTokens: 22, Model: "m-x", Answered: true, Usage: true}); got != want {
+	if got, want := readExecJSON(out), (report{Session: "th-1", AgentEvents: 2, PromptTokens: 550, CachedTokens: 330, OutputTokens: 22, Model: "m-x", Answered: true, Usage: true, Spent: 572}); got != want {
 		t.Fatalf("%+v, want %+v", got, want)
 	}
 	// Sign-in and rate limit have their codes; any other failure, and an
