@@ -393,7 +393,7 @@ func TestText(t *testing.T) {
 	}
 	for _, line := range []string{
 		"host claude-code\n",
-		"  runs, condition off: records 2, ended done 2, error 0, no_usage 0, memory_off 0, hidden_found 0; planned 18, judged 11, not run 2, unjudged sign_in 3, rate_limited 0, timeout 1, other_model 0, setup_failed 0, update_failed 0, host_failed 1, no_usage 0, memory_off 0, hidden_found 0; no model 0, tokens 45000\n",
+		"  runs, condition off: records 2, ended done 2, error 0, no_usage 0, memory_off 0, hidden_found 0, arm_stopped 0; planned 18, judged 11, not run 2, unjudged sign_in 3, rate_limited 0, timeout 1, other_model 0, setup_failed 0, update_failed 0, host_failed 1, no_usage 0, memory_off 0, hidden_found 0; no model 0, tokens 45000\n",
 		"  runs, condition off: commits " + strings.Repeat("1", 40) + " clean, " + strings.Repeat("2", 40) + " dirty; host versions 1.2.3, 1.2.4; models asked 1; models answered 1\n",
 		"  runs, condition oracle: commits " + strings.Repeat("1", 40) + " clean; host versions 1.2.3; models asked none; models answered 1, and none\n",
 		"  task hid1 hidden, condition off: judged 3, solved 2, solved first try 1; corrections median 2, least 0, most 5; rounds median 3, least 1, most 5; agent events median 10, least 8, most 20; prompt tokens median 1000, least 500, most 3000; cached tokens median 800, least 400, most 2000; output tokens median 100, least 50, most 300; minutes median 2.00, least 1.00, most 5.00\n",

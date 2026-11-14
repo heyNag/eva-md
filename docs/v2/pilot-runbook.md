@@ -1,6 +1,6 @@
 # The pilot's live run: a run-book
 
-The commands were checked against `main` at `c2ca020d0c03` (2026-11-14), with EV-03b, EV-17g, EV-17c and EV-03c merged; step 1 says what the driver still owes. Every line about how a real host behaves is unproven until the smoke run (step 7) shows it on that host, the sign-in program (step 3) above all; those lines say **(a guess)**.
+The commands were checked against `main` at `c2ca020d0c03` (2026-11-14), with EV-03b, EV-17g, EV-17c and EV-03c merged, and its lines on the driver's stop, its count of spend and its trace against the round merged after that; step 1 says what a full run still waits for. Every line about how a real host behaves is unproven until the smoke run (step 7) shows it on that host, the sign-in program (step 3) above all; those lines say **(a guess)**.
 
 **What it is for.** The first real figures of an agent session: its cost, its variance, and whether the tasks can show a difference. It is [the plan](plan.md)'s Stage 0 row EV-03: the ten pilot tasks on the continuation driver under memory off, the ideal record and eva-md v1, on both hosts, in a container billed to evaluation keys (decision 28). A session's price sets decision 16's ceiling (15.4).
 
@@ -25,11 +25,11 @@ If one is not true, stop.
 - whether the sign-in program may write each key into a trial's home for that trial's life (step 3);
 - whether the keys are revoked after the pilot or kept for EV-17.
 
-**Owed on the driver**: one short round before the first full run (EV-17c's card). Until it is merged, step 8 starts only on the lead's ruling, and:
+**What a full run still waits for**: every chat's web tools turned off in the host table (step 12). The round the driver owed when this was first checked is merged, and with it:
 
-- **A run the stop rule ended does not add up.** When an `eva` run's first two trials both end `setup_failed` or `update_failed`, the third ends the run (`eva-eval: trial <id>.t3: the first two trials both ended ...`, exit 2, `"ended":"error"`) uncounted: the record's counts sum to one less than `planned`.
-- **`--sign-in` shows nowhere.** Neither the plan line nor the record names it, and it is checked, as `--eva-md`'s tag is, only once `--spend-model-quota` is given. So `ls -l $P/bin/sign-in $P/bin/eva-md` before each `eva` run, and read the command line before Enter.
-- **Spend not counted** by `--max-tokens` or the record: the sign-in program's, a failed update's, and the update of a trial whose chat ended unjudged (the condition sums the update only after a chat that ended without a code). The key's limit at its provider bounds it; the lead compares each record's `tokens` with the provider's figure (step 8).
+- **A run the stop rule ended adds up.** When an `eva` run's first two trials both end `setup_failed` or `update_failed`, the run stops before the third starts: exit 2, `"ended":"arm_stopped"`, the third trial and every later one counted not run.
+- **`--sign-in` is a flag of the run**, refused with any condition but `eva`. Before each `eva` run, `ls -l $P/bin/sign-in $P/bin/eva-md`, and read the command line before Enter.
+- **What a condition spent in a trial that ends unjudged is counted**, before its chat or after it. Still not counted by `--max-tokens` or the record: the sign-in program's own spend, and a job of eva-md's that outlives its trial. The key's limit at its provider bounds it; the lead compares each record's `tokens` with the provider's figure (step 8).
 
 ## 2. The keys, and how one reaches a chat
 
@@ -171,7 +171,7 @@ stat -c '%a %U' $P/export $P/export-smoke
 | 5 | claude-code | eva | 10 | 3 | 30 | 20m |
 | 6 | codex | eva | 10 | 3 | 30 | 20m |
 
-180 sessions, as the plan says; 20 minutes is the export's line (the driver's default is 30). **What the driver counts.** A session is one trial, every round in one host session. Tokens are each call's prompt tokens (cached in full) and output tokens, and under `eva` v1's update, only after a chat that ended without a code (step 1). `--max-sessions` refuses a plan of more sessions. `--max-tokens` is checked before each trial, so a run can pass it by one session. A call cut off before its host printed usage is unjudged and uncounted, and the run goes on (EV-17g's ruling 1).
+180 sessions, as the plan says; 20 minutes is the export's line (the driver's default is 30). **What the driver counts.** A session is one trial, every round in one host session. Tokens are each call's prompt tokens (cached in full) and output tokens, and under `eva` v1's update, whether the chat was judged or not (step 1). `--max-sessions` refuses a plan of more sessions. `--max-tokens` is checked before each trial, so a run can pass it by one session. A call cut off before its host printed usage is unjudged and uncounted, and the run goes on (EV-17g's ruling 1).
 
 **Splitting the owner's ceiling**, once step 7 is done, from what it spent. The figures are made up. Round every share down. What all runs are given never sums past the owner's ceiling, and what a run leaves unspent goes to no other. A smoke run made after the split, to prove a fix, comes out of the reserve.
 
@@ -213,7 +213,7 @@ Run it first without its last flag (the plan line, exit 2), then as written. **E
 
 **The sign-in check**, once per host, at no cost: the off command again, `R=smoke-$H-signin-1`, with the key's variable set to a made-up wrong value for that command only (`ANTHROPIC_API_KEY=made-up-wrong-0000 $P/bin/eva-eval ...`). **Expect:** `trial d01.t1: unjudged, sign_in`, `exit 1`. Skip it where a proxy adds the key.
 
-**The trace.** `$P/trace/$R/<run>/d01/<condition>/t1/` holds each call's two streams, root's alone: call 1 is the version probe (`1-version.stdout`, `.stderr`), then one a round for the chat (`2-chat.*`, `3-chat.*`, ...). Read it only through `$P/bin/shape <file>`, or `wc -c` for a stderr: **only event types and field names are read from it**, never a value or a line of text. It holds the chat's text and may hold a key a chat printed: nothing of it is copied, quoted or committed.
+**The trace.** `$P/trace/$R/<run>/d01/<condition>/t1/` holds each call's two streams, root's alone: call 1 is the version probe (`1-version.stdout`, `.stderr`), then one a round for the chat (`2-chat.*`, `3-chat.*`, ...). Read it only through `$P/bin/shape <file>`, or `wc -c` for a stderr: **only event types and field names are read from it**, never a value or a line of text. Each call also leaves `<k>-version.exit` or `<k>-chat.exit`, one line on how it ended: `exit N`, `signal NAME` or `not started`, with a word more when the driver ended it at its limit or its output was held past the wait. When a call printed nothing, read that file first: it tells an exit from a crash, a signal and the limit. It holds the chat's text and may hold a key a chat printed: nothing of it is copied, quoted or committed.
 
 | A wrong reading | Read | What the reader needs there |
 | --- | --- | --- |
@@ -241,7 +241,7 @@ Run it first without its last flag (the plan line, exit 2), then as written. **E
 
 ## 8. The full runs
 
-Memory off and the ideal record first, since they need no eva-md; v1 last, on a host only once its `eva` smoke judged d01.t1 (`memory_off 0`, `setup_failed 0`, `update_failed 0`) and step 1's owed round is merged, or the lead has ruled. One at a time, in `tmux`, so a dropped connection does not end it (outside `tmux` a hang-up ends a run as Ctrl-C does). `S` and `T` are step 6's ceilings; `M_CC` and `M_CX` the models' ids; `X=$P/export`. Run each first without its last flag and read the plan line with `cat $P/logs/$R.txt`. A run takes about 2 to 6 hours, at most about 12.
+Memory off and the ideal record first, since they need no eva-md; v1 last, on a host only once its `eva` smoke judged d01.t1 (`memory_off 0`, `setup_failed 0`, `update_failed 0`) and every chat's web tools are turned off (step 12). One at a time, in `tmux`, so a dropped connection does not end it (outside `tmux` a hang-up ends a run as Ctrl-C does). `S` and `T` are step 6's ceilings; `M_CC` and `M_CX` the models' ids; `X=$P/export`. Run each first without its last flag and read the plan line with `cat $P/logs/$R.txt`. A run takes about 2 to 6 hours, at most about 12.
 
 ```
 R=full-claude-code-off-1; $P/bin/eva-eval continuation run --tasks $X/tasks --repos $X/repos --host claude-code --cli $P/bin/as-chat --condition off --trials 3 --work $P/work/$R --out $P/out/$R --trace $P/trace/$R --max-sessions $S --max-tokens $T --model $M_CC --session-timeout 20m --pass-env ANTHROPIC_API_KEY --pass-env DISABLE_AUTOUPDATER --repo $P/eva-md --spend-model-quota > $P/logs/$R.txt 2>&1; echo "exit $?"
@@ -274,7 +274,8 @@ Follow one with `tail -f $P/logs/$R.txt`. **Expect:** a line a trial, then the s
 | `unjudged, other_model` | Ctrl-C at the first: every further trial would be the same; check `--model` (step 7 item 5) |
 | `unjudged, rate_limited` or `host_failed` | Rerun those tasks another day. Half the trials or more: Ctrl-C, wait a day |
 | `unjudged, timeout` | Many: tell the lead, who alone changes `--session-timeout` |
-| `unjudged, update_failed` or `setup_failed`, after the first two | Three in a row: Ctrl-C (each further one would be the same, its spend uncounted); the lead rules |
+| the run ends `arm_stopped`: its first two trials ended `update_failed` or `setup_failed` | It stopped itself before a third. Make a new `eva` smoke and read the kept run log's reasons (step 7, item 7); the lead rules |
+| a later `unjudged, update_failed` or `setup_failed` | Counted, and the run goes on. Several: Ctrl-C; the lead rules |
 | `not run, --max-tokens reached` | The share is spent: the reserve, or the owner |
 | A restart, or a killed process | No record: its `--out` is never used again nor read by the report; its whole share counts as spent; `pkill -KILL -u pilot-chat`, `rm -rf ${P:?}/work/${R:?} ${P:?}/trace/${R:?}`; rerun all its tasks |
 
@@ -314,4 +315,4 @@ Nothing of a session's text or a trace enters the repository: only the facts' Re
 
 The live gates: [live-gates-runbook.md](live-gates-runbook.md). What only a Mac or a pty shows (F-070, F-071, F-116): [host-sitting-runbook.md](host-sitting-runbook.md). The pilot's commands and the report's rules: [eval/pilot/README.md](../../eval/pilot/README.md). Grading as another user, and the 28 tasks: [EV-17e](cards/EV-17e.md). The contract spike, a live run of its own: [eval/spike/run-plan.md](../../eval/spike/run-plan.md) and [DV-03d](cards/DV-03d.md). Decision 16 and the readout: [the plan](plan.md), 15.3 and 15.4. Releases: [releasing.md](../releasing.md).
 
-**The lead's rulings (2026-11-14).** The sign-in program stands as given, and each guess it rests on is the smoke run's to prove. The wrapper and its clean-up at a session's first call stand. `d01` is the smoke's task. The reserve is a tenth and the margin twice the smoke's largest session, both the owner's to change. **Step 8 waits for two things.** No full run starts before the driver's owed round has merged (step 1), and before every chat's web tools are turned off in the host table: the pilot's hidden tests are in this public repository, and a host's web search runs at its provider, past the container's network, so a chat could find them. A round on the driver carries that, with what an eva trial whose chat ended unjudged spent, which is not counted today. The smoke run may go ahead of both: it judges nothing that is kept. The shape reader may also print a status's number, and whether a message holds 401, 403 or 429: a number is no one's text. A full run's trace is removed once its readings are confirmed, not kept for the report.
+**The lead's rulings (2026-11-14).** The sign-in program stands as given, and each guess it rests on is the smoke run's to prove. The wrapper and its clean-up at a session's first call stand. `d01` is the smoke's task. The reserve is a tenth and the margin twice the smoke's largest session, both the owner's to change. **Step 8 waits for one thing.** No full run starts before every chat's web tools are turned off in the host table: the pilot's hidden tests are in this public repository, and a host's web search runs at its provider, past the container's network, so a chat could find them. A round on the driver carries that. The smoke run may go ahead of it: it judges nothing that is kept. The shape reader may also print a status's number, and whether a message holds 401, 403 or 429: a number is no one's text. A full run's trace is removed once its readings are confirmed, not kept for the report.

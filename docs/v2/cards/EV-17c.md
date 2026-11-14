@@ -88,10 +88,12 @@ The lead's rulings at the merge:
 - **The stop rule fires on any two failures**: when a run's first two trials end in `setup_failed` or `update_failed`, in any mix, the run stops.
 - **`--sign-in` stays as built for the pilot**: the command's wrapper passes it to the arm. A field of the driver's options would be cleaner and is owed with the points below.
 
-Owed on the driver's files, in one short round before the first full run, none of which changes a figure of a run that goes well:
+Owed on the driver's files when this merged, and **built the same day** in a round on EV-17g's files and this card's (merged from `pkg/ev-17g-r6`, each card's files under its own line), none of which changes a figure of a run that goes well:
 
 - A code of its own for a run the stop rule ended: as built the third trial's `Prepare` returns a plain error, the run's record says `error`, and that trial is counted neither unjudged nor not run, so the record's counts do not add up to what was planned.
 - `--sign-in` as a field of the driver's options and a flag of the command.
 - What a failed update or the sign-in program spent: `Prepare` returns no cost, so only what `After` sums reaches the ceiling.
 
 Known and left: a job of eva-md's that the new chat's last hooks started may still be running, signed in, when the trial's folder is removed; what it spends is not counted, and the limit at the provider bounds it. Test as root, one case fails by design (an inbox no one may read), as about twenty of eva-md's do.
+
+With that round the arm also counts its update when the chat was then left unjudged, which the run-book's check had found missing; and `--sign-in` is the command's own flag, so the wrapper and its package state are gone. Still as the notes above say: a job of eva-md's that outlives its trial spends uncounted.

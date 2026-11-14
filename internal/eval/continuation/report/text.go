@@ -23,8 +23,10 @@ var measureWords = map[string]string{
 	"memory_ms":     "memory minutes",
 }
 
-// ended are the ways a run ends, in the order they print.
-var ended = []string{drive.EndedDone, drive.EndedError, drive.CodeNoUsage, drive.CodeMemoryOff, drive.CodeHiddenFound}
+// ended are the ways a run ends, in the order they print: the driver's own
+// closed list, so an ending the driver gains is printed and the line's
+// counts add up to the records read.
+var ended = drive.Ends
 
 // Text is the report in fixed words, ids and figures, by host, then task,
 // then condition. It refuses to give a text any line of which holds a word
