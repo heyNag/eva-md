@@ -344,6 +344,56 @@ func TestAfterWaitsBeforeItSums(t *testing.T) {
 	}
 }
 
+// The arm's Spent waits, as After does, while a job holds a lock, and only
+// then sums the run log; once the run has ended it waits for nothing and
+// sums what the run log holds. Neither counts toward the stop rule.
+func TestSpentSumsTheRunLog(t *testing.T) {
+	h := adapter.All()[0]
+	record := func(tr drive.Trial, tokens int) {
+		t.Helper()
+		if err := writeRecord(stateDir(tr), update.Record{Host: string(h.ID), Session: "made-up-new-chat-3", Outcome: update.OutcomeOK, TokensIn: tokens, TokensOut: 2, DurationMS: 9}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("the run goes on", func(t *testing.T) {
+		tr := newTrial(t, h, fakeScript{})
+		a := testArm()
+		unlock, busy, err := paths.TryLock(filepath.Join(stateDir(tr.Trial), "locks"), updateLock)
+		if err != nil || busy {
+			t.Fatal(err)
+		}
+		var once sync.Once
+		a.held = func(string) {
+			once.Do(func() {
+				record(tr.Trial, 40)
+				unlock()
+			})
+		}
+		if cost := a.spentSoFar(t.Context(), tr.Trial); cost != (drive.Cost{Tokens: 42, Ms: 9}) {
+			t.Fatalf("%+v", cost)
+		}
+		if first := a.state(tr.Trial).first; first != [2]string{} {
+			t.Fatalf("Spent counted toward the stop rule: %q", first)
+		}
+	})
+	t.Run("the run has ended", func(t *testing.T) {
+		tr := newTrial(t, h, fakeScript{})
+		record(tr.Trial, 70)
+		a := testArm()
+		unlock, busy, err := paths.TryLock(filepath.Join(stateDir(tr.Trial), "locks"), maintainLock)
+		if err != nil || busy {
+			t.Fatal(err)
+		}
+		defer unlock()
+		a.held = func(string) { t.Error("Spent waited for a lock after the run's end") }
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if cost := a.spentSoFar(ctx, tr.Trial); cost != (drive.Cost{Tokens: 72, Ms: 9}) {
+			t.Fatalf("%+v", cost)
+		}
+	})
+}
+
 // plant writes made-up inbox lines into the trial's inbox.
 func plant(t *testing.T, tr drive.Trial, entries ...inbox.Entry) {
 	t.Helper()

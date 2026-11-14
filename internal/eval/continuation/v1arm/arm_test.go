@@ -553,6 +553,36 @@ func TestAFailedUpdatesSpendIsCounted(t *testing.T) {
 	}
 }
 
+// What an update that passed spent counts toward --max-tokens and in the
+// run's record when the chat after it is left unjudged, as a rate-limited
+// or an empty one is: the driver asks the arm's Spent, since After is not
+// asked.
+func TestAnUnjudgedChatsUpdateSpendIsCounted(t *testing.T) {
+	h := adapter.All()[0]
+	for name, set := range map[string]func(r *rig){
+		"rate_limited": func(r *rig) { r.host.RateLimited = true },
+		"host_failed":  func(r *rig) { r.host.Empty = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, h)
+			r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 ok", Outcome: update.OutcomeOK, TokensIn: 300, TokensOut: 40, DurationMS: 900}}
+			set(r)
+			r.opts.Trials, r.opts.MaxTokens = 2, 300
+			s, out, err := r.run()
+			if err != nil || s.Judged != 0 || s.Unjudged[name] != 1 || s.NotRun != 1 || s.Tokens != 340 {
+				t.Fatalf("unjudged %v, not run %d, tokens %d, %v\n%s", s.Unjudged, s.NotRun, s.Tokens, err, out)
+			}
+			if !strings.Contains(out, "not run, --max-tokens reached") {
+				t.Fatalf("the ceiling was not reached:\n%s", out)
+			}
+			records, err := drive.LoadRuns(r.opts.Out)
+			if err != nil || len(records) != 1 || records[0].Tokens != 340 || records[0].Ended != drive.EndedDone {
+				t.Fatalf("the run's record: %+v, %v", records, err)
+			}
+		})
+	}
+}
+
 // A word planted in every turn of the earlier chat, which eva-md prints
 // on stdout and stderr, as the sign-in program does, is in no row, output
 // or error, whether the trial is judged, fails its setup, a hook or its

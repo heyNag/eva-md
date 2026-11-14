@@ -23,8 +23,10 @@
 //
 // A trial that ends setup_failed or update_failed gives the driver what
 // eva-md's run log holds by then, the sum after gives a trial that ran,
-// so what a failed update spent counts toward --max-tokens; what the
-// --sign-in program spent is in no run log and is not counted.
+// so what a failed update spent counts toward --max-tokens; so does a
+// trial that ends without after once its set-up passed or the run's end
+// cut it short, its chat left unjudged among them (the driver's Spent);
+// what the --sign-in program spent is in no run log and is not counted.
 //
 // When the first two trials of a run both end setup_failed or
 // update_failed, each further one would too, so the third stops the run
@@ -133,7 +135,7 @@ func init() {
 
 // drive is the arm as the driver runs it.
 func (a *arm) drive() drive.Arm {
-	return drive.Arm{Check: a.check, Prepare: a.prepare, After: a.after}
+	return drive.Arm{Check: a.check, Prepare: a.prepare, After: a.after, Spent: a.spentSoFar}
 }
 
 // check refuses a run that names a variable of the seam with --pass-env,
@@ -396,6 +398,22 @@ func (a *arm) after(ctx context.Context, t drive.Trial) (drive.Cost, error) {
 		return cost, unjudged(drive.CodeMemoryOff)
 	}
 	return cost, nil
+}
+
+// spentSoFar is the driver's Spent: what eva-md's run log holds when a
+// trial ends without after, once its set-up passed or the run's end or an
+// error cut it short: the chat or the plugin left it unjudged, or the run
+// stopped in it. An update that passed has spent all the same, and so may
+// the jobs the chat's hooks started. Unless the run has ended, it first
+// waits for them, as after does, within LockTimeout; then it sums the run
+// log, which gives nothing when it cannot be read. Nothing of it counts
+// toward the stop rule: the trial's code is the driver's.
+func (a *arm) spentSoFar(ctx context.Context, t drive.Trial) drive.Cost {
+	if ctx.Err() == nil {
+		_ = a.waitJobs(ctx, t)
+	}
+	cost, _ := a.cost(t)
+	return cost
 }
 
 // cost sums the tokens and the time of every record in eva-md's run log of
