@@ -299,6 +299,10 @@ type HostState struct {
 	Watermarks  []string // the sessions whose newest record is failed (watermark), newest first
 	Left        []string // the sessions whose newest record is failed (left), newest first
 	Calls       int      // the model calls made today
+	// BackoffUntil is when the host's backoff ends, by the rule the job
+	// stops by: the zero time when no backoff was ever started, and a
+	// time already past once it has ended.
+	BackoffUntil time.Time
 }
 
 // Host works out a host's state from records, oldest first, by the rules
@@ -307,7 +311,7 @@ type HostState struct {
 func Host(records []Record, host string, now time.Time) HostState {
 	l := runLog(records)
 	today := now.Format(time.DateOnly)
-	s := HostState{Held: l.held(host, today), Calls: l.calls(host, today)}
+	s := HostState{Held: l.held(host, today), Calls: l.calls(host, today), BackoffUntil: l.backoffUntil(host)}
 	row := true
 	for i := len(l) - 1; i >= 0; i-- {
 		r := l[i]
