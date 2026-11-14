@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,6 +199,42 @@ func twoKinds() scenario.Scenario {
 		Facts: []scenario.Fact{{ID: "q1", Kinds: []scenario.Kind{scenario.KindDecision, scenario.KindConstraint}, Authority: scenario.AuthorityUser,
 			Must: scenario.MustStore, Slots: []scenario.Slot{{Class: scenario.SlotIdent, Value: "QUOKKA-3"}, {Class: scenario.SlotInt, Value: "200"}}}},
 		Passes: []scenario.Pass{{}},
+	}
+}
+
+// TestDistortAsksWhatTheScorerAsks: a slot left unasked of the item's
+// kind is never the one the seeded set spoils, since the scorer rightly
+// does not miss it there; date_dropped, whose only date is such a slot,
+// applies to nothing, and every other way is scored right.
+func TestDistortAsksWhatTheScorerAsks(t *testing.T) {
+	sc := twoKinds()
+	sc.Facts[0].Kinds = []scenario.Kind{scenario.KindOpen, scenario.KindFact}
+	sc.Facts[0].Slots = []scenario.Slot{{Class: scenario.SlotIdent, Value: "QUOKKA-3"}, {Class: scenario.SlotCond, Value: "if the queue is cold"},
+		{Class: scenario.SlotDate, Value: "3 March 2026", Unasked: []scenario.Kind{scenario.KindOpen}}}
+	if err := sc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	ideal := score.Ideal(sc)
+	if ideal.Items[0].Kind != scenario.KindOpen || ideal.Items[0].Text != "QUOKKA-3; if the queue is cold; 3 March 2026" {
+		t.Fatalf("the ideal store is %+v", ideal)
+	}
+	for _, d := range score.Distortions {
+		spoiled, err := score.Distort(ideal, sc, d)
+		switch {
+		case d == score.DistortDateDropped || d == score.DistortStaleKept:
+			if !errors.Is(err, score.ErrNotApplicable) {
+				t.Errorf("%s applies: %v, %+v", d, err, spoiled)
+			}
+		case err != nil:
+			t.Errorf("%s: %v", d, err)
+		default:
+			if err := seededRight(sc, ideal, spoiled, d); err != nil {
+				t.Errorf("%s: %v", d, err)
+			}
+			if d == score.DistortValueWrong && !strings.Contains(spoiled.Items[0].Text, "3 March 2026") {
+				t.Errorf("value_wrong spoils the unasked date: %q", spoiled.Items[0].Text)
+			}
+		}
 	}
 }
 

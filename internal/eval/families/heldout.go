@@ -86,14 +86,11 @@ var limitWords = map[string][]string{
 // that drops it holds the finding only in part, which is a wrong write,
 // limit_dropped. A finding with a limit may be filed as a fact, an open
 // question or a dated line. A hypothesis's limit is its hedge: it may be
-// filed only as an open question or as a fact, never as a dated line,
-// which would record a guess as what happened, and it keeps a hedge word
-// in every filing, the open question included. So an open question about
-// a hypothesis with no hedge word, such as "Does the X cache cause the
-// slow start?", scores limit_dropped, though a store that wrote it did
-// nothing wrong. That is the scorer's limit, not the store's: the scorer
-// cannot ask a slot of one kind and not of another (the lead's ruling of
-// 2026-11-13). The family is held out, so no tuning leans on it.
+// filed only as an open question or as a fact that keeps its hedge, never
+// as a dated line, which would record a guess as what happened. An open
+// question is itself unsure, so the hedge is left unasked of it: "Does the
+// X cache cause the slow start?" holds, and a fact with no hedge word is
+// limit_dropped.
 func limit(seed uint64) scenario.Scenario {
 	b := newBuilder("limit", scenario.SplitHeldout, seed, "a finding with a stated limit")
 	v := b.g.names(1)[0]
@@ -115,6 +112,7 @@ func limit(seed uint64) scenario.Scenario {
 		found = kinds(scenario.KindOpen, scenario.KindFact)
 		said := hedgeIn(text)
 		bound = slot(scenario.SlotLimit, said, slices.DeleteFunc(slices.Clone(hedges), func(h string) bool { return h == said })...)
+		bound.Unasked = kinds(scenario.KindOpen)
 	}
 	b.say(event.AuthorAgent, event.KindReply, "", text,
 		fact(scenario.MustStore, scenario.AuthorityOther, found, slot(scenario.SlotIdent, v), bound))
@@ -212,13 +210,12 @@ var acceptedTexts = map[string][]string{
 // accepted plants the agent's proposal and the user's acceptance of it,
 // picked in a dialog or approved in a plan. The acceptance must be stored
 // under the accepted authority as a decision or a procedure, and never as
-// a rule (decision 10). The scorer reads stated as it reads accepted, so a
-// store that files the acceptance under stated holds today; this package
-// does not ask more of it (the lead's ruling of 2026-11-13, the card's
-// first). The model gives a fact one Must, so the acceptance
-// is planted twice at its turn: once as a fact to store, which supersedes
-// the proposal, and once as one a store may never keep as a rule. v1 keeps
-// no dialog or plan entry, so the family renders only as events.
+// a rule (decision 10): filed under stated, as the user's own statement,
+// it is found with the wrong authority. The model gives a fact one Must,
+// so the acceptance is planted twice at its turn: once as a fact to store,
+// which supersedes the proposal, and once as one a store may never keep as
+// a rule. v1 keeps no dialog or plan entry, so the family renders only as
+// events.
 func accepted(seed uint64) scenario.Scenario {
 	b := newBuilder("accepted", scenario.SplitHeldout, seed, "a proposal the user accepts in a dialog or a plan")
 	v := b.g.names(1)[0]
