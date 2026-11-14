@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -29,7 +30,8 @@ var (
 // and ssh when a test starts it under one of their names.
 func TestMain(m *testing.M) {
 	if fake := os.Getenv("HOSTREC_FAKE"); fake != "" {
-		os.Exit(fakeHost(fake, os.Args[1:]))
+		// Not os.Exit: under the race detector it waits a second at every exit.
+		syscall.Exit(fakeHost(fake, os.Args[1:]))
 	}
 	testgitenv.Clear()
 	hostTimeout = 10 * time.Minute

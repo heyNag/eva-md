@@ -234,7 +234,8 @@ func fakeMain() {
 	if file == "" || filepath.Base(os.Args[0]) != "eva-md" {
 		return
 	}
-	os.Exit(fake(file))
+	// Not os.Exit: under the race detector it waits a second at every exit.
+	syscall.Exit(fake(file))
 }
 
 func fake(file string) int {
@@ -541,19 +542,24 @@ func signInMain() {
 	if file == "" || filepath.Base(os.Args[0]) != "sign-in" {
 		return
 	}
+	// Not os.Exit: under the race detector it waits a second at every exit.
+	syscall.Exit(signIn(file))
+}
+
+func signIn(file string) int {
 	data, err := os.ReadFile(file)
 	var s signInScript
 	if err != nil || json.Unmarshal(data, &s) != nil {
-		os.Exit(3)
+		return 3
 	}
 	c := newCall(nil)
 	calls, err := readLines[fakeCall](filepath.Join(s.Dir, "eva-md.jsonl"))
 	if err != nil {
-		os.Exit(3)
+		return 3
 	}
 	c.Before = len(calls)
 	if appendJSON(filepath.Join(s.Dir, "sign-in.jsonl"), c) != nil {
-		os.Exit(3)
+		return 3
 	}
 	if s.Print != "" {
 		os.Stdout.WriteString(s.Print + "\n")
@@ -561,14 +567,14 @@ func signInMain() {
 	}
 	if s.Stall != "" {
 		if s.Grandchild != nil && startGrandchild(*s.Grandchild) != nil {
-			os.Exit(3)
+			return 3
 		}
 		stallOn(s.Stall)
 	}
 	if s.Fail {
-		os.Exit(1)
+		return 1
 	}
-	os.Exit(0)
+	return 0
 }
 
 // rig is one test's made-up world for runs through the driver: the

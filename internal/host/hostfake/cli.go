@@ -29,7 +29,8 @@ func Main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	code, _ := New(root).serve(ctx, os.Stdin, os.Stdout, os.Stderr, cli, os.Args[1:])
 	stop()
-	os.Exit(code)
+	// Not os.Exit: under the race detector it waits a second at every exit.
+	syscall.Exit(code)
 }
 
 // WriteCLIs writes executables named claude and codex in bin, which it
