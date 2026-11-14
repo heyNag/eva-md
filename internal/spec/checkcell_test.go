@@ -104,6 +104,48 @@ func readWorkflow(text string) (pushed bool, jobs []wfJob) {
 	return pushed, jobs
 }
 
+// unplainForms are the forms of YAML readWorkflow cannot read as GitHub
+// does, each of which could hide a key, such as continue-on-error or if,
+// that it would then read as absent. The same list is written in
+// internal/release/ci_guard_test.go, for the line reader there: the two test
+// packages share no code, so a form added to one is added to the other.
+var unplainForms = []*regexp.Regexp{
+	regexp.MustCompile(`^ *\t`),                                                           // a tab in its indent
+	regexp.MustCompile(`^\s*(?:- +)?(?:"[^"]*"|'[^']*')\s*:`),                             // a quoted key
+	regexp.MustCompile(`^\s*(?:- +)?[A-Za-z0-9_-]+\s+:(?:\s|$)`),                          // a key with a space before its colon
+	regexp.MustCompile(`^\s*(?:- +)?<<\s*:|:\s+[&*][A-Za-z0-9_]|^\s*- +[&*][A-Za-z0-9_]`), // an anchor, an alias or a merge key
+	regexp.MustCompile(`^\s*(?:- +)?\?(?:\s|$)`),                                          // a complex key
+	regexp.MustCompile(`:\s+\{|^\s*- +\{`),                                                // a flow mapping
+}
+
+// blockOpens is a line whose key's value is a block scalar, such as a
+// run's script, whose lines YAML reads as text.
+var blockOpens = regexp.MustCompile(`^\s*(?:- )?[^\s#][^#]*:\s*[|>][-+0-9]*\s*$`)
+
+// unplain says whether a line of a workflow, outside its comments and its
+// block scalars, holds one of unplainForms.
+func unplain(text string) bool {
+	block := -1 // the indent of the key whose block scalar the lines are in
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if block >= 0 && (trimmed == "" || indent > block) {
+			continue
+		}
+		block = -1
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if slices.ContainsFunc(unplainForms, func(re *regexp.Regexp) bool { return re.MatchString(line) }) {
+			return true
+		}
+		if blockOpens.MatchString(line) {
+			block = indent
+		}
+	}
+	return false
+}
+
 // sure says whether a step of a job runs whenever its job does and fails
 // it when its command fails: no continue-on-error but false, and no if, on
 // it or its job.
@@ -148,13 +190,15 @@ func runsPath(line, path string, funcs []string) bool {
 // runByWorkflow says whether a workflow at root that a push or a pull
 // request runs has a step that runs path, with nothing that lets the step
 // fail and pass or leaves it out, either as a command of the step or as a
-// command of a script of the repository that such a step runs.
+// command of a script of the repository that such a step runs. A workflow
+// that holds a form of unplainForms is passed over, as it may hide a key
+// that lets the step fail and pass or leaves it out.
 func runByWorkflow(root, path string) bool {
 	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(workflows), "*.yml"))
 	scripts, _ := filepath.Glob(filepath.Join(root, "scripts", "*.sh"))
 	for _, f := range files {
 		data, err := os.ReadFile(f)
-		if err != nil {
+		if err != nil || unplain(string(data)) {
 			continue
 		}
 		pushed, jobs := readWorkflow(string(data))
@@ -205,12 +249,17 @@ func scriptRuns(file, path string) bool {
 // runs, one a workflow names only in a comment or an argument, one run by
 // a step or a job that may fail or be left out, one whose failure a step
 // passes over, one run only when asked, one whose script no longer runs it
-// or is run by a step that may fail, and a path that is no plain path from
-// the root each fail the must-keep check, with a problem that names it.
+// or is run by a step that may fail, one whose workflow holds a form of YAML
+// the reader cannot read as GitHub does (a quoted key, a key with a space
+// before its colon, an anchor, an alias, a merge key, a complex key, a flow
+// mapping or a tab in an indent), and a path that is no plain path from the
+// root each fail the must-keep check, with a problem that names it; the
+// workflows as they are hold every check cell.
 func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 	tempHome(t)
 	const gateStep = "      - run: python3 -I scripts/bench/test_gate.py\n"
 	const ci = workflows + "/ci.yml"
+	const latency = "  latency:\n    runs-on: macos-latest\n"
 	gateGone := []string{
 		`^docs/spec/(checks|testing)\.md:[0-9]+: EVL-K08 names check:scripts/bench/test_gate\.py, which no run step`,
 		`^docs/spec/performance\.md:[0-9]+: EVL-K10 names check:scripts/bench/test_gate\.py, which no run step`,
@@ -230,6 +279,7 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 		seed func(t *testing.T, dir string)
 		want []string
 	}{
+		{"none", func(t *testing.T, dir string) {}, nil},
 		{"a check whose file is gone", func(t *testing.T, dir string) {
 			e, row := rowOf(t, dir, "EVL-K10")
 			edit(t, dir, e.file, row, strings.Replace(row, "check:scripts/bench/test_gate.py", "check:scripts/bench/gone.py", 1))
@@ -259,10 +309,10 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 			edit(t, dir, ci, gateStep, gateStep+"        if: github.event_name == 'pull_request'\n")
 		}, gateGone},
 		{"a check run by a job that never runs", func(t *testing.T, dir string) {
-			edit(t, dir, ci, "  latency:\n    runs-on: macos-latest\n", "  latency:\n    runs-on: macos-latest\n    if: false\n")
+			edit(t, dir, ci, latency, latency+"    if: false\n")
 		}, gateGone},
 		{"a check run by a job that may fail", func(t *testing.T, dir string) {
-			edit(t, dir, ci, "  latency:\n    runs-on: macos-latest\n", "  latency:\n    runs-on: macos-latest\n    continue-on-error: true\n")
+			edit(t, dir, ci, latency, latency+"    continue-on-error: true\n")
 		}, gateGone},
 		{"a check a step only names", func(t *testing.T, dir string) {
 			edit(t, dir, ci, gateStep, "      - run: echo python3 -I scripts/bench/test_gate.py\n")
@@ -280,6 +330,30 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 		{"a check whose script no workflow runs any more", func(t *testing.T, dir string) {
 			edit(t, dir, ci, "      - run: scripts/linux-check.sh\n", "      - run: scripts/linux-check.sh\n        continue-on-error: true\n")
 		}, benchGone},
+		{"a key hidden by quotes", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, gateStep+"        \"continue-on-error\": true\n")
+		}, append(gateGone, benchGone...)},
+		{"a key hidden by a space before its colon", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, gateStep+"        continue-on-error : true\n")
+		}, append(gateGone, benchGone...)},
+		{"a workflow with an anchor", func(t *testing.T, dir string) {
+			edit(t, dir, ci, latency, "  latency:\n    runs-on: &os macos-latest\n")
+		}, append(gateGone, benchGone...)},
+		{"a workflow with an alias", func(t *testing.T, dir string) {
+			edit(t, dir, ci, latency, "  latency:\n    runs-on: *os\n")
+		}, append(gateGone, benchGone...)},
+		{"a key hidden by a merge key", func(t *testing.T, dir string) {
+			edit(t, dir, ci, latency, "  latency:\n    <<: *flaky\n    runs-on: macos-latest\n")
+		}, append(gateGone, benchGone...)},
+		{"a key hidden as a complex key", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, gateStep+"        ? continue-on-error\n        : true\n")
+		}, append(gateGone, benchGone...)},
+		{"a workflow with a flow mapping", func(t *testing.T, dir string) {
+			edit(t, dir, ci, latency, latency+"    env: {LANG: C}\n")
+		}, append(gateGone, benchGone...)},
+		{"a key hidden behind a tab", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, gateStep+"        \tcontinue-on-error: true\n")
+		}, append(gateGone, benchGone...)},
 		{"a path out of the repository", func(t *testing.T, dir string) {
 			e, row := rowOf(t, dir, "EVL-K09")
 			edit(t, dir, e.file, row, strings.Replace(row, "check:scripts/benchmark.py", "check:scripts/../go.mod", 1))
@@ -313,7 +387,8 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 // runs, and a push or a pull request runs the workflow with nothing that
 // lets the step fail and pass or leaves it out; not when the check is in a
 // comment, another key, an argument or a longer path, or a failure of it
-// is passed over.
+// is passed over, or the workflow holds, outside its block scalars, a form
+// of unplainForms; such a form in a block scalar is text, as YAML reads it.
 func TestRunByWorkflowReadsRunSteps(t *testing.T) {
 	tempHome(t)
 	const on = "on:\n  push:\n    branches: [main]\n  pull_request:\n\n"
@@ -343,6 +418,19 @@ func TestRunByWorkflowReadsRunSteps(t *testing.T) {
 		{on + "jobs:\n  a:\n    steps:\n      - run: scripts/s.sh\n        continue-on-error: true\n", script, false},
 		{on + "jobs:\n  a:\n    steps:\n      - run: scripts/s.sh\n", strings.Replace(script, "wrap python3", "echo python3", 1), false},
 		{on + "jobs:\n  a:\n    steps:\n      - run: echo scripts/s.sh\n", script, false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        \"continue-on-error\": true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        'if': false\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        continue-on-error : true\n", "", false},
+		{on + "jobs:\n  a:\n    runs-on: &os ubuntu-latest\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    runs-on: *os\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - &check\n        run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    <<: *flaky\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        ? if\n        : false\n", "", false},
+		{on + "jobs:\n  a:\n    env: {A: b}\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n      - {run: true, if: false}\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        \tcontinue-on-error: true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n          echo \"a\" : {b: *c} &d\n          ? e\n      - name: y\n        env:\n          T: >-\n            <<: 'f': g\n        run: true\n", "", true},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -I scripts/x.py\n\t  continue-on-error: true\n", "", false},
 	} {
 		dir := t.TempDir()
 		write(t, dir, workflows+"/a.yml", c.yml)

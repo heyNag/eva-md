@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/heyNag/eva-md/internal/testgitenv"
 )
 
 // TestMain gives the package's tests a home of their own, so nothing they
@@ -15,8 +17,11 @@ import (
 // (AGENTS.md): it is found first, with go env as go test itself finds it,
 // and kept through GOCACHE, and GOENV=off keeps go from reading a settings
 // file of the person running the tests, so Grade's own "go env GOCACHE"
-// gives that cache back and reads nothing in any home.
+// gives that cache back and reads nothing in any home. The git
+// configuration and commit identity the environment carries are cleared
+// first, since the tests link code that starts git.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	os.Exit(run(m))
 }
 
