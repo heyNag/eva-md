@@ -34,6 +34,10 @@ type Check struct {
 }
 type Report struct {
 	Checks []Check `json:"checks"`
+	// Verdict is one line, set only with the switch health on (see
+	// verdict.go): a counted loss past its bar, else the stage furthest
+	// past its bar, else that every stage is within its bar.
+	Verdict string `json:"verdict,omitempty"`
 }
 
 func (r Report) Failed() bool {

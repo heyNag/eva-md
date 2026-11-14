@@ -54,6 +54,12 @@ type inspection struct {
 	statusRan bool
 	statusCfg config.Config
 	statusErr error
+
+	// With the switch health on, the stages and losses the stage rows read,
+	// for the verdict (see verdict.go).
+	staged bool
+	stages []Stage
+	losses map[string]loss
 }
 
 // config is eva-md's config, loaded once, by the first producer that asks:

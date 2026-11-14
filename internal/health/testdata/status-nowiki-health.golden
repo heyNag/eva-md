@@ -1,0 +1,11 @@
+UNKNOWN  binary: stable hook binary is not installed; run eva-md install
+PASS  config: configuration parses
+FAIL  config keys: unknown keys are ignored: colour; correct or remove them in the eva-md config
+FAIL  wiki: wiki path is missing; run eva-md setup
+PASS  inbox: 93 bytes; private permissions
+UNKNOWN  search index: no index yet, so search scans the inbox; run eva-md index, or wait for the day's maintenance
+PASS  Claude Code: not used in the last 14 days
+PASS  Codex: not used in the last 14 days
+UNKNOWN  daily commit: no wiki is set up; run eva-md setup
+--- json
+{"checks":[{"name":"binary","status":"UNKNOWN","detail":"stable hook binary is not installed","fix":"run eva-md install"},{"name":"config","status":"PASS","detail":"configuration parses"},{"name":"config keys","status":"FAIL","detail":"unknown keys are ignored: colour","fix":"correct or remove them in the eva-md config"},{"name":"wiki","status":"FAIL","detail":"wiki path is missing","fix":"run eva-md setup"},{"name":"inbox","status":"PASS","detail":"93 bytes; private permissions"},{"name":"search index","status":"UNKNOWN","detail":"no index yet, so search scans the inbox","fix":"run eva-md index, or wait for the day's maintenance"},{"name":"Claude Code","status":"PASS","detail":"not used in the last 14 days"},{"name":"Codex","status":"PASS","detail":"not used in the last 14 days"},{"name":"daily commit","status":"UNKNOWN","detail":"no wiki is set up","fix":"run eva-md setup"}],"verdict":"every stage is within its bar"}

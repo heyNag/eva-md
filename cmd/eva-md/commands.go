@@ -377,6 +377,10 @@ func runDoctor(ctx context.Context, args []string, out, errOut io.Writer) int {
 			return 1
 		}
 	} else {
+		// With the switch health on, the verdict comes first.
+		if r.Verdict != "" {
+			fmt.Fprintln(out, r.Verdict)
+		}
 		for _, check := range r.Checks {
 			fmt.Fprintf(out, "%s  %s: %s", check.Status, check.Name, check.Detail)
 			if check.Fix != "" {

@@ -209,7 +209,7 @@ func captureFreshness(parent context.Context, d paths.Dirs, host string, now tim
 	case adapter.PerDay:
 		activity, complete = newestCodexChat(ctx, dir, now)
 	case adapter.PerProject:
-		activity, complete = newestClaudeChat(ctx, dir, now)
+		activity, complete = newestClaudeChat(ctx, dir, now, 24*time.Hour)
 	}
 	switch {
 	case !complete:
@@ -248,13 +248,14 @@ func uncapturedAt(d paths.Dirs, host string, now time.Time) (time.Time, bool) {
 
 // newestClaudeChat returns when a chat last appeared in Claude Code's
 // store, dir, which holds a folder per project: the modification time of
-// the newest project folder changed in the past day that holds a chat, a
-// regular .jsonl file. It lists the store and stats each project folder,
-// and reads only those changed in the past day, newest first, until one
-// holds a chat, so its cost grows with the projects, not the chats. Only
-// names, types and modification times are read; no file is opened.
-// complete is false when the store can't be read within the bounds.
-func newestClaudeChat(ctx context.Context, dir string, now time.Time) (newest time.Time, complete bool) {
+// the newest project folder changed in the past within, a day for the
+// capture freshness, that holds a chat, a regular .jsonl file. It lists the
+// store and stats each project folder, and reads only those changed in that
+// time, newest first, until one holds a chat, so its cost grows with the
+// projects, not the chats. Only names, types and modification times are
+// read; no file is opened. complete is false when the store can't be read
+// within the bounds.
+func newestClaudeChat(ctx context.Context, dir string, now time.Time, within time.Duration) (newest time.Time, complete bool) {
 	root, err := paths.OpenRoot(dir, false)
 	if err != nil {
 		return time.Time{}, false
@@ -284,7 +285,7 @@ func newestClaudeChat(ctx context.Context, dir string, now time.Time) (newest ti
 			if err != nil || !info.IsDir() {
 				continue
 			}
-			if mod := info.ModTime(); !mod.After(now.Add(time.Minute)) && now.Sub(mod) <= 24*time.Hour {
+			if mod := info.ModTime(); !mod.After(now.Add(time.Minute)) && now.Sub(mod) <= within {
 				changed = append(changed, folder{entry.Name(), mod})
 			}
 		}
