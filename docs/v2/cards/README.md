@@ -31,7 +31,7 @@ Rules every card carries, so they are said once here:
 | [EV-16b](EV-16b.md) | The latency gate's rule, second round: noise from runs, and a slowdown no longer read as noise | merged; the gate stays advisory, since this rule cannot yet block a merge (EV-16d) |
 | [EV-16c](EV-16c.md) | The benchmark's count of background starts allows for a hook that missed its limit | merged |
 | [EV-16d](EV-16d.md) | The latency gate's rule, third round: three rounds, and what a gate that blocks must show | merged; on CI's runner the gate still seldom judges, and its count starts again at 0 |
-| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | building since 2026-11-14 |
+| [EV-16e](EV-16e.md) | The benchmark's code-brief check allows for a brief whose git calls ran out of time | merged; `docs/verification.md` owes its sentence, which waits for EV-10a's merge |
 | [CT-1](CT-1.md) | Counters release: what the hooks held back and delivered | merged |
 | [CT-2](CT-2.md) | Counters release: what the update cost and why work waited | merged |
 | [CT-3](CT-3.md) | Counters release: capture checked against the host's own record | merged |
@@ -55,14 +55,14 @@ Rules every card carries, so they are said once here:
 | [LG-12](LG-12.md) | The redaction corpus, its rates, and the baseline as an oracle | merged; its switch stays off until LG-26 closes the four shapes of code the oracle records; SEAM-0f mends the hook test that depends on speed |
 | [LG-13a](LG-13a.md) | The hook payload decoder and the author allowlist, with no caller | merged; owed before LG-20: the hand-over decoder counts line breaks once, not once for each line |
 | [LG-13b](LG-13b.md) | The decoder held to the hosts' recorded payloads | after LG-13a and the fixtures of the core sittings (HF-00) |
-| [LG-22a](LG-22a.md) | The project registry's types, the project id as a function of a key, and its fake | building since 2026-11-14; LG-22's first part, with no caller |
+| [LG-22a](LG-22a.md) | The project registry's types, the project id as a function of a key, and its fake | merged; LG-22's first part, with no caller |
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
 | [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | merged |
 | [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | building since 2026-11-14 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | building since 2026-11-14 |
-| [HO-12a](HO-12a.md) | Health's host names through the adapter | ready; after DV-12b, which adds a file to the same package |
+| [HO-12a](HO-12a.md) | Health's host names through the adapter | building since 2026-11-14, beside DV-12b, which adds two files to the same package: the later of the two to merge brings them under this card's work |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
@@ -98,7 +98,7 @@ Rules every card carries, so they are said once here:
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; EV-17f adds the check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03); it also settles grading as another user and the build cache grading uses (EV-17g checks a chat's reach for hidden files) |
 | [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | building since 2026-11-14; two reviewers; its first run on a real release is the owner's next cut |
-| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | ready, since the counters release is cut (2026.11.13); after DV-12b, which changes two of its files |
+| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | building since 2026-11-14, beside DV-12b, which changes a line in each of two of its files; while it builds nothing else edits `docs/design.md`, `docs/verification.md` or `docs/decisions.md` |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
 
 SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner. A fifth part, e, was added after one run of CI failed in a way its log could not explain: it makes the death of a git child by a signal say which signal.
