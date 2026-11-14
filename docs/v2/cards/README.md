@@ -43,7 +43,7 @@ Rules every card carries, so they are said once here:
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | merged |
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | merged, with a second round for four rulings of the lead's; three known limits of its checker are named for DV-21 |
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | merged |
-| [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | building since 2026-11-14; the live run is the owner's to allow |
+| [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | merged; a short second round builds two rulings of the lead's; the live run is the owner's to allow |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
 | [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | merged; the continuation's check accepts all ten |
 | [EV-03c](EV-03c.md) | The pilot's report, over the continuation's rows, and the pilot's README | building since 2026-11-14 |
