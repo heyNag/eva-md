@@ -423,7 +423,7 @@ func TestRunByWorkflowReadsRunSteps(t *testing.T) {
 		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        continue-on-error : true\n", "", false},
 		{on + "jobs:\n  a:\n    runs-on: &os ubuntu-latest\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
 		{on + "jobs:\n  a:\n    runs-on: *os\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
-		{on + "jobs:\n  a:\n    steps:\n      - &check\n        run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n      - &later\n        name: y\n", "", false},
 		{on + "jobs:\n  a:\n    <<: *flaky\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
 		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        ? if\n        : false\n", "", false},
 		{on + "jobs:\n  a:\n    env: {A: b}\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
