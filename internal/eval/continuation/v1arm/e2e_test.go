@@ -2,7 +2,9 @@ package v1arm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,14 +125,9 @@ func TestEndToEnd(t *testing.T) {
 				t.Fatal(err)
 			}
 			a := testArm()
-			// However the test ends, it waits for the jobs the hooks started.
-			t.Cleanup(func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-				defer cancel()
-				if err := a.waitFree(ctx, tr.Trial, updateLock, maintainLock); err != nil {
-					t.Errorf("a job of eva-md's still holds a lock: %v", err)
-				}
-			})
+			// However the test ends, it waits for the jobs the hooks started
+			// to end, and then removes the trial's folder.
+			t.Cleanup(func() { settle(t, a, tr) })
 			_, err := a.prepare(t.Context(), tr.Trial)
 			var u *drive.Unjudged
 			if !errors.As(err, &u) || u.Code != drive.CodeUpdateFailed {
@@ -159,6 +156,153 @@ func TestEndToEnd(t *testing.T) {
 				t.Fatalf("the brief: %v\n%s", err, out)
 			}
 		})
+	}
+}
+
+// settleHang bounds settle's waits: a hang guard, which no job of a working
+// eva-md comes near.
+const settleHang = 10 * time.Minute
+
+// settle waits for the jobs eva-md's hooks started in tr to end, then
+// removes the trial's test folder, so that no job writes into it while the
+// testing package removes it. A job holds its lock while it works, but one
+// that has not yet taken it, or found it held and is writing that to the
+// run log, holds none: so settle waits for both locks to be free and then
+// for no process to run a program under the test's folder, which is where
+// the hooks' jobs run eva-md from (<home>/.local/share/eva-md/bin). The
+// folder's removal is then tried again while it fails. Each wait is
+// bounded by a hang guard alone.
+func settle(t *testing.T, a *arm, tr aTrial) {
+	ctx, cancel := context.WithTimeout(context.Background(), settleHang)
+	defer cancel()
+	if err := a.waitFree(ctx, tr.Trial, updateLock, maintainLock); err != nil {
+		t.Errorf("a job of eva-md's still holds a lock: %v", err)
+		return
+	}
+	pause := func() bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+			return true
+		}
+	}
+	for {
+		jobs, err := processesUnder(tr.base)
+		if err != nil {
+			t.Errorf("the processes cannot be listed: %v", err)
+			return
+		}
+		if jobs == 0 {
+			break
+		}
+		if !pause() {
+			t.Errorf("%d jobs of eva-md's still run", jobs)
+			return
+		}
+	}
+	for {
+		err := os.RemoveAll(tr.base)
+		if err == nil {
+			return
+		}
+		if !pause() {
+			t.Errorf("the trial's folder cannot be removed: %v", err)
+			return
+		}
+	}
+}
+
+// processesUnder counts the processes that run a program under dir: those
+// whose first argument, the path they were started by, is in it. On Linux
+// it reads /proc, elsewhere what ps lists. A process that has ended and not
+// yet been waited for runs nothing and is not counted.
+func processesUnder(dir string) (int, error) {
+	prefix := dir + string(filepath.Separator)
+	n := 0
+	if runtime.GOOS == "linux" {
+		entries, err := os.ReadDir("/proc")
+		if err != nil {
+			return 0, err
+		}
+		for _, e := range entries {
+			if strings.Trim(e.Name(), "0123456789") != "" {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+			if err != nil {
+				continue // gone, or not ours to read
+			}
+			argv0, _, _ := strings.Cut(string(data), "\x00")
+			if strings.HasPrefix(argv0, prefix) {
+				n++
+			}
+		}
+		return n, nil
+	}
+	out, err := exec.Command("/bin/ps", "-axww", "-o", "command=").Output()
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// processesUnder counts a process started by a path under the folder while
+// it runs, and no longer once it has ended: settle's wait sees a job.
+func TestProcessesUnder(t *testing.T) {
+	dir := tempDir(t)
+	link := filepath.Join(dir, "bin", "made-up-job")
+	mkdir(t, filepath.Dir(link))
+	if err := os.Symlink(testBinary(t), link); err != nil {
+		t.Fatal(err)
+	}
+	g := grandchild{Pipe: fifo(t, dir, "held"), PID: filepath.Join(dir, "job.pid")}
+	go func() {
+		if f, err := os.Open(g.Pipe); err == nil {
+			_, _ = io.Copy(io.Discard, f)
+			f.Close()
+		}
+	}()
+	spec, err := json.Marshal(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	cmd := exec.Command(link)
+	cmd.Env = []string{grandchildVar + "=" + string(spec)}
+	cmd.ExtraFiles = []*os.File{w}
+	err = cmd.Start()
+	w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b [1]byte
+	if n, _ := r.Read(b[:]); n != 1 {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal("the job did not start")
+	}
+	running, err := processesUnder(dir)
+	sibling, serr := processesUnder(filepath.Join(dir, "bi"))
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	if err != nil || running != 1 {
+		t.Fatalf("while it runs: %d, %v", running, err)
+	}
+	if serr != nil || sibling != 0 {
+		t.Fatalf("a folder whose name begins its folder's: %d, %v", sibling, serr)
+	}
+	if n, err := processesUnder(dir); err != nil || n != 0 {
+		t.Fatalf("once it has ended: %d, %v", n, err)
 	}
 }
 
