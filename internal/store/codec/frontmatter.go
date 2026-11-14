@@ -190,6 +190,12 @@ func (d *Doc) Protection() Protection {
 			p.Locked = p.Locked || !unlocked
 		case "verified":
 			empty := bare && map[string]bool{"": true, "[]": true, "{}": true, `""`: true, "null": true, "~": true}[strings.Trim(stripComment(e.rest), " \t")]
+			if empty && d.tabUnder(e.lines[0]) {
+				// "verified:" then "\tby: river": YAML refuses the tab, and
+				// a reader that takes it for indentation, as v1 did, reads a
+				// line under the key.
+				empty = false
+			}
 			p.Verified = p.Verified || !empty
 		}
 	}
@@ -197,6 +203,17 @@ func (d *Doc) Protection() Protection {
 		p.Locked = true
 	}
 	return p
+}
+
+// tabUnder reports whether the first line after line i of the frontmatter
+// that is not blank, as Go trims white space, starts with a tab.
+func (d *Doc) tabUnder(i int) bool {
+	for j := i + 1; j < d.close; j++ {
+		if l := text(d.lines[j]); strings.TrimSpace(l) != "" {
+			return strings.HasPrefix(l, "\t")
+		}
+	}
+	return false
 }
 
 // Value decodes a key in a written form: a plain scalar as a string, JSON
