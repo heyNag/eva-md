@@ -629,29 +629,79 @@ var (
 // skipNames are the methods that skip a test.
 var skipNames = []string{"Skip", "Skipf", "SkipNow"}
 
-// countCalls counts, for each package, the calls in its test files of
-// time.Sleep and of a Skip method, and the first place of each, by
-// "sleep <package>" and "skip <package>".
+// testHelpers lists the packages only tests link: those a test file
+// imports, of another package, directly or through the imports of the
+// files that are not tests, that no command of the module links.
+func testHelpers(files []goFile) map[string]bool {
+	imports := map[string][]string{}
+	var mains, fromTests []string
+	for _, f := range files {
+		if !f.test && f.file.Name.Name == "main" {
+			mains = append(mains, f.pkg)
+		}
+		for path := range f.imports() {
+			switch pkg := packageOf(path); {
+			case pkg == "" || pkg == f.pkg:
+			case f.test:
+				fromTests = append(fromTests, pkg)
+			default:
+				imports[f.pkg] = append(imports[f.pkg], pkg)
+			}
+		}
+	}
+	reach := func(start []string) map[string]bool {
+		seen := map[string]bool{}
+		for queue := start; len(queue) > 0; queue = queue[1:] {
+			if pkg := queue[0]; !seen[pkg] {
+				seen[pkg] = true
+				queue = append(queue, imports[pkg]...)
+			}
+		}
+		return seen
+	}
+	program, helpers := reach(mains), map[string]bool{}
+	for pkg := range reach(fromTests) {
+		if !program[pkg] {
+			helpers[pkg] = true
+		}
+	}
+	return helpers
+}
+
+// countCalls counts, for each package, the uses in its test files, and in
+// the files of a package only tests link, of time.Sleep, called or taken
+// as a value, through the time package under any name or a dot, and of a
+// Skip method: Skipf and SkipNow called or taken as a value, and Skip
+// called, as a field may be named Skip. It gives the first place of each,
+// by "sleep <package>" and "skip <package>".
 func countCalls(files []goFile) (sleep, skip map[string]int, where map[string]string) {
 	sleep, skip, where = map[string]int{}, map[string]int{}, map[string]string{}
+	helpers := testHelpers(files)
 	for _, f := range files {
-		if !f.test {
+		if !f.test && !helpers[f.pkg] {
 			continue
 		}
+		selected := map[*ast.Ident]bool{} // the names after a dot, read with their selector
+		called := map[ast.Expr]bool{}     // what is called
 		ast.Inspect(f.file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			switch {
-			case !ok:
-			case sel.Sel.Name == "Sleep" && isTimePkg(f, sel.X):
-				sleep[f.pkg]++
-				where["sleep "+f.pkg] = cmp.Or(where["sleep "+f.pkg], f.line(call))
-			case slices.Contains(skipNames, sel.Sel.Name):
-				skip[f.pkg]++
-				where["skip "+f.pkg] = cmp.Or(where["skip "+f.pkg], f.line(call))
+			switch n := n.(type) {
+			case *ast.CallExpr:
+				called[n.Fun] = true
+			case *ast.SelectorExpr:
+				selected[n.Sel] = true
+				switch {
+				case timeName(f, n, "Sleep"):
+					sleep[f.pkg]++
+					where["sleep "+f.pkg] = cmp.Or(where["sleep "+f.pkg], f.line(n))
+				case slices.Contains(skipNames, n.Sel.Name) && (called[n] || n.Sel.Name != "Skip"):
+					skip[f.pkg]++
+					where["skip "+f.pkg] = cmp.Or(where["skip "+f.pkg], f.line(n))
+				}
+			case *ast.Ident:
+				if !selected[n] && timeName(f, n, "Sleep") {
+					sleep[f.pkg]++
+					where["sleep "+f.pkg] = cmp.Or(where["sleep "+f.pkg], f.line(n))
+				}
 			}
 			return true
 		})
@@ -701,9 +751,10 @@ func TestSleepsAndSkipsArePinned(t *testing.T) {
 }
 
 // The check fails a new sleep in a test, through the time package under
-// another name too, a new skip, and a sleep in a package with none; a
-// time.Sleep in a string, a sleep of the program's own code, and a count
-// that fell pass.
+// another name or a dot too, or taken as a value, a new skip, called or
+// taken as a value, a sleep in a package with none, and a sleep or a skip
+// in a package only tests link; a time.Sleep in a string, a sleep of the
+// program's own code, a field named Skip and a count that fell pass.
 func TestANewSleepOrSkipIsFound(t *testing.T) {
 	tempHome(t)
 	table := map[string]pinned{"internal/a": {1, "a made-up reason"}}
@@ -727,6 +778,26 @@ func TestANewSleepOrSkipIsFound(t *testing.T) {
 		{"a sleep in a package with none", map[string]string{
 			"internal/b/b_test.go": "package b\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestB(t *testing.T) { time.Sleep(time.Millisecond) }\n",
 		}, []string{`^internal/b/b_test\.go:8: the tests of internal/b call sleep 1 times, more than the 0 the table allows`}},
+		{"a sleep through a dot import", map[string]string{
+			"internal/b/b_test.go": "package b\n\nimport (\n\t\"testing\"\n\t. \"time\"\n)\n\nfunc TestB(t *testing.T) { Sleep(Second) }\n",
+		}, []string{`^internal/b/b_test\.go:8: the tests of internal/b call sleep 1 times`}},
+		{"a sleep taken as a value", map[string]string{
+			"internal/b/b_test.go": "package b\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestB(t *testing.T) {\n\tnap := time.Sleep\n\tnap(time.Second)\n}\n",
+		}, []string{`^internal/b/b_test\.go:9: the tests of internal/b call sleep 1 times`}},
+		{"a skip taken as a value", map[string]string{
+			"internal/b/b_test.go": "package b\n\nimport \"testing\"\n\nfunc TestB(t *testing.T) {\n\tskip := t.SkipNow\n\tskip()\n}\n",
+		}, []string{`^internal/b/b_test\.go:6: the tests of internal/b call skip 1 times`}},
+		{"a sleep and a skip in a package only tests link", map[string]string{
+			"cmd/eva-md/main.go":   "package main\n\nimport _ \"" + module + "/internal/a\"\n\nfunc main() {}\n",
+			"internal/b/bt/h.go":   "package bt\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc Wait(t *testing.T) {\n\ttime.Sleep(time.Second)\n\tt.Skip()\n}\n",
+			"internal/b/b_test.go": "package b\n\nimport (\n\t\"testing\"\n\n\t\"" + module + "/internal/b/bt\"\n)\n\nfunc TestB(t *testing.T) { bt.Wait(t) }\n",
+		}, []string{
+			`^internal/b/bt/h\.go:9: the tests of internal/b/bt call sleep 1 times`,
+			`^internal/b/bt/h\.go:10: the tests of internal/b/bt call skip 1 times`,
+		}},
+		{"a field named Skip", map[string]string{
+			"internal/b/b_test.go": "package b\n\nimport \"testing\"\n\ntype cursor struct{ Skip *int }\n\nfunc TestB(t *testing.T) {\n\tvar c cursor\n\tc.Skip = nil\n\t_ = c.Skip == nil\n}\n",
+		}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			files := maps.Clone(base)
