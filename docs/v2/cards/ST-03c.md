@@ -59,3 +59,13 @@ The card's checker left these to the lead.
 - The colon-end file stays in this card, though ST-04b carries the same file: whichever merges first writes it, and the other finds it there and adds only what is missing.
 - The profile checker will report a carried mark in the new forms: that follows ST-01b's ruling.
 - The floor of 2,000 protected documents in 10,000 is the drafter's figure: the builder reports the count the generator gives, and tunes the generator, not the floor, to reach it.
+
+## As merged
+
+Merged on 2026-11-14 (b8924db, from `pkg/st-03c-r1`, after two reviews, one round of fixes and a verification that accepted it).
+
+- **Wider than the card's forms.** An empty bare `verified:` is verified when a line led by a space, a tab or `-` comes before the next line with a colon outside quotes: v1 read a key's block past comments and lines with no such colon, and the property test found the gap. Under `[]` and `{}` this protects more than v1 did, which is the safe side.
+- **`verified: null # x`** is counted with `~ # x` as one form, a null with a comment: v1 read both as verified, the codec reads neither so, and the SPEC's section 12 says it. No fixture of its own pins the `null` spelling on v1's side; a later card of the migration (ST-07) may add one.
+- **Owed, with no room for it today:** `docs/spec/store-format.md` section 6, "Key forms", does not yet say the two rules above (the key behind white space, a byte order mark or quotes; the lines under an empty verified). The file is 11 bytes under its limit, so the words wait for the card that next condenses it (EV-10a or EV-10b).
+- The codec's `SPEC.md` is one byte under its own limit: the next card that adds to it condenses first.
+- `escapesValid` in `frontmatter.go` copies most of `v1.go`'s `escapesKnown`, since this card could change `v1.go` in comments only.

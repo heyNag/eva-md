@@ -404,7 +404,8 @@ func closeOf(s string) int {
 // dropped it: a double-quoted one as JSON reads it, or with YAML's escapes
 // when JSON cannot; a single-quoted one as YAML does; any other as it is.
 // It refuses an escape YAML does not know, which YAML refuses and v1 kept,
-// and one that Read takes for a space ("\_", "\L", "\P").
+// and "\_", "\L" and "\P", which YAML reads as U+00A0, U+2028 and U+2029
+// and v1 kept as written.
 func unquoteV1(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if len(s) < 2 || s[0] != '"' && s[0] != '\'' || quoteEnd(s, 0) != len(s)-1 {
@@ -428,8 +429,8 @@ func unquoteV1(s string) (string, error) {
 var errEscape = errors.New("an escape YAML does not read so")
 
 // escapesKnown reports whether every escape in the inside of a
-// double-quoted scalar is one YAML knows and yamlUnescape reads as YAML
-// does.
+// double-quoted scalar is one YAML knows, but "\_", "\L" and "\P", which
+// unquoteV1 refuses.
 func escapesKnown(in string) bool {
 	width := map[byte]int{'x': 2, 'u': 4, 'U': 8}
 	for i := 0; i < len(in); i++ {
