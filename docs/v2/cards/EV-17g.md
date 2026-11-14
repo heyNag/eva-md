@@ -83,3 +83,6 @@ The lead's rulings at the merge:
 3. **A hang-up ends the run as an interrupt does.** `cmd/eva-eval/main.go` listened for an interrupt and a termination only, so a dropped connection killed the driver and left the chat running with no limit. The lead mended that file with this merge.
 
 Known and left, for EV-17e: grading runs the chat's code as the driver's user, so that code can read what that user can; a copy of a hidden test that is compressed or reworded is not found by the check; and a process that leaves its group outlives its call. The run-book runs the chat as a second user and says what that does not cover.
+
+Added by the lead on 2026-11-14: CI's macOS job failed twice on this package's tests, on two different tests, and passed between them. The second (run 178, `TestTraceFoldersRefused`) has a plain cause: the rig commits in a repository of its own, git then starts maintenance in the background, and a test that walked the rig met a file of git's that had gone by the time it was read. The rig's git configuration, and the evaluation command's, now turn git's background work off, as the release tests' already did. The first (run 176, `TestNoTrialFolderIsLeft`: a sign-in failure read as a host's failure in the first of two trials) is being looked for in a third round on this card's files; its notes go here when it ends.
+
