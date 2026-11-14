@@ -39,6 +39,10 @@ const (
 // reasons for a job, and tick.
 var wakeReasons = []string{"daily", "push_retry", update.TriggerGap, update.TriggerStop, update.TriggerEnd, update.TriggerCompact, update.TriggerStart, "tick"}
 
+// workClock is the clock eva-md work --status judges waits by, which tests
+// pin.
+var workClock = time.Now
+
 func init() {
 	register(command{name: "work", file: "work.go", place: 145,
 		synopsis: []string{
@@ -127,7 +131,7 @@ func runWork(ctx context.Context, args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	if *status {
-		now := time.Now()
+		now := workClock()
 		for _, line := range health.WorkLines(work.Status(ctx, dirs, now), now) {
 			fmt.Fprintln(out, "work: "+line)
 		}
