@@ -1,0 +1,3 @@
+{"fixes": [
+  {"index": 5, "op": {"op": "item.add", "id": null, "kind": "decision", "text": "Every rejected row is logged to rejects.jsonl in the run folder.", "admit": "decision", "ev": [{"e": 16, "s": 1, "as": "proposal"}, {"e": 17, "s": 1, "as": "assent"}]}}
+]}
