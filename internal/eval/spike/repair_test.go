@@ -252,7 +252,7 @@ func TestNoRepairForWhatNoReplacementMends(t *testing.T) {
 	var tally Tally
 	tally.Add(o)
 	c := counts(tally)
-	if c["ops_proposed"] != MaxOps+1 || c["ops_accepted_final"] != MaxOps || c["refused_bad_shape"] != 1 || c["repair_calls"] != 0 || c["repair_sent"] != 0 || c["schema_breaks"] != 1 {
+	if c["ops_proposed"] != MaxOps+1 || c["ops_accepted_final"] != MaxOps || c["refused_bad_shape"] != 1 || c["repair_calls"] != 0 || c["repair_sent"] != 0 || c["schema_breaks_first"] != 1 || c["schema_breaks_repair"] != 0 {
 		t.Errorf("counts %v", c)
 	}
 	checkSums(t, "over the bound", tally)

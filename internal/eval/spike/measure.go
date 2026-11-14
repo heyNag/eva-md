@@ -13,7 +13,8 @@ type Outcome struct {
 	// Input is the pass as rendered.
 	Input Input
 	// Invalid: the first answer was not the schema's JSON, so First holds
-	// no operation and no repair call was made.
+	// no operation and no repair call was made. It counts in
+	// answers_invalid_first, RepairInvalid in answers_invalid_repair.
 	Invalid bool
 	// First is Check's verdict on the first answer.
 	First Verdict
@@ -36,7 +37,7 @@ var CountIDs = func() []string {
 	for _, c := range Codes {
 		ids = append(ids, "refused_"+c.ID)
 	}
-	return append(ids, "answers_invalid", "schema_breaks", "nothing", "role_fixed",
+	return append(ids, "answers_invalid_first", "answers_invalid_repair", "schema_breaks_first", "schema_breaks_repair", "nothing", "role_fixed",
 		"repair_calls", "repair_sent", "repair_recovered", "repair_input_bytes", "repair_prefix_bytes",
 		"plants_refusal", "plants_hedge", "plants_assent", "assent_cited_refusal", "assent_cited_hedge",
 		"accepted_from_refusal", "accepted_from_hedge", "assents_captured")
@@ -99,7 +100,8 @@ func (t *Tally) Add(o Outcome) {
 		}
 		return 0
 	}
-	add("answers_invalid", one(o.Invalid)+one(o.RepairCalled && o.RepairInvalid))
+	add("answers_invalid_first", one(o.Invalid))
+	add("answers_invalid_repair", one(o.RepairCalled && o.RepairInvalid))
 	add("repair_calls", one(o.RepairCalled))
 	if o.RepairCalled {
 		add("repair_input_bytes", o.RepairInputBytes)
@@ -113,7 +115,8 @@ func (t *Tally) Add(o Outcome) {
 	if o.RepairCalled {
 		final = o.Final
 	}
-	add("schema_breaks", one(o.First.Breaks)+one(o.RepairCalled && final.RepairBreaks))
+	add("schema_breaks_first", one(o.First.Breaks))
+	add("schema_breaks_repair", one(o.RepairCalled && final.RepairBreaks))
 	add("ops_proposed", len(o.First.Ops))
 	add("nothing", one(len(o.First.Ops) == 0))
 	for _, j := range o.First.Ops {

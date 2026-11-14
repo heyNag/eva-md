@@ -329,7 +329,8 @@ func writtenIDs() []string {
 		ids = append(ids, string(h.ID))
 	}
 	for _, m := range []string{"spans_cited_first", "spans_cited_final", "spans_missed_first", "spans_missed_final", "ops_proposed",
-		"ops_accepted_first", "ops_accepted_final", "answers_invalid", "schema_breaks", "nothing", "role_fixed", "repair_calls",
+		"ops_accepted_first", "ops_accepted_final", "answers_invalid_first", "answers_invalid_repair", "schema_breaks_first",
+		"schema_breaks_repair", "nothing", "role_fixed", "repair_calls",
 		"repair_sent", "repair_recovered", "repair_input_bytes", "repair_prefix_bytes", "plants_refusal", "plants_hedge",
 		"plants_assent", "assent_cited_refusal", "assent_cited_hedge", "accepted_from_refusal", "accepted_from_hedge",
 		"assents_captured", "quote_miss_first", "quote_miss_final", "repair_yield", "calls_first", "calls_repair",
