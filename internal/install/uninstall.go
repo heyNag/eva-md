@@ -1,6 +1,7 @@
 package install
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -51,7 +52,13 @@ func uninstall(ctx context.Context, dirs paths.Dirs, apply bool, run runner) (Re
 	return r.Result, err
 }
 
-func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (result UninstallResult, err error) {
+func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (UninstallResult, error) {
+	return uninstallRendered(ctx, opts, run, render)
+}
+
+// uninstallRendered is uninstall, with the plugin files of this release as
+// render gives them.
+func uninstallRendered(ctx context.Context, opts UninstallOptions, run runner, render renderer) (result UninstallResult, err error) {
 	dirs := opts.Dirs
 	result.Binary = filepath.Join(dirs.Share, "bin", "eva-md")
 	// The record says where the link and the wiki are; without it, uninstall
@@ -67,7 +74,8 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 	if item, ok := rec.Find(KindWikiRemote, ""); ok {
 		result.Remote = item.Value
 	}
-	if c, e := config.Load(dirs.ConfigFile()); e == nil && c.WikiPath != "" {
+	c, cerr := config.Load(dirs.ConfigFile())
+	if cerr == nil && c.WikiPath != "" {
 		result.Wiki, result.Remote, result.WikiFromConfig = c.WikiPath, c.ExpectedRemote, true
 	}
 	if opts.All && result.Wiki != "" {
@@ -106,6 +114,18 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 			}
 		}
 	}
+	// The install manifest says which other files of the plugin folders
+	// are eva-md's, as for install.
+	var man *manifest
+	var manBefore []byte
+	if owned {
+		if man, manBefore, err = readManifest(root); err != nil {
+			return result, err
+		}
+		if man == nil && cerr == nil && ManifestSwitch.On(c) {
+			man = &manifest{}
+		}
+	}
 	var plans []*hostPlan
 	for _, host := range hosts {
 		if owned {
@@ -113,7 +133,7 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 			if e != nil {
 				return result, e
 			}
-			if _, e = treeChanged(root, filepath.Join("marketplace", host), files, false); e != nil {
+			if _, _, e = treeChanged(root, filepath.Join("marketplace", host), files, man.listedIn(unitOf(host)), false); e != nil {
 				return result, e
 			}
 		}
@@ -142,6 +162,17 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 	}
 	if owned {
 		result.Actions = append(result.Actions, "the plugin folders and the stable binary, "+result.Binary)
+	}
+	// Units of a later release, which this one does not render, stay listed.
+	var manAfter *manifest
+	if manBefore != nil {
+		manifestPath := filepath.Join(dirs.Share, manifestFile)
+		if manAfter = man.withoutKnown(); len(manAfter.Units) == 0 {
+			manAfter = nil
+			result.Actions = append(result.Actions, "the install manifest, "+manifestPath)
+		} else if !opts.All {
+			result.Kept = append(result.Kept, manifestPath+", which lists what a later release installed")
+		}
 	}
 	ourLink := ownLink(link, result.Binary)
 	if ourLink {
@@ -196,6 +227,13 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 			return result, errors.New("install: host state changed during uninstall preflight")
 		}
 	}
+	if owned {
+		if _, now, e := readManifest(root); e != nil {
+			return result, e
+		} else if !bytes.Equal(now, manBefore) || (now == nil) != (manBefore == nil) {
+			return result, errors.New("install: the install manifest changed during uninstall preflight")
+		}
+	}
 	for _, p := range plans {
 		// With its marketplace's folder missing, Codex can't say whether it
 		// has the plugin, and removes it either way.
@@ -220,6 +258,16 @@ func uninstallWith(ctx context.Context, opts UninstallOptions, run runner) (resu
 	if owned {
 		for _, p := range plans {
 			if err = root.RemoveAll(filepath.Join("marketplace", p.host)); err != nil {
+				return result, err
+			}
+		}
+		if manAfter != nil {
+			onDisk := manBefore
+			if _, err = putManifest(ctx, root, manAfter, &onDisk); err != nil {
+				return result, err
+			}
+		} else if manBefore != nil {
+			if err = root.Remove(manifestFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return result, err
 			}
 		}

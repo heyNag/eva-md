@@ -65,7 +65,16 @@ type hostPlan struct {
 	changed               bool
 	registrationAttempted bool
 	swap                  *folderSwap
+	// listed are the paths in the host's folder that the install manifest
+	// says are eva-md's, and removed those of them there now that this run
+	// does not render; both nil without a manifest.
+	listed  map[string]bool
+	removed []string
 }
+
+// renderer gives a host's marketplace files, as render does; tests give
+// install another release's through runInstallWith.
+type renderer func(host, binary string) (map[string][]byte, error)
 
 // Run verifies ownership and host state before replacing any generated files.
 // A failed native command is reconciled through inventories before rollback.
@@ -119,7 +128,11 @@ func FailedCommand(err error) (string, bool) {
 	return command, ok
 }
 
-func runInstall(ctx context.Context, opts Options, run runner) (result Result, err error) {
+func runInstall(ctx context.Context, opts Options, run runner) (Result, error) {
+	return runInstallWith(ctx, opts, run, render)
+}
+
+func runInstallWith(ctx context.Context, opts Options, run runner, render renderer) (result Result, err error) {
 	// Ctrl-C or SIGTERM fails the next step, so the rollback below still runs.
 	ctx, stop := notifyInterrupt(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -137,13 +150,17 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		}
 	}()
 	// Setup's checks run before there is a config; every other run needs it.
+	// Without one, the manifest's switch reads as off.
+	startManifest := false
 	if !opts.Preflight {
-		if _, err = config.LoadContext(ctx, opts.Dirs.ConfigFile()); err != nil {
+		var c config.Config
+		if c, err = config.LoadContext(ctx, opts.Dirs.ConfigFile()); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return result, errors.New("install: no wiki is set up; run eva-md setup first")
 			}
 			return result, errors.New("install: the eva-md config can't be read; run eva-md doctor")
 		}
+		startManifest = ManifestSwitch.On(c)
 	}
 	hosts, err := selectedHosts(opts.Host)
 	if err != nil {
@@ -237,12 +254,22 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 			return result, err
 		}
 	}
+	// A manifest on disk is read whatever the switch says; with none, the
+	// switch starts one, whose units each list v1's paths until written.
+	man, manBefore, err := readManifest(share)
+	if err != nil {
+		return result, err
+	}
+	if man == nil && startManifest {
+		man = &manifest{}
+	}
 	// reviewHost is the host whose changed plugin needs a review in it.
 	reviewHost := ""
 	for _, p := range plans {
 		p.changed = true
+		p.listed = man.listedIn(unitOf(p.host))
 		if share != nil {
-			p.changed, err = treeChanged(share, filepath.Join("marketplace", p.host), p.files, false)
+			p.changed, p.removed, err = treeChanged(share, filepath.Join("marketplace", p.host), p.files, p.listed, false)
 			if err != nil {
 				return result, err
 			}
@@ -254,6 +281,9 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		}
 		if p.changed {
 			result.Actions = append(result.Actions, p.host+": render generated marketplace")
+			for _, name := range p.removed {
+				result.Actions = append(result.Actions, p.host+": remove "+filepath.Join(marketplacePath(opts.Dirs.Share, p.host), filepath.FromSlash(name))+", which this release does not render")
+			}
 		} else {
 			result.Actions = append(result.Actions, p.host+": marketplace bytes unchanged")
 		}
@@ -302,13 +332,19 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 	if err = mkdirAll(share, "bin"); err != nil {
 		return result, err
 	}
-	// Recheck filesystem under the lock too, and remove OS metadata files.
+	// Recheck the manifest and the filesystem under the lock too, and remove
+	// OS metadata files.
+	if _, now, e := readManifest(share); e != nil {
+		return result, e
+	} else if !bytes.Equal(now, manBefore) || (now == nil) != (manBefore == nil) {
+		return result, errors.New("install: the install manifest changed during preflight; rerun install")
+	}
 	for _, p := range plans {
-		changed, e := treeChanged(share, filepath.Join("marketplace", p.host), p.files, true)
+		changed, removed, e := treeChanged(share, filepath.Join("marketplace", p.host), p.files, p.listed, true)
 		if e != nil {
 			return result, e
 		}
-		if changed != p.changed {
+		if changed != p.changed || !slices.Equal(removed, p.removed) {
 			return result, errors.New("install: generated files changed during preflight")
 		}
 	}
@@ -322,6 +358,17 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 	if err = paths.WriteFileAtomicAt(ctx, share, installMarker, []byte(installMarkerValue), 0o600); err != nil {
 		return result, err
 	}
+	// The manifest is written only by a run that changes something: before
+	// the first change, listing what is listed now and what this run
+	// renders, and last, listing only what it rendered. manOnDisk holds its
+	// bytes on disk, and manWritten says this run wrote it.
+	changes := !bytes.Equal(binary, previousBinary)
+	swaps := false
+	for _, p := range plans {
+		changes = changes || p.changed || !p.before.Valid
+		swaps = swaps || p.changed
+	}
+	manOnDisk, manWritten := manBefore, false
 	defer func() {
 		if err == nil {
 			for _, p := range plans {
@@ -336,13 +383,32 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		}
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), RollbackTimeout)
 		defer cancel()
-		if rollbackErr := rollback(rollbackCtx, opts.Dirs, share, plans, previousBinary, owned, run); rollbackErr != nil {
+		// The manifest is put back once the rest is: a rollback that stops
+		// part way leaves one that lists every file of both releases.
+		rollbackErr := rollback(rollbackCtx, opts.Dirs, share, plans, previousBinary, owned, run)
+		if rollbackErr == nil && manWritten {
+			rollbackErr = restoreManifest(rollbackCtx, share, manBefore)
+		}
+		if rollbackErr != nil {
 			err = fmt.Errorf("%w; rollback incomplete: %v; generated files were kept for recovery", err, rollbackErr)
 		} else {
 			err = fmt.Errorf("%w; this run's changes were rolled back", err)
 		}
 	}()
 	mutated = true
+	if man != nil && changes && swaps {
+		pre, e := man.preInstall(share, plans)
+		if e != nil {
+			err = e
+			return result, err
+		}
+		wrote, e := putManifest(ctx, share, pre, &manOnDisk)
+		manWritten = manWritten || wrote
+		if e != nil {
+			err = e
+			return result, err
+		}
+	}
 	if !bytes.Equal(binary, previousBinary) {
 		if err = paths.WriteFileAtomicAt(ctx, share, "bin/eva-md", binary, 0o700); err != nil {
 			return result, err
@@ -400,6 +466,14 @@ func runInstall(ctx context.Context, opts Options, run runner) (result Result, e
 		defer state.Close()
 		err = paths.WriteFileAtomicAt(ctx, state, "needs-trust.json", []byte("{\"host\":\""+reviewHost+"\",\"needs_trust\":true}\n"), 0o600)
 		if err != nil {
+			return result, err
+		}
+	}
+	if man != nil && changes {
+		wrote, e := putManifest(ctx, share, man.installed(plans), &manOnDisk)
+		manWritten = manWritten || wrote
+		if e != nil {
+			err = e
 			return result, err
 		}
 	}
@@ -632,32 +706,41 @@ func finishStarted(run runner) runner {
 	}
 }
 
-// treeChanged ignores OS metadata files such as .DS_Store, and removes them
-// when clean is set.
-func treeChanged(root *os.Root, base string, expected map[string][]byte, clean bool) (bool, error) {
+// treeChanged says whether base differs from expected, and which files
+// there listed names but expected lacks: the folder swap removes those. A
+// file is eva-md's when expected has it or listed names it, and a folder
+// when it is base or holds such a path; anything else stops install and
+// uninstall. It ignores OS metadata files such as .DS_Store, and removes
+// them when clean is set.
+func treeChanged(root *os.Root, base string, expected map[string][]byte, listed map[string]bool, clean bool) (changed bool, removed []string, err error) {
 	info, err := root.Lstat(base)
 	if errors.Is(err, fs.ErrNotExist) {
-		return true, nil
+		return true, nil, nil
 	}
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	if !info.IsDir() {
-		return false, errors.New("install: marketplace is not a real directory")
+		return false, nil, errors.New("install: marketplace is not a real directory")
 	}
 	owned, err := hasMarker(root, filepath.Join(base, managed), managedContents)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	if !owned {
-		return false, fmt.Errorf("install: refusing an unmanaged marketplace folder, %s; move it aside", filepath.Join(root.Name(), base))
+		return false, nil, fmt.Errorf("install: refusing an unmanaged marketplace folder, %s; move it aside", filepath.Join(root.Name(), base))
 	}
-	changed := false
 	allowedDirs := map[string]bool{base: true}
-	for name := range expected {
-		for dir := filepath.Dir(filepath.Join(base, name)); dir != base && dir != "."; dir = filepath.Dir(dir) {
+	allow := func(name string) {
+		for dir := filepath.Dir(filepath.Join(base, filepath.FromSlash(name))); dir != base && dir != "."; dir = filepath.Dir(dir) {
 			allowedDirs[dir] = true
 		}
+	}
+	for name := range expected {
+		allow(name)
+	}
+	for name := range listed {
+		allow(name)
 	}
 	err = fs.WalkDir(root.FS(), base, func(name string, d fs.DirEntry, e error) error {
 		if e != nil {
@@ -677,6 +760,11 @@ func treeChanged(root *os.Root, base string, expected map[string][]byte, clean b
 		}
 		rel, _ := filepath.Rel(base, name)
 		want, ok := expected[filepath.ToSlash(rel)]
+		if !ok && listed[filepath.ToSlash(rel)] {
+			changed = true
+			removed = append(removed, filepath.ToSlash(rel))
+			return nil
+		}
 		if !ok && (d.Name() == ".DS_Store" || strings.HasPrefix(d.Name(), "._")) {
 			if clean {
 				return root.Remove(name)
@@ -696,16 +784,17 @@ func treeChanged(root *os.Root, base string, expected map[string][]byte, clean b
 		return nil
 	})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	for name := range expected {
 		if _, e := root.Lstat(filepath.Join(base, name)); errors.Is(e, fs.ErrNotExist) {
 			changed = true
 		} else if e != nil {
-			return false, e
+			return false, nil, e
 		}
 	}
-	return changed, nil
+	slices.Sort(removed)
+	return changed, removed, nil
 }
 func hasMarker(root *os.Root, name, want string) (bool, error) {
 	data, err := readAt(root, name, 1024)
