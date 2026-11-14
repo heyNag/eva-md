@@ -2000,9 +2000,10 @@ class MissedLimits(unittest.TestCase):
         self.assertEqual([int(ms) for ms in reads], [core.LIMIT_MARGIN_MS])
         self.assertNotIn("", core.EVENT_LIMIT_MS)
         # A Codex Stop's {} is written only by the deadline, so one past it
-        # prints nothing (Home.hook lets that through).
+        # prints nothing (Home.hook lets that through). The write says
+        # whether the output reached the host, which changes no time.
         self.assertIn('\t\tif host == "codex" && event == "Stop" {\n\t\t\toutput = "{}"\n\t\t}\n'
-                      '\t\twriteOutput(out, output, deadline, env.withDeadline)\n', src)
+                      '\t\tif !writeOutput(out, output, deadline, env.withDeadline) && ran != nil {\n', src)
 
     def read(self, results, name="prompt_with_pointers"):
         err = io.StringIO()
