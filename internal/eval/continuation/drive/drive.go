@@ -16,17 +16,28 @@
 // What a chat can reach: --work must be empty or absent; each trial's
 // folder is removed once its rows are written, it is unjudged, or the run
 // stops in it, and the run's folder when the run ends, unless --keep-trials
-// keeps them; and after the workspace is prepared, after each call and
-// after each grading a prompt follows, the work folder, which holds the
-// trial's and no grading's copy by then, is checked for a hidden test, by
-// its path in the workspace and by its bytes in any file. One found stops
-// the run as hidden_found. What this cannot guard: a chat run as the
-// invoking user can read --tasks, --repos and --out by their paths, or
-// copy a hidden test reworded; a process that leaves its process group
-// outlives the call that started it; and code the grading runs may write
-// wherever that user can. So a real run starts the CLI as a second user,
-// through a wrapper given as --cli, with the tasks and repositories out of
-// that user's reach.
+// keeps them, when each trial's folder is closed to all but the driver's
+// user once its trial ends; and after the workspace is prepared, after
+// the condition has prepared the trial, after each call and after each
+// grading a prompt follows, the work folder, which holds the trial's and no
+// grading's copy by then, is checked for a hidden test, by its path in the
+// workspace and by its bytes, stored whole, in any file. One found stops
+// the run as hidden_found, and so does a grading folder that a chat
+// replaced or filled, through which a grading's copy would land out of the
+// check's sight. The grading folder is the driver's user's alone, and a
+// grading lays the hidden tests again before each of them, so that the
+// chat's code one test runs cannot rewrite the next.
+//
+// What this cannot guard: a chat run as the invoking user can read
+// --tasks, --repos and --out by their paths, and the trials --keep-trials
+// keeps, or copy a hidden test reworded, compressed or encoded, as git's
+// own objects store it; a process that leaves its process group outlives
+// the call that started it; and code the grading runs may write wherever
+// that user can, a hidden test into the workspace's git objects among
+// them, which a later prompt's chat can read. So a real run starts the CLI
+// as a second user, through a wrapper given as --cli, with the tasks and
+// repositories out of that user's reach, and grading as another user still
+// (EV-17e) is what keeps the code a grading runs from the hidden tests.
 package drive
 
 import (
@@ -73,7 +84,8 @@ const (
 	// where it must be off. Only an Arm gives it.
 	CodeMemoryOff = "memory_off"
 	// CodeHiddenFound is a hidden test, or its bytes, found within a
-	// chat's reach.
+	// chat's reach, or a grading folder a chat redirected, which would put
+	// a grading's copy of the hidden tests out of the check's sight.
 	CodeHiddenFound = "hidden_found"
 )
 
