@@ -41,3 +41,19 @@ Everything else; `internal/update`, `internal/host/adapter` and `internal/eval/*
 - On a fake runner, as `cmd/live-accuracy/main_test.go` makes one, and a probe given a fake `adapter.Env`: no `--spend-model-quota` calls nothing and exits 2; a model name a row id holds is refused with exit 2; a fallback from the model stops the run; `--record` then `--replay`, with a runner that fails the test if called, gives the same rows apart from time; a made-up model name is in no byte of the rows, the recording or the output: by test.
 - `frontier` on hand-made rows names the default row, the form and the assent line right in each case of item 3's rules, a small row passing, only a middle one, and none: a test per case.
 - Every row passes `results.Load` and the catalogue's `Check`.
+
+## As merged
+
+Merged from `pkg/dv-03d-r1` on 2026-11-14, after a review, one fix round and a verification that accepted it. The review's two major faults were in the frontier's rules: the evidence form was read among the quotes rows alone, so a small row that met the bar with segments was passed over for a larger one; and the assent line fired only on operations the checker accepted, where the plan's threshold is a refusal cited as assent, whatever the checker then did with it. Both follow the plan now.
+
+At the defaults the plan of the run is 24 arms, 28 first calls and at most 28 repair calls each: 1,344 calls and about 7.6 million tokens, under the row's allowance of about 1,900 calls and 25 million tokens, before a host's own overhead per call, which is not known until the live gates' recordings.
+
+The lead's rulings at the merge:
+
+1. **The bar on wrong writes is read over stored statements**, as the design's first section defines it: the operations that add a record, not every accepted operation. As merged the frontier divides by every accepted operation, which is lenient, and shows both figures. A short second round changes the rule's comparison.
+2. **An answer at another effort than the arm's stops the run**, as an answer from another model does. v1's runner steps an effort down for a model that refuses it; an arm is one host, tier, effort and form, and rows that name an effort the answers did not come at would put a wrong line on the frontier. The same round builds it. A call that took more than one run of the CLI for another reason does not stop the run: the run prints how many runs its calls took.
+3. **The assent line fires on a refusal or a hedge cited as assent**, as the plan's threshold says, where this card's item 3 says accepted. As built.
+
+Rulings 1 and 2 were built in a second round, merged the same day from `pkg/dv-03d-r2` after a verification that accepted it. No row of the arm's counted the operations that add a record, so the run writes that count itself, `spike.records_added`, from each store's records, which the arm already holds equal to the accepted adding operations; the lead accepts it there, since the spike is thrown away with DV-21.
+
+No one runs `spike run` with `--spend-model-quota` against a real host but the lead, on the owner's leave: `AGENTS.md`'s rule on the real machine names it.

@@ -1,0 +1,500 @@
+{
+  "v": 1,
+  "metrics": [
+    {
+      "name": "spike.spans_cited_first",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.spans_missed_first",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.spans_cited_final",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.spans_missed_final",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.ops_proposed",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.ops_accepted_first",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.ops_accepted_final",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.refused_bad_shape",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.refused_unknown_target",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.refused_bad_entry",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.refused_quote_not_found",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.refused_bad_segment",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.refused_ungrounded",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.refused_tag_too_low",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.answers_invalid_first",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.answers_invalid_repair",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.schema_breaks_first",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.schema_breaks_repair",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.nothing",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.role_fixed",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.repair_calls",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.repair_sent",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.repair_recovered",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.repair_input_bytes",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.repair_prefix_bytes",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.plants_refusal",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.plants_hedge",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.plants_assent",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.assent_cited_refusal",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.assent_cited_hedge",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.accepted_from_refusal",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.accepted_from_hedge",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.assents_captured",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.quote_miss_first",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.quote_miss_final",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.repair_yield",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.calls_first",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.calls_repair",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.calls_failed",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.tokens_in",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.tokens_out",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.repair_tokens_in",
+      "unit": "tokens",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.repair_tokens_cached_in",
+      "unit": "tokens",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.seconds",
+      "unit": "seconds",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.honest_refused",
+      "unit": "ratio",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "spike.records_added",
+      "unit": "count",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.fact_recall",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.fact_holds",
+      "unit": "ratio",
+      "direction": "higher",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.wrong_write",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.noise",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.misattributed",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.stale_in_force",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.dupes",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.otr_stored",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    },
+    {
+      "name": "fidelity.violations",
+      "unit": "count",
+      "direction": "lower",
+      "paths": [
+        "internal/eval/spike",
+        "internal/eval/score"
+      ]
+    }
+  ]
+}
