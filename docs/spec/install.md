@@ -152,4 +152,15 @@ With eva-md's files but no marker, it refuses.
 
 ## Since the split
 
-No change yet.
+**2026-11-14, HO-11: the install manifest, behind a switch that is off.**
+With the switch `install_manifest` in `config.toml` on (it is off by default and belongs to v2's build), install keeps `install-manifest.json` in eva-md's data folder, 0600.
+For each unit (`claude-code/plugin`, and `codex/hooks` at generation 0) it lists the files install rendered in that host's marketplace folder, each with its SHA-256 and size.
+A file in a plugin folder that the manifest lists is eva-md's: one this release no longer renders goes with the folder swap, and a dry run names each file it would remove.
+A file or folder no manifest lists still stops install and uninstall.
+With the switch on and no manifest, the eight paths releases 2026.11.5 to 2026.11.7 render in each folder are the list, so a v1 folder is adopted.
+A manifest on disk is read and kept current whatever the switch says.
+One this release cannot read stops install and uninstall with one line naming it; that includes one that lays out a unit this release renders at another folder, host or plugin, or a later generation.
+A unit of a later release whose folder lies inside a plugin folder this release renders also stops them, with one line naming that folder; a later unit's folder beside eva-md's is left alone and stays listed.
+A failed install puts the manifest back as it was, or removes it; one whose rollback stops part way leaves the manifest written before its first change, which lists the files of both releases.
+Uninstall removes it with the plugin folders, keeping only the units of a later release that it does not render; with `--all`, which removes the data folder, it names the manifest and those units' folders, and leaves their host registrations.
+With the switch off and no manifest on disk, install and uninstall are as the blocks above say, and no manifest is written.

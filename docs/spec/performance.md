@@ -90,4 +90,9 @@ By the third round's rule, the same 20 gates pass 17 times and are not judged 3 
 
 ## Since the split
 
-No change yet.
+**2026-11-14, EV-16e: a brief whose git calls ran out of time.**
+In the offline benchmark's code briefs every pointer must say the code moved, unless git's trace of that brief shows that the brief's clock cut its counts short.
+The script turns the trace on for these briefs alone, through the home's global git config.
+A brief is cut short when the notes it lacks are the last ones, the counts before them exited 0, at most one count followed them, killed or exited 0, and either that count was killed or the brief took 60 ms or more, the most one count may take (`CodeCall`).
+Such a brief is passed over, keeps its time among the samples and is counted beside the report, and more than one brief in two passed over fails.
+A repo with a single commit skips these briefs, as before.

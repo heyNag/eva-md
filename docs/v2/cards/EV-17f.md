@@ -58,3 +58,5 @@ Merged on 2026-11-14 (33be386, from `pkg/ev-17f-r1`, after two reviews, one roun
 - Known and left: a step's script that read the runner's variables without naming them (through `/proc`, or `set` with no arguments) is not caught by the reading of its text.
 - **Owed: `docs/verification.md`**, which EV-10a holds while it builds. After "...or if the release's own build, for each of its targets, records a build tag or holds the evaluation build's code": "; and the release workflow's build job reads each binary it built, in the step right before the upload, with `go version -m` and its bytes, and fails on one that is not eva-md's command, records a build tag or holds either mark of the evaluation build's code, which `internal/release/release_tagcheck_test.go` holds in place and runs, with the runner's variables set, on the release's own build, the same build with the tag, and made-up binaries".
 - The step runs for the first time at the owner's next release.
+
+Added by the lead on 2026-11-14: the sentence owed is written, in `docs/spec/checks.md` under "Since the split" (the verification document is an index now).

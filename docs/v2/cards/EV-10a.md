@@ -51,3 +51,14 @@ Any existing non-test Go file; `docs/spec/store-format.md`, `internal/ledger/SPE
 - Each check of item 6 fails on a fault seeded in a copy under `t.TempDir()`: a word changed, dropped or added; a file over a limit; a heading missing from an index; a bad record name; a broken link.
 - Outside `internal/spec`, which reads them as indexes, no test opens the three old files (a reviewer greps), and `git diff --stat` shows no existing non-test Go file changed.
 - The report gives the base commit, the three hashes, the command that recomputes them from `git show <base>:<file>`, and each spec with its size.
+
+## As merged
+
+Merged on 2026-11-14 (fc7bb4f, from `pkg/ev-10a-r1`, after one review, one round of fixes and a verification that accepted it). 40 specs, 24 records (23 dated 2026-10-30, and one of 2026-11-10 for the plan's decision 15), the three old files as indexes, and `internal/spec`, which is tests only.
+
+- **How a change is written now.** No word inside a block changes: `internal/spec` holds each source's blocks to a hash of the source as it stood at 3319eef. What changed after the split goes under the spec's `## Since the split`, dated and named for its card, one sentence a line (a line holds 400 characters at most, a file 24,576 bytes). The lead wrote the first four the same day: EV-16e's in `performance.md`, ST-04b's in `live-accuracy.md`, EV-17f's in `checks.md` and HO-11's in `install.md`.
+- AGENTS.md says where behaviour is written now, names `internal/spec`, and no longer says that two tests read `docs/design.md`; it has 4 bytes of room.
+- `docs/v2/` holds about 275 links to the three old files. They resolve, since the files remain, but an anchor into one no longer lands on a heading. Left: `docs/v2/` is outside this card, and the indexes name where each heading went.
+- The wording test needed no change (it reads every document under `docs/` at any depth); the host adapter's test reads the records too, since the table of host versions moved into one.
+- Known and left: a few branches of `internal/spec`'s checks that no test makes fail (the card's five kinds of fault are all seeded and caught).
+- `docs/spec/store-format.md` was not moved or condensed: ST-03c's two sentences are still owed there, with 11 bytes of room.

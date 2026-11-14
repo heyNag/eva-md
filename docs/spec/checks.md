@@ -82,4 +82,7 @@ What the suite covers:
 
 ## Since the split
 
-No change yet.
+**2026-11-14, EV-17f: the release workflow reads each binary it built.**
+The release workflow's build job reads each binary it built, in the step right before the upload, with `go version -m` and by its bytes, and fails on one that is not eva-md's command, records a build tag or holds either mark of the evaluation build's code.
+`internal/release/release_tagcheck_test.go` holds the step in place and runs it, with the runner's variables set, on the release's own build, the same build with the tag, and made-up binaries.
+The step runs for the first time at the next release.

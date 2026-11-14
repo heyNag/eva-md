@@ -105,4 +105,7 @@ Without the flag a run, or a replay, stops on a timeout.
 
 ## Since the split
 
-No change yet.
+**2026-11-14, ST-04b: the recording goes with a pages folder that cannot be made.**
+A pages folder that cannot be made takes the trace and the recording away too, with a trace or without one, so the next run can make the recording again (`TestATraceThatCannotBeMade`).
+The blocks above still say that it leaves the recording, an empty file, to be removed before the next run: that is no longer so.
+A run whose answers meet the target exits 0 with every page written, and 1 when only the last script's page cannot be written, its report printed and the page named on stderr (`TestTheLastPageOfARunThatMeetsTheTarget`).
