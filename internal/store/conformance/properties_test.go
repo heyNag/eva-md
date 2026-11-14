@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -28,6 +29,7 @@ func TestTheModelKeepsEveryProperty(t *testing.T) {
 		PropProtection:  func(t *testing.T) { RunProtection(t, newModel, seeds()) },
 		PropRestore:     func(t *testing.T) { RunRestore(t, newRestorable, seeds()) },
 		PropReplay:      func(t *testing.T) { RunReplay(t, newRestorable, seeds()) },
+		PropSessionKept: func(t *testing.T) { RunSessionKept(t, newModel, seeds()) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -58,6 +60,12 @@ var variants = []struct {
 	{"coverageOutside", PropReplay, 1, "the queue is not", func(m *Model) { m.coverageOutside = true }},
 	{"queueFromJobs", PropReplay, 1, "the queue is not", func(m *Model) { m.queueFromJobs = true }},
 	{"queueFromJobs", PropRestore, 1, "coverage is not the last push's", func(m *Model) { m.queueFromJobs = true }},
+	{"faultIgnored", PropCrashSafety, 1, "a crash armed at recover did not fire", func(m *Model) { m.faultIgnored = true }},
+	{"faultIgnored", PropExactlyOnce, 2, "a crash armed at recover did not fire", func(m *Model) { m.faultIgnored = true }},
+	{"faultIgnored", PropRestore, 1, "a crash armed at plan did not fire", func(m *Model) { m.faultIgnored = true }},
+	{"faultIgnored", PropReplay, 1, "a crash armed at recover did not fire", func(m *Model) { m.faultIgnored = true }},
+	{"sessionRewritten", PropSessionKept, 2, "a note a pass wrote into", func(m *Model) { m.sessionRewritten = true }},
+	{"handTextDropped", PropSessionKept, 7, "a text written by hand into", func(m *Model) { m.handTextDropped = true }},
 }
 
 // check runs one property on one seed.
@@ -75,6 +83,8 @@ func check(property string, seed int64, set func(*Model)) error {
 		return CheckRestore(restorable, seed)
 	case PropReplay:
 		return CheckReplay(restorable, seed)
+	case PropSessionKept:
+		return CheckSessionKept(subject, seed)
 	}
 	return errors.New("no such property: " + property)
 }
@@ -167,5 +177,183 @@ func TestEverySeedRunsEachKindOfEvent(t *testing.T) {
 	}
 	if len(a.events) == len(c.events) && a.record[0].facts[0] == c.record[0].facts[0] && a.record[0].to == c.record[0].to {
 		t.Fatal("two seeds gave one schedule")
+	}
+}
+
+// crashChecks is each property that crashes passes, run on a model that
+// newModel makes, with the tally of a run.
+func crashChecks(newModel func() *Model) map[string]func(int64, crashed) error {
+	subject := func() Subject { return newModel() }
+	restorable := func() Restorable { return newModel() }
+	return map[string]func(int64, crashed) error{
+		PropCrashSafety: func(seed int64, c crashed) error { return checkCrashSafety(subject, seed, c) },
+		PropExactlyOnce: func(seed int64, c crashed) error {
+			return checkExactlyOnce(subject, seed, newSchedule(seed, options{edits: true}), c)
+		},
+		PropRestore: func(seed int64, c crashed) error { return checkRestore(restorable, seed, c) },
+		PropReplay:  func(seed int64, c crashed) error { return checkReplay(restorable, seed, c) },
+	}
+}
+
+// wantFailure fails the test unless err is a Failure of the property, on
+// the seed, with exactly the detail.
+func wantFailure(t *testing.T, err error, property string, seed int64, detail string) {
+	t.Helper()
+	var f *Failure
+	if !errors.As(err, &f) || f.Property != property || f.Seed != seed || f.Detail != detail {
+		t.Errorf("got %v; want %s fails on seed %d: %s", err, property, seed, detail)
+	}
+}
+
+// The count of a run, on checks that fire what they are told to.
+func TestARunWantsArmedCrashesToFire(t *testing.T) {
+	fires := func(steps ...store.Step) func(int64, crashed) error {
+		return func(_ int64, c crashed) error {
+			for _, s := range steps {
+				c[s]++
+			}
+			return nil
+		}
+	}
+	wantFailure(t, runCrashes(PropReplay, upTo(3), fires()), PropReplay, 3, "no armed crash fired in 3 seeds")
+	wantFailure(t, runCrashes(PropRestore, []int64{9, 4}, fires()), PropRestore, 4, "no armed crash fired in 2 seeds")
+	if err := runCrashes(PropReplay, []int64{9, 4}, fires(store.StepFinish)); err != nil {
+		t.Errorf("a run of two seeds wants one crash only: %v", err)
+	}
+	if err := runCrashes(PropCrashSafety, upTo(everyStepFrom-1), fires(store.StepRecover)); err != nil {
+		t.Errorf("a run of %d seeds wants a crash at no step in particular: %v", everyStepFrom-1, err)
+	}
+	wantFailure(t, runCrashes(PropCrashSafety, upTo(everyStepFrom), fires(store.StepRecover, store.StepPlan)), PropCrashSafety, everyStepFrom, "no armed crash fired at journal in 200 seeds")
+	wantFailure(t, runCrashes(PropExactlyOnce, upTo(everyStepFrom), fires(store.Steps[:len(store.Steps)-1]...)), PropExactlyOnce, everyStepFrom, "no armed crash fired at finish in 200 seeds")
+	if err := runCrashes(PropExactlyOnce, upTo(everyStepFrom), fires(store.Steps...)); err != nil {
+		t.Errorf("a run that crashed at every step fails: %v", err)
+	}
+	if err := runCrashes(PropReplay, nil, fires(store.Steps...)); err == nil {
+		t.Error("a run of no seed passes")
+	}
+	// A check that fails stops the run, and its failure is the run's.
+	var checked []int64
+	stop := &Failure{Property: PropReplay, Seed: 2, Detail: "made up"}
+	err := runCrashes(PropReplay, upTo(5), func(seed int64, c crashed) error {
+		checked = append(checked, seed)
+		c[store.StepRecover]++
+		if seed == 2 {
+			return stop
+		}
+		return nil
+	})
+	if err != stop || len(checked) != 2 {
+		t.Errorf("the run checked %v and gave %v", checked, err)
+	}
+}
+
+// armedAt reports whether a schedule arms a crash at all, and whether one
+// at recover or plan, where it must fire.
+func armedAt(sch *schedule) (some, early bool) {
+	for _, ev := range sch.events {
+		if ev.crash != nil {
+			some = true
+			early = early || ev.crash.step == store.StepRecover || ev.crash.step == store.StepPlan
+		}
+	}
+	return some, early
+}
+
+// The count catches what the rule of each Apply cannot: on seeds whose
+// schedules arm no crash at recover or plan, a model that ignores its
+// fault passes every check, and the run over them fails; the model passes
+// the same run. CrashSafety arms a crash on every pass, at a step that
+// moves with the pass, so it has no such seeds to speak of.
+func TestARunCatchesAFaultNeverPassedOn(t *testing.T) {
+	ignored := crashChecks(func() *Model { m := NewModel(); m.faultIgnored = true; return m })
+	model := crashChecks(NewModel)
+	for _, p := range []struct {
+		name string
+		o    options
+	}{
+		{PropExactlyOnce, options{edits: true}},
+		{PropRestore, options{edits: true, pushes: true, loses: true}},
+		{PropReplay, options{pushes: true}},
+	} {
+		var list []int64
+		for seed := int64(1); seed <= 100 && len(list) < 5; seed++ {
+			if some, early := armedAt(newSchedule(seed, p.o)); some && !early {
+				list = append(list, seed)
+			}
+		}
+		if len(list) < 2 {
+			t.Fatalf("%s: 100 seeds give %d schedules with a crash and none at recover or plan", p.name, len(list))
+		}
+		for _, seed := range list {
+			if err := ignored[p.name](seed, crashed{}); err != nil {
+				t.Fatalf("%s: the rule of each Apply catches seed %d alone: %v", p.name, seed, err)
+			}
+		}
+		last := list[len(list)-1]
+		wantFailure(t, runCrashes(p.name, list, ignored[p.name]), p.name, last, fmt.Sprintf("no armed crash fired in %d seeds", len(list)))
+		if err := runCrashes(p.name, list, model[p.name]); err != nil {
+			t.Errorf("%s: the model fails the run of seeds %v: %v", p.name, list, err)
+		}
+	}
+}
+
+// A model that passes its fault on at recover and plan alone passes each
+// check and the rule of at least one crash, and fails each crash property
+// over 200 seeds, at the first step it never crashes.
+func TestARunOf200SeedsWantsACrashAtEveryStep(t *testing.T) {
+	early := crashChecks(func() *Model { m := NewModel(); m.faultEarlyOnly = true; return m })
+	for name, check := range early {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			wantFailure(t, runCrashes(name, upTo(everyStepFrom), check), name, everyStepFrom, "no armed crash fired at journal in 200 seeds")
+		})
+	}
+}
+
+// SessionKept follows what a person wrote: a rewrite by hand takes the
+// notes it removed off the list and puts the person's text on it, and a
+// note a shut file refused never goes on it.
+func TestSessionKeptFollowsWhatAPersonWrote(t *testing.T) {
+	note := func(n int) chunk {
+		return chunk{session: "codex:b2", from: n, to: n, facts: []fact{{do: doNote, text: fmt.Sprintf("s%d the hook stays local", n)}}}
+	}
+	sch := &schedule{
+		record: []chunk{note(1), note(2), note(3), note(4)},
+		events: []event{
+			{what: evPass, chunk: 0},
+			{what: evPass, chunk: 1},
+			{what: evEdit, session: true, edit: Edit{Kind: EditChange, Text: "s1000 the cache is the person's"}},
+			{what: evPass, chunk: 2},
+			{what: evEdit, session: true, edit: Edit{Kind: EditLock}},
+			{what: evPass, chunk: 3},
+		},
+	}
+	m := NewModel()
+	counts := &keptCounts{}
+	if err := checkSessionKept(func() Subject { return m }, 1, sch, counts); err != nil {
+		t.Fatal(err)
+	}
+	if want := (keptCounts{notes: 3, refused: 1, byHand: 1}); *counts != want {
+		t.Errorf("the check counted %+v, want %+v", *counts, want)
+	}
+	got := string(m.Files()[sessionPath("codex:b2")])
+	for text, there := range map[string]bool{"s1 ": false, "s2 ": false, "s1000 ": true, "s3 ": true, "s4 ": false} {
+		if strings.Contains(got, text) != there {
+			t.Errorf("the file holds %q: %v, want %v", text, !there, there)
+		}
+	}
+	for _, v := range []struct {
+		name   string
+		set    func(*Model)
+		detail string
+	}{
+		{"sessionRewritten", func(m *Model) { m.sessionRewritten = true }, "a note a pass wrote into sessions/codex.b2.md at step 0 is no longer there"},
+		{"handTextDropped", func(m *Model) { m.handTextDropped = true }, "a text written by hand into sessions/codex.b2.md at step 2 is no longer there"},
+	} {
+		err := checkSessionKept(func() Subject { m := NewModel(); v.set(m); return m }, 1, sch, &keptCounts{})
+		var f *Failure
+		if !errors.As(err, &f) || f.Detail != v.detail {
+			t.Errorf("%s gave %v; want %s", v.name, err, v.detail)
+		}
 	}
 }
