@@ -68,7 +68,11 @@ func word(r *rand.Rand, quoted bool) string {
 var values = []string{" true", " true", " true", " true", " yes", ` "true"`, " On", " 'yes'", " TRUE", " false", " {by: river}", " [x]", "", " ~", " # c", " null", ` ""`, " x"}
 
 // unders are lines a key may have under it.
-var unders = []string{"", "", "", "\n  - x", "\n  by: river", "\n- x", "\n\tby: river"}
+var unders = []string{"", "", "", "\n  - x", "\n  by: river", "\n- x", "\n\tby: river", "\n\t- by: river", "\n  - by: river"}
+
+// betweens are lines that may fall between a key and the lines under it,
+// none with a colon outside quotes: v1 kept the key's block open past them.
+var betweens = []string{"\n# by hand", "\nsee below", "\n? note", "\ngenrat\"d: x", "\n'a:b'", "\n&a x", "\n note", "\n"}
 
 // keyLine is a line that names a mark, or nearly, in a form a person may
 // have typed: white space before it, quotes matched, mismatched, unclosed
@@ -104,13 +108,17 @@ func keyLine(r *rand.Rand) markLine {
 	default:
 		l += ":" + values[r.IntN(len(values))]
 	}
-	return markLine{l, unders[r.IntN(len(unders))]}
+	under := unders[r.IntN(len(unders))]
+	if under != "" && r.IntN(3) == 0 {
+		under = betweens[r.IntN(len(betweens))] + under
+	}
+	return markLine{l, under}
 }
 
 // otherLines are the keys around the marks, the bare marks among them.
 var otherLines = []string{"type: thread", "title: Tide feed", "status: stable", "description: a feed", "stale_after: 2027-02-01",
 	"locked: false", "locked: true", "verified: []", "verified: {}", "verified: {} # none yet", "verified: [] # none yet",
-	"verified: ~ # later", "verified: null # later", "verified: # by river", "verified: ~", "verified: \"\"", "# a note", ""}
+	"verified: ~ # later", "verified: null # later", "verified: # by river", "verified: ~", "verified: \"\"", "# a note", "", "see below", "? note"}
 
 // coversDoc is a document of other keys with key lines placed among them,
 // at times in a block indented whole, where a key line may be indented
@@ -135,40 +143,53 @@ func coversDoc(r *rand.Rand) []markLine {
 	return lines
 }
 
-// render is the document's bytes, its lines matching drop replaced by a
-// key that names no mark, with nothing under it.
-func render(lines []markLine, drop func(markLine) bool) []byte {
+// render is the document's bytes.
+func render(lines []markLine) []byte {
 	var b strings.Builder
 	b.WriteString("---\n")
 	for _, l := range lines {
-		if drop(l) {
-			b.WriteString("status: stable\n")
-			continue
-		}
 		b.WriteString(l.text + l.under + "\n")
 	}
 	b.WriteString("---\n\n# Body\n")
 	return []byte(b.String())
 }
 
+// replaced is lines with each that matches replaced by with(it).
+func replaced(lines []markLine, match func(markLine) bool, with func(markLine) markLine) []markLine {
+	out := slices.Clone(lines)
+	for i, l := range out {
+		if match(l) {
+			out[i] = with(l)
+		}
+	}
+	return out
+}
+
+// noMark is a key that names no mark, with nothing under it.
+func noMark(markLine) markLine { return markLine{text: "status: stable"} }
+
+// bareVerified is a bare verified with no value, the lines under the line
+// kept: v1 read them under it still.
+func bareVerified(l markLine) markLine { return markLine{"verified:", l.under} }
+
 // bare reports a bare locked or verified line at the line's start.
 func bare(l markLine) bool { return reBare.MatchString(l.text) }
 
-// emptyVerified reports a bare verified line, with nothing under it, in a
-// form the format reads as no verified mark: an empty value, a comment
-// after it at times. v1 read some such as verified (SPEC.md section 12).
+// emptyVerified reports a bare verified line in one of the five empty
+// forms SPEC.md section 12 names, which v1 read as verified and the format
+// as no mark: {}, {} # x, [] # x, a null with a comment (~ # x or null # x),
+// or only a comment.
 func emptyVerified(l markLine) bool {
 	v, ok := strings.CutPrefix(l.text, "verified:")
-	if !ok || l.under != "" || v != "" && v[0] != ' ' {
+	if !ok || v != "" && v[0] != ' ' {
 		return false
 	}
 	v = strings.TrimSpace(v)
-	if strings.HasPrefix(v, "#") {
-		v = ""
-	} else if i := strings.Index(v, " #"); i >= 0 && !strings.HasPrefix(v, `"`) {
-		v = strings.TrimSpace(v[:i])
+	if v == "{}" || strings.HasPrefix(v, "#") {
+		return true
 	}
-	return slices.Contains([]string{"", "[]", "{}", "null", "~", `""`}, v)
+	val, _, ok := strings.Cut(v, " #")
+	return ok && slices.Contains([]string{"{}", "[]", "~", "null"}, strings.TrimSpace(val))
 }
 
 // v1Protects reads b as v1 did: locked and verified.
@@ -192,11 +213,10 @@ func TestProtectionCoversV1(t *testing.T) {
 	t.Logf("seed %d (go test -run %s -seed %d repeats it)", s, t.Name(), s)
 	r := rand.New(rand.NewPCG(s, s))
 	w := wiki(t)
-	none := func(markLine) bool { return false }
 	byOther, failed := 0, 0
 	for i := range 10000 {
 		lines := coversDoc(r)
-		b := render(lines, none)
+		b := render(lines)
 		locked, verified := v1Protects(t, w, b)
 		p := codec.Read(b).Protection()
 		var miss []string
@@ -204,8 +224,8 @@ func TestProtectionCoversV1(t *testing.T) {
 			miss = append(miss, "locked")
 		}
 		if verified && !p.Verified && !p.Unreadable {
-			// v1 read it as verified by an empty bare line alone.
-			if _, still := v1Protects(t, w, render(lines, emptyVerified)); still {
+			// v1 read it as verified by an empty form's value alone.
+			if _, still := v1Protects(t, w, render(replaced(lines, emptyVerified, bareVerified))); still {
 				miss = append(miss, "verified")
 			}
 		}
@@ -218,7 +238,7 @@ func TestProtectionCoversV1(t *testing.T) {
 		if locked || verified {
 			if !slices.ContainsFunc(lines, bare) {
 				byOther++
-			} else if l, v := v1Protects(t, w, render(lines, bare)); l || v {
+			} else if l, v := v1Protects(t, w, render(replaced(lines, bare, noMark))); l || v {
 				byOther++
 			}
 		}
