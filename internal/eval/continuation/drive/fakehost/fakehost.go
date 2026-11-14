@@ -227,7 +227,8 @@ func serve(host adapter.Host, file string, args []string, out, errOut io.Writer)
 		fmt.Fprintf(errOut, "fakehost: reading the script: %v\n", err)
 		return 3
 	}
-	// errOut is what each return prints the fault on, as Printed keeps it.
+	// The fault goes to the call's stderr; the copy Printed keeps is closed
+	// before this runs, and does not hold it.
 	defer func() {
 		if fault != "" {
 			fmt.Fprintf(errOut, "fakehost: %s\n", fault)
