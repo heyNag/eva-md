@@ -59,13 +59,13 @@ Rules every card carries, so they are said once here:
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
 | [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | merged |
-| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | building since 2026-11-14 |
+| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | merged; the switch `worker` is off |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
 | [HO-11](HO-11.md) | The install manifest | merged; its switch `install_manifest` stays off until HO-20 or HO-27 turns it on; HO-20's card starts from the rulings in its last section |
 | [HO-12a](HO-12a.md) | Health's host names through the adapter | merged; CI's latency gate passed on its merge (run 205) |
-| [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after DV-12b (HO-12a is merged) |
+| [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | building since 2026-11-14, beside DV-13, which changes two of its package's files |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
-| [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
+| [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | building since 2026-11-14 |
 | [DV-11a](DV-11a.md) | The runner's interface, typed outcomes, the probe and the sealed run, with no caller | merged |
 | [DV-11b](DV-11b.md) | The runner's Codex backend | merged, with a second round for the lead's ruling that a run with no known event is never `ok` |
 | [DV-11c](DV-11c.md) | The runner's Claude Code backend | merged, with a second round for what its reviews left |

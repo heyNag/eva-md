@@ -132,4 +132,12 @@ Only `eva-md status --updates` reads that file, so however many busy exits a day
 
 ## Since the split
 
-No change yet.
+**2026-11-14, DV-12b: v1's update and maintain under the worker, behind a switch that is off.**
+With `[switches] worker = true`, the hooks start `eva-md work --wake` in place of `eva-md update` and `eva-md maintain`, with the job's reason and the same sessions, sweep day and push flag.
+It leaves a mark for each in the state folder's `work/wake`, and one worker at a time runs v1's update for the marked sessions, one call for each reason, then maintain.
+A job that finds `update.lock` or `maintain.lock` held keeps its marks for the next wake or `eva-md work --tick`, instead of dropping the trigger.
+A lock taken between two of the update job's calls keeps the marks of the reasons already run too, which run again at the next wake or tick.
+`eva-md work --status`, and the background work row of `eva-md status`, say what has waited over 5 minutes or is held, one reason for each session.
+The reasons are: waiting for the size or quiet rule (a session with a backlog by its watermark, as the update backlog row counts it, and no mark); behind a running job (a mark waiting for the worker); deferred by the day's budget; held after a failure, with the failure that started the hold or backoff as its class and its next try; waiting for sign-in; or switched off.
+The hook's wake recovers a fault of its own and still starts the jobs the launch judged.
+Off, the default, nothing changes: the hooks start v1's commands with v1's arguments, and `status` and `doctor` print what they printed.

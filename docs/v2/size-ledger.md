@@ -24,7 +24,7 @@ What fails. `go test ./internal/eval/guard -run TestTheSizeLedgerHoldsForThisRep
 | --- | ---: | --- | --- | --- | --- |
 | `internal/okfadapter/**` | 1038 | ST-13 | CUT-4 | file | ST-03a |
 | `internal/wikiinit/**` | 572 | ST-13 | CUT-4 | file | none |
-| `internal/update/**` | 8977 | DV-26 | CUT-4 | file | none |
+| `internal/update/**` | 8981 | DV-26 | CUT-4 | file | none |
 | `internal/lint/**` | 401 | DV-26 | CUT-4 | file | none |
 | `internal/threadpage/**` | 1881 | DV-26 | CUT-4 | file | none |
 | `internal/knowledgepage/**` | 2244 | DV-26 | CUT-4 | file | none |
@@ -44,7 +44,7 @@ What fails. `go test ./internal/eval/guard -run TestTheSizeLedgerHoldsForThisRep
 | `internal/health/code.go` | 174 | hosts' own | CUT-4 | loose | none |
 | `internal/health/times.go` | 51 | hosts' own | CUT-4 | loose | none |
 | `cmd/eva-md/update.go` | 170 | DV-26 | CUT-4 | loose | none |
-| `cmd/eva-md/maintain.go` | 176 | DV-26 | CUT-4 | loose | none |
+| `cmd/eva-md/maintain.go` | 183 | DV-26 | CUT-4 | loose | none |
 | `cmd/eva-md/knowledge.go` | 48 | DV-26 | CUT-4 | loose | none |
 | `cmd/eva-md/commit.go` | 92 | ST-13 | CUT-4 | loose | none |
 
@@ -91,19 +91,18 @@ The v1 files those commits changed that no (a) row holds, whose changes stay in 
 | `internal/store/codec/**` | 2344 | ST-03a, ST-03b | ST-05 |
 | `internal/store/migrate/**` | 1805 | ST-04 | ST-05 |
 | `internal/store/profile/**` | 1682 | ST-01, ST-01b | ST-05 |
-| `internal/work/**` | 1089 | DV-12a | DV-12b |
 | `internal/derive/modelrun/**` | 2535 | DV-11a, DV-11b, DV-11c | DV-11 |
 | `internal/host/capture/**` | 722 | LG-13a | LG-20 |
 
 ## The end state
 
 ```ledger
-counted-at: 5a1b5a2e5634
-built: 64209
-leaves-v1: 20609
+counted-at: f81f23f44042
+built: 66094
+leaves-v1: 20620
 leaves-instruments: 5875
-leaves: 26484
-not-yet-called: 10417
-end-state: 48142
+leaves: 26495
+not-yet-called: 9328
+end-state: 48927
 ceiling: 53694
 ```

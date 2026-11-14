@@ -61,3 +61,15 @@ README.md
 ## Added by the lead on 2026-11-14
 
 `internal/hook/handlers_test.go` is in the paths block now. `TestHandlersAtOnePlacePanic` pins the hook's list of handlers, and the handler this card asks for at a chat's launch is one more in it, so that test's list gains its line. The acceptance line "no existing test changed beyond item 5" stands with that one addition: the list's new entry, and no other change to the file. Both reviewers and each verifier named this as the one thing that kept the package from merging; the code was right.
+
+## As merged
+
+Merged on 2026-11-14 (f81f23f, from `pkg/dv-12b-r3`, after two reviews, three rounds of fixes and three verifications, the last of which accepted it). The switch `worker` is off.
+
+- **A session's key** is `<host>-<id>` where the worker takes that as it is, else the host, the inbox file's name in lower case cut to 40 bytes, and 16 hexadecimal digits of a SHA-256 of the name, so two ids that differ only in letter case have two marks. A mark that matches no session is done.
+- **One reason for each session:** a session marked and waiting behind the worker is counted once, as behind; a session whose tail the update set aside as too small is no backlog, as v1's `Pending` has it; a backoff's class is the failure that started it.
+- **A lock taken between two of the update job's calls** puts every mark back, those of the reasons already run too: a drained session costs a scan at the next tick, and a session whose pass failed is tried again then, sooner than v1 would.
+- **The SEAM-0b point** is settled inside the wake: it recovers its own fault and still starts the jobs the launch judged. A later handler at a chat's launch that panics would again start nothing and use up the day's maintain attempt; the next card that may touch `internal/hook/handlers.go` (HO-12c) recovers each handler there.
+- **Known and left:** the wake does not check that the installed binary is the build the hook runs, as `detach` does for `--trigger`; after a downgrade below this package, with the switch on, a trigger is lost (`docs/known-limitations.md` says so).
+- **The latency gate** passed on the build machine once it was quiet (load 1.3; all 19 scenarios judged; startup's p95 65.9 ms against 68.0). CI's `latency` job on the merge is the run of record.
+- The design's words are in `docs/spec/update-job.md` under "Since the split".
