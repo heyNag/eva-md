@@ -51,8 +51,27 @@ type trialResult struct {
 	stopped bool
 }
 
-// trial runs the trial n of task t.
+// trial runs the trial n of task t. When it ends without After once the
+// condition's Prepare has run, and Prepare gave no *Unjudged that carries
+// its cost, the condition's Spent says what it spent, which counts toward
+// the ceiling and in the run's record as After's cost does: an update
+// that passed, before a chat that was then left unjudged, among it.
 func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trialResult, error) {
+	var owed *Trial
+	res, err := p.runTrial(ctx, run, t, n, &owed)
+	if owed != nil && p.arm.Spent != nil {
+		if cost := p.arm.Spent(ctx, *owed); cost.Tokens > 0 {
+			res.tokens += cost.Tokens
+		}
+	}
+	return res, err
+}
+
+// runTrial is trial's work. It sets *owed to the trial once the
+// condition's Prepare has run, or would have, and back to nil when what
+// the condition spent is counted otherwise: by Prepare's *Unjudged, by
+// After, or not at all, since ErrStopRun ran nothing.
+func (p *plan) runTrial(ctx context.Context, run string, t task.Task, n int, owed **Trial) (trialResult, error) {
 	tr := Trial{Task: t, Condition: p.opts.Condition, Number: n, Host: p.host, Options: p.opts}
 	root := trialRoot(p.work, run, t.ID, p.opts.Condition, n)
 	tr.Dirs = Dirs{Root: root, Home: filepath.Join(root, "home"), Tmp: filepath.Join(root, "tmp"),
@@ -159,17 +178,22 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	res := trialResult{version: probe.Version}
 
 	var launch Launch
+	*owed = &tr
 	if p.arm.Prepare != nil {
 		l, err := p.arm.Prepare(ctx, tr)
 		if errors.Is(err, ErrStopRun) {
+			*owed = nil
 			res.stopped = true
 			return res, nil
 		}
 		// What the condition spent before it left the trial unjudged counts
 		// toward the ceiling, as what After returns does.
 		var u *Unjudged
-		if errors.As(err, &u) && u.Cost.Tokens > 0 {
-			res.tokens += u.Cost.Tokens
+		if errors.As(err, &u) {
+			*owed = nil
+			if u.Cost.Tokens > 0 {
+				res.tokens += u.Cost.Tokens
+			}
 		}
 		if code, err := unjudgedCode(err); code != "" || err != nil {
 			res.unjudged = code
@@ -209,7 +233,7 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 
 	s := session{p: p, tr: tr, env: env, extra: extra, hidden: hidden, calls: calls}
 	code, err := s.run(ctx)
-	res.tokens = s.counted
+	res.tokens += s.counted
 	res.outcome, res.model = s.outcome, s.model
 	if ctx.Err() != nil {
 		return res, ctx.Err()
@@ -219,6 +243,7 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 		return res, err
 	}
 	if p.arm.After != nil {
+		*owed = nil
 		cost, err := p.arm.After(ctx, tr)
 		res.tokens += cost.Tokens
 		if code, err := unjudgedCode(err); code != "" || err != nil {

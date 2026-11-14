@@ -137,7 +137,7 @@ func (e *Stopped) Error() string {
 // condition failed in a way that says nothing of the answer. Cost is what
 // the condition spent in the trial before it gave up, when an Arm's
 // Prepare gives it: it counts toward --max-tokens and in the run's record,
-// as what After returns does.
+// as what After and Spent return do.
 type Unjudged struct {
 	Code string
 	Cost Cost
@@ -248,11 +248,21 @@ type Arm struct {
 	// Check runs once before any trial; an error starts none.
 	Check func(o Options) error
 	// Prepare runs in each trial before its chat. An *Unjudged leaves the
-	// trial unjudged, its Cost counted; ErrStopRun stops the run before the
-	// trial starts.
+	// trial unjudged, its Cost counted and Spent not asked; ErrStopRun
+	// stops the run before the trial starts, nothing of it spent.
 	Prepare func(ctx context.Context, t Trial) (Launch, error)
 	// After runs once the trial's chat has ended.
 	After func(ctx context.Context, t Trial) (Cost, error)
+	// Spent gives what the condition has spent in trial t so far, outside
+	// the chat, when the trial ends without After once it has reached
+	// Prepare (which may be nil):
+	// its chat or its plugin left it unjudged, an error or the run's end
+	// stopped it, or Prepare itself gave an error other than an *Unjudged
+	// or ErrStopRun, the run's end among them. It is asked once, before the
+	// trial's folder goes, with the run's context, which may have ended.
+	// What it gives counts toward --max-tokens and in the run's record; no
+	// row holds it.
+	Spent func(ctx context.Context, t Trial) Cost
 }
 
 var arms = map[task.Condition]Arm{}
