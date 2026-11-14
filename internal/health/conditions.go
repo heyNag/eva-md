@@ -146,7 +146,9 @@ func Conditions(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 		}
 	}
 	for _, host := range updateHosts {
-		if s, ok := states[host]; ok && s.Held == update.ReasonAuth {
+		// Signed out: held today for it, or the newest of the failures in a
+		// row was for it, as on the next day before a run tries again.
+		if s, ok := states[host]; ok && (s.Held == update.ReasonAuth || len(s.Failures) > 0 && s.Failures[0] == update.ReasonAuth) {
 			h, _ := adapter.ByID(host)
 			add(CondUpdateSignIn, host, "", "high", "eva.md: "+h.Names.App+" chats are not turned into notes while "+h.Names.App+" is signed out. Run "+h.Login()+".")
 		}
