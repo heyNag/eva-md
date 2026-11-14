@@ -618,8 +618,8 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		fmt.Fprintf(errOut, "eva-eval: a row the run would write holds the model's name, or a word a script plants, so the run is refused (%s). Nothing was called.\n", err)
 		return 2
 	}
-	fmt.Fprintf(out, "The arm %s %s, tier %s, effort %s, form %s makes %d first calls, one for each pass of the spike's %d scripts in each of %d round%s, and at most %d repair calls: %d calls at most.\n",
-		a.Host, a.HostVersion, a.Tier, a.Effort, a.Form, first, len(scripts), *repeat, plural(*repeat, "", "s"), first, 2*first)
+	fmt.Fprintf(out, "The arm %s %s, tier %s, effort %s, form %s makes %d first calls, one for each of the %d passes of the spike's %d scripts in each of %d round%s, and at most %d repair calls: %d calls at most.\n",
+		a.Host, a.HostVersion, a.Tier, a.Effort, a.Form, first, passes(scripts), len(scripts), *repeat, plural(*repeat, "", "s"), first, 2*first)
 	if live && !*spend {
 		fmt.Fprintf(errOut, "eva-eval: the run's calls are made on %s's subscription. Nothing was called; run it again with --spend-model-quota to make them.\n", a.Host)
 		return 2
@@ -665,9 +665,15 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		return 0
 	}()
 	if rec != nil {
+		info, statErr := rec.Stat()
 		if err := rec.Close(); err != nil {
 			fmt.Fprintln(errOut, "eva-eval: could not close the recording")
 			code = 1
+		}
+		// A run that stopped before its first call leaves no empty
+		// recording behind.
+		if code != 0 && statErr == nil && info.Size() == 0 {
+			os.Remove(*record)
 		}
 	}
 	return code
@@ -833,8 +839,11 @@ func gather(rows []results.Row) ([]frontierArm, error) {
 			!spike.Form(parts[0]).Valid() || !slices.Contains(arm.Efforts, parts[1]) {
 			continue
 		}
-		if !slices.Contains(arm.Tiers, r.Model) {
+		switch {
+		case !slices.Contains(arm.Tiers, r.Model):
 			return nil, fmt.Errorf("row %d: its model is not a tier", i+1)
+		case r.Host == "":
+			return nil, fmt.Errorf("row %d: it names no host", i+1)
 		}
 		k := key{r.Host, r.Model, parts[1], parts[0]}
 		a := byKey[k]
@@ -1040,7 +1049,9 @@ func frontier(rows []results.Row, arms []frontierArm) string {
 	if dirty {
 		tree = "a dirty tree among them"
 	}
-	var hosts []string
+	// Every host eva-md knows, measured or not, so a rule that reads
+	// either host cannot pass over one that has no rows.
+	hosts := hostIDs()
 	for _, a := range arms {
 		if !slices.Contains(hosts, a.host) {
 			hosts = append(hosts, a.host)
