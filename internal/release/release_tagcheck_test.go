@@ -232,6 +232,7 @@ func tagCheckGaps(t *testing.T, workflow string, marks []string) []string {
 	if _, ok := build.keys["defaults"]; ok {
 		gaps = append(gaps, "the build job has defaults of its own")
 	}
+	gaps = append(gaps, changeGaps(workflow, jobs)...)
 	for name, j := range jobs {
 		if _, ok := j.keys["continue-on-error"]; ok {
 			gaps = append(gaps, "job "+name+" has continue-on-error")
@@ -279,8 +280,10 @@ func tagCheckGaps(t *testing.T, workflow string, marks []string) []string {
 	if len(checks) != 1 || len(builds) != 1 || len(uploads) != 1 {
 		return append(gaps, fmt.Sprintf("the build job has %d steps named %q, %d named Build and %d uploads, not one each", len(checks), tagCheckName, len(builds), len(uploads)))
 	}
-	if !(builds[0] < checks[0] && checks[0] < uploads[0]) {
-		gaps = append(gaps, "the step does not stand after Build and before the upload")
+	// The step is the one right before the upload, so no step can change a
+	// binary or SHA256SUMS after the step has read them.
+	if !(builds[0] < checks[0] && checks[0]+1 == uploads[0]) {
+		gaps = append(gaps, "the step does not stand after Build and right before the upload")
 	}
 	if !lines("- name: Build", "...", "- name: "+tagCheckName, "...", "- uses: actions/upload-artifact@").MatchString(build.text) {
 		gaps = append(gaps, "the build job's lines do not run Build, the step and the upload in that order")
@@ -293,6 +296,7 @@ func tagCheckGaps(t *testing.T, workflow string, marks []string) []string {
 	if slices.Sort(keys); !slices.Equal(keys, []string{"name", "run"}) {
 		gaps = append(gaps, fmt.Sprintf("the step has the keys %q, not name and run alone", keys))
 	}
+	gaps = append(gaps, stepLineGaps(step)...)
 	run, err := step.runBlock()
 	if err != nil {
 		return append(gaps, "the step: "+err.Error())
@@ -307,6 +311,130 @@ func tagCheckGaps(t *testing.T, workflow string, marks []string) []string {
 	}
 	if strings.Contains(run, "${{") {
 		gaps = append(gaps, "the step's run holds an expression, so a test cannot run what the runner runs")
+	}
+	return append(gaps, runReadGaps(run)...)
+}
+
+// stepLineGaps gives the lines of the tag check's step that are neither
+// its name line, its run line, its run block, a blank nor a comment: a key
+// the test's reading skips, written in quotes, with a blank before its
+// colon or as a flow mapping, which the runner still reads.
+func stepLineGaps(step workflowStep) []string {
+	var gaps []string
+	nameLine, runLine := "      - name: "+tagCheckName, "        run: |"
+	seen := map[string]int{}
+	inRun, blockIndent := false, -1
+	for _, line := range step.lines {
+		trimmed := strings.TrimSpace(line)
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if inRun {
+			if trimmed == "" {
+				continue
+			}
+			if blockIndent < 0 {
+				blockIndent = indent
+			}
+			if indent >= blockIndent && blockIndent > 8 {
+				continue
+			}
+			inRun = false
+		}
+		switch {
+		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
+		case line == nameLine || line == runLine:
+			seen[line]++
+			inRun = line == runLine
+		default:
+			gaps = append(gaps, fmt.Sprintf("the step has a line that is not its name, its run or its run block: %q", line))
+		}
+	}
+	if seen[nameLine] != 1 || seen[runLine] != 1 {
+		gaps = append(gaps, fmt.Sprintf("the step has %d lines %q and %d lines %q, not one each", seen[nameLine], nameLine, seen[runLine], runLine))
+	}
+	return gaps
+}
+
+// tagCheckNames are the variables the step's run may read: those it sets
+// itself, and RUNNER_TEMP, where Build writes the binaries. A run that read
+// any other, such as TAG or the runner's GITHUB_ ones, could pass every
+// binary on the runner and still fail every bad case of a test.
+var tagCheckNames = []string{"RUNNER_TEMP", "bad", "bin", "bins", "found", "info", "line", "mark", "name", "nl", "ours", "path", "setting", "tab", "tags_re", "want"}
+
+// runReadGaps gives what the step's run reads from its environment beyond
+// tagCheckNames, by name or through a command that reads variables it
+// does not name.
+func runReadGaps(run string) []string {
+	var code []string
+	for _, line := range strings.Split(run, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			code = append(code, line)
+		}
+	}
+	text := strings.Join(code, "\n")
+	var gaps []string
+	for _, m := range regexp.MustCompile(`\$\{?#?([A-Za-z_][A-Za-z0-9_]*)`).FindAllStringSubmatch(text, -1) {
+		if !slices.Contains(tagCheckNames, m[1]) {
+			gaps = append(gaps, fmt.Sprintf("the step's run reads $%s, which it does not set", m[1]))
+		}
+	}
+	for _, m := range regexp.MustCompile(`\$\{!|\b(?:printenv|env|export|declare|typeset|compgen|eval|source)\b|(?:\[\[?|\btest)\s+(?:!\s+)?-[vR]\s`).FindAllString(text, -1) {
+		gaps = append(gaps, fmt.Sprintf("the step's run reads variables it does not name, with %q", m))
+	}
+	return gaps
+}
+
+// changeGaps gives the earlier steps', jobs' and workflow's settings that
+// can change what the step runs: a job's or the workflow's line that the
+// test's reading skips, a write to the runner's PATH or environment files,
+// BASH_ENV, which bash reads before the step's script, an env of the build
+// job, or a workflow env beyond TAG.
+func changeGaps(workflow string, jobs map[string]*workflowJob) []string {
+	var gaps []string
+	jobKey := regexp.MustCompile(`^    [a-z-]+:(?: |$)`)
+	for name, j := range jobs {
+		for _, line := range strings.Split(j.text, "\n") {
+			trimmed := strings.TrimSpace(line)
+			indent := len(line) - len(strings.TrimLeft(line, " "))
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") || indent >= 6 || jobKey.MatchString(line) {
+				continue
+			}
+			gaps = append(gaps, fmt.Sprintf("job %s has a line that is not one of its keys: %q", name, line))
+		}
+	}
+	if build := jobs["build"]; build != nil {
+		if _, ok := build.keys["env"]; ok {
+			gaps = append(gaps, "the build job has an env of its own")
+		}
+		for _, file := range []string{"GITHUB_PATH", "GITHUB_ENV"} {
+			if strings.Contains(build.text, file) {
+				gaps = append(gaps, "the build job names "+file+", so a step can change what later steps run")
+			}
+		}
+	}
+	if strings.Contains(workflow, "BASH_ENV") {
+		gaps = append(gaps, "the workflow names BASH_ENV, which bash reads before the step's script")
+	}
+	in := false
+	envKey := regexp.MustCompile(`^  ([A-Za-z_][A-Za-z0-9_]*):(?: |$)`)
+	for _, line := range strings.Split(workflow, "\n") {
+		if line == "env:" {
+			in = true
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if !in || trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") {
+			in = false
+			continue
+		}
+		if m := envKey.FindStringSubmatch(line); m == nil || m[1] != "TAG" {
+			gaps = append(gaps, fmt.Sprintf("the workflow's env has %q, not TAG alone", line))
+		}
+	}
+	if !regexp.MustCompile(`(?m)^env:\n  TAG: `).MatchString(workflow) || strings.Count(workflow, "\nenv:") != 1 {
+		gaps = append(gaps, "the workflow's env is not TAG alone, once")
 	}
 	return gaps
 }
@@ -418,7 +546,47 @@ func TestReleaseTagCheckStandsBeforeTheUpload(t *testing.T) {
 		"no defaults":             replace("defaults:\n  run:\n    shell: bash\n", ""),
 		"build's own defaults":    replace("    timeout-minutes: 15\n", "    timeout-minutes: 15\n    defaults:\n      run:\n        shell: sh\n"),
 		"the step's run a line":   replace(step, "      - name: "+tagCheckName+"\n        run: go version -m x /cmd/eva-md/evalbuild EVA_MD_EVAL_ACTOR\n        x: |\n"),
+
+		// A step after the check rewrites a binary that the check read.
+		"a step between the check and the upload": insert(workflow, "      - uses: actions/upload-artifact@",
+			"      - name: Replace a binary\n        run: cp /dev/null \"$RUNNER_TEMP/release/eva-md-darwin-arm64\"\n"),
+		"the build job's env":        replace("    timeout-minutes: 15\n", "    timeout-minutes: 15\n    env:\n      PATH: /opt/tools\n"),
+		"a step writes GITHUB_PATH":  insert(workflow, "      - name: Build\n", "      - name: Tools\n        run: echo /opt/tools >> \"$GITHUB_PATH\"\n"),
+		"a step writes GITHUB_ENV":   insert(workflow, "      - name: Build\n", "      - name: Tools\n        run: echo PATH=/opt/tools >> \"$GITHUB_ENV\"\n"),
+		"BASH_ENV in the workflow":   replace("env:\n  TAG: ", "env:\n  BASH_ENV: /opt/env.sh\n  TAG: "),
+		"PATH in the workflow's env": replace("env:\n  TAG: ", "env:\n  PATH: /opt/tools\n  TAG: "),
+
+		// The run reads what the runner sets and a test may not.
+		"the run reads TAG":             replace("shopt -s nullglob\n", "shopt -s nullglob\n          if [ -n \"${TAG:-}\" ]; then echo ok; exit 0; fi\n"),
+		"the run reads GITHUB_WORKFLOW": replace("shopt -s nullglob\n", "shopt -s nullglob\n          if [ \"${GITHUB_WORKFLOW:-}\" = Release ]; then exit 0; fi\n"),
+		"the run reads CI":              replace("shopt -s nullglob\n", "shopt -s nullglob\n          [ \"$CI\" = true ] && exit 0\n"),
+		"the run runs printenv":         replace("shopt -s nullglob\n", "shopt -s nullglob\n          if printenv TAG >/dev/null; then exit 0; fi\n"),
+		"the run reads indirectly":      replace("shopt -s nullglob\n", "shopt -s nullglob\n          x=TAG\n          if [ -n \"${!x}\" ]; then exit 0; fi\n"),
+		"the run tests a variable":      replace("shopt -s nullglob\n", "shopt -s nullglob\n          if [[ -v TAG ]]; then exit 0; fi\n"),
 	}
+	// Keys the runner reads on the step or a job, spelled so a reading of
+	// bare keys skips them.
+	for _, key := range []string{
+		`"continue-on-error": true`,
+		`continue-on-error : true`,
+		`'if': false`,
+		`"shell": "true {0}"`,
+		`"env": {PATH: /nonexistent}`,
+		`working-directory : /`,
+	} {
+		changes["the step with "+key] = replace(step, "      - name: "+tagCheckName+"\n        "+key+"\n        run: |\n")
+		changes["the step's run then "+key] = replace("          echo \"Checked ${#bins[@]} binaries: none carries a build tag\"\n",
+			"          echo \"Checked ${#bins[@]} binaries: none carries a build tag\"\n        "+key+"\n")
+	}
+	for job, key := range map[string]string{
+		"verify":  `"if": ${{ always() }}`,
+		"attest":  `continue-on-error : true`,
+		"build":   `"continue-on-error": true`,
+		"release": `"defaults": {run: {shell: "true {0}"}}`,
+	} {
+		changes["job "+job+" with "+key] = strings.Replace(workflow, "\n  "+job+":\n", "\n  "+job+":\n    "+key+"\n", 1)
+	}
+	changes["the build job with a quoted defaults"] = replace("    timeout-minutes: 15\n", "    timeout-minutes: 15\n    \"defaults\": {run: {shell: \"true {0}\"}}\n")
 	for _, mark := range marks {
 		changes["no mark "+mark] = strings.ReplaceAll(workflow, mark, "MADE_UP_MARK")
 	}
