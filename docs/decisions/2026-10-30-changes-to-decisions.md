@@ -51,17 +51,19 @@ The specs build each decision as refined here.
 
 ## Reopens
 
-These records, each as the table above says: [1.
-Platform separate from the wiki](2026-10-30-platform-separate-from-the-wiki.md), [4.
-Capture](2026-10-30-capture.md), [5.
-Organizing (the background update)](2026-10-30-organizing-the-background-update.md), [6.
-Recall](2026-10-30-recall.md), [7.
-Commits](2026-10-30-commits.md), [9.
-Language](2026-10-30-language.md), [11.
-Format](2026-10-30-format.md), [12.
-Reliability](2026-10-30-reliability.md), [13.
-Its own names](2026-10-30-its-own-names.md), [15. okf at the core](2026-10-30-okf-at-the-core.md), [16.
-Settled details](2026-10-30-settled-details.md).
+These records, each as the table above says:
+
+- [1. Platform separate from the wiki](2026-10-30-platform-separate-from-the-wiki.md)
+- [4. Capture](2026-10-30-capture.md)
+- [5. Organizing (the background update)](2026-10-30-organizing-the-background-update.md)
+- [6. Recall](2026-10-30-recall.md)
+- [7. Commits](2026-10-30-commits.md)
+- [9. Language](2026-10-30-language.md)
+- [11. Format](2026-10-30-format.md)
+- [12. Reliability](2026-10-30-reliability.md)
+- [13. Its own names](2026-10-30-its-own-names.md)
+- [15. okf at the core](2026-10-30-okf-at-the-core.md)
+- [16. Settled details](2026-10-30-settled-details.md)
 
 ## Reopened by
 
