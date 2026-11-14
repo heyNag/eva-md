@@ -1,21 +1,230 @@
 package spec
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 )
 
+// surely is what a run step that holds a check must be, as the must-keep
+// check's problem says it.
+const surely = "on a push or a pull request, itself or through a script of the repository it runs, " +
+	"with no continue-on-error or if on the step or its job"
+
+// wfStep is one step of a workflow's job, as the check reads it.
+type wfStep struct {
+	keys map[string]string // its keys, with their values on the key's line
+	run  []string          // the lines its run runs: the value, or the block
+}
+
+// wfJob is one job of a workflow and its steps.
+type wfJob struct {
+	keys  map[string]string
+	steps []wfStep
+}
+
+// readWorkflow reads a workflow as this repository writes them, two spaces
+// of indent a level: whether a push or a pull request runs it, and its
+// jobs with their steps.
+func readWorkflow(text string) (pushed bool, jobs []wfJob) {
+	jobStart := regexp.MustCompile(`^  ([A-Za-z0-9_-]+):\s*$`)
+	jobKey := regexp.MustCompile(`^    ([A-Za-z0-9_-]+):(?:\s+(.*))?$`)
+	stepStart := regexp.MustCompile(`^      - ([A-Za-z0-9_-]+):(?:\s+(.*))?$`)
+	stepKey := regexp.MustCompile(`^        ([A-Za-z0-9_-]+):(?:\s+(.*))?$`)
+	section, inSteps := "", false
+	block := -1 // the indent of the run key whose block the lines are in
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if block >= 0 {
+			if trimmed == "" || indent > block {
+				j := &jobs[len(jobs)-1]
+				s := &j.steps[len(j.steps)-1]
+				s.run = append(s.run, trimmed)
+				continue
+			}
+			block = -1
+		}
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if indent == 0 {
+			name, value, _ := strings.Cut(line, ":")
+			section = name
+			if name == "on" && strings.TrimSpace(value) != "" {
+				names := strings.FieldsFunc(value, func(r rune) bool { return strings.ContainsRune("[], ", r) })
+				pushed = slices.Contains(names, "push") || slices.Contains(names, "pull_request")
+			}
+			continue
+		}
+		switch section {
+		case "on":
+			if indent == 2 && (strings.HasPrefix(trimmed, "push:") || strings.HasPrefix(trimmed, "pull_request:")) {
+				pushed = true
+			}
+			continue
+		case "jobs":
+		default:
+			continue
+		}
+		if m := jobStart.FindStringSubmatch(line); m != nil {
+			jobs, inSteps = append(jobs, wfJob{keys: map[string]string{}}), false
+			continue
+		}
+		if len(jobs) == 0 {
+			continue
+		}
+		j := &jobs[len(jobs)-1]
+		if m := jobKey.FindStringSubmatch(line); m != nil {
+			j.keys[m[1]], inSteps = m[2], m[1] == "steps"
+			continue
+		}
+		var key, value string
+		if m := stepStart.FindStringSubmatch(line); m != nil && inSteps {
+			j.steps = append(j.steps, wfStep{keys: map[string]string{}})
+			key, value = m[1], m[2]
+		} else if m := stepKey.FindStringSubmatch(line); m != nil && inSteps && len(j.steps) > 0 {
+			key, value = m[1], m[2]
+		} else {
+			continue
+		}
+		s := &j.steps[len(j.steps)-1]
+		s.keys[key] = value
+		if key == "run" {
+			if strings.HasPrefix(value, "|") || strings.HasPrefix(value, ">") {
+				block = 8
+			} else {
+				s.run = append(s.run, strings.Trim(value, `"'`))
+			}
+		}
+	}
+	return pushed, jobs
+}
+
+// sure says whether a step of a job runs whenever its job does and fails
+// it when its command fails: no continue-on-error but false, and no if, on
+// it or its job.
+func sure(j wfJob, s wfStep) bool {
+	for _, keys := range []map[string]string{j.keys, s.keys} {
+		if v, ok := keys["continue-on-error"]; ok && v != "false" {
+			return false
+		}
+		if _, ok := keys["if"]; ok {
+			return false
+		}
+	}
+	return true
+}
+
+// shellFunc is a line that defines a shell function.
+var shellFunc = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{`)
+
+// runsPath says whether a line of a shell command runs path: its first
+// word, or the first after an interpreter and its flags, is path, once
+// words that run what follows them (exec, time, command, and the functions
+// the script defines) are passed. A line that may go on past a failure
+// (||) or runs the command in the background does not count, and neither
+// does a word in a comment, an argument such as echo's, or a longer path.
+func runsPath(line, path string, funcs []string) bool {
+	if line, _, _ = strings.Cut(line, " #"); strings.HasPrefix(strings.TrimSpace(line), "#") ||
+		strings.Contains(line, "||") || strings.HasSuffix(strings.TrimSpace(line), "&") {
+		return false
+	}
+	words := strings.Fields(line)
+	i := 0
+	for i < len(words) && (slices.Contains([]string{"exec", "time", "command"}, words[i]) || slices.Contains(funcs, words[i])) {
+		i++
+	}
+	if i < len(words) && slices.Contains([]string{"python3", "python", "bash", "sh"}, words[i]) {
+		for i++; i < len(words) && strings.HasPrefix(words[i], "-"); i++ {
+		}
+	}
+	return i < len(words) && strings.TrimPrefix(strings.Trim(words[i], `"'`), "./") == path
+}
+
+// runByWorkflow says whether a workflow at root that a push or a pull
+// request runs has a step that runs path, with nothing that lets the step
+// fail and pass or leaves it out, either as a command of the step or as a
+// command of a script of the repository that such a step runs.
+func runByWorkflow(root, path string) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(workflows), "*.yml"))
+	scripts, _ := filepath.Glob(filepath.Join(root, "scripts", "*.sh"))
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		pushed, jobs := readWorkflow(string(data))
+		if !pushed {
+			continue
+		}
+		for _, j := range jobs {
+			for _, s := range j.steps {
+				if !sure(j, s) {
+					continue
+				}
+				for _, line := range s.run {
+					if runsPath(line, path, nil) {
+						return true
+					}
+					for _, script := range scripts {
+						if rel := "scripts/" + filepath.Base(script); runsPath(line, rel, nil) && scriptRuns(script, path) {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// scriptRuns says whether a line of the shell script at file runs path.
+func scriptRuns(file, path string) bool {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(string(data), "\n")
+	var funcs []string
+	for _, l := range lines {
+		if m := shellFunc.FindStringSubmatch(l); m != nil {
+			funcs = append(funcs, m[1])
+		}
+	}
+	return slices.ContainsFunc(lines, func(l string) bool { return runsPath(l, path, funcs) })
+}
+
 // A check that is no Go test stands in a Tests cell as check:<path> only
-// while its file is there and a workflow's run step runs it: a check whose
-// file is gone, one no workflow runs, one a workflow names only in a
-// comment, and a path that is no plain path from the root each fail the
-// must-keep check, with a problem that names it.
+// while its file is there and a workflow that a push or a pull request
+// runs runs it in a step that cannot fail and pass, itself or through a
+// script of the repository: a check whose file is gone, one no workflow
+// runs, one a workflow names only in a comment or an argument, one run by
+// a step or a job that may fail or be left out, one whose failure a step
+// passes over, one run only when asked, one whose script no longer runs it
+// or is run by a step that may fail, and a path that is no plain path from
+// the root each fail the must-keep check, with a problem that names it.
 func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 	tempHome(t)
 	const gateStep = "      - run: python3 -I scripts/bench/test_gate.py\n"
 	const ci = workflows + "/ci.yml"
+	gateGone := []string{
+		`^docs/spec/(checks|testing)\.md:[0-9]+: EVL-K08 names check:scripts/bench/test_gate\.py, which no run step`,
+		`^docs/spec/performance\.md:[0-9]+: EVL-K10 names check:scripts/bench/test_gate\.py, which no run step`,
+	}
+	var benchGone []string
+	mk, _ := readMustKeep(repoRoot(t))
+	for _, e := range mk.rows {
+		if slices.Contains(e.checks, "scripts/benchmark.py") {
+			benchGone = append(benchGone, `^`+regexp.QuoteMeta(e.file)+`:[0-9]+: `+e.id+` names check:scripts/benchmark\.py, which no run step`)
+		}
+	}
+	if len(benchGone) < 4 {
+		t.Fatalf("read %d rows that name the benchmark", len(benchGone))
+	}
 	cases := []struct {
 		name string
 		seed func(t *testing.T, dir string)
@@ -28,7 +237,7 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 		{"a check no workflow runs", func(t *testing.T, dir string) {
 			edit(t, dir, ci, gateStep, "")
 		}, []string{
-			`^docs/spec/(checks|testing)\.md:[0-9]+: EVL-K08 names check:scripts/bench/test_gate\.py, which no run step of a workflow in \.github/workflows runs$`,
+			`^docs/spec/(checks|testing)\.md:[0-9]+: EVL-K08 names check:scripts/bench/test_gate\.py, which no run step of a workflow in \.github/workflows runs, on a push or a pull request, itself or through a script of the repository it runs, with no continue-on-error or if on the step or its job$`,
 			`^docs/spec/performance\.md:[0-9]+: EVL-K10 names check:scripts/bench/test_gate\.py, which no run step`,
 		}},
 		{"a check a workflow names in a comment", func(t *testing.T, dir string) {
@@ -43,6 +252,34 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 			`^docs/spec/(checks|testing)\.md:[0-9]+: EVL-K08 names check:scripts/bench/test_gate\.py, which no run step`,
 			`^docs/spec/performance\.md:[0-9]+: EVL-K10 names check:scripts/bench/test_gate\.py, which no run step`,
 		}},
+		{"a check run by a step that may fail", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, gateStep+"        continue-on-error: true\n")
+		}, gateGone},
+		{"a check run by a step only now and then", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, gateStep+"        if: github.event_name == 'pull_request'\n")
+		}, gateGone},
+		{"a check run by a job that never runs", func(t *testing.T, dir string) {
+			edit(t, dir, ci, "  latency:\n    runs-on: macos-latest\n", "  latency:\n    runs-on: macos-latest\n    if: false\n")
+		}, gateGone},
+		{"a check run by a job that may fail", func(t *testing.T, dir string) {
+			edit(t, dir, ci, "  latency:\n    runs-on: macos-latest\n", "  latency:\n    runs-on: macos-latest\n    continue-on-error: true\n")
+		}, gateGone},
+		{"a check a step only names", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, "      - run: echo python3 -I scripts/bench/test_gate.py\n")
+		}, gateGone},
+		{"a check whose failure a step passes over", func(t *testing.T, dir string) {
+			edit(t, dir, ci, gateStep, "      - run: python3 -I scripts/bench/test_gate.py || true\n")
+		}, gateGone},
+		{"a check run only when asked", func(t *testing.T, dir string) {
+			edit(t, dir, ci, "on:\n  push:\n    branches: [main]\n  pull_request:\n", "on:\n  workflow_dispatch:\n")
+		}, append(gateGone, benchGone...)},
+		{"a check no script a workflow runs runs any more", func(t *testing.T, dir string) {
+			edit(t, dir, "scripts/linux-check.sh", "    in_snapshot python3 -I scripts/benchmark.py", "    in_snapshot echo python3 -I scripts/benchmark.py")
+			edit(t, dir, "scripts/linux-check.sh", "    python3 -I scripts/benchmark.py --binary bin/eva-md", "    : python3 -I scripts/benchmark.py --binary bin/eva-md")
+		}, benchGone},
+		{"a check whose script no workflow runs any more", func(t *testing.T, dir string) {
+			edit(t, dir, ci, "      - run: scripts/linux-check.sh\n", "      - run: scripts/linux-check.sh\n        continue-on-error: true\n")
+		}, benchGone},
 		{"a path out of the repository", func(t *testing.T, dir string) {
 			e, row := rowOf(t, dir, "EVL-K09")
 			edit(t, dir, e.file, row, strings.Replace(row, "check:scripts/benchmark.py", "check:scripts/../go.mod", 1))
@@ -71,27 +308,49 @@ func TestACheckCellIsHeldToAWorkflow(t *testing.T) {
 	}
 }
 
-// A run step names a check as a word of its command, inline or in its
-// block, and not in a comment, another key or a longer path.
+// A run step runs a check when the check is the command of a line of it,
+// inline or in its block, or of a line of a script of the repository it
+// runs, and a push or a pull request runs the workflow with nothing that
+// lets the step fail and pass or leaves it out; not when the check is in a
+// comment, another key, an argument or a longer path, or a failure of it
+// is passed over.
 func TestRunByWorkflowReadsRunSteps(t *testing.T) {
 	tempHome(t)
+	const on = "on:\n  push:\n    branches: [main]\n  pull_request:\n\n"
+	const script = "#!/bin/bash\nwrap() { \"$@\"; }\ncheck() {\n  wrap python3 -I scripts/x.py --flag\n}\ncheck\n"
 	for _, c := range []struct {
-		yml  string
-		want bool
+		yml, script string
+		want        bool
 	}{
-		{"jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n", true},
-		{"jobs:\n  a:\n    steps:\n      - name: x\n        run: |\n          cd y\n          python3 -I scripts/x.py --flag\n", true},
-		{"jobs:\n  a:\n    steps:\n      - run: \"scripts/x.py\"\n", true},
-		{"jobs:\n  a:\n    steps:\n      - run: |\n          # scripts/x.py\n          true\n", false},
-		{"jobs:\n  a:\n    steps:\n      - name: scripts/x.py\n        run: true\n", false},
-		{"jobs:\n  a:\n    steps:\n      - run: |\n          true\n      - name: scripts/x.py\n", false},
-		{"jobs:\n  a:\n    steps:\n      - run: python3 scripts/x.pyc\n", false},
-		{"jobs:\n  a:\n    steps:\n      - run: python3 other/scripts/x.py\n", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n", "", true},
+		{on + "jobs:\n  a:\n    steps:\n      - name: x\n        run: |\n          cd y\n          python3 -I scripts/x.py --flag\n", "", true},
+		{on + "jobs:\n  a:\n    steps:\n      - run: \"scripts/x.py\"\n", "", true},
+		{"on: [push]\njobs:\n  a:\n    steps:\n      - run: ./scripts/x.py\n", "", true},
+		{on + "jobs:\n  a:\n    steps:\n      - run: scripts/s.sh\n", script, true},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          # scripts/x.py\n          true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - name: scripts/x.py\n        run: true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: |\n          true\n      - name: scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 scripts/x.pyc\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 other/scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: echo skipping scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 scripts/x.py || true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n        continue-on-error: true\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - if: always()\n        run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    if: false\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    continue-on-error: true\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{"on:\n  workflow_dispatch:\njobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{"jobs:\n  a:\n    steps:\n      - run: python3 -I scripts/x.py\n", "", false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: scripts/s.sh\n        continue-on-error: true\n", script, false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: scripts/s.sh\n", strings.Replace(script, "wrap python3", "echo python3", 1), false},
+		{on + "jobs:\n  a:\n    steps:\n      - run: echo scripts/s.sh\n", script, false},
 	} {
 		dir := t.TempDir()
 		write(t, dir, workflows+"/a.yml", c.yml)
+		if c.script != "" {
+			write(t, dir, "scripts/s.sh", c.script)
+		}
 		if got := runByWorkflow(dir, "scripts/x.py"); got != c.want {
-			t.Errorf("%q read as running scripts/x.py: %v, want %v", c.yml, got, c.want)
+			t.Errorf("%q with the script %q read as running scripts/x.py: %v, want %v", c.yml, c.script, got, c.want)
 		}
 	}
 }

@@ -237,43 +237,6 @@ func testsOf(root, pkg string) map[string]bool {
 // workflows holds the workflows whose run steps run a check.
 const workflows = ".github/workflows"
 
-// runStep is a line that opens a step's run, inline or as a block.
-var runStep = regexp.MustCompile(`^(\s*)(?:- )?run:\s*(.*)$`)
-
-// runByWorkflow says whether a run step of a workflow at root names path,
-// as a word of its command, inline or in its block; a comment does not
-// count.
-func runByWorkflow(root, path string) bool {
-	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(workflows), "*.yml"))
-	word := regexp.MustCompile(`(^|[\s"'=])` + regexp.QuoteMeta(path) + `($|[\s"';|&)])`)
-	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-		block := -1 // the indent of the run key whose block the lines are in
-		for _, l := range strings.Split(string(data), "\n") {
-			indent := len(l) - len(strings.TrimLeft(l, " "))
-			if block >= 0 && strings.TrimSpace(l) != "" && indent <= block {
-				block = -1
-			}
-			text := ""
-			switch m := runStep.FindStringSubmatch(l); {
-			case block >= 0:
-				text = l
-			case m != nil && strings.HasPrefix(m[2], "|") || m != nil && strings.HasPrefix(m[2], ">"):
-				block = len(m[1])
-			case m != nil:
-				text = m[2]
-			}
-			if text = strings.TrimSpace(text); !strings.HasPrefix(text, "#") && word.MatchString(text) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // mustKeep is what the check read: each list, each spec's rows.
 type mustKeep struct {
 	lists []keepList
@@ -352,7 +315,7 @@ func checkMustKeep(root string) []string {
 			if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(c))); err != nil || !info.Mode().IsRegular() {
 				problems = append(problems, fmt.Sprintf("%s: %s names check:%s, which is no file of the repository", where, e.id, c))
 			} else if !run[c] {
-				problems = append(problems, fmt.Sprintf("%s: %s names check:%s, which no run step of a workflow in %s runs", where, e.id, c, workflows))
+				problems = append(problems, fmt.Sprintf("%s: %s names check:%s, which no run step of a workflow in %s runs, %s", where, e.id, c, workflows, surely))
 			}
 		}
 	}
@@ -407,8 +370,8 @@ func TestEachMustKeepItemSitsInASpecWithItsTests(t *testing.T) {
 
 // copyMustKeep copies what the check reads into a folder of the test's
 // own: the specs, the register, the test files of every package the tables
-// name, the checks they name and the workflows, so the copy passes as the
-// repository does.
+// name, the checks they name, the workflows and the scripts they run, so
+// the copy passes as the repository does.
 func copyMustKeep(t *testing.T) string {
 	t.Helper()
 	root, dst := repoRoot(t), copyTree(t)
@@ -427,8 +390,13 @@ func copyMustKeep(t *testing.T) string {
 		}
 	}
 	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(workflows), "*.yml"))
-	for _, f := range files {
-		copyFile(t, root, dst, workflows+"/"+filepath.Base(f))
+	scripts, _ := filepath.Glob(filepath.Join(root, "scripts", "*.sh"))
+	for _, f := range append(files, scripts...) {
+		rel, err := filepath.Rel(root, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		copyFile(t, root, dst, filepath.ToSlash(rel))
 	}
 	for pkg := range pkgs {
 		files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(pkg), "*_test.go"))
