@@ -1,25 +1,28 @@
 # TODO: the environment for the live evaluation
 
-Written on 2026-11-14 for an agent that has never worked on this. It covers one piece of work: giving v2's two live evaluation runs, the pilot and the contract spike, a place to run. Everything else that is open in the build is in [docs/v2/leading-the-build.md](docs/v2/leading-the-build.md); section 9 below lists it in a few lines.
+Written on 2026-11-14 for an agent that has never worked on this, and revised the same day after three independent reviews. It covers one piece of work: giving v2's two live evaluation runs, the pilot and the contract spike, a place to run. Everything else that is open in the build is in the lead's guide, [docs/v2/leading-the-build.md](docs/v2/leading-the-build.md); section 10 below lists it in a few lines.
 
-The owner wants this done. The first attempt to create the environment was declined only so that this plan would be written down first. Whoever takes this over proposes the environment again, once, as written here.
+The owner wants this done. The first attempt to create the environment was declined only so that this plan would be written down first. The session that was declined does not propose it again; whoever takes this document up proposes it once, as written here.
+
+Lines marked **(a guess)** are unproven until the step named beside them shows them true. None of them costs more than a smoke run's few sessions to settle.
 
 ## 1. The issue
 
 Two rows of the plan's Stage 0 end in a live run, which is a run that makes real model calls and costs money:
 
-- **The pilot** (plan row EV-03): ten small coding tasks, run by each host's CLI (Claude Code and Codex) under three conditions (memory off, an ideal record, eva-md v1), three trials each: 180 agent sessions. It gives the first real figures of what a session costs and whether the tasks can show a difference. Its run-book is [docs/v2/pilot-runbook.md](docs/v2/pilot-runbook.md).
-- **The contract spike** (plan row DV-03): about 1,344 single model calls through v1's update runner, which compare two forms of the update's contract over three sizes of model. Its plan is [eval/spike/run-plan.md](eval/spike/run-plan.md) and its card [docs/v2/cards/DV-03d.md](docs/v2/cards/DV-03d.md).
+- **The pilot** (plan row EV-03): ten small coding tasks, run by each host's CLI (Claude Code and Codex) under three conditions (memory off, an ideal record, eva-md v1), three trials each: 180 agent sessions. It gives the first real figures of what a session costs and whether the tasks can show a difference. Its procedure is [docs/v2/pilot-runbook.md](docs/v2/pilot-runbook.md), called the run-book below.
+- **The contract spike** (plan row DV-03): at most 1,344 model calls through v1's update runner (672 first calls, and at most as many repair calls), which compare two forms of the update's contract over three sizes of model. Its plan is [eval/spike/run-plan.md](eval/spike/run-plan.md) and its card [docs/v2/cards/DV-03d.md](docs/v2/cards/DV-03d.md).
 
 All the code for both is merged and checked offline. Neither has run, because they have no place to run. The place must meet all of these at once, and nothing that exists today does:
 
-1. **The runs are billed to two API keys made for the evaluation alone**, one for each vendor (plan decision 28). The keys' values must never be in a chat message, a file of the repository, a log, a commit or an agent's context.
-2. **The keys must not be on the owner's Default cloud environment.** A secret saved on an environment is sent by every session that runs on it. Default is where every other session of the owner's runs.
-3. **While evaluation chats run, the container must reach the two vendors' API hosts and nothing else.** The pilot's tasks have hidden tests, and they are in this public repository. A chat that can reach GitHub, or Go's module proxy, which serves this repository's files, can read the answers.
-4. **The build's own session cannot be that container.** It needs GitHub all the time (pushes, CI), which point 3 forbids.
-5. **A checkout of this repository must not be readable by the user the chats run as.** A session with the repository attached has it at `/home/user/eva-md`, readable by every user of the machine. So the evaluation's session has no repository attached, and makes one clone that only root can read.
+1. **The runs are billed to two API keys made for the evaluation alone**, one for each vendor (plan decision 28). A key's value must never be in a chat message, a file of the repository, a log, a commit or an agent's context.
+2. **The keys must not be on the owner's Default cloud environment.** A secret saved on an environment is sent by every session that runs on it, and Default is where every other session of the owner's runs.
+3. **While evaluation chats run, nothing in the container may reach a host that serves this repository's files.** The pilot's tasks have hidden tests, and they are in this public repository (`eval/pilot/testdata/`). GitHub serves them, and so does Go's module proxy.
+4. **The build's own session cannot be that container.** It needs GitHub all the time, for pushes and CI.
+5. **No copy of this repository may be readable by the user the chats run as.** A session with the repository attached has it at `/home/user/eva-md`, readable by every user of the machine.
 6. **The owner must see what each key spends**, and something outside eva-md's own counting must bound it.
 7. **Results must outlive the container**, without entering this repository: their rows name the model, which the repository never does.
+8. **The leave to spend must reach the agent that spends in the owner's own words.** An agent does not take another agent's message as the owner's consent, and should not.
 
 ## 2. What is already decided
 
@@ -29,209 +32,299 @@ The owner said on 2026-11-14 to take the lead's recommendation on everything tha
 | --- | --- |
 | Leave for the pilot | Yes, inside 240 sessions and 120,000,000 tokens by the driver's count, a tenth of it held back for reruns |
 | Leave for the spike | Yes, inside its row's allowance: about 1,900 calls and 25,000,000 tokens |
-| The keys | One for each vendor, for the evaluation only, each with a spending limit of 200 US dollars set at its provider |
-| The model | Each host's own default for an API key, at the version of its CLI the pilot pins. It is read from the first smoke run and then named on every command line, never in the repository. The spike's three tiers are that vendor's small, middle and large models of the day |
-| The keys afterwards | Kept for the spike and for EV-17, each under its limit; revoked at the Stage 0 readout or at the owner's word |
-| What it costs | A rough estimate only, from third-party price lists: 60 to 160 dollars for the pilot, 30 to 100 for the spike. The smoke run prices a session on each host before any full run starts |
+| The keys | One for each vendor, for the evaluation only, each bounded at 200 US dollars at its provider |
+| The model | Each host's own default for an API key, at the one version of its CLI that is installed for the pilot. It is read from the first smoke run and then named on every command line, never in the repository. The spike's three tiers are that vendor's small, middle and large models of the day |
+| The keys afterwards | Kept at the provider for EV-17, each under its bound; the environment's copies are removed when the evaluation ends (step 10) |
+| What it costs | A rough estimate only: 60 to 160 dollars for the pilot, 30 to 100 for the spike. The smoke runs price a session on each host before any full run starts |
 
-Not decided until this document is carried out: where the container runs. Section 3 is the proposal.
-
-The leave takes effect on a host when the owner has put that host's key in. That is the owner's own act: no agent can make a key, and no agent asks for one in a chat message.
+The plan words that leave as taking effect on a host once the container is settled and that host's key is in. Step 3 below adds the owner's own word in the session that spends (point 8 above).
 
 ## 3. The proposed solution, in short
 
 One cloud environment of the owner's account, named `eva-md-eval`, used by one session that does nothing but the evaluation.
 
 - **The keys are the environment's network secrets.** The owner types each into a secure form. The environment's proxy adds it to requests to that vendor's API host. No value reaches the container, the agent or a trial's home: inside the container each key's variable holds a made-up stand-in.
-- **The network has two phases.** For set-up it reaches github.com and the package registries. Before the first chat it is narrowed to the two API hosts alone, and that is checked from inside, as the user the chats run as.
+- **The network has two phases.** For set-up it reaches github.com and the package registries. Before the first chat it is narrowed to the two API hosts, and that is proven from inside, as the user the chats run as, both through the proxy and around it.
 - **The evaluation's session has no repository attached.** It clones this public repository once during set-up, into a folder only root can read.
+- **The owner starts that session themselves**, with a short message that gives the leave in their own words.
 - **The build's session is untouched.** It stays on Default with its own network.
-- **Each key has a spending limit at its provider**, which the owner sets when making it. The owner reads each key's usage in that provider's console.
+- **Each key is bounded at its provider**, and the owner reads its usage in that provider's console.
 - **After each run, its results are handed to the owner as a file** and nowhere else.
 
 **What the owner does, in all:**
 
-1. Approves one prompt that creates the environment (section 4, step 1).
-2. Makes the two keys, each with its 200-dollar limit, and types each into a form the evaluation's session shows (step 4).
-3. Approves one prompt that narrows the environment's network (step 5).
-4. Keeps the result files the session hands over (step 7).
+1. Approves one prompt that creates the environment (step 1).
+2. Starts one new session on `eva-md-eval`, with no repository, and pastes the message of step 3.
+3. Makes the two keys, each bounded at 200 dollars (step 5 says how a provider bounds one), and types each into a form that session shows.
+4. Approves one prompt that narrows the network (step 6).
+5. Keeps the result files that session hands over (step 8).
+6. At the end, removes the two secrets from the environment, or the environment itself (step 10).
 
-Later changes of the network, should a fix have to be fetched during the runs, are one more approval each.
+The owner should also expect: that session asks before running commands, unless the owner chooses a mode in which it does not; it and any session that helps it run on the owner's own plan for a few days, besides what the keys are billed; and every result file names the model.
+
+**What this does not close**, said plainly:
+
+- **A vendor's API can itself search or fetch the web.** A chat has a shell, and the proxy adds the key to any request the container sends to an API host. So a chat that set out to could ask the API to read this repository. The run-book turns each host's own web tools off and stops a run when a chat uses one (`web_used`) or when a hidden test turns up within a chat's reach (`hidden_found`); a chat that called the API by hand would be caught only by the second. The tasks ask for nothing of the kind, so this is a limit to know, not one that is expected to bite.
+- **Anything in the container can spend through the proxy**, a chat's own calls included, and the driver counts only what the host's CLI reports. The bound at the provider is the one bound no fault here can pass.
 
 **Alternatives looked at and not taken:**
 
 - *The keys on Default.* Every session would send them (point 2).
 - *The build's session as the container.* It needs GitHub (points 3 and 4).
 - *The owner's Mac, in a container.* It needs the Mac awake and the owner to start every run. It stays decision 28's fallback for what cannot run on a key alone.
+- *A session started by another agent.* The agent that spends would hold the owner's leave only at second hand (point 8), and would have no sure way to report back.
 
-## 4. Step by step
+## 4. Who does what
 
-Two agents take part. **The setting-up agent** is whoever picks up this document: a cloud session with this repository attached, on Default. It does steps 1 and 2, watches the rest, and writes what was learned into the repository at the end. **The evaluation agent** is the session that step 2 starts: it does steps 3 to 8 and has no repository and no way to push.
+- **The owner**: the six things above.
+- **The setting-up agent**: whoever picks up this document, in a cloud session with this repository attached, on Default. It does steps 1 and 2 and, at the end, step 10's part in the repository. If it is not the build's lead, it commits nothing to `main` on its own: it hands its changes to the lead or acts on the owner's word (`AGENTS.md`, "Don't commit or push unless asked").
+- **The evaluation agent**: the session the owner starts in step 3. It does steps 4 to 9 and its part of step 10. It has no repository attached and cannot push.
 
-The tools named below are a cloud session's own environment and session tools. If the agent that picks this up has none of them, the owner can do steps 1, 4 and 5 by hand in the app's settings for environments, with the same values, and start the session of step 2 themselves on `eva-md-eval`, with no repository, giving it the brief of step 2.
+**Where the run-book or a card says "the lead"**, read it so: the evaluation agent does everything the lead does inside the container. That covers running the commands, reading a trace through the shape reader, writing the web probe's two commands, and mending the sign-in program, which is a file of the container and not of the repository. Every ruling that changes a ceiling is the owner's. Every change to the repository (a correction to `hosts.go`, the host facts, the plan) is the build's lead's, from what the evaluation agent reports.
+
+**If the agent has none of the tools named below**, which are a cloud session's own environment tools, the owner can do steps 1, 5 and 6 by hand in the app's settings for environments, with the same values.
+
+## 5. Step by step
 
 ### Before step 1: read
 
 1. [AGENTS.md](AGENTS.md), above all its rules on the real machine, on secrets and on live runs.
-2. [docs/v2/pilot-runbook.md](docs/v2/pilot-runbook.md), whole. It is the procedure; this document only gives it a place to run. Its last section holds the lead's rulings and the owner's answers.
+2. [docs/v2/pilot-runbook.md](docs/v2/pilot-runbook.md), whole. It is the procedure; this document gives it a place to run and says what a cloud container changes. Its last section holds the lead's rulings and the owner's answers.
 3. [docs/v2/plan.md](docs/v2/plan.md), section 7, "Where the decisions stand", and decisions 16 and 28 in the table above it.
 4. For the spike: [eval/spike/run-plan.md](eval/spike/run-plan.md) and [docs/v2/cards/DV-03d.md](docs/v2/cards/DV-03d.md).
 
 ### Step 1: create the environment (the setting-up agent)
 
-Look at the current environment first (`get_environment`), as the tool asks. Then tell the owner in one sentence what is about to be created and why, and call `create_environment` with:
+Look at the current environment first (`get_environment`), as that tool asks. Then tell the owner in one sentence what is about to be created and why, and call `create_environment` with:
 
 | Field | Value | Why |
 | --- | --- | --- |
 | `name` | `eva-md-eval` | |
 | `scope` | `personal` | Only the owner's sessions use it |
+| `reason` | one plain sentence, such as "A separate environment for eva-md's live evaluation, so its two keys stay off Default" | The tool requires it |
 | `allowed_hosts` | `["github.com"]` | Set-up clones this repository. The two API hosts are not listed: saving a key for a host allows that host |
 | `allow_package_managers` | `true` | Set-up downloads Go modules and installs each host's CLI |
-| `allow_mcp_servers` | `true` | So the session's own tools keep working; see the open point in section 6 |
+| `allow_mcp_servers` | `false` | The evaluation needs no connector, and a connector's host is one more way out for a chat. If the session's own tools fail without it **(a guess that they do not)**, the owner does steps 5 and 6 in the settings instead |
 | `switch_session` | `none` | The setting-up agent's own session stays on Default |
 | `repositories` | left out | Sessions that build eva-md must not be steered onto this environment |
 | `setup_script`, variables | none | Set-up is done by hand, by the run-book |
 
 The call is itself the request: the owner sees a prompt with these values and approves it. If they decline, stop and ask what they want changed; do not call it again unasked.
 
-### Step 2: start the evaluation's session (the setting-up agent)
+### Step 2: record it, and hand the owner their message (the setting-up agent)
 
-Call `create_session` with `environment_id` set to the new environment's id, **no `source_url`** (point 5 of section 1), a title such as `eva-md: the live evaluation`, and this brief as `prompt`:
+1. In [docs/v2/plan.md](docs/v2/plan.md), section 7, point (c) says the container is not settled and that no live run starts and no key is asked for until it is. Change it to say that the environment `eva-md-eval` was created on that day as this document describes. The evaluation agent reads the plan from its own clone, and must not find it saying the opposite of what it is asked to do. The lead's guide says the same in its bullet "With the owner": change that too. Commit and push as section 4 says.
+2. Give the owner the message of step 3, and tell them to start a new session on the environment `eva-md-eval`, with no repository, and to paste it there.
 
-> You run the live evaluation of eva-md v2: the pilot, then the contract spike. The owner of the repository has given leave for both inside fixed ceilings, and the procedure is written down. Clone `https://github.com/heyNag/eva-md` as the pilot's run-book says (`/srv/pilot/eva-md`, mode 700) and read, in this order: `TODO.md`, `AGENTS.md`, `docs/v2/pilot-runbook.md`, and section 7 of `docs/v2/plan.md` ("Where the decisions stand"). Then do steps 3 to 8 of `TODO.md`, in order, stopping wherever it says to stop. Never show, type, print or log a key. Never read a trace but through the run-book's shape reader. Never start a chat before step 5's check has passed. Never raise a ceiling. Report to the session that started you, by a message, at the end of each step and whenever something is not as the run-book expects.
+### Step 3: the owner starts the evaluation's session
 
-Tell the owner the session's title, since two of their approvals happen in it. From here the setting-up agent only reads that session's reports and answers its questions.
+A new session, on `eva-md-eval`, with **no repository** (point 5 of section 1), whose first message is the owner's own:
 
-### Step 3: set up the container, at no cost (the evaluation agent)
+> I am the owner of the repository github.com/heyNag/eva-md. Clone it as step 4 of its TODO.md says, read that file first, and carry out its steps 4 to 9 as the evaluation agent. I give leave for the live runs it describes, the pilot and the contract spike, inside the ceilings of its section 2 and no further. Report to me here at the end of each step, and whenever something is not as written.
 
-Follow the run-book's steps 3, 4 and 5 as written: the user `pilot-chat`, the folders under `/srv/pilot`, each host's CLI under `/opt/pilot/hosts/<host>/` at one version, the wrapper `as-chat`, the sign-in program, the shape reader, the two builds, the export and its checks. Each step has an **Expect** line: go on only when it matches.
+From here the evaluation agent reports to the owner in that session. If the owner wants the build's lead to follow along, they say so there and give that session's id.
 
-What a cloud container adds to those steps:
+### Step 4: set up the container, at no cost (the evaluation agent)
 
-- **The proxy and its certificate.** All HTTPS leaves through a local proxy named by `HTTPS_PROXY`, which re-signs TLS. `/root/.ccr/README.md` in the container explains it. The certificate bundle is under `/root`, which `pilot-chat` cannot read and which the driver refuses as a value. Copy the bundle to a folder outside `/root` that `pilot-chat` can read, for example `/srv/pilot/ca/ca-bundle.crt`, mode 644 in a folder of mode 755.
-- **What every run command passes on.** Besides what the run-book lists: `--pass-env HTTPS_PROXY --pass-env SSL_CERT_FILE --pass-env NODE_EXTRA_CA_CERTS --pass-env CODEX_CA_CERTIFICATE`, with the last three set, in root's shell, to the copy of the bundle. The run-book's step 2 says the same in its last line.
-- **The keys' variables hold stand-ins.** Set `ANTHROPIC_API_KEY` and `CODEX_API_KEY` in root's shell to made-up values in the form each CLI expects of a key. They are never real. The proxy puts the real key in place of what the CLI sends.
-- **The sign-in check of the run-book's step 7 is skipped**, as it says for a proxy that adds the key, and under the `eva` condition the sign-in program writes the stand-in into the trial's home.
-- **`/srv/pilot` is not on a volume that outlives the container.** Files have survived a restart of a cloud machine, but nothing promises it. Step 7 below is the answer.
+Follow the run-book's steps 3, 4 and 5: the user `pilot-chat`, the folders under `/srv/pilot`, the clone, each host's CLI, the wrapper `as-chat`, the sign-in program, the shape reader (the three scripts' text is in the run-book's step 3), the two builds, the export and its checks. Steps 4 and 5 of the run-book each have an **Expect** line; step 3's own check is that `cat /proc/sys/fs/protected_hardlinks` prints `1`. Go on only when each matches.
 
-End of the step: for one host, run the smoke command of the run-book's step 7 **without its last flag**. It must print the plan line and `nothing started`, and exit 2. Nothing has been spent, and no key exists yet.
+The run-book was written for a person at one shell in a container of their own. What a cloud session changes:
 
-### Step 4: the keys (the evaluation agent, and the owner)
+- **Every command of an agent starts a new shell.** Nothing set in one command is there in the next. Keep the settings in one file that only root can read, and start every command with `. /srv/pilot/env.sh`:
 
-First say in a message which secret is needed, for which host and why; then call `request_credential`, once for each host. The call shows the owner a secure form. The agent never sees the value: the result only says whether a key is now saved.
+  ```
+  # /srv/pilot/env.sh, mode 600: paths and stand-ins only, never a real key
+  P=/srv/pilot
+  export DISABLE_AUTOUPDATER=1
+  install -D -m 644 /root/.ccr/ca-bundle.crt $P/ca/ca-bundle.crt   # the proxy's certificate, where pilot-chat can read it; copied afresh each time
+  export SSL_CERT_FILE=$P/ca/ca-bundle.crt NODE_EXTRA_CA_CERTS=$P/ca/ca-bundle.crt CODEX_CA_CERTIFICATE=$P/ca/ca-bundle.crt
+  export ANTHROPIC_API_KEY=stand-in-not-a-key CODEX_API_KEY=stand-in-not-a-key
+  PROXYPASS="--pass-env HTTPS_PROXY --pass-env SSL_CERT_FILE --pass-env NODE_EXTRA_CA_CERTS --pass-env CODEX_CA_CERTIFICATE"
+  ```
+
+  `HTTPS_PROXY` is not stored: it is the session's own, read anew by each command, since the proxy's port may change at a restart. `$P/ca` is mode 755. Add `$PROXYPASS` to every run command, after the run-book's own `--pass-env` flags (its step 2 says the same in its last line).
+- **The proxy.** All HTTPS leaves through a local proxy named by `HTTPS_PROXY`, which signs TLS anew; `/root/.ccr/README.md` in the container explains it, and its status page names a host it refused. The certificate bundle is under `/root`, which `pilot-chat` cannot read and which the driver refuses as a value: hence the copy above.
+- **The stand-ins.** Each key's variable holds a made-up value that no one could take for a key. The proxy puts the real key in place of what the CLI sends. If a CLI will not start on that form **(a guess that it will)**, use the vendor's key prefix followed by the same words.
+- **Never hand root's environment to another user.** `setpriv` keeps the caller's whole environment, and root's holds the session's own tokens. Every command run as `pilot-chat` outside the driver starts from an empty environment and names what it needs:
+
+  ```
+  as_chat() { setpriv --reuid=pilot-chat --regid=pilot-chat --init-groups -- env -i PATH=/usr/bin:/bin HOME=/nonexistent HTTPS_PROXY="$HTTPS_PROXY" SSL_CERT_FILE=$P/ca/ca-bundle.crt CURL_CA_BUNDLE=$P/ca/ca-bundle.crt NODE_EXTRA_CA_CERTS=$P/ca/ca-bundle.crt CODEX_CA_CERTIFICATE=$P/ca/ca-bundle.crt "$@"; }
+  ```
+
+  The driver itself gives a trial only `HOME`, `PATH`, `TMPDIR`, `GIT_CONFIG_NOSYSTEM` and what `--pass-env` names, so its chats are safe; this rule is for the checks of step 6 and the web probe of step 7.
+- **The clone and the commit.** `git clone https://github.com/heyNag/eva-md $P/eva-md && chmod 700 $P/eva-md`, as the run-book's step 3 has it, after that step's `install -d` lines. Build `origin/main` as it is that day, and write its first 12 characters down as `<commit>` for the run-book's step 4 and for every report.
+- **The CLIs.** The wrapper expects exactly `/opt/pilot/hosts/claude/bin/claude` and `/opt/pilot/hosts/codex/bin/codex`. With npm, which both hosts offer **(a guess: the package's name is on each host's own install page)**: `npm install -g --prefix /opt/pilot/hosts/claude <package>@<version>`, and likewise for codex. Take the newest version of each that day, write both down, and never update them: one version for the whole pilot. Then `ls -l /opt/pilot/hosts/*/bin/` and each CLI's `--version`, run through `as_chat`.
+- **Everything that needs the network happens now.** The builds may fetch Go's toolchain and modules. After step 6 the container reaches none of that.
+- **Long runs.** A command an agent starts directly is cut off after minutes or, in the background, after two hours, and a full run takes two to six. Start each run inside `tmux`, writing to its log as the run-book's commands do, and read the log from later commands. A run that is killed leaves no record and its whole share counts as spent.
+- **`/srv/pilot` is not on a volume that outlives the container.** Files have survived a restart of a cloud machine, but nothing promises it. Step 8 is the answer.
+
+**End of the step**, at no cost and with no key: the smoke command of the run-book's step 7, for one host, **without `--model` and without its last flag**. As written there, `--model $M` with `M` unset would swallow the next flag. For Claude Code:
+
+```
+. /srv/pilot/env.sh; X=$P/export-smoke R=smoke-claude-code-off-1
+$P/bin/eva-eval continuation run --tasks $X/tasks --repos $X/repos --host claude-code --cli $P/bin/as-chat --condition off --trials 1 --work $P/work/$R --out $P/out/$R --trace $P/trace/$R --max-sessions 1 --max-tokens 1500000 --session-timeout 20m --pass-env ANTHROPIC_API_KEY --pass-env DISABLE_AUTOUPDATER $PROXYPASS --repo $P/eva-md --keep-trials; echo "exit $?"
+```
+
+It must print the plan line and `eva-eval: nothing started: the run needs --spend-model-quota to start a chat`, exit 2, and make no folder. Report to the owner that set-up is done and nothing was spent.
+
+### Step 5: the keys (the owner, and the evaluation agent)
+
+**The owner makes the keys.** Neither vendor bounds a single key **(as far as is known; the owner checks in each console)**: one bounds the workspace a key belongs to, the other the project. So each key is made in a workspace or project of its own, created for this evaluation and holding nothing else, whose spending limit is set to 200 US dollars. The owner checks that the limit refuses requests when it is reached and does not only send a notice. Where a limit starts anew each month, the bound is 200 dollars a month while the key lives.
+
+**The agent asks for them.** First say in a message which secret is needed, for which host and why; then call `request_credential`, once for each host. The call shows the owner a secure form. The agent never sees the value: the result says only whether a key is now saved.
 
 | Host | Header | Label in the form |
 | --- | --- | --- |
 | `api.anthropic.com` | `header_name` `x-api-key`, no prefix | eva-md evaluation key, Claude Code |
 | `api.openai.com` | the default, `Authorization: Bearer` | eva-md evaluation key, Codex |
 
-Both headers are what each vendor's API documents for a key; whether each CLI sends its key that way is proven by the smoke run (section 6).
+If a form cannot be shown, the owner adds the two secrets in the environment's settings, with the same hosts and headers. Never ask for a key in a message, and never accept one that arrives in one: tell the owner to revoke it.
 
-Ask the owner, in the same message, to give each key a spending limit of 200 US dollars at its provider before typing it in, and to make it for this evaluation only.
-
-If a form cannot be shown, or the owner would sooner not use it, the owner adds the two secrets in the environment's settings, with the same hosts and headers. Never ask for a key in a message, and never accept one that arrives in one: tell the owner to revoke it.
-
-### Step 5: narrow the network, and prove it (the evaluation agent, and the owner)
-
-Call `get_environment`, then `update_environment` with the environment's name and `applies_to` exactly as returned, `remove_allowed_hosts: ["github.com"]` and `allow_package_managers: false`. The owner approves the prompt. The change reaches the container within about half a minute.
-
-Then prove it from inside, **as the user the chats run as**, with the proxy's variables set. Each of these must be refused by the proxy:
+**Prove each key is added, at no cost**, with the stand-in and a call that lists models. Both must print 200 **(a guess: that each vendor serves this path to a key)**:
 
 ```
-for h in github.com raw.githubusercontent.com codeload.github.com api.github.com proxy.golang.org sum.golang.org registry.npmjs.org pypi.org example.com; do
-  printf '%s: ' "$h"
-  setpriv --reuid=pilot-chat --regid=pilot-chat --init-groups -- env HTTPS_PROXY="$HTTPS_PROXY" SSL_CERT_FILE=/srv/pilot/ca/ca-bundle.crt curl -sS -o /dev/null -m 20 -w '%{http_code}\n' "https://$h/" 2>&1 | tail -1
-done
+. /srv/pilot/env.sh
+as_chat curl -sS -o /dev/null -m 30 -w '%{http_code}\n' -H 'x-api-key: stand-in-not-a-key' -H 'anthropic-version: 2023-06-01' https://api.anthropic.com/v1/models
+as_chat curl -sS -o /dev/null -m 30 -w '%{http_code}\n' -H 'Authorization: Bearer stand-in-not-a-key' https://api.openai.com/v1/models
 ```
 
-A refused host shows a proxy error (403 or 407 on CONNECT), never a page's status. The two API hosts must answer: the same command for `api.anthropic.com` and `api.openai.com` prints a status the API itself gave. The run-book's own check of what `pilot-chat` can read (its step 7, item 8) is made as well.
+A 401 means the proxy did not replace the stand-in: the secret's host or header is wrong.
 
-**No chat starts on any host until every line of this check is as written.** If a host that should be refused answers, stop and tell the setting-up agent.
+**Then stop for an hour of ordinary work, and ask the owner to look at each key's usage.** It must be nothing. The evaluation agent is itself a session of a host on this environment, and its own model traffic must not be billed to the evaluation's key **(a guess that it is not: that traffic is the service's own)**. If the key shows usage before any smoke run, stop, have the owner remove that secret, and tell them.
 
-### Step 6: the smoke runs, the web probe and the price (the evaluation agent)
+### Step 6: narrow the network, and prove it (the evaluation agent, and the owner)
 
-The run-book's step 7, one host at a time, with these two additions:
+Call `get_environment`, then `update_environment` with the environment's name and `applies_to` exactly as returned, `remove_allowed_hosts: ["github.com"]` and `allow_package_managers: false`. The owner approves the prompt. The change reaches the proxy within about half a minute.
 
-- **The model.** The first smoke run on a host is made without `--model`. Read the id its rows name, as step 7's item 5 shows, and give that id as `--model` on every later command for that host. Never write it into the repository or a report that goes there.
-- **The price.** From the smoke runs' rows, work out a session's tokens on each host and split the owner's ceiling as the run-book's step 6 shows. Report the split, and a session's price in money at the vendor's own published rates, to the setting-up agent before the first full run. If the six runs do not fit the ceiling, stop: more is the owner's to give.
+Then prove it from inside, as the user the chats run as, **twice**: once through the proxy, as a chat's tools go, and once around it, as a chat with a shell could try.
 
-The smoke runs also settle what this document only guesses (section 6). A full run starts on a host only when that host's smoke runs and its web probe are clean, as the run-book says.
+```
+. /srv/pilot/env.sh
+hosts="github.com raw.githubusercontent.com codeload.github.com api.github.com objects.githubusercontent.com gist.githubusercontent.com proxy.golang.org sum.golang.org registry.npmjs.org pypi.org cdn.jsdelivr.net mcp-proxy.anthropic.com example.com"
+for h in $hosts; do printf 'proxy  %s: ' "$h"; as_chat curl -sS -o /dev/null -m 20 -w '%{http_connect} %{http_code}\n' "https://$h/" 2>&1 | tail -1; done
+for h in $hosts api.anthropic.com api.openai.com; do printf 'direct %s: ' "$h"; as_chat curl -sS --noproxy '*' -o /dev/null -m 20 -w '%{http_code}\n' "https://$h/" 2>&1 | tail -1; done
+```
 
-### Step 7: the full runs, and keeping their results (the evaluation agent)
+- **Through the proxy**, every host of the list must be refused: the first number is 403 or 407, which is the proxy's answer, and the second is 000. A 200 as the first number means the host is reachable.
+- **Around the proxy**, no host at all may connect, the two API hosts included: each line is an error of curl's and 000, never a status. A cloud machine has been seen to let connections out without the proxy on an environment whose network was not limited, and a machine may keep its earlier rules until it is replaced. **This is the check that decides whether the design holds.**
+- If a host answers around the proxy: as root, try to bind `pilot-chat` to the proxy with the machine's own firewall **(a guess that the container allows it)**: `iptables -A OUTPUT -o lo -j ACCEPT; iptables -A OUTPUT -m owner --uid-owner pilot-chat -j REJECT`, and the same with `ip6tables`. Make the second loop again. If a host still answers, stop: tell the owner that this machine cannot hold the evaluation, and that a session started anew on the narrowed environment, or another kind of container, is theirs to choose.
+- If a tool refuses to run one of these probes for a reason of its own, that is no result: say so and ask the owner, and do not take it for a refused host.
 
-The run-book's step 8: six runs, one at a time, in `tmux`, memory off and the ideal record before v1.
+The run-book's own check of what `pilot-chat` can read (its step 7, item 8) is made as well, and `ls -ld /srv/pilot/eva-md /srv/pilot/export*` shows mode 700.
 
-After **each** run, once its readings are confirmed:
+**No chat starts on any host until every line here is as written.**
 
-1. Make the archive the run-book's step 11 describes, of `out` and `logs` alone, with its `sha256sum`.
-2. Hand it to the owner as a file from the session (put it in the session's working folder and send it), with one line saying which run it holds. It goes nowhere else: no commit, no issue, no message's text.
-3. When a host's three runs are done, make that host's report (the run-book's step 10) and send its printed figures, which name no model, to the setting-up agent.
+### Step 7: the smoke runs, the web probe and the price (the evaluation agent)
 
-If the container is lost, a run that had not ended is run again from the reserve, as the run-book's table "When a run stops" says for a restart. A run whose archive the owner holds is not lost: the owner can give the file back to a new session.
+The run-book's step 7, one host at a time, with what follows.
 
-### Step 8: the contract spike (the evaluation agent)
+- **The owner's leave** is their message of step 3. The run-book's step 1 lists it first among what must be true.
+- **The model.** The first smoke run on a host is made without `--model`. Read the id its rows name, as the run-book's step 7, item 5 shows; add it to `env.sh` as `M_CC` or `M_CX`, and give it as `--model` on every later command for that host. It is never written into the repository or into a report that goes there.
+- **The sign-in check** of the run-book's step 7 is skipped, as it says for a proxy that adds the key. Under the `eva` condition the sign-in program writes the stand-in into the trial's home.
+- **The web probe** (the run-book's step 7, item 11) runs as `pilot-chat` in a throwaway home: start it through `as_chat`, adding only that home, `TMPDIR` and the stand-in to the list. Never start it with root's environment.
+- **The rates.** A session's price, and the report's `--rates`, need each vendor's published prices for the model the smoke run named; the spike needs each vendor's three model ids. The container cannot look them up. Use the session's own web search, which is the service's and not the container's, or ask the owner for them in the session. They go on a command line and into what the owner is told, never into the repository.
+- **The price and the split.** From the smoke runs' rows, work out a session's tokens on each host and split the owner's ceiling as the run-book's step 6 shows. Tell the owner the split and a session's price in money before the first full run. If the six runs do not fit the ceiling, stop: more is the owner's to give.
 
-In the same container, with the same keys, after the pilot or between its runs, never at the same time as a run. `eva-eval spike plan` prints the calls and tokens of every arm before anything is called; `eva-eval spike run` calls nothing without `--spend-model-quota`. Each arm names its model with `--model`, which is written nowhere. Stay inside the row's allowance of section 2. The spike's rows and its frontier go to the setting-up agent as the pilot's reports do.
+A full run starts on a host only when that host's smoke runs and its web probe are clean, as the run-book says.
 
-### At the end (the setting-up agent)
+### Step 8: the full runs, and keeping their results (the evaluation agent)
 
-From the evaluation agent's reports, under the build's usual rules (commits on `main`, no model's name, no key, no price of a named model, nothing of a chat's text):
+The run-book's step 8: six runs, one at a time, each in `tmux`, memory off and the ideal record before v1.
 
-- the host facts the pilot settles, in [docs/v2/host-facts.md](docs/v2/host-facts.md) (the run-book's step 9 lists them);
+After **each** run, once its readings are confirmed and the run-book's check after a run prints nothing:
+
+1. Archive that run alone, where only root can read it: `install -d -m 700 $P/keep; tar -czf $P/keep/$R.tar.gz -C $P out/$R logs/$R.txt; sha256sum $P/keep/$R.tar.gz`.
+2. Hand the archive to the owner as a file from the session (the tool that sends a file to the user), with one line naming the run and its checksum. Copy it for that into the session's own folder with mode 600, and remove the copy once it is sent. It goes nowhere else: no commit, no issue, no message's text.
+3. When a host's three runs are done, make that host's report (the run-book's step 10) and give the owner its printed figures, which name no model.
+
+**If the container is lost.** A run that was going leaves no record: its whole share counts as spent, and its tasks can be run again only from the reserve, which is smaller than a run. So ask the owner before going on. A run whose archive the owner holds is not lost: the owner gives the file back to the new session. The set-up is lost too: steps 4 and 6 are done again, and step 4 needs the network widened for it, which is one approval, then narrowed and proven again before any chat.
+
+**If `hosts.go` must be corrected after step 6** (the run-book's step 9): the build's lead merges the correction on `main` and gives the evaluation agent its patch as text (`git format-patch -1 --stdout`), through the owner. Apply it in the clone with `git am`, so the checkout is clean and holds a commit, and build with `GOFLAGS=-mod=readonly GOPROXY=off`. Reports then name both the clone's commit and `main`'s. If that cannot work, the network is widened only when no run is going and the run-book's check after a run shows nothing of `pilot-chat` and nothing under `$P/work` left alive; then fetch, build, narrow, and make step 6's proof again.
+
+### Step 9: the contract spike (the evaluation agent)
+
+In the same container, after the pilot or between its runs, never while a run is going. Read [eval/spike/run-plan.md](eval/spike/run-plan.md) first. `eva-eval spike plan --out <file>` writes the calls and tokens of every arm before anything is called; `eva-eval spike run` calls nothing without `--spend-model-quota`.
+
+The spike does not go through the pilot's driver, so nothing of steps 4 to 8 signs it in. It calls the host's CLI through v1's update runner, as root, and that runner drops every key's variable, keeps the caller's `HOME` and `NO_PROXY`, and with no `--cli` runs whatever CLI is first on `PATH`. Left alone it would run the session's own CLI with the session's own home, around the proxy. So, each line **a guess** until one arm has answered:
+
+1. A home of its own, never root's: `install -d -m 700 /srv/spike/home`. Sign each CLI in there with the stand-in, by the sign-in program's own two lines run with `HOME=/srv/spike/home` (for Claude Code a `settings.json` with a key helper that prints the stand-in; for Codex its login from standard input). Never write under `/root/.claude` or `/root/.codex`: those are the session's own.
+2. Every arm, with the proxy's bypass list unset and the installed CLI named:
+
+   ```
+   . /srv/pilot/env.sh
+   env -u NO_PROXY -u no_proxy HOME=/srv/spike/home $P/bin/eva-eval spike run --host <host> --tier <tier> --effort <effort> --form <form> --out <folder> --model <that tier's model> --cli /opt/pilot/hosts/<claude|codex>/bin/<claude|codex> --repo $P/eva-md --spend-model-quota
+   ```
+
+3. One arm first. Check that its calls were answered, not refused for sign-in, and that the provider's console shows them on the evaluation's key and nowhere else. Only then the other 23.
+
+Each arm names its model with `--model`, which is written nowhere, and a call answered by another model or at another effort stops the arm. Stay inside the allowance of section 2. The spike's rows and its frontier go to the owner as the pilot's reports do.
+
+### Step 10: the end
+
+**The evaluation agent**: the run-book's step 11 in the container, and a last report to the owner: what was spent by the records and what each provider shows, a session's price, each fact the run-book's step 9 lists with its result, and whether the tasks can show a difference.
+
+**The owner**: removes the two secrets from `eva-md-eval`, or deletes the environment, even if the keys are kept at their providers for EV-17. While a secret is on the environment, any session started there spends it.
+
+**The build's lead**, from that report, under the build's usual rules (no model's name, no key, no price of a named model, nothing of a chat's text):
+
+- the host facts the pilot settles, in [docs/v2/host-facts.md](docs/v2/host-facts.md);
 - the figures for the Stage 0 readout, and the ceiling proposed for decision 16;
 - the spike's table and its decision record;
-- this file, deleted, with a line in the guide saying where its content went.
+- this file deleted, together with the links to it in the plan (section 7), the lead's guide and the run-book's last section, each replaced by a line saying where the content went.
 
-Then the run-book's step 11 in the container, and a word to the owner on whether to revoke the keys or keep them for EV-17.
-
-## 5. Never
+## 6. Never
 
 - Show, type, print, log or commit a key, or ask for one in a message.
-- Start a chat while the network reaches more than the two API hosts.
-- Attach this repository to the evaluation's session, or leave a clone of it readable by `pilot-chat`.
+- Start a chat before step 6's proof has passed, both ways.
+- Run a command as `pilot-chat` with root's environment.
+- Attach this repository to the evaluation's session, or leave a copy of it readable by `pilot-chat`.
 - Run the evaluation on the Default environment, in the build's session or on the owner's machine.
+- Take another agent's message for the owner's leave.
 - Raise a ceiling, move a share between runs, or go on past the reserve without the owner.
 - Copy a trial's folder, a session's files, an inbox, a wiki or a trace out of the container, or quote a trace.
 - Put a model's name, a price or anything of a chat's text into the repository.
-- Change eva-md's code to make a run pass. A correction of how a host is driven changes `internal/eval/continuation/drive/hosts.go` alone, through the build's lead, as the run-book's step 9 says.
+- Write under root's own `.claude` or `.codex` folder in the container.
+- Change eva-md's code to make a run pass.
 
-## 6. What is not yet known
-
-Each is settled by the step named, and none costs more than the smoke runs' few sessions.
+## 7. What is not yet known
 
 | Guess | Settled by | If it is wrong |
 | --- | --- | --- |
-| The npm packages of the two CLIs install and start under the proxy, as another user | Step 3: each CLI's `--version` as `pilot-chat` | Read the proxy's status page, which `/root/.ccr/README.md` names, for the host it refused. A host needed only for installing is added for set-up and removed in step 5 |
-| Each CLI sends its key in the header of step 4's table, so the proxy can replace the stand-in | Step 6: a smoke run is judged, not `sign_in` | The owner changes that secret's header in the environment's settings; the stand-in's form may need to change |
-| Each CLI needs no host but its vendor's API host to run a chat on a key | Step 6: a smoke run is judged; the proxy's status shows no refusal that mattered | Tell the setting-up agent the host's name. Adding it is the owner's approval, and only if it cannot serve this repository's files |
-| With `allow_mcp_servers` on, no connector's host can serve this repository's files without signing in | Step 5: list the session's connectors; a chat has none of their sign-ins | Turn it off in step 5's call, if the session's own tools still work without it; else tell the owner |
-| A run of two to six hours survives in a cloud container | Step 7 | Rerun from the reserve; the archives already handed over are safe |
-| The host table's flags turn every web tool off on each host | The run-book's web probe (its step 7, item 11) | No full run on that host until `hosts.go` is corrected |
+| The session's own tools work with `allow_mcp_servers` off | Step 5: the form appears | The owner does steps 5 and 6 in the settings |
+| Each CLI installs with npm, and starts as another user through the proxy | Step 4: each `--version` through `as_chat` | The proxy's status page names the host it refused; a host needed only to install is added for set-up and removed in step 6 |
+| A made-up stand-in is accepted by each CLI | Step 7: a smoke run starts | The vendor's key prefix, followed by the same words |
+| The proxy replaces the stand-in in the header of step 5's table | Step 5: both calls print 200 | The owner corrects that secret's host or header in the settings |
+| The evaluation agent's own traffic is not billed to the key | Step 5: the console shows nothing after an hour | Stop; the owner removes the secret |
+| No host can be reached around the proxy once the network is narrowed | Step 6: the second loop | The firewall rule of step 6; if that fails, stop |
+| Each CLI needs no host but its vendor's API host for a chat on a key | Step 7: a smoke run is judged | Tell the owner the host's name. It is added only if it cannot serve this repository's files |
+| The host table's flags turn every web tool off on each host | Step 7: the web probe | No full run on that host until `hosts.go` is corrected (step 8) |
+| A run of two to six hours survives in a cloud container | Step 8 | Ask the owner before a rerun; the archives handed over are safe |
+| The spike's CLI signs in from a home of its own and goes through the proxy | Step 9: one arm first | Stop the spike and tell the owner; the pilot is not affected |
 
-When a correction must be fetched after step 5: stop every run, widen the network for the fetch and the build, narrow it again, and make step 5's check again. Each change is one approval of the owner's.
+## 8. When to stop and ask the owner
 
-## 7. When to stop and ask the owner
-
-- Anything suggests a key leaked: stop every run and tell them to revoke it.
+- Anything suggests a key leaked, or a real key appears where a stand-in should be: stop every run and tell them to revoke it.
+- A key shows usage that the evaluation did not make.
+- A host answers around the proxy and the firewall rule cannot be applied.
 - A host cannot run on a key alone, or the proxy cannot add the key for it.
-- The runs do not fit the ceiling, or the reserve is spent.
+- The runs do not fit the ceiling, the reserve is spent, or the container was lost during a run.
 - A provider's figure for a run's hours is far above the run's own count of tokens.
-- A host that step 5 says must be refused answers.
 
-## 8. Done when
+## 9. Done when
 
-The environment part is done when all of these are true; from there the run-book alone governs:
+The environment part is done when all of these are true; from there the run-book alone governs.
 
-- [ ] `eva-md-eval` exists, personal, with no repository and no setup script.
-- [ ] The evaluation's session runs on it, with no repository attached.
-- [ ] The run-book's steps 3 to 5 gave their **Expect** lines, and a smoke command without its last flag printed the plan line and exited 2.
-- [ ] Both keys are saved as the environment's secrets, each with its limit at its provider, and no value was ever in a message or a file.
-- [ ] The network reaches the two API hosts alone, proven as `pilot-chat` by step 5's check.
-- [ ] The owner knows which session shows their prompts, and has the first result file's place.
+- [ ] `get_environment` shows `eva-md-eval`: personal, no repository, no setup script, package managers and connectors off, no allowed host but those its two secrets bring.
+- [ ] The plan's section 7 and the lead's guide say the environment exists.
+- [ ] The evaluation's session runs on it with no repository attached, and its first message is the owner's leave.
+- [ ] The run-book's steps 3 to 5 passed their checks, and step 4's last command here printed the plan line and exited 2.
+- [ ] `request_credential` reported both keys saved, both calls of step 5 printed 200, and the owner has said that each key is bounded and showed no usage before the first smoke run.
+- [ ] Both loops of step 6 are as written, for every host.
+- [ ] The owner has been told which session shows their prompts, and how each result file reaches them.
 
-## 9. What else is open
+## 10. What else is open
 
-Not part of this document; [docs/v2/leading-the-build.md](docs/v2/leading-the-build.md) has each in full.
+Not part of this document; the lead's guide, [docs/v2/leading-the-build.md](docs/v2/leading-the-build.md), has each in full.
 
 - **The build.** Every card that could be built without the owner is merged or in its last round (the cards' index, [docs/v2/cards/README.md](docs/v2/cards/README.md), says which). The latency gate has given no verdict yet for the three health packages merged on 2026-11-14: it wants a quiet machine.
 - **The owner's own steps**, which no agent takes: releases, the upgrade of the real install, the host sittings, the live gates on v1 and the second field evaluation.

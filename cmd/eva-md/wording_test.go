@@ -17,7 +17,8 @@ var workplaceWording = regexp.MustCompile(`(?i)\bwork[ -](machines?|macs?|laptop
 // The repo is public, so its docs, code, tests, scripts and workflows speak
 // of a self-hosted GitLab, GitHub, a GitHub Enterprise server or a managed
 // machine, never of work machines or companies. This reads only the
-// checkout's own files: README.md, AGENTS.md, every .md under docs/ at any
+// checkout's own files: README.md, AGENTS.md, TODO.md while there is one,
+// every .md under docs/ at any
 // depth (the v2 build's plan, cards, specs and working papers among them),
 // the Go files under cmd/ and internal/, and every file under scripts/ and
 // .github/.
@@ -31,6 +32,10 @@ func TestThePublicRepoUsesNeutralWording(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := []string{filepath.Join(root, "README.md"), filepath.Join(root, "AGENTS.md")}
+	// The plan an agent new to the work takes up, for as long as it exists.
+	if todo := filepath.Join(root, "TODO.md"); isFile(todo) {
+		files = append(files, todo)
+	}
 	// Each folder, and which of its files are read: "" for every file.
 	for _, walk := range []struct{ dir, suffix string }{
 		{"docs", ".md"},
@@ -79,4 +84,10 @@ func TestThePublicRepoUsesNeutralWording(t *testing.T) {
 			}
 		}
 	}
+}
+
+// isFile says whether path names a regular file.
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
