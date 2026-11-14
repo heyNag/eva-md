@@ -110,6 +110,22 @@ The brief's footer and the prompt reminder still name the command line, which wo
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| MCP-K01 | The read tools write no file, take no lock, start no model and ask no host | internal/mcp:TestServerWritesNothing |
+| MCP-K02 | The server never hangs or outlives its host: deadlines, stuck calls abandoned, exit on end of input, a failed write or a new parent | internal/mcp:TestEndOfInputEndsServe, internal/mcp:TestEndOfInputEndsServePastAStuckAnswer, internal/mcp:TestFailedWriteEndsServe, internal/mcp:TestParentChangeEndsServe, internal/mcp:TestStuckCallIsAnsweredAtItsDeadline, internal/mcp:TestAbandonedCallsEndTheServer |
+| MCP-K03 | The off switches are read each request and give an empty tool list and refused calls, also inside eva-md's own runs | internal/mcp:TestOffStates |
+| MCP-K04 | Bad arguments, errors and passed deadlines are tool results with one plain sentence; protocol errors only for malformed requests | internal/mcp:TestArgumentBounds, internal/mcp:TestProtocolErrors, internal/mcp:TestCallOutOfTimeIsNoConfigError, internal/mcp:TestPanickingToolIsAnError |
+| MCP-K05 | Everything returned is labelled as data and cleaned against forgery | internal/mcp:TestSearchFindsWhatShowOpens, internal/mcp:TestInstructions, internal/resume:TestSearchSnippetCannotStartALine |
+| MCP-K06 | Results are capped under the host's limit, cut at a line end with a note of what is left | internal/mcp:TestSearchIsCutAtItsCap, internal/mcp:TestShowCutsALongPage, internal/mcp:TestShowCutsALongKnowledgeMap, internal/mcp:TestShowCutsALongSystemList |
+| MCP-K13 | A filtered environment still works: home from the binary's path and a default PATH | internal/mcp:TestHomeFromBinary, cmd/eva-md:TestMCPCommand |
+| MCP-K14 | An excluded folder gets a plain sentence, not an error, and nothing is searched | internal/mcp:TestExcludedFolder |
+| MCP-K17 | Only eva's name shows: the server, the tools and the plugin | cmd/eva-md:TestMCPCommand, internal/mcp:TestToolListIsFixedAndSmall, internal/install:TestPluginFolderBytes |
+
 ## Since the split
 
 No change yet.

@@ -203,6 +203,24 @@ The binary declares the highest schema it supports.
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| PGS-K02 | Neither side's words go under the other's label: tags drop to what the citations support, and a decision without the user's tag is a question | internal/update:TestValidateSpeakerTags, internal/update:TestValidateNeverRelabels, internal/update:TestRestsOn |
+| PGS-K05 | Caps never drop a decision, and the assistant's items go before the user's | internal/threadpage:TestApplyCapOrder, internal/threadpage:TestApplyDecisionOverCap, internal/update:TestAccuracyTenure |
+| PGS-K06 | Ids are never reused, past retired lines and pages | internal/threadpage:TestApplyIDsNeverReused, internal/threadpage:TestMaxIDSeesEveryPart, internal/knowledgepage:TestIDsAreNeverReused |
+| PGS-K07 | The same update applied twice changes nothing | internal/threadpage:TestApplyTwiceChangesNothing, internal/knowledgepage:TestSaveIsIdempotent |
+| PGS-K08 | One idempotent escaper for all stored free text, so none can forge markup; hidden characters are stripped | internal/threadpage:TestEscape, internal/threadpage:TestEscapeIdempotentAndSafe, internal/threadpage:TestCleanLine, internal/threadpage:TestRenderEscapesFreeText, internal/threadpage:TestEscaperCorpusThroughOKF |
+| PGS-K09 | A person's text is never lost: other sections kept byte for byte, locked, verified or unreadable pages never written | internal/threadpage:TestParseKeepsTimelineAndSections, internal/update:TestProtectedPagesAreSkipped, internal/update:TestConflictIsRetriedOnTheEditedPage, internal/knowledgepage:TestPagesEvaMdLeavesAlone, internal/knowledgepage:TestSupersedeKeepsWhatAPersonAdded |
+| PGS-K10 | Render and Parse round-trip, as the fuzz and property tests specify | internal/threadpage:TestRoundTrip, internal/threadpage:TestItemLineRoundTrip, internal/threadpage:TestApplyProperties, internal/threadpage:FuzzParse, internal/threadpage:FuzzScanner |
+| PGS-K15 | Every supersede and drop of knowledge or a rule leaves a Timeline line and keeps its history | internal/knowledgepage:TestSupersedeAndDropKeepHistory, internal/update:TestPassWritesTheRulesPages, internal/update:TestSettleSkippedRules, internal/update:TestALockedRulesPageLeavesNoTimelineLine |
+| PGS-K17 | Times keep their own offset, and as_of only moves forward | internal/threadpage:TestItemLineRoundTrip, internal/threadpage:TestItemLineForms |
+| STO-K17 | Pages stay plain Markdown with small frontmatter that round-trips byte for byte | internal/okfadapter:TestMetadataGoldenRoundTrip, internal/okfadapter:TestFullFixtureWiki, internal/threadpage:TestPagesThroughOKF |
+| OKF-K13 | Model text is escaped before saving, so it cannot forge markup | internal/threadpage:TestEscape, internal/threadpage:TestEscaperCorpusThroughOKF, internal/threadpage:TestRenderEscapesFreeText |
+
 ## Since the split
 
 No change yet.

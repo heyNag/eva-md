@@ -80,6 +80,29 @@ The write checks the page line by line and saves it through the adapter with the
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| RCL-K01 | Recall and pointers read local bounded files only, run no git, model or network, and inject nothing on an error | internal/hook:TestRecallNeedsTheIndex, internal/hook:TestPointersNeedTheIndex, internal/hook:TestRecallGates |
+| RCL-K05 | A line the secret scan flags, or that cleaning would change, is dropped, never altered | internal/hook:TestRecallBlockFits, internal/hook:TestPointerFits, internal/resume:TestPointersAreCleanedAsWikiText |
+| RCL-K09 | A page is not sent twice in a chat, nor at all if the brief listed it; a startup or clear starts over | internal/hook:TestPromptRecallsKnowledge, internal/hook:TestRecallSkipsTheBriefsConstraints, internal/hook:TestClearRecallsAgain, internal/hook:TestPointersSkipTheBriefsPages, internal/hook:TestClearStartsTheStateOver |
+| RCL-K14 | A pointer never names a page that is gone, and a code note shows only when measured at the cited commits | internal/hook:TestPointersNeedTheIndex, internal/hook:TestPointerCarriesTheCodeNote, internal/hook:TestPromptNoteFromAPass |
+| SYS-K01 | Refusals, logs and lint results carry line numbers and counts, never text | internal/systempage:TestRefusals, internal/systempage:TestSecretRefusedWritesNothing, internal/lint:TestLint |
+| SYS-K02 | The secret scan runs on what is saved and shown: page, frontmatter as saved, map and index lines; a flagged pointer is dropped | internal/systempage:TestSavedFrontmatterScanned, internal/systempage:TestMapLineSecret, internal/systempage:TestSecretRefusedWritesNothing, internal/hook:TestPointerFits |
+| SYS-K03 | Sources hold no user, password or credential parameter, and paths no .., spaces or control characters | internal/systempage:TestSourcesAreGeneric, internal/coderef:TestParse, internal/systempage:TestReadCodeRefusesAPathWithControlCharacters |
+| SYS-K04 | A replace takes only the page as read, never a verified or locked page, and keeps frontmatter a person added | internal/systempage:TestReplace, internal/systempage:TestReplaceRewritesABlockListAsAList |
+| SYS-K05 | The schema version and the wiki's instance are checked before any write | internal/systempage:TestWriteChecksTheWiki |
+| SYS-K06 | Page and derived files are written under one wiki lock, the folder's index before the map; the write never commits | internal/systempage:TestWriteWaitsForTheWikiLock, internal/systempage:TestIndexBeforeTheMap, internal/systempage:TestWriteAndMap |
+| SYS-K07 | Text that can reach a prompt is cleaned at write and again when hand-edited values are read back | internal/systempage:TestClean, internal/systempage:TestReadFrontIsLenient, internal/systempage:TestValidPage, internal/resume:TestPointersAreCleanedAsWikiText |
+| SYS-K08 | Hooks run no git for pointers and read bounded local files; the brief's live count has a hard budget | internal/hook:TestPointerCarriesTheCodeNote, internal/resume:TestBriefCodeWithinItsDeadline |
+| SYS-K13 | A write checks each cited path exists at its commit, never waiting on a clone | internal/systempage:TestWriteChecksCodeInAClone |
+| SYS-K15 | Sibling scope for recall comes from pages listing two or more repos | internal/systempage:TestReposIndex, internal/systempage:TestReposIndexGoesWithTheLastSharedPage, internal/hook:TestRecallKeepsToTheChatsScope |
+| SYS-K16 | The Unverified section is tagged unverified in search hits | internal/resume:TestSearchFindsSystemLines |
+| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed | internal/coderef:TestTimeout, internal/systempage:TestWriteWaitsForTheWikiLock |
+
 ## Since the split
 
 No background step writes a system page: neither the update nor maintain does. Only `eva-md system write` writes one (`cmd/eva-md/system.go`).

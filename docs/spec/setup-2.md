@@ -87,6 +87,17 @@ Setup itself makes no model call.
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| SET-K01 | Nothing gh, glab or git prints is shown, logged or kept; failures are sorted into reasons in eva's words | cmd/eva-md:TestSetupNeverPrintsWhatGitPrinted, cmd/eva-md:TestSetupSaysWhyACLICouldntCreateTheRepo, cmd/eva-md:TestPeekRemoteSaysWhyHTTPCantRead, cmd/eva-md:TestPeekRemoteSaysWhySSHCantRead |
+| SET-K02 | No token from the environment reaches gh or glab, and each call names one host | cmd/eva-md:TestSetupNeverGivesTheCLIsATokenFromTheEnvironment, cmd/eva-md:TestSetupAsksGlabAboutAKnownHostDirectly |
+| SET-K03 | A public repo is always refused, an internal one only on an explicit yes | cmd/eva-md:TestSetupAlwaysRefusesAPublicRepo, cmd/eva-md:TestSetupAsksAboutAGivenInternalRepo, cmd/eva-md:TestSetupAsksAboutARepoAnyoneCanRead, cmd/eva-md:TestAnyoneCanReadFailsClosed |
+| SET-K04 | The probe made without signing in cannot sign in | cmd/eva-md:TestProbeCannotSignIn |
+
 ## Since the split
 
 No change yet.

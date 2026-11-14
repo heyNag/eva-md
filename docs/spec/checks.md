@@ -80,6 +80,18 @@ What the suite covers:
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| EVL-K07 | Tests run in a temporary home with the environment's git configuration cleared, never on the real machine | internal/testgitenv:TestClearUnsetsOnlyGitConfigAndIdentityFromTheEnvironment |
+| EVL-K08 | Tests never depend on machine speed, and a latency gate lives outside go test | none yet |
+| EVL-K11 | Recall's precision-first floor and a score independent of index size are held in CI | internal/knowledgepage:TestRecallPrecision, internal/knowledgepage:TestRecallScoreHoldsAtEverySize |
+| EVL-K13 | macOS is the run of record, and a failure seen only on Linux is reported, never patched around | none yet |
+| EVL-K14 | CI's actions are pinned by commit and its token is read-only | internal/release:TestReleaseWorkflowPinsEveryAction |
+
 ## Since the split
 
 **2026-11-14, EV-17f: the release workflow reads each binary it built.**

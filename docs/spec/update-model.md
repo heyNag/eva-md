@@ -160,18 +160,31 @@ Strict JSON (`Schema` in `internal/update`), with every key required and `additi
 
 The model never writes dates, ids, markdown structure or provenance stamps.
 
-<!-- v1 docs/verification.md 017 -->
-- **Headless runners** (`internal/update`).
-  Fake `claude` and `codex` scripts on a PATH of only them and the system folders record what they are given.
-  The tests check the exact arguments of both commands, with `--strict-mcp-config` after `--tools ""` on Claude and `codex --no-daemon exec` with the plan tool off on Codex; the cleared environment (no API key, no inherited CLAUDECODE or CLAUDE_CODE_* variable, `TERM=dumb`, `EVA_MD_INNER=1` and
-  `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` added, the CA, proxy and config-folder variables kept); the batch on stdin only, never in an argument; Claude's envelopes classified (the structured output, a missing one, error subtypes, permission denials as `tool_used`, API error statuses, token counts) and
-  Codex's event stream (a tool, including a todo_list item, stopping the run at once, unknown events refused, error items kept as diagnostics, a stale answer never reused); failure wording sorted into `auth`, `rate_limit`, `host_error`, `model_rejected` and `mcp_failed`; a refused effort stepping down
-  the host's table one entry at a time, then running without the effort flag, then without the model, within one shared timeout and with a Degraded note; a timeout or cancel killing the CLI's whole process group; a run whose time ran out before its CLI started a timeout, not an error, with the CLI
-  never run (`TestTimeoutBeforeTheCLIStartsIsATimeout`); a missing CLI as `cli_missing`; and the retry without `--strict-mcp-config` under a managed MCP config.
-  The fake `codex` answers `codex features list`: only the tool features it lists are disabled, whether on or off, an unlisted name and listed features that give no tool are not, and an empty list, one with no feature line or a list command that fails gives the fixed five
-  (`TestCodexDisablesTheToolFeaturesCodexLists`); a list that hangs ends at its own held timeout and the run goes on with the fixed five (`TestCodexFeaturesListThatHangsFallsBack`); the command carries a `--disable` for exactly the features the list names, the fixed five first, and none for a feature the list lacks (`TestCodexArgumentsMatchTheDesign`).
-
 <!-- /v1 -->
+
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| UPM-K01 | The batch goes to the model on stdin, never in an argument | internal/update:TestInputGoesOnStdinOnly |
+| UPM-K02 | The run gets an empty, checked folder and an allowlisted environment with the recursion guard and no API keys | internal/update:TestRequestsThatCannotRunAreRefused, internal/update:TestChildEnvironmentIsAnAllowlist, internal/update:TestChildGetsOnlyTheClearedEnvironment |
+| UPM-K03 | Tools are off by flag, and any sign of a tool rejects the run | internal/update:TestClaudeArgumentsMatchTheDesign, internal/update:TestCodexDisablesTheToolFeaturesCodexLists, internal/update:TestCodexToolEventStopsTheRun, internal/update:TestCodexStreams |
+| UPM-K04 | A run leaves no host transcript behind | internal/update:TestClaudeArgumentsMatchTheDesign, internal/update:TestCodexArgumentsMatchTheDesign |
+| UPM-K05 | The whole process group is killed on timeout or cancel, writers are capped, and the exit status is read from the process | internal/update:TestTimeoutKillsTheChildAndItsGroup, internal/update:TestCanceledRunIsAnErrorAndEndsTheChild, internal/update:TestOutputIsCapped |
+| UPM-K06 | A Codex answer is read from a private folder for each attempt, so no stale or planted answer is taken | internal/update:TestCodexStaleAnswerIsNotReused, internal/update:TestCodexModelRejectionFallsBack |
+| UPM-K07 | All attempts share one deadline, and an answer printed before it does not count while the CLI runs | internal/update:TestAttemptsShareTheTimeout, internal/update:TestClaudeAnswerBeforeTheTimeoutStillTimesOut, internal/update:TestTimeoutEndsTheRunAtItsDeadline |
+| UPM-K08 | The CLI starts by its recorded path; a managed MCP config gets one retry without the strict flag | internal/update:TestRecordedCLIPathIsPreferred, internal/update:TestJobPassesTheRecordedCLIPath, internal/update:TestClaudeManagedMCPConfigRetriesWithoutTheStrictFlag |
+| UPM-K09 | The input's speaker labels come from entry fields; forged headers are quoted and later lines indented, cleaned as the brief is | internal/update:TestBuildNumbersEntriesFromTheirFields, internal/freetext:TestShown |
+| UPM-K10 | The input is redacted again, and off-the-record ranges are never sent, their state carried across passes | internal/update:TestBuildDropsOffTheRecordRanges, internal/update:TestOffRecordCarriesAcrossPasses, internal/freetext:TestShown |
+| UPM-K11 | Refs name physical inbox lines; the watermark moves exactly past what a pass covered; a prompt waits for its reply | internal/update:TestDecodeKeepsPhysicalLines, internal/update:TestPromptAtTheEndWaitsForItsReply, internal/update:TestChunkedChatContinuesAcrossRuns, internal/update:TestBuildChunksAtExactly60KB, internal/update:TestWaitingRestIsRecordedInTheWatermark |
+| UPM-K12 | What a web fetch reported never becomes observed knowledge | internal/update:TestValidateKnowledgeOffTheWeb, internal/update:TestBuildMarksWebTurns, internal/update:TestWebTurnCarriesAcrossPasses |
+| UPM-K13 | A pasted span closes only at the tag that repeats its id | internal/update:TestPastedSpans |
+| UPM-K14 | The input's git is read-only and hardened, with a short limit | internal/update:TestCommitsOfFetchesNothing, internal/update:TestCommitsOfRunsWithTheReadEnvironment, internal/update:TestCommitsOfWithShowSignature |
+| UPM-K15 | One strict schema both hosts accept, parsed strictly again in code; the model never writes ids, dates or provenance | internal/update:TestSchemaIsStrict, internal/update:TestParseOutputIsStrict, internal/update:TestEveryRefusalNamesAKnownRuleAndPlace |
+| UPM-K16 | The chat's own host runs the update; a failure holds the host, backs off or blames the session | internal/update:TestAuthHoldsTheHostUntilAManualRunOrTomorrow, internal/update:TestRateLimitBacksOffWithoutCountingTowardTheSession, internal/update:TestThreeInvalidOutputsQuarantineTheSession, internal/update:TestClassifyFailureText |
+| UPW-K17 | The model runs in an empty folder with no tools, and a run that used one is rejected | internal/update:TestRequestsThatCannotRunAreRefused, internal/update:TestCodexToolEventStopsTheRun, internal/update:TestClaudeArgumentsMatchTheDesign |
 
 ## Since the split
 

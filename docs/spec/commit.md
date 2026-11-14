@@ -75,6 +75,26 @@ Plain git only. A wiki on a self-hosted server that is out of reach just leaves 
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| RED-K13 | Page writers and the commit's scan share one line judge | internal/wikigit:TestSecretLines, internal/wikigit:TestSecretLine, internal/update:TestKnowledgeSecretScan, internal/systempage:TestIdentifiersPassSecretsDoNot |
+| SYS-K01 | Refusals, logs and lint results carry line numbers and counts, never text | internal/systempage:TestRefusals, internal/systempage:TestSecretRefusedWritesNothing, internal/lint:TestLint |
+| SYS-K14 | The lint tells bad refs from removed, another machine's or unknowable ones, and streams its reads | internal/lint:TestLintSortsRefsToRemovedLostAndOtherMacsChats, internal/lint:TestLintCountsRefsUnknownWhileAFolderCantBeRead, internal/lint:TestLintWithoutInbox |
+| STO-K06 | Writes that belong together land under one lock, and the commit stages under it too | internal/okfadapter:TestLockedHoldsTheLockAcrossWrites, internal/wikigit:TestBusyWhileAPageWriteHoldsTheWikiLock, internal/wikigit:TestWikiLockIsTheAdapterLock |
+| STO-K08 | The wiki's git runs hardened: no hooks or prompts, a scrubbed environment, capped output, diagnostics never stored | internal/wikigit:TestEveryGitDropsTheSameVariables, internal/wikigit:TestRunFailsPastTheOutputLimit, internal/wikigit:TestDiagnosticsAreCutAtTheLimit, internal/wikigit:TestReadFailureInAnyLocale |
+| STO-K09 | Memory is pushed only to the configured remote, checked on each commit and push; never a credential URL or a force push | internal/wikigit:TestGuardsRefuse, internal/wikigit:TestDivergedRemoteIsLeftAlone, internal/wikiinit:TestRejectedRemoteDoesNotEchoCredentials |
+| STO-K10 | The commit stages explicit paths only, and leaves out links, JSONL, the inbox, temporary files and any line its scan flags | internal/wikigit:TestLeavesOutWhatIsNeverCommitted, internal/wikigit:TestDiffScan, internal/wikigit:TestSecretLeftOutIdentifiersCommitted, internal/wikigit:TestPathspecSettingsNeverReachGit |
+| STO-K11 | Writers and the commit share one secret test | internal/wikigit:TestSecretLines, internal/update:TestKnowledgeSecretScan, internal/systempage:TestIdentifiersPassSecretsDoNot |
+| STO-K12 | Never commit over a merge, rebase, cherry-pick, revert, unmerged paths or a detached HEAD | internal/wikigit:TestGuardsRefuse |
+| STO-K13 | Commit records hold counts, reasons and wiki-relative paths only | internal/wikigit:TestCommitAndPush, internal/wikigit:TestSecretLeftOutIdentifiersCommitted |
+| STO-K14 | Hooks run no git and no network for maintain: a stat, an exclusive create, and a detached start after the output | internal/hook:TestDailyMaintainStartsOnce, internal/hook:TestLateCaptureStartsNoMaintain, internal/hook:TestPushRetrySpacing |
+| STO-K15 | The user's signing and sign-in settings are never changed, and a failed signature is not retried in a loop | internal/wikigit:TestDeclinedSignatureFails, internal/wikigit:TestMissingSignerFails, internal/wikiinit:TestSignatureFailureIsNotRetried |
+| STO-K18 | Validation errors are counted, never a reason to skip a commit | internal/wikigit:TestValidationErrorsDoNotStopCommit |
+
 ## Since the split
 
 No change yet.

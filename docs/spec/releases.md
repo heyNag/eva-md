@@ -99,6 +99,16 @@ The lookup has 30 seconds and each download 5 minutes; both limits, and the 30-s
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| SET-K18 | The install script runs from its last line, checks the checksum and version first, refuses root, and uses HTTPS only | cmd/eva-md:TestInstallScriptChecksumMismatch, cmd/eva-md:TestInstallScriptRefusesRootAndOtherSystems, cmd/eva-md:TestInstallScriptVersionPinThroughThePipe |
+| OPS-K14 | Nothing downloaded runs before its checksum and version match; HTTPS only, bounded, and a cut download runs nothing | internal/release:TestVerify, internal/release:TestLatestAndDownload, cmd/eva-md:TestUpgradeFailuresChangeNothing, cmd/eva-md:TestInstallScriptChecksumMismatch |
+| OPS-K15 | Releases need main, green checks and an approval or signed tag; provenance is checked against one signer; actions are pinned | internal/release:TestReleaseChecksProvenanceAgainstOneSigner, internal/release:TestReleaseWorkflowPinsEveryAction, internal/release:TestReleaseCutWorkflowNeedsAnApproval, internal/release:TestReleaseStopsAtTheFirstFailedCheck, internal/release:TestReleasePlanStopsAtTheFirstFailedCheck |
+
 ## Since the split
 
 No change yet.

@@ -80,6 +80,20 @@ A call that runs out of time is killed together with every process it started.
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| SYS-K03 | Sources hold no user, password or credential parameter, and paths no .., spaces or control characters | internal/systempage:TestSourcesAreGeneric, internal/coderef:TestParse, internal/systempage:TestReadCodeRefusesAPathWithControlCharacters |
+| SYS-K09 | Read-only git is hardened: no hooks, locks or lazy fetch, literal paths, the group killed on timeout, output capped, never a write | internal/coderef:TestNoLazyFetchInAPartialClone, internal/coderef:TestPathspecSettingsNeverReachGit, internal/coderef:TestTimeoutKillsTheGroup, internal/coderef:TestTimeout, internal/coderef:TestLastWithShowSignature, internal/coderef:TestCommitsCapped |
+| SYS-K10 | A clone is resolved again and must still hold the repo before it is measured | internal/coderef:TestFinder, internal/coderef:TestFinderListsAWorktreeOnce |
+| SYS-K11 | Unchanged is never claimed for a path the commit lacks or with nothing counted, and a status at other commits is ignored | internal/coderef:TestAPathTheCommitLacks, internal/coderef:TestMovementSince, internal/coderef:TestStatus, internal/resume:TestBriefTakesNoCountTheStatusCantMeasure |
+| SYS-K12 | The code status is local, private, read without links within a bound, and holds no subject; a printed subject is redacted and cut | internal/coderef:TestSaveLoadMerge, internal/coderef:TestLast |
+| SYS-K13 | A write checks each cited path exists at its commit, never waiting on a clone | internal/systempage:TestWriteChecksCodeInAClone |
+| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed | internal/coderef:TestTimeout, internal/systempage:TestWriteWaitsForTheWikiLock |
+
 ## Since the split
 
 No change yet.

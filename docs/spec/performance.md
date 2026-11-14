@@ -88,6 +88,16 @@ By the third round's rule, the same 20 gates pass 17 times and are not judged 3 
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| CAP-K18 | Capture p95 under 50 ms and the brief under 300 ms, checked by the benchmark | none yet |
+| EVL-K09 | The benchmark is isolated and checks what the hooks do as well as how fast | none yet |
+| EVL-K10 | Capture p95 under 50 ms, the startup brief under 300 ms, a prompt under 50 ms and SessionEnd under 200 ms | none yet |
+
 ## Since the split
 
 **2026-11-14, EV-16e: a brief whose git calls ran out of time.**

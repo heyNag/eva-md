@@ -122,6 +122,18 @@ Built in `internal/update` (`Job`) and run by `eva-md update`.
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| CAP-K03 | EVA_MD_INNER=1 stops capture inside eva-md's own model runs, and every detached job carries it | internal/hook:TestGuardsAndOrdering, internal/hook:TestMaintainJobEnvironment, internal/update:TestChildEnvironmentIsAnAllowlist |
+| CAP-K04 | A detached job runs the installed binary by absolute path, in its own session, stdin from /dev/null, output to a log, with an allowlisted environment | internal/hook:TestDetachedJobOutlivesTheHook, internal/hook:TestDetachNeedsAnAbsoluteShareFolder, internal/hook:TestMaintainJobEnvironment, internal/hook:TestJobEnvFollowsGit |
+| UPM-K16 | The chat's own host runs the update; a failure holds the host, backs off or blames the session | internal/update:TestAuthHoldsTheHostUntilAManualRunOrTomorrow, internal/update:TestRateLimitBacksOffWithoutCountingTowardTheSession, internal/update:TestThreeInvalidOutputsQuarantineTheSession, internal/update:TestClassifyFailureText |
+| UPW-K01 | Hooks never wait for or share a lock with the job: it starts after the output, detached, and trigger checks cost a stat | internal/hook:TestSpawnFollowsTheOutput, internal/hook:TestDetachedJobOutlivesTheHook, internal/hook:TestStopSpawnsAt60KBUnprocessed, internal/update:TestSecondJobExitsAtOnce |
+| UPW-K12 | Host failures hold or back off without blaming a session; a person's run clears holds; a failed watermark save still counts | internal/update:TestAuthHoldsTheHostUntilAManualRunOrTomorrow, internal/update:TestRateLimitBacksOffWithoutCountingTowardTheSession, internal/update:TestManualRunClearsAQuarantine, internal/update:TestSkipsAndAMissingCLICountNoCall, internal/update:TestBackoffUntil, internal/update:TestWatermarkFailureStaysWithinTheBudget |
+
 ## Since the split
 
 No change yet.

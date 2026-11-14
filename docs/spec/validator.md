@@ -126,6 +126,25 @@ Its report counts every change for the run log, as counts only, never text: refs
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| PGS-K01 | Every stored item carries a speaker tag and refs that code resolves; the model never writes a ref or an id | internal/update:TestValidateResolvesRefs, internal/update:TestValidateSpeakerTags, internal/update:TestSchemaIsStrict |
+| PGS-K02 | Neither side's words go under the other's label: tags drop to what the citations support, and a decision without the user's tag is a question | internal/update:TestValidateSpeakerTags, internal/update:TestValidateNeverRelabels, internal/update:TestRestsOn |
+| PGS-K03 | Pasted text is never stated or accepted, and a turn that read the web settles no observed knowledge | internal/update:TestPastedSpans, internal/update:TestValidateKnowledgeOffTheWeb, internal/update:TestBuildMarksWebTurns |
+| PGS-K04 | Only the user retires what the user owns, with a prompt at or after it; an older session never overrides a newer one | internal/update:TestValidateRuleChanges, internal/update:TestValidateKnowledgeChanges, internal/update:TestValidateKeepsTheNowForAnOlderSession |
+| PGS-K16 | Model output is redacted again, and every line a knowledge save writes passes the commit's scan first | internal/update:TestValidateRedactsCapsAndEscapes, internal/update:TestKnowledgeSecretScan, internal/update:TestKnowledgeSecretScanPassesPlainText |
+| UPM-K12 | What a web fetch reported never becomes observed knowledge | internal/update:TestValidateKnowledgeOffTheWeb, internal/update:TestBuildMarksWebTurns, internal/update:TestWebTurnCarriesAcrossPasses |
+| UPW-K06 | Locked, verified or unreadable pages are never written; an untagged item is a person's | internal/update:TestProtectedPagesAreSkipped, internal/update:TestValidateProtectsHandWrittenItems |
+| UPW-K07 | Only stated and accepted make a decision, a user tag needs the user's own cited words, and rules come only from them | internal/update:TestValidateSpeakerTags, internal/update:TestRuleScope, internal/update:TestValidateKnowledgeAdds |
+| UPW-K08 | A change to a stored item needs the user's prompt at or after its time; an older session cannot overwrite the Now | internal/update:TestValidateFreshness, internal/update:TestValidateRuleChanges, internal/update:TestValidateKnowledgeChanges |
+| UPW-K09 | No id is lost and nothing is merged silently: missing ids carried, retired ids on the Timeline, an unrelated replacement asked | internal/update:TestValidateItemAccounting, internal/update:TestValidateActsOnEveryIdOfAFullPage, internal/update:TestValidateReplaceQuestion |
+| UPW-K10 | Model output is redacted again, capped and escaped, and knowledge lines are checked against the commit's scan | internal/update:TestValidateRedactsCapsAndEscapes, internal/update:TestKnowledgeSecretScan |
+| UPW-K15 | The dry run changes nothing and is byte-stable; validation is pure; the guarantees check any pass | internal/update:TestDryRunIsByteIdenticalAndShowsNoValues, internal/update:TestValidateIsDeterministic, internal/update:TestValidateKnowledgeIsDeterministic |
+
 ## Since the split
 
 No change yet.

@@ -66,6 +66,17 @@ The blocks below are v1's design and verification text, moved here word for word
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| UPM-K18 | The runner's tests end time limits themselves and never depend on speed | internal/update:TestTimeoutEndsTheRunAtItsDeadline, internal/update:TestTimeoutBeforeTheCLIStartsIsATimeout |
+| EVL-K01 | Fact scripts carry speaker, time, validity, replacement and tag, and code derives the obligations | internal/update/accuracy:TestScripts, internal/update/accuracy:TestObligations, internal/update:TestAccuracyHistories |
+| EVL-K02 | Obligations that hold whatever the model writes are kept apart from those that depend on it | internal/update/accuracy:TestMeasureMisses, internal/update/accuracy:TestTally, internal/update/accuracy/live:TestRunTalliesBrokenObligations |
+| EVL-K04 | The 12 failure modes are regression classes with adversarial answers and the validator's expected reaction | internal/update:TestAccuracyHistories, internal/update:TestAccuracyRuleHistories, internal/update:TestAccuracyKnowledgeHistories, internal/update:TestAccuracyTenure |
+
 ## Since the split
 
 No change yet.

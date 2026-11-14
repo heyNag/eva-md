@@ -27,6 +27,27 @@ The blocks below are v1's design and verification text, moved here word for word
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| CUP-K14 | Recovery redacts with the union of the baseline and current rules | internal/catchup:TestBoundedRedactMatchesFullRedaction, internal/catchup:TestRedactorCleaningAndKeyMarkerReplicas |
+| RED-K01 | Text is redacted before any byte reaches disk and before it is cut, so a token across a cut leaks no prefix | internal/inbox:TestRedactionTruncationAndFailClosed, internal/hook:TestToolLines, internal/catchup:TestBoundedRedactMatchesFullRedaction |
+| RED-K02 | A redactor panic stores no text, or a gap in recovery, never unredacted text | internal/inbox:TestRedactionTruncationAndFailClosed, internal/catchup:TestRedactorPanicLeavesGap |
+| RED-K03 | A rule change never keeps a secret an earlier rule set removed | internal/redact:TestNoSecretVersion1Removed, internal/redact:TestFloorKeepsVersion1Redactions, internal/redact:TestScanMatchesRedactV1, internal/redact:TestOracle |
+| RED-K04 | Redacting redacted text changes nothing | internal/redact:TestIdempotent, internal/redact:TestValuesIdempotentOnRandomInput, internal/redact:TestPasswordShapesIdempotentOnRandomInput |
+| RED-K05 | Only a whole marker counts as earlier redaction, and no span starts or ends inside one | internal/redact:TestValueMarkersAreOpaque, internal/redact:TestPasswordShapesKeepMarkersWhole, internal/redact:TestSpanSearchMatchesScan, internal/redact:TestUntracedKeepsRulesText |
+| RED-K06 | Invisible and control characters are cleaned before matching, so a split secret is caught | internal/redact:TestCleanAndSplitSecrets, internal/catchup:TestRedactorCleaningAndKeyMarkerReplicas |
+| RED-K07 | SHAs and UUIDs are kept in plain text but not as a secret's value; op:// references are kept | internal/redact:TestSecretKeyKeepsNoSHAOrUUID, internal/redact:TestNegatives, internal/redact:TestPositives |
+| RED-K08 | Identity fields take format-only rules, keep word-like names, and stay distinct and stable | internal/redact:TestIdentifier, internal/redact:TestIdentifierKeepsNamesAndSeparatesSecrets, internal/redact:TestIdentifierStableAfterHashCut, internal/redact:TestRedactKnownKeepsIdentifiers, internal/inbox:TestBranchNamesStayDistinct |
+| RED-K09 | No replacement spans a newline but a private key block | internal/redact:TestPasswordShapesKeepLines, internal/catchup:TestBoundedRedactMatchesFullRedaction |
+| RED-K10 | Redaction's cost grows linearly with the text | internal/redact:TestPasswordCommandsReadEachCommandOnce |
+| RED-K11 | The cases of code to keep and passwords to remove are kept as the acceptance corpus | internal/redact:TestValueCodeShapesKept, internal/redact:TestFloorKeepsCode, internal/redact:TestPasswordShapes, internal/redact:TestPasswordShapesKept, internal/redact:TestCorpusReads |
+| RED-K12 | Logs and entries record how many replacements, never what was replaced | internal/inbox:TestAppendRedactedKeepsTextAndChecksMetadata, internal/redact:TestCount, internal/hook:TestRecordsHoldNoContent |
+| RED-K13 | Page writers and the commit's scan share one line judge | internal/wikigit:TestSecretLines, internal/wikigit:TestSecretLine, internal/update:TestKnowledgeSecretScan, internal/systempage:TestIdentifiersPassSecretsDoNot |
+
 ## Since the split
 
 No change yet.
