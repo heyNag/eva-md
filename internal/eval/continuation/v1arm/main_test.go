@@ -639,7 +639,7 @@ func (r *rig) run() (drive.Summary, string, error) {
 }
 
 // useSignIn gives the run a fake sign-in program, the test binary linked
-// under that name, and its script.
+// under that name, as its options' SignIn, and its script.
 func (r *rig) useSignIn(s signInScript) {
 	r.t.Helper()
 	s.Dir = r.record
@@ -653,8 +653,7 @@ func (r *rig) useSignIn(s signInScript) {
 	}
 	r.t.Setenv(signInVar, filepath.Join(r.base, "sign-in.json"))
 	r.opts.PassEnv = append(r.opts.PassEnv, signInVar)
-	SetSignIn(link)
-	r.t.Cleanup(func() { SetSignIn("") })
+	r.opts.SignIn = link
 }
 
 // calls reads the fake eva-md's record.

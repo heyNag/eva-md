@@ -21,11 +21,17 @@
 // replayed hooks name the workspace, as their payload's cwd and their
 // folder, and they run eva-md, not the host's CLI.
 //
+// A trial that ends setup_failed or update_failed gives the driver what
+// eva-md's run log holds by then, the sum after gives a trial that ran,
+// so what a failed update spent counts toward --max-tokens; what the
+// --sign-in program spent is in no run log and is not counted.
+//
 // When the first two trials of a run both end setup_failed or
 // update_failed, each further one would too, so the third stops the run
 // before it runs anything of its own (the driver has made the trial's
-// folders and asked the host's CLI its version by then), and the run ends
-// in an error.
+// folders and asked the host's CLI its version by then), with the
+// driver's drive.ErrStopRun: that trial and every later one are counted
+// not run, and the run ends arm_stopped.
 //
 // What this cannot bound: the jobs eva-md's hooks start in a session of
 // their own, out of any group the arm kills. The arm waits, before the
@@ -92,11 +98,9 @@ const outputLimit = 64 << 10
 // evaluation build. Nothing else sets it.
 var skipTagCheck bool
 
-// arm is the condition's state: the sign-in program, and what it needs to
-// stop a run whose first two trials failed.
+// arm is the condition's state: what it needs to stop a run whose first
+// two trials failed. The sign-in program is the run's, in its options.
 type arm struct {
-	// signIn is the program --sign-in gives, or "".
-	signIn string
 	// limit gives a command's context, which ends when d has passed; nil is
 	// context.WithTimeout. A test ends it at an exact point instead.
 	limit func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
@@ -127,10 +131,6 @@ func init() {
 	drive.Register(task.Eva, eva.drive())
 }
 
-// SetSignIn gives the program --sign-in names, run in each trial before
-// setup (see signIn). The command calls it before the run; "" runs none.
-func SetSignIn(path string) { eva.signIn = path }
-
 // drive is the arm as the driver runs it.
 func (a *arm) drive() drive.Arm {
 	return drive.Arm{Check: a.check, Prepare: a.prepare, After: a.after}
@@ -138,7 +138,7 @@ func (a *arm) drive() drive.Arm {
 
 // check refuses a run that names a variable of the seam with --pass-env,
 // that gives no eva-md, one that is not the evaluation build, or a
-// --sign-in that is not a program.
+// --sign-in (o.SignIn) that is not a program.
 func (a *arm) check(o drive.Options) error {
 	for _, name := range o.PassEnv {
 		if name == entrypointVar || name == actorVar {
@@ -157,11 +157,11 @@ func (a *arm) check(o drive.Options) error {
 			return errors.New("--eva-md is not the evaluation build: it was built without the tag " + evalTag)
 		}
 	}
-	if a.signIn != "" {
-		if !filepath.IsAbs(a.signIn) {
+	if o.SignIn != "" {
+		if !filepath.IsAbs(o.SignIn) {
 			return errors.New("--sign-in is not an absolute path")
 		}
-		info, err := os.Stat(a.signIn)
+		info, err := os.Stat(o.SignIn)
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 			return errors.New("--sign-in is not a file that can be run")
 		}
@@ -189,8 +189,9 @@ var (
 )
 
 // errStopped is the third trial's error when the first two of its run both
-// ended setup_failed or update_failed.
-var errStopped = errors.New("the first two trials both ended setup_failed or update_failed, so each further one would too: the run stops")
+// ended setup_failed or update_failed: the driver's drive.ErrStopRun, which
+// counts that trial and every later one not run.
+var errStopped = fmt.Errorf("the first two trials both ended setup_failed or update_failed, so each further one would too: %w", drive.ErrStopRun)
 
 // state is the run of trial t, by its folder: <work>/<run>.
 func (a *arm) state(t drive.Trial) *runState {
@@ -243,17 +244,34 @@ func (a *arm) prepare(ctx context.Context, t drive.Trial) (drive.Launch, error) 
 	err := a.setUp(ctx, t)
 	a.ended(s, t, err)
 	if err != nil {
-		return drive.Launch{}, err
+		return drive.Launch{}, a.spent(t, err)
 	}
 	return drive.Launch{Plugin: true, Env: []string{actorVar + "=person"}}, nil
+}
+
+// spent gives err, when it leaves trial t unjudged, the cost eva-md's run
+// log holds by then, the sum after makes, so that what an update spent
+// before it failed counts toward the ceiling. A run log that holds nothing
+// gives no cost, and so does one that cannot be read: the trial is
+// unjudged all the same.
+func (a *arm) spent(t drive.Trial, err error) error {
+	var u *drive.Unjudged
+	if !errors.As(err, &u) {
+		return err
+	}
+	cost, cerr := a.cost(t)
+	if cerr != nil || cost == (drive.Cost{}) {
+		return err
+	}
+	return &drive.Unjudged{Code: u.Code, Cost: cost}
 }
 
 // setUp is prepare's work, in order: the sign-in program, the wiki's bare
 // remote, setup and the plugin's check, the earlier chat's hooks, the
 // update, and the wait for the jobs the hooks started.
 func (a *arm) setUp(ctx context.Context, t drive.Trial) error {
-	if a.signIn != "" {
-		if _, err := a.run(ctx, SignInTimeout, a.signIn, nil, t.Env, t.Dirs.Home, nil); err != nil {
+	if signIn := t.Options.SignIn; signIn != "" {
+		if _, err := a.run(ctx, SignInTimeout, signIn, nil, t.Env, t.Dirs.Home, nil); err != nil {
 			return a.failed(ctx, err, setupFailed)
 		}
 	}
