@@ -135,7 +135,11 @@ func newRig(t *testing.T, facts int) *rig {
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	write(t, filepath.Join(home, "gitconfig"), "[user]\nname = Rig Fixture\nemail = rig@example.invalid\n[commit]\ngpgsign = false\n[init]\ndefaultBranch = main\n")
+	write(t, filepath.Join(home, "gitconfig"), "[user]\nname = Rig Fixture\nemail = rig@example.invalid\n[commit]\ngpgsign = false\n[init]\ndefaultBranch = main\n"+
+		// No background work of git's in the rig's repositories: a commit
+		// otherwise starts maintenance that makes and removes files in .git
+		// while a test walks the rig (CI's macOS job failed on that once).
+		"[maintenance]\nauto = false\n[gc]\nauto = 0\n")
 	repo := filepath.Join(base, "repo")
 	write(t, filepath.Join(repo, "README.md"), "measured\n")
 	git(t, repo, "init", "-q")

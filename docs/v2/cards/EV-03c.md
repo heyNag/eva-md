@@ -53,3 +53,19 @@ The card's checker left these to the lead.
 - **Rows of more than one commit for a host and condition are shown, not refused**: the host table may be corrected during the pilot.
 - **The screens are read as carded**: a hidden decision passes twice when it is solved at the first try; a handoff is solvable from the repository alone when memory off solved it once or more; and 30% fewer agent events means the ideal record's median is at most 0.7 of memory off's.
 - When EV-17e deletes the pilot it takes `eval/pilot/README.md` with the rest; its paths cover the folder.
+
+## As merged
+
+Merged from `pkg/ev-03c-r1` on 2026-11-14, after a review that found only small faults, a fix round for them and a verification that accepted it.
+
+The lead's rulings at the merge:
+
+- **The report's text names no model.** The card's item 4 asked for the model asked and the models the rows name; the lead's order said no model's name, and the order stands: the text gives counts of them. The repository never says which model the owner uses.
+- **Each run takes a results folder of its own.** A killed run writes no record, and the report refuses a folder whose rows its records do not count: in a folder shared by several runs one killed run would cost them all.
+- **A report is made once a host**, over that host's runs, with that host's provider's rates: one set of rates prices every trial a report reads.
+- **The smoke run's folder is never given to the report.** The report refuses it only when the full run judged the same trial; when the full run left that trial unjudged it would take the smoke's in its place. That is the run-book's rule to keep, not the code's.
+- **The price of memory is a floor**, every memory token at the uncached prompt's rate, as carded.
+
+Beyond the card, accepted: the report also refuses a row or a record that holds a word a task forbids, a value its measure cannot take, the same trial in two folders, a record given twice, and a row of a trial that none of its folder's records ran.
+
+Known, for EV-17e: the driver's run ids are unique within one work folder only, so two runs started in the same second share one; the report takes two records for one run only when every field agrees.
