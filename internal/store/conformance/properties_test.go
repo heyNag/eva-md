@@ -195,13 +195,33 @@ func crashChecks(newModel func() *Model) map[string]func(int64, crashed) error {
 	}
 }
 
-// wantFailure fails the test unless err is a Failure of the property, on
-// the seed, with exactly the detail.
+// wantFailure fails the test unless err is a failure of a whole run of the
+// property, which names its last seed and no step, with exactly the detail.
 func wantFailure(t *testing.T, err error, property string, seed int64, detail string) {
 	t.Helper()
 	var f *Failure
-	if !errors.As(err, &f) || f.Property != property || f.Seed != seed || f.Detail != detail {
-		t.Errorf("got %v; want %s fails on seed %d: %s", err, property, seed, detail)
+	if !errors.As(err, &f) || f.Property != property || f.Seed != seed || f.Step != runLevel || f.Detail != detail {
+		t.Errorf("got %v; want a run's failure: %s fails on seed %d: %s", err, property, seed, detail)
+		return
+	}
+	if want := fmt.Sprintf("%s fails on seed %d: %s", property, seed, detail); err.Error() != want {
+		t.Errorf("the run's failure reads %q, want %q", err.Error(), want)
+	}
+}
+
+// A failure at a step names it; one of a whole run names none.
+func TestAFailureNamesItsStepWhenItHasOne(t *testing.T) {
+	for _, c := range []struct {
+		f    Failure
+		want string
+	}{
+		{Failure{Property: PropReplay, Seed: 3, Step: 0, Detail: "made up"}, "Replay fails on seed 3 at step 0: made up"},
+		{Failure{Property: PropReplay, Seed: 3, Step: 12, Detail: "made up"}, "Replay fails on seed 3 at step 12: made up"},
+		{Failure{Property: PropReplay, Seed: 3, Step: runLevel, Detail: "made up"}, "Replay fails on seed 3: made up"},
+	} {
+		if got := c.f.Error(); got != c.want {
+			t.Errorf("got %q, want %q", got, c.want)
+		}
 	}
 }
 
@@ -354,6 +374,50 @@ func TestSessionKeptFollowsWhatAPersonWrote(t *testing.T) {
 		var f *Failure
 		if !errors.As(err, &f) || f.Detail != v.detail {
 			t.Errorf("%s gave %v; want %s", v.name, err, v.detail)
+		}
+	}
+}
+
+// recoverOnly is the model behind an adapter that passes its fault on at
+// recover alone.
+type recoverOnly struct{ *Model }
+
+func (s recoverOnly) Open(clock Clock, fault store.Fault) (store.Store, error) {
+	return s.Model.Open(clock, func(st store.Step, i int) error {
+		if st != store.StepRecover || fault == nil {
+			return nil
+		}
+		return fault(st, i)
+	})
+}
+
+// A crash armed at plan on a pass not yet in history must fire, in
+// CheckCrashSafety's own loop as in the other checks. Behind an adapter
+// that passes its fault on at recover alone, the first crash that does not
+// fire where it must is armed at plan, at the step each row names.
+func TestACrashArmedAtPlanMustFire(t *testing.T) {
+	subject := func() Subject { return recoverOnly{NewModel()} }
+	restorable := func() Restorable { return recoverOnly{NewModel()} }
+	for _, c := range []struct {
+		property   string
+		seed       int64
+		step       int
+		check      func(int64) error
+		modelCheck func(int64) error
+	}{
+		{PropCrashSafety, 8, 0, func(s int64) error { return CheckCrashSafety(subject, s) }, func(s int64) error { return CheckCrashSafety(newModel, s) }},
+		{PropCrashSafety, 3, 3, func(s int64) error { return CheckCrashSafety(subject, s) }, func(s int64) error { return CheckCrashSafety(newModel, s) }},
+		{PropExactlyOnce, 8, 0, func(s int64) error { return CheckExactlyOnce(subject, s) }, func(s int64) error { return CheckExactlyOnce(newModel, s) }},
+		{PropRestore, 6, 3, func(s int64) error { return CheckRestore(restorable, s) }, func(s int64) error { return CheckRestore(newRestorable, s) }},
+		{PropReplay, 5, 1, func(s int64) error { return CheckReplay(restorable, s) }, func(s int64) error { return CheckReplay(newRestorable, s) }},
+	} {
+		if err := c.modelCheck(c.seed); err != nil {
+			t.Fatalf("the model itself fails %s on seed %d: %v", c.property, c.seed, err)
+		}
+		err := c.check(c.seed)
+		var f *Failure
+		if !errors.As(err, &f) || f.Property != c.property || f.Seed != c.seed || f.Step != c.step || f.Detail != "a crash armed at plan did not fire" {
+			t.Errorf("%s on seed %d gave %v; want a crash armed at plan that did not fire, at step %d", c.property, c.seed, err, c.step)
 		}
 	}
 }

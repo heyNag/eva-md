@@ -79,7 +79,8 @@ const (
 )
 
 // Failure is a property that did not hold: which, on which seed, and at
-// which step of the schedule.
+// which step of the schedule. A failure of a whole run belongs to no step:
+// it has the run's last seed and the Step runLevel.
 type Failure struct {
 	Property string
 	Seed     int64
@@ -87,7 +88,13 @@ type Failure struct {
 	Detail   string
 }
 
+// runLevel is the Step of a failure that belongs to a run, not a step.
+const runLevel = -1
+
 func (f *Failure) Error() string {
+	if f.Step < 0 {
+		return fmt.Sprintf("%s fails on seed %d: %s", f.Property, f.Seed, f.Detail)
+	}
 	return fmt.Sprintf("%s fails on seed %d at step %d: %s", f.Property, f.Seed, f.Step, f.Detail)
 }
 

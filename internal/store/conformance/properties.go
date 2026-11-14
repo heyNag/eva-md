@@ -56,10 +56,11 @@ func upTo(n int) []int64 {
 // runCrashes checks a property that crashes passes on each seed in turn,
 // and stops at the first that fails. A store that dropped its fault would
 // pass every check, so over the seeds an armed crash must have fired, and
-// over everyStepFrom seeds or more, one at every step of Apply.
+// over everyStepFrom seeds or more, one at every step of Apply. Such a
+// failure is the run's: it has the last seed and no step.
 func runCrashes(prop string, seeds []int64, check func(seed int64, c crashed) error) error {
 	if len(seeds) == 0 {
-		return &Failure{Property: prop, Detail: "no seed to check"}
+		return &Failure{Property: prop, Step: runLevel, Detail: "no seed to check"}
 	}
 	c := crashed{}
 	for _, seed := range seeds {
@@ -69,12 +70,12 @@ func runCrashes(prop string, seeds []int64, check func(seed int64, c crashed) er
 	}
 	last := seeds[len(seeds)-1]
 	if len(c) == 0 {
-		return &Failure{Property: prop, Seed: last, Detail: fmt.Sprintf("no armed crash fired in %d seeds", len(seeds))}
+		return &Failure{Property: prop, Seed: last, Step: runLevel, Detail: fmt.Sprintf("no armed crash fired in %d seeds", len(seeds))}
 	}
 	if len(seeds) >= everyStepFrom {
 		for _, s := range store.Steps {
 			if c[s] == 0 {
-				return &Failure{Property: prop, Seed: last, Detail: fmt.Sprintf("no armed crash fired at %s in %d seeds", s, len(seeds))}
+				return &Failure{Property: prop, Seed: last, Step: runLevel, Detail: fmt.Sprintf("no armed crash fired at %s in %d seeds", s, len(seeds))}
 			}
 		}
 	}
