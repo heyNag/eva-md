@@ -86,53 +86,42 @@ func Conditions(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 		used[host] = !unusedHost(d, host, stages, now)
 	}
 	var out []Condition
-	add := func(typ, host, event, severity, text string) {
-		id := typ
-		for _, part := range []string{host, event} {
-			if part != "" {
-				id += "/" + part
-			}
-		}
-		out = append(out, Condition{ID: id, Type: typ, Host: host, Event: event, Severity: severity, Text: text, Relevant: host == "" || used[host]})
+	add := func(typ, host, event string, n, of int, wait time.Duration) {
+		cond := newCondition(typ, host, event, n, of, wait)
+		cond.Relevant = host == "" || used[host]
+		out = append(out, cond)
 	}
 
 	if len(c.Unknown) > 0 {
-		add(CondUnknownKeys, "", "", "high", "eva.md: its config has keys it does not know, which it ignores, so a setting may be lost. Correct or remove them in eva-md's config.toml.")
+		add(CondUnknownKeys, "", "", 0, 0, 0)
 	}
 	var schema config.WikiSchema
 	schemaRead := false
 	if c.WikiPath != "" {
 		if _, err := readPrivate(filepath.Join(c.WikiPath, "index.md"), 1<<20); err != nil {
-			add(CondWikiUnreadable, "", "", "high", "eva.md: the wiki's index.md cannot be read, so briefs and updates leave the wiki out. Restore index.md at the wiki's root.")
+			add(CondWikiUnreadable, "", "", 0, 0, 0)
 		}
 		s, err := config.LoadSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"))
 		schema, schemaRead = s, err == nil
 		if schemaRead && c.Instance != "" && s.Instance != c.Instance {
-			add(CondWikiInstance, "", "", "high", "eva.md: the wiki is another install's, so nothing is written to it. Point wiki_path in eva-md's config.toml at this Mac's own wiki.")
+			add(CondWikiInstance, "", "", 0, 0, 0)
 		}
 	}
 
 	if reviewer, open := trustReview(d, stages, now); open {
-		app := reviewer.Names.App
-		add(CondTrustReview, string(reviewer.ID), "", "high", "eva.md: "+app+" chats are not saved until "+app+" approves eva-md's hooks. In "+app+", type /hooks and approve eva-md.")
+		add(CondTrustReview, string(reviewer.ID), "", 0, 0, 0)
 	}
 	for _, s := range stages {
 		if s.Name == StageCapture && !s.Off && s.Unread == "" && s.Lag > s.Budget {
-			app := appName(s.Host)
-			add(CondCaptureSilent, s.Host, "", "high", "eva.md: "+app+"'s hooks have not run for "+span(s.Lag)+" while it was in use, so its chats are not saved. Enable eva-md's plugin in "+app+".")
+			add(CondCaptureSilent, s.Host, "", 0, 0, s.Lag)
 		}
 	}
 	failing := failingHooks(d, now)
-	addHooks := func(high bool) {
+	addHooks := func(start bool) {
 		for _, f := range failing {
-			if slices.Contains(startEvents, f.event) != high {
-				continue
+			if slices.Contains(startEvents, f.event) == start {
+				add(CondHookFailing, f.host, f.event, f.failed, f.runs, 0)
 			}
-			severity := "medium"
-			if high {
-				severity = "high"
-			}
-			add(CondHookFailing, f.host, f.event, severity, fmt.Sprintf("eva.md: %d of the last %d %s %s hooks failed: they ran out of time or could not save. Free disk space and check eva-md's state folder.", f.failed, f.runs, appName(f.host), f.event))
 		}
 	}
 	addHooks(true)
@@ -149,8 +138,7 @@ func Conditions(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 		// Signed out: held today for it, or the newest of the failures in a
 		// row was for it, as on the next day before a run tries again.
 		if s, ok := states[host]; ok && (s.Held == update.ReasonAuth || len(s.Failures) > 0 && s.Failures[0] == update.ReasonAuth) {
-			h, _ := adapter.ByID(host)
-			add(CondUpdateSignIn, host, "", "high", "eva.md: "+h.Names.App+" chats are not turned into notes while "+h.Names.App+" is signed out. Run "+h.Login()+".")
+			add(CondUpdateSignIn, host, "", 0, 0, 0)
 		}
 	}
 	var cs commits
@@ -161,27 +149,26 @@ func Conditions(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 		}
 	}
 	if commitsRead && cs.push == wikigit.PushDiverged {
-		add(CondPushDiverged, "", "", "high", "eva.md: the wiki's remote has commits this clone lacks, so pushes stopped. Merge them in the wiki by hand, never with a force push.")
+		add(CondPushDiverged, "", "", 0, 0, 0)
 	}
 
 	addHooks(false)
 	for _, host := range updateHosts {
-		s, ok := states[host]
-		if ok && len(s.Failures) >= failuresInRow {
-			add(CondUpdateFailing, host, "", "medium", fmt.Sprintf("eva.md: the last %d %s updates failed, so its chats wait to become notes. Run eva-md update --pending --foreground to see why.", len(s.Failures), appName(host)))
+		if n := len(states[host].Failures); n >= failuresInRow {
+			add(CondUpdateFailing, host, "", n, 0, 0)
 		}
 	}
 	for _, host := range updateHosts {
 		if n := len(states[host].Quarantined); n > 0 {
-			add(CondUpdateQuarantined, host, "", "medium", fmt.Sprintf("eva.md: %d %s %s 3 updates in a row and %s once more tomorrow. eva-md status names %s.", n, appName(host), plural(n, "chat failed", "chats failed"), plural(n, "is tried", "are tried"), plural(n, "it", "them")))
+			add(CondUpdateQuarantined, host, "", n, 0, 0)
 		}
 	}
 	if schemaRead && schema.SchemaVersion > 1 {
-		add(CondSchemaNewer, "", "", "medium", "eva.md: a newer eva-md set up the wiki, so chats are captured but nothing is written to the wiki. Run eva-md upgrade.")
+		add(CondSchemaNewer, "", "", 0, 0, 0)
 	}
 	for _, host := range updateHosts {
 		if _, found, err := catchup.ReadDrift(d, host); err == nil && found {
-			add(CondRecoveryDrift, host, "", "medium", "eva.md: it no longer reads "+appName(host)+"'s transcripts, so replies its hooks miss are not recovered. Run eva-md upgrade.")
+			add(CondRecoveryDrift, host, "", 0, 0, 0)
 		}
 	}
 	// The commit and the push past their budgets, once the day's maintain
@@ -199,18 +186,64 @@ func Conditions(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 		wait, stale = max(wait, now.Sub(cs.failing)), true
 	}
 	if stale {
-		add(CondCommitStale, "", "", "medium", "eva.md: the wiki's changes have waited "+span(wait)+" to be committed. Run eva-md commit to commit them, or to see what stops it.")
+		add(CondCommitStale, "", "", 0, 0, wait)
 	}
 	if wait, stale := late(StagePush); stale {
-		add(CondPushStale, "", "", "medium", "eva.md: the wiki's commits have waited "+span(wait)+" to be pushed. Run eva-md commit --push-only to push them, or to see what stops it.")
+		add(CondPushStale, "", "", 0, 0, wait)
 	}
 	return out
 }
 
-// appName is a host's name as a person reads it, by its id.
-func appName(host string) string {
+// newCondition is a condition of typ, about host and, for a failing hook,
+// event, with its line: n and of are the counts it says (a hook's failed
+// runs and all its runs, failed updates, quarantined chats), wait how long
+// the work has waited. Its severity comes from its place in the list and,
+// for a failing hook, its event.
+func newCondition(typ, host, event string, n, of int, wait time.Duration) Condition {
+	id := typ
+	for _, part := range []string{host, event} {
+		if part != "" {
+			id += "/" + part
+		}
+	}
+	severity := "high"
+	if slices.Index(conditionTypes, typ) > slices.Index(conditionTypes, CondPushDiverged) || typ == CondHookFailing && !slices.Contains(startEvents, event) {
+		severity = "medium"
+	}
 	h, _ := adapter.ByID(host)
-	return h.Names.App
+	app := h.Names.App
+	var text string
+	switch typ {
+	case CondUnknownKeys:
+		text = "its config has keys it does not know, which it ignores, so a setting may be lost. Correct or remove them in eva-md's config.toml."
+	case CondWikiUnreadable:
+		text = "the wiki's index.md cannot be read, so briefs and updates leave the wiki out. Restore index.md at the wiki's root."
+	case CondWikiInstance:
+		text = "the wiki is another install's, so nothing is written to it. Point wiki_path in eva-md's config.toml at this Mac's own wiki."
+	case CondTrustReview:
+		text = app + " chats are not saved until " + app + " approves eva-md's hooks. In " + app + ", type /hooks and approve eva-md."
+	case CondCaptureSilent:
+		text = app + "'s hooks have not run for " + span(wait) + " while it was in use, so its chats are not saved. Enable eva-md's plugin in " + app + "."
+	case CondHookFailing:
+		text = fmt.Sprintf("%d of the last %d %s %s hooks failed: they timed out or could not save. Free disk space and check eva-md's state folder.", n, of, app, event)
+	case CondUpdateSignIn:
+		text = app + " chats are not turned into notes while " + app + " is signed out. Run " + h.Login() + "."
+	case CondPushDiverged:
+		text = "the wiki's remote has commits this clone lacks, so pushes stopped. Merge them in the wiki by hand, never with a force push."
+	case CondUpdateFailing:
+		text = fmt.Sprintf("the last %d %s updates failed, so its chats wait to become notes. Run eva-md update --pending --foreground to see why.", n, app)
+	case CondUpdateQuarantined:
+		text = fmt.Sprintf("%d %s %s 3 updates in a row and %s once more tomorrow. eva-md status names %s.", n, app, plural(n, "chat failed", "chats failed"), plural(n, "is tried", "are tried"), plural(n, "it", "them"))
+	case CondSchemaNewer:
+		text = "a newer eva-md set up the wiki, so chats are captured but nothing is written to the wiki. Run eva-md upgrade."
+	case CondRecoveryDrift:
+		text = "it no longer reads " + app + "'s transcripts, so replies its hooks miss are not recovered. Run eva-md upgrade."
+	case CondCommitStale:
+		text = "the wiki's changes have waited " + span(wait) + " to be committed. Run eva-md commit to commit them, or to see what stops it."
+	case CondPushStale:
+		text = "the wiki's commits have waited " + span(wait) + " to be pushed. Run eva-md commit --push-only to push them, or to see what stops it."
+	}
+	return Condition{ID: id, Type: typ, Host: host, Event: event, Severity: severity, Text: "eva.md: " + text}
 }
 
 // failingHook is an event of a host whose hooks fail: failed of its last
