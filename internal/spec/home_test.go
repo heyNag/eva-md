@@ -223,7 +223,7 @@ func checkHome(files []goFile, uncleared map[string]string) []string {
 			if !ok || fn.Recv != nil || fn.Name.Name != "TestMain" || fn.Body == nil || len(fn.Type.Params.List) != 1 || len(fn.Type.Params.List[0].Names) != 1 {
 				continue
 			}
-			mains[f.pkg] = mains[f.pkg] || clearsFirst(index, funcBody{f, fn.Body}, fn.Type.Params.List[0].Names[0].Name)
+			mains[f.pkg] = mains[f.pkg] || clearsFirst(index, funcBody{f, fn.Body, fn.Type}, fn.Type.Params.List[0].Names[0].Name)
 		}
 	}
 	scope := gitScope(files)

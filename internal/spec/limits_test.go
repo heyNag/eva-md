@@ -4,11 +4,14 @@ import (
 	"cmp"
 	"fmt"
 	"go/ast"
+	"go/token"
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Time limits (SYS-K17, SET-K20, EVL-K08): every package-level variable of
@@ -23,9 +26,11 @@ var durationUnits = []string{"Nanosecond", "Microsecond", "Millisecond", "Second
 var limitWords = regexp.MustCompile(`(?i)limit|timeout|times out|wait|deadline|budget|bound`)
 
 // durationVar is a package-level variable of the program whose type is
-// time.Duration.
+// time.Duration, with the value it has outside the tests.
 type durationVar struct {
 	pkg, name, where, doc string
+	value                 ast.Expr
+	f                     goFile
 }
 
 // key names a variable as the checks do, <package folder>.<name>.
@@ -37,21 +42,113 @@ func isTimePkg(f goFile, x ast.Expr) bool {
 	return ok && f.imports()["time"] == id.Name
 }
 
+// timeName says whether x is the time package's name, given in f as
+// time.<name> or, where f imports the package with a dot, as the name
+// alone.
+func timeName(f goFile, x ast.Expr, name string) bool {
+	switch x := x.(type) {
+	case *ast.SelectorExpr:
+		return x.Sel.Name == name && isTimePkg(f, x.X)
+	case *ast.Ident:
+		return x.Name == name && f.imports()["time"] == "."
+	}
+	return false
+}
+
+// constDef is a package-level constant of the module and the file that
+// holds it.
+type constDef struct {
+	value ast.Expr
+	f     goFile
+}
+
+// source is what the checks on time read of the module: its constants and
+// its functions, by <package folder>.<name>.
+type source struct {
+	consts map[string]constDef
+	funcs  map[string]funcBody
+}
+
+// sourceOf indexes files' constants and functions.
+func sourceOf(files []goFile) source {
+	consts := map[string]constDef{}
+	for _, f := range files {
+		for _, decl := range f.file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				continue
+			}
+			for _, sp := range gen.Specs {
+				spec := sp.(*ast.ValueSpec)
+				for i, name := range spec.Names {
+					if i < len(spec.Values) {
+						consts[f.pkg+"."+name.Name] = constDef{spec.Values[i], f}
+					}
+				}
+			}
+		}
+	}
+	return source{consts, funcs(files)}
+}
+
+// moduleName is what x names in f, as <package folder>.<name>, when it may
+// be a name of the module: a name alone, of f's own package, or one of an
+// imported package of the module; else "".
+func moduleName(f goFile, x ast.Expr) string {
+	switch x := x.(type) {
+	case *ast.Ident:
+		return f.pkg + "." + x.Name
+	case *ast.SelectorExpr:
+		id, ok := x.X.(*ast.Ident)
+		if !ok {
+			return ""
+		}
+		for path, name := range f.imports() {
+			if pkg := packageOf(path); pkg != "" && name == id.Name {
+				return pkg + "." + x.Sel.Name
+			}
+		}
+	}
+	return ""
+}
+
 // isDuration says whether a variable's declared type, or else its value,
-// makes it a time.Duration: the type time.Duration, a conversion to it, or
-// an expression that uses one of the time package's units.
-func isDuration(f goFile, typ, value ast.Expr) bool {
+// makes it a time.Duration: the type time.Duration, a conversion to it, an
+// expression that uses one of the time package's units, a constant of the
+// module whose value is one, or a call of a function of the module whose
+// result is one. The time package may be imported under any name, or with
+// a dot.
+func isDuration(src source, f goFile, typ, value ast.Expr) bool {
+	return isDurationAt(src, f, typ, value, 0)
+}
+
+func isDurationAt(src source, f goFile, typ, value ast.Expr, depth int) bool {
 	if typ != nil {
-		sel, ok := typ.(*ast.SelectorExpr)
-		return ok && sel.Sel.Name == "Duration" && isTimePkg(f, sel.X)
+		return timeName(f, typ, "Duration")
+	}
+	if value == nil || depth > 8 {
+		return false
 	}
 	found := false
 	ast.Inspect(value, func(n ast.Node) bool {
-		if sel, ok := n.(*ast.SelectorExpr); ok && isTimePkg(f, sel.X) && (sel.Sel.Name == "Duration" || slices.Contains(durationUnits, sel.Sel.Name)) {
-			found = true
-		}
-		if _, ok := n.(*ast.FuncLit); ok {
+		switch n := n.(type) {
+		case *ast.FuncLit:
 			return false
+		case *ast.SelectorExpr, *ast.Ident:
+			x := n.(ast.Expr)
+			if timeName(f, x, "Duration") || slices.ContainsFunc(durationUnits, func(u string) bool { return timeName(f, x, u) }) {
+				found = true
+			} else if c, ok := src.consts[moduleName(f, x)]; ok && isDurationAt(src, c.f, nil, c.value, depth+1) {
+				found = true
+			}
+			if _, ok := n.(*ast.SelectorExpr); ok {
+				return false
+			}
+		case *ast.CallExpr:
+			fn, ok := src.funcs[moduleName(f, n.Fun)]
+			if ok && fn.typ.Results != nil && len(fn.typ.Results.List) == 1 && timeName(fn.f, fn.typ.Results.List[0].Type, "Duration") {
+				found = true
+			}
 		}
 		return !found
 	})
@@ -62,13 +159,14 @@ func isDuration(f goFile, typ, value ast.Expr) bool {
 // program's files, with the comment above each or above its group.
 func durationVars(files []goFile) []durationVar {
 	var out []durationVar
+	src := sourceOf(files)
 	for _, f := range files {
 		if f.test {
 			continue
 		}
 		for _, decl := range f.file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
-			if !ok || gen.Tok.String() != "var" {
+			if !ok || gen.Tok != token.VAR {
 				continue
 			}
 			for _, s := range gen.Specs {
@@ -79,8 +177,8 @@ func durationVars(files []goFile) []durationVar {
 					if i < len(spec.Values) {
 						value = spec.Values[i]
 					}
-					if name.Name != "_" && isDuration(f, spec.Type, value) {
-						out = append(out, durationVar{pkg: f.pkg, name: name.Name, where: f.line(name), doc: doc})
+					if name.Name != "_" && isDuration(src, f, spec.Type, value) {
+						out = append(out, durationVar{pkg: f.pkg, name: name.Name, where: f.line(name), doc: doc, value: value, f: f})
 					}
 				}
 			}
@@ -89,10 +187,11 @@ func durationVars(files []goFile) []durationVar {
 	return out
 }
 
-// funcBody is a function's body and the file that holds it.
+// funcBody is a function's body, its type and the file that holds it.
 type funcBody struct {
 	f    goFile
 	body *ast.BlockStmt
+	typ  *ast.FuncType
 }
 
 // funcs indexes the functions of the given files by <package folder>.<name>,
@@ -102,72 +201,106 @@ func funcs(files []goFile) map[string]funcBody {
 	for _, f := range files {
 		for _, decl := range f.file.Decls {
 			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Body != nil && fn.Name.Name != "init" {
-				out[f.pkg+"."+fn.Name.Name] = funcBody{f, fn.Body}
+				out[f.pkg+"."+fn.Name.Name] = funcBody{f, fn.Body, fn.Type}
 			}
 		}
 	}
 	return out
 }
 
-// assigned lists, as <package folder>.<name>, what fn assigns with =, and
-// what every function of the module it calls assigns, followed through its
-// calls: a name alone as its own package's, and <import>.<name> as the
-// imported package's.
-func assigned(index map[string]funcBody, fn funcBody, seen map[string]bool) []string {
-	byName := map[string]string{}
-	for path, name := range fn.f.imports() {
-		if pkg := packageOf(path); pkg != "" {
-			byName[name] = pkg
+// testingMs are the names of fn's parameters of type *testing.M.
+func testingMs(fn funcBody) []string {
+	var names []string
+	pkg := fn.f.imports()["testing"]
+	for _, field := range fn.typ.Params.List {
+		star, ok := field.Type.(*ast.StarExpr)
+		if !ok {
+			continue
 		}
-	}
-	// target names what x is, in the module, or "" for anything else.
-	target := func(x ast.Expr) string {
-		switch x := x.(type) {
-		case *ast.Ident:
-			return fn.f.pkg + "." + x.Name
-		case *ast.SelectorExpr:
-			if id, ok := x.X.(*ast.Ident); ok && byName[id.Name] != "" {
-				return byName[id.Name] + "." + x.Sel.Name
+		sel, ok := star.X.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "M" {
+			continue
+		}
+		if id, ok := sel.X.(*ast.Ident); ok && pkg != "" && id.Name == pkg {
+			for _, name := range field.Names {
+				names = append(names, name.Name)
 			}
 		}
-		return ""
 	}
-	var out []string
+	return names
+}
+
+// raise is an assignment to a package-level variable of the module, by
+// <package folder>.<name>, with the value it is given and where.
+type raise struct {
+	key   string
+	value ast.Expr // nil when the value is not an expression of its own
+	where string
+	f     goFile
+}
+
+// raiseWalk is a walk of what a TestMain or an init of a test file runs
+// before the package's tests do.
+type raiseWalk struct {
+	index  map[string]funcBody
+	seen   map[string]bool
+	ran    bool // Run was called on a *testing.M: the tests have run
+	raises []raise
+}
+
+// walk adds what fn assigns with =, and what every function of the module
+// it calls assigns, followed through its calls, until Run is called on a
+// *testing.M it was given: what runs before any test. What a function
+// literal, a defer or a go statement holds is left out: it runs later, if
+// at all.
+func (w *raiseWalk) walk(fn funcBody) {
+	ms := testingMs(fn)
 	ast.Inspect(fn.body, func(n ast.Node) bool {
+		if w.ran {
+			return false
+		}
 		switch n := n.(type) {
+		case *ast.FuncLit, *ast.DeferStmt, *ast.GoStmt:
+			return false
 		case *ast.AssignStmt:
-			if n.Tok.String() == "=" {
-				for _, lhs := range n.Lhs {
-					if k := target(lhs); k != "" {
-						out = append(out, k)
+			if n.Tok != token.ASSIGN {
+				return true
+			}
+			for i, lhs := range n.Lhs {
+				if k := moduleName(fn.f, lhs); k != "" {
+					var value ast.Expr
+					if len(n.Rhs) == len(n.Lhs) {
+						value = n.Rhs[i]
 					}
+					w.raises = append(w.raises, raise{k, value, fn.f.line(lhs), fn.f})
 				}
 			}
 		case *ast.CallExpr:
-			if k := target(n.Fun); k != "" && !seen[k] {
-				if called, ok := index[k]; ok {
-					seen[k] = true
-					out = append(out, assigned(index, called, seen)...)
+			if sel, ok := n.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Run" && len(n.Args) == 0 {
+				if id, ok := sel.X.(*ast.Ident); ok && slices.Contains(ms, id.Name) {
+					w.ran = true
+					return false
+				}
+			}
+			if k := moduleName(fn.f, n.Fun); k != "" && !w.seen[k] {
+				if called, ok := w.index[k]; ok {
+					w.seen[k] = true
+					w.walk(called)
 				}
 			}
 		}
 		return true
 	})
-	return out
 }
 
-// raisedVars lists, as <package folder>.<name>, what tests raise before
-// any test runs: what testlimits.Raise sets, and what each package's
-// TestMain, or an init of its test files, sets of its own package's
-// variables, through the functions they call.
-func raisedVars(files []goFile) map[string]bool {
+// raisedVars gives, for each package, by its folder, what its tests set
+// before any of them runs, by <package folder>.<name>: what its TestMain
+// sets before it runs the tests, and what an init of its test files sets,
+// through the functions they call, testlimits.Raise among them. The last
+// value given stands.
+func raisedVars(files []goFile) map[string]map[string]raise {
 	index := funcs(files)
-	raised := map[string]bool{}
-	if fn, ok := index["internal/testlimits.Raise"]; ok {
-		for _, k := range assigned(index, fn, map[string]bool{}) {
-			raised[k] = true
-		}
-	}
+	raised := map[string]map[string]raise{}
 	for _, f := range files {
 		if !f.test {
 			continue
@@ -177,14 +310,70 @@ func raisedVars(files []goFile) map[string]bool {
 			if !ok || fn.Recv != nil || fn.Body == nil || fn.Name.Name != "TestMain" && fn.Name.Name != "init" {
 				continue
 			}
-			for _, k := range assigned(index, funcBody{f, fn.Body}, map[string]bool{}) {
-				if strings.HasPrefix(k, f.pkg+".") {
-					raised[k] = true
-				}
+			w := &raiseWalk{index: index, seen: map[string]bool{}}
+			w.walk(funcBody{f, fn.Body, fn.Type})
+			if raised[f.pkg] == nil {
+				raised[f.pkg] = map[string]raise{}
+			}
+			for _, r := range w.raises {
+				raised[f.pkg][r.key] = r
 			}
 		}
 	}
 	return raised
+}
+
+// unitNanos are the time package's units in nanoseconds.
+var unitNanos = map[string]float64{"Nanosecond": 1, "Microsecond": 1e3, "Millisecond": 1e6, "Second": 1e9, "Minute": 60e9, "Hour": 3600e9}
+
+// nanos evaluates x, in f, as a constant duration in nanoseconds: a
+// number, a unit of the time package, a constant of the module, a
+// conversion to time.Duration, and products, quotients, sums and
+// differences of them. ok is false for anything else.
+func nanos(src source, f goFile, x ast.Expr, depth int) (float64, bool) {
+	if x == nil || depth > 8 {
+		return 0, false
+	}
+	switch x := x.(type) {
+	case *ast.BasicLit:
+		if x.Kind != token.INT && x.Kind != token.FLOAT {
+			return 0, false
+		}
+		n, err := strconv.ParseFloat(strings.ReplaceAll(x.Value, "_", ""), 64)
+		return n, err == nil
+	case *ast.ParenExpr:
+		return nanos(src, f, x.X, depth+1)
+	case *ast.CallExpr:
+		if len(x.Args) == 1 && timeName(f, x.Fun, "Duration") {
+			return nanos(src, f, x.Args[0], depth+1)
+		}
+	case *ast.BinaryExpr:
+		a, okA := nanos(src, f, x.X, depth+1)
+		b, okB := nanos(src, f, x.Y, depth+1)
+		if !okA || !okB {
+			return 0, false
+		}
+		switch x.Op {
+		case token.MUL:
+			return a * b, true
+		case token.QUO:
+			return a / b, b != 0
+		case token.ADD:
+			return a + b, true
+		case token.SUB:
+			return a - b, true
+		}
+	case *ast.Ident, *ast.SelectorExpr:
+		for unit, n := range unitNanos {
+			if timeName(f, x, unit) {
+				return n, true
+			}
+		}
+		if c, ok := src.consts[moduleName(f, x)]; ok {
+			return nanos(src, c.f, c.value, depth+1)
+		}
+	}
+	return 0, false
 }
 
 // unraised are the time limits of the program that no test raises, each
@@ -230,11 +419,15 @@ func programPackages(files []goFile) map[string]bool {
 
 // checkTimeLimits holds the source to its time limits: every package-level
 // time.Duration variable of the program whose name or comment makes it a
-// limit or a wait is raised before any test runs, or is in unraised, and
-// every name in unraised is such a variable that is not raised.
+// limit or a wait is raised by its own package's tests before any of them
+// runs, to no less than it is outside them, or is in unraised; and every
+// name in unraised is such a variable that is not raised. testlimits.Raise
+// counts for a package whose TestMain calls it: the packages whose limits
+// it raises cannot call it from their own tests without an import cycle,
+// so they raise their own.
 func checkTimeLimits(files []goFile, unraised map[string]string) []string {
 	var problems []string
-	program, raised := programPackages(files), raisedVars(files)
+	program, raised, src := programPackages(files), raisedVars(files), sourceOf(files)
 	limits := map[string]bool{}
 	for _, v := range durationVars(files) {
 		if !program[v.pkg] || !limitWords.MatchString(v.name+" "+v.doc) {
@@ -242,11 +435,20 @@ func checkTimeLimits(files []goFile, unraised map[string]string) []string {
 		}
 		limits[v.key()] = true
 		_, listed := unraised[v.key()]
+		r, ok := raised[v.pkg][v.key()]
 		switch {
-		case raised[v.key()] && listed:
+		case ok && listed:
 			problems = append(problems, fmt.Sprintf("%s: %s is raised, yet listed as needing no raising", v.where, v.key()))
-		case !raised[v.key()] && !listed:
-			problems = append(problems, fmt.Sprintf("%s: %s is a time limit no test raises: raise it in testlimits.Raise or its package's TestMain, or list it with the reason it needs none", v.where, v.key()))
+		case !ok && !listed:
+			problems = append(problems, fmt.Sprintf("%s: %s is a time limit the tests of %s do not raise before they run: "+
+				"raise it in its package's TestMain, or list it with the reason it needs none", v.where, v.key(), v.pkg))
+		case ok:
+			test, okTest := nanos(src, r.f, r.value, 0)
+			prod, okProd := nanos(src, v.f, v.value, 0)
+			if okTest && okProd && test < prod {
+				problems = append(problems, fmt.Sprintf("%s: %s is set to %s for the tests of %s, below the %s it is outside them",
+					r.where, v.key(), time.Duration(test), v.pkg, time.Duration(prod)))
+			}
 		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(unraised)) {
@@ -257,9 +459,11 @@ func checkTimeLimits(files []goFile, unraised map[string]string) []string {
 	return problems
 }
 
-// Every time limit of the program is raised by testlimits or its own
-// package's TestMain, through what they call, before any test runs, or is
-// one of the few listed with the reason it needs no raising.
+// Every time limit of the program is raised, to no less than it is
+// outside the tests, by its own package's TestMain, or an init of its test
+// files, through what they call, testlimits.Raise among them, before any
+// of its tests runs, or is one of the few listed with the reason it needs
+// no raising.
 func TestEveryTimeLimitIsRaised(t *testing.T) {
 	tempHome(t)
 	files := sources(t, repoRoot(t))
@@ -269,7 +473,8 @@ func TestEveryTimeLimitIsRaised(t *testing.T) {
 	// The check read what it should: limits raised each way.
 	raised := raisedVars(files)
 	for _, k := range []string{"internal/identity.Timeout", "cmd/eva-md.setupGitTimeout", "internal/wikigit.PushTimeout", "internal/health.activityTimeout"} {
-		if !raised[k] {
+		pkg, _, _ := strings.Cut(k, ".")
+		if _, ok := raised[pkg][k]; !ok {
 			t.Errorf("%s reads as not raised", k)
 		}
 	}
@@ -292,23 +497,33 @@ func expectProblems(t *testing.T, files map[string]string, check func(files []go
 	}
 }
 
-// The check fails a limit no test raises, whether its name or its comment
-// makes it one, and a listed limit that is raised or gone; it passes one
-// that testlimits raises, one a TestMain raises through a function it
-// calls, one an init of a test file raises, a limit of a package the
-// program does not link, and a duration that is no limit.
+// The check fails a limit its package's tests do not raise, whether its
+// name or its comment makes it one, or a constant, a function or the time
+// package under a dot gives its type; one testlimits raises but its own
+// package's tests do not, one whose package's TestMain stops calling
+// testlimits.Raise, one set lower for the tests than outside them, one
+// raised only after the tests ran, in a function literal, a defer or a go
+// statement; and a listed limit that is raised or gone. It passes one a
+// TestMain raises through a function it calls, one an init of a test file
+// raises, one raised through testlimits.Raise that an external test
+// package's TestMain calls, a limit of a package the program does not
+// link, and a duration that is no limit.
 func TestALimitNoTestRaisesIsFound(t *testing.T) {
 	tempHome(t)
+	const mainTest = "package a\n\nimport (\n\t\"os\"\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestMain(m *testing.M) {\n\tTimeout = time.Hour\n\traise()\n\tos.Exit(m.Run())\n}\n"
 	base := map[string]string{
-		"cmd/eva-md/main.go":           "package main\n\nimport _ \"" + module + "/internal/a\"\n\nfunc main() {}\n",
-		"internal/testlimits/raise.go": "package testlimits\n\nimport (\n\t\"time\"\n\n\t\"" + module + "/internal/a\"\n)\n\nfunc Raise() { a.Timeout = time.Hour }\n",
+		"cmd/eva-md/main.go":           "package main\n\nimport (\n\t_ \"" + module + "/internal/a\"\n\t_ \"" + module + "/internal/b\"\n)\n\nfunc main() {}\n",
+		"internal/testlimits/raise.go": "package testlimits\n\nimport (\n\t\"time\"\n\n\t\"" + module + "/internal/b\"\n)\n\nfunc Raise() { b.Wait = time.Hour }\n",
 		"internal/a/a.go":              "package a\n\nimport \"time\"\n\nvar Timeout = time.Second\n\n// slowCall bounds a call.\nvar slowCall time.Duration = 2 * time.Second\n\n// every is how often a pass runs.\nvar every = time.Hour\n\nvar quietWait = 3 * time.Second\n\nvar initWait = time.Second\n",
 		"internal/a/init_test.go":      "package a\n\nimport \"time\"\n\nfunc init() { initWait = time.Hour }\n",
-		"internal/a/main_test.go":      "package a\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestMain(m *testing.M) {\n\traise()\n\tos.Exit(m.Run())\n}\n",
+		"internal/a/main_test.go":      mainTest,
 		"internal/a/raise_test.go":     "package a\n\nimport \"time\"\n\nfunc raise() { slowCall = time.Hour }\n",
+		"internal/b/b.go":              "package b\n\nimport \"time\"\n\nvar Wait = time.Minute\n",
+		"internal/b/main_test.go":      "package b_test\n\nimport (\n\t\"os\"\n\t\"testing\"\n\n\t\"" + module + "/internal/testlimits\"\n)\n\nfunc TestMain(m *testing.M) {\n\ttestlimits.Raise()\n\tos.Exit(m.Run())\n}\n",
 		"internal/notlinked/n.go":      "package notlinked\n\nimport \"time\"\n\nvar runTimeout = time.Second\n",
 	}
 	listed := map[string]string{"internal/a.quietWait": "a made-up reason"}
+	slowCall := []string{`^internal/a/a\.go:8: internal/a\.slowCall is a time limit the tests of internal/a do not raise before they run`}
 	for _, c := range []struct {
 		name   string
 		files  map[string]string
@@ -318,22 +533,56 @@ func TestALimitNoTestRaisesIsFound(t *testing.T) {
 		{"none", nil, listed, nil},
 		{"a new limit by its name", map[string]string{
 			"internal/a/b.go": "package a\n\nimport \"time\"\n\nvar lockWait = 5 * time.Second\n",
-		}, listed, []string{`^internal/a/b\.go:5: internal/a\.lockWait is a time limit no test raises`}},
+		}, listed, []string{`^internal/a/b\.go:5: internal/a\.lockWait is a time limit the tests of internal/a do not raise`}},
 		{"a new limit by its comment, in a group", map[string]string{
 			"internal/a/b.go": "package a\n\nimport \"time\"\n\n// The deadline of a push and its retry.\nvar (\n\tpush  = time.Minute\n\tretry time.Duration\n)\n",
 		}, listed, []string{`^internal/a/b\.go:7: internal/a\.push is a time limit`, `^internal/a/b\.go:8: internal/a\.retry is a time limit`}},
+		{"a new limit whose value is a constant", map[string]string{
+			"internal/a/c.go": "package a\n\nimport \"time\"\n\nconst defaultWait = 5 * time.Second\n\nvar lockWait = defaultWait\n",
+		}, listed, []string{`^internal/a/c\.go:7: internal/a\.lockWait is a time limit`}},
+		{"a new limit whose value is a call", map[string]string{
+			"internal/a/c.go": "package a\n\nimport \"time\"\n\nfunc d() time.Duration { return time.Second }\n\nvar callTimeout = d()\n",
+		}, listed, []string{`^internal/a/c\.go:7: internal/a\.callTimeout is a time limit`}},
+		{"a new limit through a dot import", map[string]string{
+			"internal/a/c.go": "package a\n\nimport . \"time\"\n\nvar pushTimeout = Minute\n",
+		}, listed, []string{`^internal/a/c\.go:5: internal/a\.pushTimeout is a time limit`}},
 		{"a TestMain that stops raising it", map[string]string{
 			"internal/a/raise_test.go": "package a\n\nfunc raise() {}\n",
-		}, listed, []string{`^internal/a/a\.go:8: internal/a\.slowCall is a time limit no test raises`}},
+		}, listed, slowCall},
 		{"an init of a test file that stops raising it", map[string]string{
 			"internal/a/init_test.go": "package a\n",
-		}, listed, []string{`^internal/a/a\.go:15: internal/a\.initWait is a time limit no test raises`}},
+		}, listed, []string{`^internal/a/a\.go:15: internal/a\.initWait is a time limit the tests of internal/a do not raise`}},
+		{"the owning package that stops raising it, though testlimits does", map[string]string{
+			"internal/testlimits/raise.go": "package testlimits\n\nimport (\n\t\"time\"\n\n\t\"" + module + "/internal/a\"\n\t\"" + module + "/internal/b\"\n)\n\nfunc Raise() { a.Timeout, b.Wait = time.Hour, time.Hour }\n",
+			"internal/a/main_test.go":      strings.Replace(mainTest, "\tTimeout = time.Hour\n", "\t_ = time.Hour\n", 1),
+		}, listed, []string{`^internal/a/a\.go:5: internal/a\.Timeout is a time limit the tests of internal/a do not raise`}},
 		{"testlimits that stops raising it", map[string]string{
 			"internal/testlimits/raise.go": "package testlimits\n\nfunc Raise() {}\n",
-		}, listed, []string{`^internal/a/a\.go:5: internal/a\.Timeout is a time limit no test raises`}},
+		}, listed, []string{`^internal/b/b\.go:5: internal/b\.Wait is a time limit the tests of internal/b do not raise`}},
+		{"a TestMain that stops calling testlimits", map[string]string{
+			"internal/b/main_test.go": "package b_test\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestMain(m *testing.M) { os.Exit(m.Run()) }\n",
+		}, listed, []string{`^internal/b/b\.go:5: internal/b\.Wait is a time limit the tests of internal/b do not raise`}},
+		{"a limit set lower for the tests", map[string]string{
+			"internal/a/raise_test.go": "package a\n\nimport \"time\"\n\nfunc raise() { slowCall = time.Nanosecond }\n",
+		}, listed, []string{`^internal/a/raise_test\.go:5: internal/a\.slowCall is set to 1ns for the tests of internal/a, below the 2s it is outside them$`}},
+		{"a limit set lower through a constant", map[string]string{
+			"internal/a/raise_test.go": "package a\n\nimport \"time\"\n\nconst short = 3 * time.Millisecond\n\nfunc raise() { slowCall = short }\n",
+		}, listed, []string{`^internal/a/raise_test\.go:7: internal/a\.slowCall is set to 3ms for the tests of internal/a, below the 2s it is outside them$`}},
+		{"a raise after the tests ran", map[string]string{
+			"internal/a/main_test.go": strings.Replace(mainTest, "\traise()\n\tos.Exit(m.Run())\n", "\tcode := m.Run()\n\traise()\n\tos.Exit(code)\n", 1),
+		}, listed, slowCall},
+		{"a raise in a function literal", map[string]string{
+			"internal/a/main_test.go": strings.Replace(mainTest, "\traise()\n", "\t_ = func() { raise() }\n", 1),
+		}, listed, slowCall},
+		{"a raise in a defer", map[string]string{
+			"internal/a/main_test.go": strings.Replace(mainTest, "\traise()\n", "\tdefer raise()\n", 1),
+		}, listed, slowCall},
+		{"a raise in a go statement", map[string]string{
+			"internal/a/main_test.go": strings.Replace(mainTest, "\traise()\n", "\tgo raise()\n", 1),
+		}, listed, slowCall},
 		{"a listed limit that is raised", nil, map[string]string{"internal/a.quietWait": "x", "internal/a.Timeout": "x"}, []string{`^internal/a/a\.go:5: internal/a\.Timeout is raised, yet listed`}},
 		{"a listed limit that is gone", nil, map[string]string{"internal/a.quietWait": "x", "internal/a.gone": "x"}, []string{`^internal/a\.gone is listed as a limit that needs no raising, but the program has no such limit$`}},
-		{"an unlisted limit", nil, map[string]string{}, []string{`^internal/a/a\.go:13: internal/a\.quietWait is a time limit no test raises`}},
+		{"an unlisted limit", nil, map[string]string{}, []string{`^internal/a/a\.go:13: internal/a\.quietWait is a time limit the tests of internal/a do not raise`}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			files := maps.Clone(base)
