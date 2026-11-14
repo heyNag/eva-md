@@ -255,6 +255,32 @@ The third round's rule is the gate's from run 160, the push that merged it, and 
 | Run | Commit | Verdict |
 | --- | --- | --- |
 | 160 | 995bcc2 | not judged |
+| 161 | 28516e8 | not judged |
+| 162 | ca7105b | not judged |
+| 163 | 6164f7e | not judged |
+| 164 | d3b7116 | not judged |
+| 165 | deaf734 | not judged |
+| 166 | 5eb5480 | not judged |
+| 167 | fc5a8e2 | not judged |
+| 168 | be7e1a9 | not judged |
+| 169 | 08f1fb0 | not judged |
+| 170 | 68c129c | not judged |
+| 171 | c7c31c1 | not judged |
+| 172 | ab6faaa | not judged |
+| 173 | 812377c | not judged |
+| 174 | f96278f | not judged |
+| 175 | 4724d99 | not judged |
+| 176 | d0d31f9 | not judged |
+| 177 | 7ed952b | not judged |
+| 178 | 443f76d | not judged |
+| 179 | b286f00 | not judged |
+| 180 | 5d7b1be | pass |
+| 181 | ee5feb8 | not judged |
+| 182 | 02aed0d | not judged |
+| 183 | c2ca020 | not judged |
+| 184 | 9e06c2e | not judged |
+
+Of these twenty-five runs the rule judged one: run 180, which began timing at a load of 8.0 and passed, with one figure too noisy to judge. Its push changed files under `cmd/` and `internal/`, all of them the evaluation's, which the binary does not hold; by the rule above it counts neither way, so the count stands at 0. The other twenty-four were too noisy to judge. The test jobs of runs 175 and 182 to 184 were cancelled by their own time limits, which says nothing of the gate: its job ran and gave its artifact each time.
 
 ## What the counters cost
 
