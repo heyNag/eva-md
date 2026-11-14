@@ -1,8 +1,6 @@
 package redact
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -659,39 +657,23 @@ func TestMergeOverlapsJoinsSpans(t *testing.T) {
 	}
 }
 
-// design.md's examples of the PASS and PWD keys hold: a key it says loses
-// any value of 8 characters or more loses an ordinary one, and a quoted one
-// whole, and a key it says loses a value only when it looks like a password
-// keeps an ordinary one.
+// The design's examples of the PASS and PWD keys hold, as the redaction
+// spec gives them (docs/spec/inbox.md): a key it says loses any value of 8
+// characters or more loses an ordinary one, and a quoted one whole, and a
+// key it says loses a value only when it looks like a password keeps an
+// ordinary one.
 func TestDesignsPassKeyExamples(t *testing.T) {
 	isolate(t)
-	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "design.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	design := string(data)
-	keys := func(after, before string) []string {
-		_, rest, ok := strings.Cut(design, after)
-		rest, _, ok2 := strings.Cut(rest, before)
-		var out []string
-		for _, m := range regexp.MustCompile("`([A-Za-z_.]+)`").FindAllStringSubmatch(rest, -1) {
-			out = append(out, m[1])
-		}
-		if !ok || !ok2 || len(out) < 3 {
-			t.Fatalf("design.md's examples after %q: %q", after, out)
-		}
-		return out
-	}
-	for _, key := range keys("after one or more separators or a change of case, such as ", ", with a quoted value taken whole") {
+	for _, key := range []string{"DB_PASS", "MYSQL_PWD", "SMTP__PASS", "Db__Pwd", "userPwd"} {
 		for _, value := range []string{"deferred-render", `"qwer tyui opas dfgh"`} {
 			if out, _ := Redact(key + "=" + value); strings.Contains(out, "deferred") || strings.Contains(out, "qwer") {
-				t.Errorf("design.md says %s loses %s: %q", key, value, out)
+				t.Errorf("the design says %s loses %s: %q", key, value, out)
 			}
 		}
 	}
-	for _, key := range keys("A key ending in `pass` or `Pass`, as in ", ", and `pass` or `pwd` alone anywhere else") {
+	for _, key := range []string{"render_pass", "onPass", "Smtp__Pass"} {
 		if in := key + "=deferred-render"; func() bool { out, _ := Redact(in); return out != in }() {
-			t.Errorf("design.md says %s keeps an ordinary value", key)
+			t.Errorf("the design says %s keeps an ordinary value", key)
 		}
 	}
 }

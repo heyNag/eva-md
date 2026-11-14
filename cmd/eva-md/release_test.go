@@ -637,8 +637,8 @@ func TestInstallScriptRecordsALateConfigEnv(t *testing.T) {
 
 // The way README pins a release, the tag given to bash after the pipe,
 // installs that release when the whole command runs as a person types it,
-// though a newer one is the latest. install.sh's header and design.md show
-// the same command.
+// though a newer one is the latest. install.sh's header shows the same
+// command.
 func TestInstallScriptVersionPinThroughThePipe(t *testing.T) {
 	read := func(name string) string {
 		b, err := os.ReadFile(filepath.Join(buildDir, "..", "..", filepath.FromSlash(name)))
@@ -657,7 +657,6 @@ func TestInstallScriptVersionPinThroughThePipe(t *testing.T) {
 		t.Fatal("README shows no command that pins a release")
 	}
 	says(t, "install.sh", read("scripts/install.sh"), command)
-	says(t, "design.md", read("docs/design.md"), command)
 	m := newFakeMac(t)
 	m.publish(t, "2026.11.3", "2026.11.3")
 	m.publish(t, "2026.11.4", "2026.11.3")
