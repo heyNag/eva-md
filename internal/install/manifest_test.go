@@ -1065,6 +1065,50 @@ func TestManifestRemovedChangedDuringPreflight(t *testing.T) {
 	}
 }
 
+// The final manifest is written before needs-trust.json: an install whose
+// final write fails leaves no mark asking for a review of a plugin the
+// rollback put back as it was.
+func TestManifestFinalWriteFailsLeavesNoTrustMark(t *testing.T) {
+	opts, f := setup(t)
+	setManifestSwitch(t, opts.Dirs, true)
+	if _, err := runInstall(context.Background(), opts, f.run); err != nil {
+		t.Fatal(err)
+	}
+	mark := filepath.Join(opts.Dirs.State, "needs-trust.json")
+	if err := os.Remove(mark); err != nil {
+		t.Fatal(err)
+	}
+	added := false
+	run := func(ctx context.Context, host string, args ...string) ([]byte, error) {
+		command := host + " " + strings.Join(args, " ")
+		out, err := f.run(ctx, host, args...)
+		added = added || strings.HasPrefix(command, "codex plugin add ")
+		// Once Codex's plugin is added, the manifest becomes a folder that
+		// holds a file, so the final write's rename fails.
+		if added && strings.HasPrefix(command, "codex plugin list") {
+			if info, e := os.Lstat(manifestPath(opts.Dirs)); e == nil && info.Mode().IsRegular() {
+				if e := os.Remove(manifestPath(opts.Dirs)); e != nil {
+					t.Fatal(e)
+				}
+				if e := os.MkdirAll(filepath.Join(manifestPath(opts.Dirs), "x"), 0o700); e != nil {
+					t.Fatal(e)
+				}
+			}
+		}
+		return out, err
+	}
+	result, err := runInstallWith(context.Background(), opts, run, dropping("plugins/eva-md/.mcp.json"))
+	if err == nil {
+		t.Fatal("the install did not fail")
+	}
+	if !added || !result.NeedsTrust {
+		t.Fatalf("the install did not get as far as a review: added %v, needs trust %v", added, result.NeedsTrust)
+	}
+	if _, e := os.Lstat(mark); !errors.Is(e, fs.ErrNotExist) {
+		t.Errorf("a failed install left %s: %v (%v)", mark, e, err)
+	}
+}
+
 // addUnit adds unit to the manifest on disk.
 func addUnit(t *testing.T, dirs paths.Dirs, unit map[string]any) {
 	t.Helper()
