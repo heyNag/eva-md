@@ -52,7 +52,7 @@ Run them from the root of an eva-md checkout, whose commit the rows record.
 
    Without `--spend-model-quota` a run prints its plan and starts nothing. Each run appends a record to its `--out`, however it ends, unless the process is killed.
 
-7. The report, over the six results folders and any rerun's, with the full export's tasks. It prints ids and figures only. `--rates` gives money per million tokens, uncached prompt, cached and output, as the provider prices them on the day; no rate is written in this repository:
+7. The report, once for each host: over that host's three results folders and its reruns', never the smoke run's, with the full export's tasks. It prints ids and figures only, and counts the models without naming them. `--rates` gives money per million tokens, uncached prompt, cached and output, as that host's provider prices its model on the day: one set of rates prices every trial a report reads, so a report over both hosts' folders would price one host at the other's rates. Every figure is per host, so a report of one host loses none. No rate is written in this repository:
 
    ```sh
    go run ./cmd/eva-eval continuation report --tasks EXPORT/tasks [--rates IN,CACHED,OUT] OUT...
@@ -60,7 +60,8 @@ Run them from the root of an eva-md checkout, whose commit the rows record.
 
 ## Rules the report keeps
 
-- Each trial is counted once. A results folder given twice, a copy of one, or the smoke run's folder beside the full runs' is refused: the smoke run's trial is the full run's first again.
+- Each trial is counted once. A results folder given twice, or a copy of one, is refused.
+- The smoke run's folder is never given. Its trial is the full run's first again, so the report refuses it only when the full run judged that trial; when the full run left it unjudged, the report cannot tell the smoke's folder from a rerun's and would take its trial as the full run's first, counting that slot twice. Leaving it out is the operator's rule, not the report's.
 - A folder's rows must be exactly those its records count. A killed run writes no record, so the report refuses its folder: leave that folder out, and run that host and condition again in a fresh `--out`, from an export of the tasks it was to run (`pilot export --task ID ...`).
 - A task with no trial judged on a host under a condition reruns alone: `pilot export --task ID` into a fresh export folder, then a run of it alone, on that host and condition, in a fresh `--out`. The report takes that folder beside the others.
 - A trial left unjudged writes no row and moves no figure; the records count it, by its code.
