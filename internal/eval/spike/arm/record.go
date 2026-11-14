@@ -17,7 +17,7 @@ import (
 const recordVersion = 1
 
 // MaxLines is the most lines a recording Replay reads may hold.
-const MaxLines = 1 << 16
+const MaxLines = 1 << 14
 
 // maxLine is the longest line Replay reads: a kept answer and the rest of
 // its line.

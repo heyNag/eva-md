@@ -64,13 +64,15 @@ func answer(t *testing.T, f spike.Form, name string) []byte {
 // pass n of script s is answered with the answer names gives for "s.n",
 // "s.n.faithful" when it gives none, and its repair call with that name
 // and ".repair". A name of "" answers nothing ({"ops":[]}). fail gives a
-// reason for a call by "s.n.kind"; cached gives each repair reply cached
-// input. Every call is kept in calls.
+// reason for a call by "s.n.kind", and raw its output as given; cached
+// gives each repair reply cached input. Every call is kept in calls; once
+// shut, a call fails the test.
 type canned struct {
 	t      *testing.T
 	f      spike.Form
 	names  map[string]string
 	fail   map[string]string
+	raw    map[string][]byte
 	cached bool
 	calls  []Call
 	shut   bool
@@ -87,6 +89,10 @@ func (c *canned) ask(_ context.Context, call Call) (Reply, error) {
 	r := Reply{TokensIn: (len(call.System) + len(call.Input)) / 4, Attempts: 1, Seconds: 0.25 * float64(call.Pass), Effort: "low"}
 	if reason, ok := c.fail[at+"."+call.Kind]; ok {
 		r.Reason = reason
+		return r, nil
+	}
+	if out, ok := c.raw[at+"."+call.Kind]; ok {
+		r.Output = out
 		return r, nil
 	}
 	name, ok := c.names[at]
