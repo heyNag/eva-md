@@ -166,6 +166,121 @@ def starts_allowed(expected, seen, times):
     return expected-late <= seen <= expected, late
 
 
+# A brief counts the code each system pointer cites, one git call a
+# pointer, under limits of its own: it mirrors CodeCall in
+# internal/resume/systems.go, the most one call may take, and so the least a
+# brief whose counts time cut short can take.
+CODE_CALL_MS = 60
+# The most of a loop's code briefs that may be passed over (code_brief): a
+# fault of the code that looks like time hits every brief, and the run must
+# still show the counts working.
+CODE_PASSED_OVER_SHARE = 0.5
+# The arguments only a count of code carries: coderef's git calls, in
+# internal/coderef/git.go, with Commits's own, the brief's live git's
+# rev-list --count calls none of these but the first two.
+CODE_COUNT_ARGS = ("rev-list", "--count", "--max-count=1001", "--literal-pathspecs")
+# A count that wrote no exit event to git's trace, as one killed does.
+KILLED = "killed"
+# The systems the code briefs point at, in the brief's order.
+CODE_SYSTEMS = ("A", "B", "C")
+
+
+def trace_config(target):
+    """A global git config that sends git's trace2 event stream to the file
+    target; git reads that key from the global and system config alone."""
+    return "[trace2]\n\teventTarget = %s\n" % json.dumps(str(target), ensure_ascii=False)
+
+
+def code_notes(context):
+    """Each of a code brief's pointers to System: Code A, B and C, in that
+    order: whether it says how far its code moved, or None when the brief
+    has no pointer to that system."""
+    notes = []
+    for letter in CODE_SYSTEMS:
+        lines = [l for l in context.split("\n") if l.startswith("System: Code %s: " % letter)]
+        notes.append((" (code moved " in lines[0]) if lines else None)
+    return notes
+
+
+def code_counts(lines):
+    """The counts of code in lines of git's trace2 event stream, in the
+    order they started: the code of each one's exit event, or KILLED when
+    it wrote none. A count is a process whose start argv holds every one of
+    CODE_COUNT_ARGS; a line that is not an event is passed over."""
+    starts, exits = [], {}
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("event") == "start" and all(a in (event.get("argv") or []) for a in CODE_COUNT_ARGS):
+            starts.append(event.get("sid"))
+        elif event.get("event") == "exit":
+            exits.setdefault(event.get("sid"), event.get("code"))
+    return [exits.get(sid, KILLED) for sid in starts]
+
+
+def code_brief(number, notes, counts, ms):
+    """The decision on one code brief, the number-th of its loop, timed at
+    ms milliseconds: notes are its pointers as code_notes gives them, and
+    counts its counts' outcomes as code_counts gives them. Returns False
+    for a brief whose pointers all say how far their code moved, and True
+    for one passed over, whose notes the clock in
+    internal/resume/systems.go cut short. Raises RuntimeError for any
+    other.
+
+    With every note, exactly as many counts, each exited 0. Lacking notes,
+    all of these: the notes lacking are the last ones, since the clock
+    stops every count after the first it cannot make; the first counts
+    exited 0, one for each note shown; at most one count follows them,
+    killed or exited 0 (os/exec reads a count that ended as its context
+    did as out of time); and either that count was killed, which only the
+    end of its context does, or the brief took CODE_CALL_MS or more, the
+    least one whose counts time cut short can take."""
+    shown = sum(1 for n in notes if n)
+    after = counts[shown:]
+
+    def fail(why):
+        lacking = [CODE_SYSTEMS[i] for i, n in enumerate(notes) if n is False]
+        missing = [CODE_SYSTEMS[i] for i, n in enumerate(notes) if n is None]
+        raise RuntimeError("code brief %d, %.1f ms: %s; pointers lacking their note: %s; missing: %s; counts: %s" % (
+            number, ms, why, ", ".join(lacking) or "none", ", ".join(missing) or "none",
+            ", ".join("killed" if c == KILLED else "exited %s" % c for c in counts) or "none"))
+    if None in notes:
+        fail("a pointer is missing")
+    if shown == len(notes):
+        if counts != [0]*shown:
+            fail("every note shown needs exactly %d counts, each exited 0" % shown)
+        return False
+    if notes != [True]*shown + [False]*(len(notes)-shown):
+        fail("a pointer lacks its note before one that has it")
+    if counts[:shown] != [0]*shown:
+        fail("a note shown has no count that exited 0")
+    if len(after) > 1 or any(c != 0 and c != KILLED for c in after):
+        fail("more than one count, or one that failed, after those of the notes shown")
+    if after != [KILLED] and ms < CODE_CALL_MS:
+        fail("no count was killed, and the brief took less than %d ms" % CODE_CALL_MS)
+    return True
+
+
+def code_briefs_allowed(passed_over, total):
+    """Whether passed_over of a loop's total code briefs passed over is
+    within CODE_PASSED_OVER_SHARE."""
+    return passed_over <= CODE_PASSED_OVER_SHARE*total
+
+
+def code_briefs_said(passed_over, killed, total):
+    """What is said beside the report of a loop of total code briefs, of
+    which passed_over were passed over, killed of them with a count killed:
+    None when none was passed over."""
+    if not passed_over:
+        return None
+    return "benchmark: code_brief: %d of %d briefs passed over, their code's counts cut short by time, %d of them with a count killed" % (
+        passed_over, total, killed)
+
+
 def start(argv, env):
     """Starts a hook's launch in a process group of its own, so that stop
     reaches every process in that group: on Codex's path the shell does not

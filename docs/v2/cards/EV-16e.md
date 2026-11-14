@@ -49,3 +49,12 @@ The card's checker left these to the lead.
 - Whether CI's macOS git reads the trace's target from the global config is seen on the merge: the card's own check fails loudly if it does not.
 - A chat start in the brief loop that passes its limit and prints nothing is not this card's.
 - Added with EV-16d's merge: this card also adds, to `test_gate.py`, a test that `uneven_load` picks a binary's slower and quicker halves by its own run levels, not by its runs over the other binary's: EV-16d's verifier found a mutant there that every test passed.
+
+## As merged
+
+Merged on 2026-11-14 (a861d45, from `pkg/ev-16e-r1`, after one review, one round of fixes and a verification that accepted it). No Go file changed.
+
+- **Owed: `docs/verification.md`.** Its sentence on the code briefs ("and every pointer must say the code moved (a repo with a single commit skips these)") is to say the rule above: unless git's trace of that brief shows that the brief's clock cut its counts short; such a brief is passed over, keeps its time among the samples and is counted beside the report, and more than one in two passed over fails. EV-10a holds that file while it builds, so the lead writes it when EV-10a has merged.
+- **Owed at the next refresh of the stored baseline:** `docs/v2/baselines/README.md` says that `code_brief` is measured with git's trace of the brief's git calls turned on, as both binaries of a gate are.
+- **The 60 ms floor is loose where no count followed the notes shown** (the reviewer's point, at the card's level): the clock stops without a further count only when its budget of 150 ms is spent, the deadline is near, or the context ended, so a brief that lost its last notes for another reason is caught only by the one-in-two share. Left as the card has it. Watch the count of briefs passed over in CI's `latency` job before tightening either figure: on this machine at a load of 50, up to 4 of 10 were passed over, none with a count killed.
+- Known and left: no test holds that the two counters start at 0 (a wrong start only makes the line beside the report, or the share, harsher).
