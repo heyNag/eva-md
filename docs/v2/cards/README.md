@@ -45,7 +45,7 @@ Rules every card carries, so they are said once here:
 | [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | building since 2026-11-14 |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
-| [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | building since 2026-11-13; it replaces the card for a pilot's own driver (the ruling below the table) |
+| [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | merged; the continuation's check accepts all ten |
 | [EV-03c](EV-03c.md) | The pilot's report, over the continuation's rows, and the pilot's README | after EV-17g, which fixes the run record it reads |
 | [DV-02a](DV-02a.md) | The live run's trace: cost, versions and what the host returned, for [the live gates](../live-gates-runbook.md) | merged, ahead of DV-13; ST-04b carries one of the two small things its notes owe, and the other waits for a card that changes `trace.go` |
 | [DL-04](DL-04.md) | The labelled retrieval set and its scorer, with v1's row | merged; ST-04b adds the figure for false additions over all negatives of a half |
