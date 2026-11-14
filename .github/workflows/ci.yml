@@ -51,6 +51,41 @@ jobs:
               echo "(no such folder)"
             fi
           done
+      # Of a test binary's crash report alone, how the process ended: the
+      # exception's type and signal, the termination's words, what the
+      # system's libraries said, and the names of the functions at the top
+      # of the thread that failed. No path, no memory and no other
+      # process's report. A child that is the test binary run again, as
+      # the evaluation's fake hosts are, leaves such a report when its
+      # runtime aborts; twice the driver's tests failed beside one (runs
+      # 176 and 200). It never fails the job.
+      - name: How a crashed test binary ended
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          for f in sorted(glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.test-*.ips"))):
+              print("==", os.path.basename(f))
+              try:
+                  text = open(f, errors="replace").read()
+                  body = json.loads(text.split("\n", 1)[1])
+              except Exception as e:
+                  print("  unreadable:", type(e).__name__)
+                  continue
+              ex, term = body.get("exception") or {}, body.get("termination") or {}
+              print("  exception:", ex.get("type"), ex.get("signal"), str(ex.get("subtype", ""))[:120])
+              print("  termination:", term.get("namespace"), term.get("code"), str(term.get("indicator", ""))[:120])
+              for lib, lines in (body.get("asi") or {}).items():
+                  for line in list(lines)[:3]:
+                      print("  said:", os.path.basename(str(lib)), str(line)[:160])
+              threads = body.get("threads") or []
+              i = body.get("faultingThread", 0)
+              if isinstance(i, int) and 0 <= i < len(threads):
+                  for fr in (threads[i].get("frames") or [])[:8]:
+                      print("  at:", str(fr.get("symbol", "?"))[:100])
+          PY
       # After a failure only: what the system log says of processes it ended
       # for memory, which would explain a child that a signal ended.
       - name: Memory kills in the system log (after a failure)
