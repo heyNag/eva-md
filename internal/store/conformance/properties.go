@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"bytes"
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -17,10 +18,15 @@ const (
 	PropProtection  = "Protection"
 	PropRestore     = "Restore"
 	PropReplay      = "Replay"
+	PropSessionKept = "SessionKept"
 )
 
 // LockedPasses is how many passes Protection aims at one locked item.
 const LockedPasses = 1000
+
+// everyStepFrom is the least run of seeds over which a crash property also
+// wants an armed crash to have fired at every step of Apply.
+const everyStepFrom = 200
 
 // run checks seeds 1 to n, and stops at the first that fails.
 func run(t testing.TB, n int, check func(seed int64) error) {
@@ -35,16 +41,69 @@ func run(t testing.TB, n int, check func(seed int64) error) {
 	}
 }
 
-// RunCrashSafety checks CrashSafety on seeds 1 to n.
-func RunCrashSafety(t testing.TB, newSubject func() Subject, n int) {
-	t.Helper()
-	run(t, n, func(seed int64) error { return CheckCrashSafety(newSubject, seed) })
+// crashed counts, by step, the armed crashes that fired over a run.
+type crashed map[store.Step]int
+
+// upTo is seeds 1 to n.
+func upTo(n int) []int64 {
+	var seeds []int64
+	for seed := int64(1); seed <= int64(n); seed++ {
+		seeds = append(seeds, seed)
+	}
+	return seeds
 }
 
-// RunExactlyOnce checks ExactlyOnce on seeds 1 to n.
+// runCrashes checks a property that crashes passes on each seed in turn,
+// and stops at the first that fails. A store that dropped its fault would
+// pass every check, so over the seeds an armed crash must have fired, and
+// over everyStepFrom seeds or more, one at every step of Apply. Such a
+// failure is the run's: it has the last seed and no step.
+func runCrashes(prop string, seeds []int64, check func(seed int64, c crashed) error) error {
+	if len(seeds) == 0 {
+		return &Failure{Property: prop, Step: runLevel, Detail: "no seed to check"}
+	}
+	c := crashed{}
+	for _, seed := range seeds {
+		if err := check(seed, c); err != nil {
+			return err
+		}
+	}
+	last := seeds[len(seeds)-1]
+	if len(c) == 0 {
+		return &Failure{Property: prop, Seed: last, Step: runLevel, Detail: fmt.Sprintf("no armed crash fired in %d seeds", len(seeds))}
+	}
+	if len(seeds) >= everyStepFrom {
+		for _, s := range store.Steps {
+			if c[s] == 0 {
+				return &Failure{Property: prop, Seed: last, Step: runLevel, Detail: fmt.Sprintf("no armed crash fired at %s in %d seeds", s, len(seeds))}
+			}
+		}
+	}
+	return nil
+}
+
+// fatal fails a test with err, when there is one.
+func fatal(t testing.TB, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// RunCrashSafety checks CrashSafety on seeds 1 to n, and that an armed
+// crash fired over them: at every step when n is everyStepFrom or more.
+func RunCrashSafety(t testing.TB, newSubject func() Subject, n int) {
+	t.Helper()
+	fatal(t, runCrashes(PropCrashSafety, upTo(n), func(seed int64, c crashed) error { return checkCrashSafety(newSubject, seed, c) }))
+}
+
+// RunExactlyOnce checks ExactlyOnce on seeds 1 to n, and that an armed
+// crash fired over them: at every step when n is everyStepFrom or more.
 func RunExactlyOnce(t testing.TB, newSubject func() Subject, n int) {
 	t.Helper()
-	run(t, n, func(seed int64) error { return CheckExactlyOnce(newSubject, seed) })
+	fatal(t, runCrashes(PropExactlyOnce, upTo(n), func(seed int64, c crashed) error {
+		return checkExactlyOnce(newSubject, seed, newSchedule(seed, options{edits: true}), c)
+	}))
 }
 
 // RunProtection checks Protection on seeds 1 to n.
@@ -53,16 +112,24 @@ func RunProtection(t testing.TB, newSubject func() Subject, n int) {
 	run(t, n, func(seed int64) error { return CheckProtection(newSubject, seed) })
 }
 
-// RunRestore checks Restore on seeds 1 to n.
+// RunRestore checks Restore on seeds 1 to n, and that an armed crash fired
+// over them: at every step when n is everyStepFrom or more.
 func RunRestore(t testing.TB, newSubject func() Restorable, n int) {
 	t.Helper()
-	run(t, n, func(seed int64) error { return CheckRestore(newSubject, seed) })
+	fatal(t, runCrashes(PropRestore, upTo(n), func(seed int64, c crashed) error { return checkRestore(newSubject, seed, c) }))
 }
 
-// RunReplay checks Replay on seeds 1 to n.
+// RunReplay checks Replay on seeds 1 to n, and that an armed crash fired
+// over them: at every step when n is everyStepFrom or more.
 func RunReplay(t testing.TB, newSubject func() Restorable, n int) {
 	t.Helper()
-	run(t, n, func(seed int64) error { return CheckReplay(newSubject, seed) })
+	fatal(t, runCrashes(PropReplay, upTo(n), func(seed int64, c crashed) error { return checkReplay(newSubject, seed, c) }))
+}
+
+// RunSessionKept checks SessionKept on seeds 1 to n.
+func RunSessionKept(t testing.TB, newSubject func() Subject, n int) {
+	t.Helper()
+	run(t, n, func(seed int64) error { return CheckSessionKept(newSubject, seed) })
 }
 
 // CheckCrashSafety: after a crash at any step of a pass and a reopen, the
@@ -70,9 +137,14 @@ func RunReplay(t testing.TB, newSubject func() Restorable, n int) {
 // uncrashed has; the pass run again then gives the twin's outcomes and
 // state; and a pass Apply returned is never lost across a reopen.
 func CheckCrashSafety(newSubject func() Subject, seed int64) error {
+	return checkCrashSafety(newSubject, seed, crashed{})
+}
+
+func checkCrashSafety(newSubject func() Subject, seed int64, tally crashed) error {
 	sch := newSchedule(seed, options{edits: true})
 	a := newRunner(PropCrashSafety, newSubject(), seed)
 	b := newRunner(PropCrashSafety, newSubject(), seed)
+	a.crashed = tally
 	if err := a.open(); err != nil {
 		return err
 	}
@@ -115,6 +187,7 @@ func CheckCrashSafety(newSubject func() Subject, seed int64) error {
 			return err
 		}
 		after := b.snap()
+		known := a.known(ta.Pass)
 		a.armed, a.fired = c, false
 		_, err = a.st.Apply(ta)
 		a.armed = nil
@@ -129,6 +202,9 @@ func CheckCrashSafety(newSubject func() Subject, seed int64) error {
 		}
 		got := a.snap()
 		if !a.fired {
+			if err := a.unfired(c, known); err != nil {
+				return err
+			}
 			if !got.equal(after) {
 				return a.fail("a pass Apply returned is not there after a reopen: %s", got.diff(after))
 			}
@@ -168,7 +244,7 @@ func results(outs []store.Outcome) []string {
 // commit and changes nothing; a pass is in history once if it applied or
 // covered anything, and never twice; and one seed gives one tree.
 func CheckExactlyOnce(newSubject func() Subject, seed int64) error {
-	return checkExactlyOnce(newSubject, seed, newSchedule(seed, options{edits: true}))
+	return checkExactlyOnce(newSubject, seed, newSchedule(seed, options{edits: true}), crashed{})
 }
 
 // covered is the lines of a session's coverage, none when the pass names
@@ -184,8 +260,9 @@ func (r *runner) covered(session string) (map[int]bool, error) {
 	return lines(c), nil
 }
 
-func checkExactlyOnce(newSubject func() Subject, seed int64, sch *schedule) error {
+func checkExactlyOnce(newSubject func() Subject, seed int64, sch *schedule, tally crashed) error {
 	r := newRunner(PropExactlyOnce, newSubject(), seed)
+	r.crashed = tally
 	if err := r.open(); err != nil {
 		return err
 	}
@@ -276,6 +353,7 @@ func checkExactlyOnce(newSubject func() Subject, seed int64, sch *schedule) erro
 	// One seed, one tree: the same schedule, played plainly on a new
 	// subject, ends in the same files and history.
 	other := newRunner(PropExactlyOnce, newSubject(), seed)
+	other.crashed = tally
 	if err := other.open(); err != nil {
 		return err
 	}
@@ -590,6 +668,107 @@ func (r *runner) lockedSurvives(marks map[string]*mark) error {
 	return nil
 }
 
+// kept is a text a session file must hold: a note a pass wrote, or a text
+// a person wrote by hand, and the step at which it was put on its list.
+type kept struct {
+	text   string
+	step   int
+	byHand bool
+}
+
+// keptCounts is what SessionKept put on its lists and what it passed
+// over, so a test can see that a run plays each case.
+type keptCounts struct {
+	notes, refused, byHand int
+}
+
+// CheckSessionKept: a pass keeps what a session file holds. Each note a
+// pass applied, and each text a person wrote into the file by hand, is in
+// the file byte for byte after every later event, until a person's own
+// edit takes it out.
+func CheckSessionKept(newSubject func() Subject, seed int64) error {
+	return checkSessionKept(newSubject, seed, newSchedule(seed, options{edits: true}), &keptCounts{})
+}
+
+func checkSessionKept(newSubject func() Subject, seed int64, sch *schedule, counts *keptCounts) error {
+	r := newRunner(PropSessionKept, newSubject(), seed)
+	if err := r.open(); err != nil {
+		return err
+	}
+	defer r.close()
+	want := map[string][]kept{}
+	for i, ev := range sch.events {
+		r.step = i
+		switch ev.what {
+		case evPass:
+			txn := r.derive(sch.record[ev.chunk])
+			res, err := r.apply(txn, nil)
+			if err != nil {
+				return err
+			}
+			path, ok := r.s.SessionFile(txn.Session)
+			for k, op := range txn.Ops {
+				if op.Type != store.OpSessionAppend {
+					continue
+				}
+				if res.Outcomes[k].Result != store.ResultApplied {
+					counts.refused++
+					continue
+				}
+				if !ok {
+					return r.fail("operation %d, a note, applied, yet the session has no file", k)
+				}
+				counts.notes++
+				text, _ := op.Fields["text"].(string)
+				want[path] = append(want[path], kept{text: text, step: i})
+			}
+		case evEdit:
+			path, err := r.editFile(ev)
+			if err != nil {
+				return err
+			}
+			if path == "" {
+				continue
+			}
+			// A person may rewrite what a pass wrote: what the edit left
+			// stays on the list, beside the person's own text.
+			if ev.session && ev.edit.Kind == EditChange {
+				b := r.s.Files()[path]
+				list := []kept{{text: ev.edit.Text, step: i, byHand: true}}
+				for _, k := range want[path] {
+					if bytes.Contains(b, []byte(k.text)) {
+						list = append(list, k)
+					}
+				}
+				want[path] = list
+				counts.byHand++
+			}
+			if err := r.open(); err != nil {
+				return err
+			}
+		case evAck:
+			if txn, _, ok := r.ackTxn(ev); ok {
+				if _, err := r.apply(txn, nil); err != nil {
+					return err
+				}
+			}
+		}
+		files := r.s.Files()
+		for _, path := range slices.Sorted(maps.Keys(want)) {
+			for _, k := range want[path] {
+				if bytes.Contains(files[path], []byte(k.text)) {
+					continue
+				}
+				if k.byHand {
+					return r.fail("a text written by hand into %s at step %d is no longer there", path, k.step)
+				}
+				return r.fail("a note a pass wrote into %s at step %d is no longer there", path, k.step)
+			}
+		}
+	}
+	return nil
+}
+
 // coverage is each session's coverage, nil where it is empty.
 func (r *runner) coverage() (map[string][]store.Range, error) {
 	out := map[string][]store.Range{}
@@ -609,8 +788,13 @@ func (r *runner) coverage() (map[string][]store.Range, error) {
 // opens with its store id, and its files, history and coverage are those
 // of the last push, or those of a new store when there was none.
 func CheckRestore(newSubject func() Restorable, seed int64) error {
+	return checkRestore(newSubject, seed, crashed{})
+}
+
+func checkRestore(newSubject func() Restorable, seed int64, tally crashed) error {
 	sch := newSchedule(seed, options{edits: true, pushes: true, loses: true})
 	r := newRunner(PropRestore, newSubject(), seed)
+	r.crashed = tally
 	if err := r.open(); err != nil {
 		return err
 	}
@@ -686,8 +870,13 @@ func itemKeys(items []Item) []string {
 // the loss and the items match those before it by kind, state, title and
 // statement.
 func CheckReplay(newSubject func() Restorable, seed int64) error {
+	return checkReplay(newSubject, seed, crashed{})
+}
+
+func checkReplay(newSubject func() Restorable, seed int64, tally crashed) error {
 	sch := newSchedule(seed, options{pushes: true})
 	r := newRunner(PropReplay, newSubject(), seed)
+	r.crashed = tally
 	if err := r.open(); err != nil {
 		return err
 	}

@@ -366,7 +366,7 @@ func TestExactlyOnceCountsWhatAPassDid(t *testing.T) {
 			{what: evPass, chunk: 2},
 		},
 	}
-	if err := checkExactlyOnce(newModel, 1, sch); err != nil {
+	if err := checkExactlyOnce(newModel, 1, sch, crashed{}); err != nil {
 		t.Fatal(err)
 	}
 }
