@@ -163,7 +163,9 @@ func TestNoReplyLossPastItsBar(t *testing.T) {
 func TestTurnLosses(t *testing.T) {
 	prompt := func(turn int) event.Event { return event.Event{Turn: turn, Kind: event.KindPrompt} }
 	reply := func(turn int) event.Event { return event.Event{Turn: turn, Kind: event.KindReply} }
-	life := func(turn int, text string) event.Event { return event.Event{Turn: turn, Kind: event.KindLife, Text: text} }
+	life := func(turn int, text string) event.Event {
+		return event.Event{Turn: turn, Kind: event.KindLife, Text: text}
+	}
 	for _, tc := range []struct {
 		name            string
 		events          []event.Event
