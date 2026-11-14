@@ -42,7 +42,9 @@ func newKeyForms() []keyFormRow {
 		{`"\N"`, `"\Nverified": x`, vf},
 		{`"\t"`, `"locked\t": false`, lk},
 		{`"\u00a0"`, "\"\\u00a0locked\": false", lk},
+		// An explicit key has no colon on its line: the key as read trims.
 		{"an escaped no-break space in an explicit key", "? \"locked\\_\"\n: false", lk},
+		{"spaces inside the quotes of an explicit key", "? ' verified '\n: []", vf},
 		// Run-on and unclosed quotes.
 		{"a double quote that runs past a colon", `"locked: no": x`, lk},
 		{"a single quote that never closes", "'locked: false", both},
@@ -60,6 +62,11 @@ func newKeyForms() []keyFormRow {
 		{"a short unicode escape", `"lo\u06": x`, both},
 		{"an escape past the last code point", `"\U00110000": x`, both},
 		{"an unknown escape after a tab", "\t\"lo\\qcked\": x", both},
+		// A tab-led line after an empty bare verified, which v1 read as a
+		// line under the key, blank lines between or not.
+		{"a tab-led line under an empty verified", "verified:\n\tby: river", vf},
+		{"a tab-led line under a verified comment", "verified: # by river\n\tby: river", vf},
+		{"a tab-led line after a blank one under an empty list", "verified: []\n\n\tby: river", vf},
 	}
 	// Each of three Unicode spaces before a key, before its colon, inside
 	// its quotes and around them.
@@ -90,6 +97,7 @@ var keyFormsUnprotected = []keyFormRow{
 	{"the word as a value", "title: locked: x", Protection{}},
 	{"the bare key with false", "locked: false", Protection{}},
 	{"the bare verified key, empty", "verified: []", Protection{}},
+	{"a comment between an empty verified and a tab-led line", "verified:\n# c\n\tby: river", Protection{}},
 	{"an escape YAML has, in another key", "\"ti\\u0074le\\_\": x", Protection{}},
 	{"an unknown escape in a value", `title: "lo\qcked"`, Protection{}},
 	{"a quote that never closes, in a value", "title: 'locked: x", Protection{}},
