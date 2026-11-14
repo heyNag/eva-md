@@ -30,10 +30,12 @@ var monday = time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 
 // replay is an install replayed day by day. On each working day, every
 // half hour from 9:00 to 17:30, a chat starts on each host in use, which
-// reads its line as the hook does and records it as shown, and then
-// Prepare runs, as that start, finding the notice 30 minutes old, would
-// have asked, before any other work the start set off: so a start reads
-// the notice prepared half an hour before it. The first start of the day
+// reads its line as the hook does and records it as shown, and then, when
+// a hook ran and found the notice due (see NoticeDue), Prepare runs, as
+// the job that start asked for, before any other work the start set off:
+// so a start reads the notice prepared at the last start that asked for
+// it, an hour before, or on the day's first start the evening before, or
+// the Friday before. The first start of the day
 // takes the day's attempt marker, and the day's maintain commits and
 // pushes a minute later, after that start's Prepare; five minutes after
 // each start on the hour an update of each host's chat saves a page.
@@ -143,8 +145,9 @@ func (r *replay) run(days int, at time.Time, plant func(*replay)) {
 				plant(r)
 				plant = nil
 			}
-			r.starts(day, now)
-			r.prepare(now)
+			if r.starts(day, now) {
+				r.prepare(now)
+			}
 			if slot%2 == 0 && !maintained && r.attempted(now) {
 				r.maintain(now.Add(time.Minute))
 				maintained = true
@@ -159,9 +162,11 @@ func (r *replay) run(days int, at time.Time, plant func(*replay)) {
 // starts starts a chat on each host used on day: it appears in the host's
 // chat folder and, unless the host's hooks no longer run, its hook reads
 // its line and shows it, takes the day's attempt marker as the day's first
-// event, and leaves its heartbeats and the chat's entries.
-func (r *replay) starts(day int, now time.Time) {
+// event, and leaves its heartbeats and the chat's entries. It reports
+// whether a hook asked for the notice, as the hook does when it is due.
+func (r *replay) starts(day int, now time.Time) (asked bool) {
 	t := r.t
+	due := NoticeDue(r.d, now)
 	for _, host := range updateHosts {
 		if !r.uses(host, day) {
 			continue
@@ -184,6 +189,7 @@ func (r *replay) starts(day int, now time.Time) {
 				t.Fatal(err)
 			}
 		}
+		asked = asked || due
 		attempt := filepath.Join(r.d.State, "commit", "attempt-"+now.Format(time.DateOnly))
 		if _, err := os.Lstat(attempt); err != nil {
 			plant(t, attempt, nil)
@@ -201,6 +207,7 @@ func (r *replay) starts(day int, now time.Time) {
 		file := (inbox.Store{Root: r.d.Inbox()}).Path("general", host, id)
 		plant(t, file, r.data[id])
 	}
+	return asked
 }
 
 // attempted reports whether a hook took the day's attempt marker.
@@ -209,12 +216,15 @@ func (r *replay) attempted(now time.Time) bool {
 	return err == nil
 }
 
-// prepare runs Prepare at now, and keeps the lines it wrote.
+// prepare runs Prepare at now, as the job a start asked for, and keeps the
+// lines it wrote; the notice's modification time is now, as the job, run
+// at now, would leave it.
 func (r *replay) prepare(now time.Time) {
 	t := r.t
 	if err := Prepare(t.Context(), r.d, now); err != nil {
 		t.Fatalf("%s: %v", now, err)
 	}
+	touch(t, filepath.Join(r.d.State, "health", "notice.json"), now)
 	var n notice
 	data, err := os.ReadFile(filepath.Join(r.d.State, "health", "notice.json"))
 	if err != nil || json.Unmarshal(data, &n) != nil || n.Prepared != now.Format(time.RFC3339) {
@@ -400,8 +410,8 @@ func faults(t *testing.T) []fault {
 		}, CondTrustReview + "/" + codex, []string{claude}, 2 * time.Hour, 5, true},
 		{"Codex's hooks stop", wednesday, func(r *replay) { r.dead[codex] = true }, CondCaptureSilent + "/" + codex, []string{claude}, 2 * time.Hour, 5, true},
 		{"Claude Code's hooks stop", wednesday, func(r *replay) { r.dead[claude] = true }, CondCaptureSilent + "/" + claude, []string{codex}, 2 * time.Hour, 5, true},
-		{"Claude Code's SessionStart fails", wednesday, func(r *replay) { r.fail[claude+"/SessionStart"] = true }, CondHookFailing + "/" + claude + "/SessionStart", both, 2 * 24 * time.Hour, 5, true},
-		{"Codex's Stop fails", wednesday, func(r *replay) { r.fail[codex+"/Stop"] = true }, CondHookFailing + "/" + codex + "/Stop", both, 2 * 24 * time.Hour, 5, true},
+		{"Claude Code's SessionStart fails", wednesday, func(r *replay) { r.fail[claude+"/SessionStart"] = true }, CondHookFailing + "/" + claude + "/SessionStart", both, 3 * time.Hour, 5, true},
+		{"Codex's Stop fails", wednesday, func(r *replay) { r.fail[codex+"/Stop"] = true }, CondHookFailing + "/" + codex + "/Stop", both, 3 * time.Hour, 5, true},
 		{"Claude Code signed out", wednesday, func(r *replay) { r.updateFail[claude] = update.ReasonAuth }, CondUpdateSignIn + "/" + claude, both, 2 * time.Hour, 5, true},
 		{"a diverged remote", wednesday, func(r *replay) { r.push = wikigit.PushDiverged }, CondPushDiverged, both, 24 * time.Hour, 5, true},
 		{"Codex's updates fail", wednesday, func(r *replay) { r.updateFail[codex] = update.ReasonHostError }, CondUpdateFailing + "/" + codex, both, 4 * time.Hour, 5, true},
@@ -469,6 +479,33 @@ func TestReplayedMonthWithAFaultShowsItsLine(t *testing.T) {
 		if !seen[typ] {
 			t.Errorf("no fault plants %s", typ)
 		}
+	}
+}
+
+// Chat starts hours apart, with nothing between them to ask for the
+// notice: each start shows the line prepared at the start before it, which
+// asked for it, so the line is shown at the second start and once a day
+// after, not never.
+func TestStartsHoursApartShowTheLine(t *testing.T) {
+	d := noticeHome(t)
+	var shows []time.Duration
+	for i := range 10 {
+		now := noon.Add(time.Duration(i) * 3 * time.Hour)
+		if id, _ := PreparedLine(d, updateHosts[0], now); id != "" {
+			shows = append(shows, now.Sub(noon))
+			if err := MarkShown(t.Context(), d, id, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if NoticeDue(d, now) {
+			if err := Prepare(t.Context(), d, now); err != nil {
+				t.Fatal(err)
+			}
+			touch(t, filepath.Join(d.State, "health", "notice.json"), now)
+		}
+	}
+	if want := []time.Duration{3 * time.Hour, 27 * time.Hour}; !slices.Equal(shows, want) {
+		t.Fatalf("10 starts 3 hours apart showed the line at %v, want %v", shows, want)
 	}
 }
 
@@ -566,6 +603,45 @@ func TestPrepareWritesNothingElse(t *testing.T) {
 	if after, _ := os.ReadFile(filepath.Join(d.State, "health", "notice.json")); string(after) != string(before) {
 		t.Fatalf("a check whose time is out wrote %s", after)
 	}
+
+	// A check whose time runs out while it evaluates the conditions leaves
+	// the notice as it was, but marked as checked, so chat starts wait 30
+	// minutes before they ask for another check, which would likely be cut
+	// short too; the line it holds is still the one prepared at noon.
+	cutShort := func(t *testing.T, d paths.Dirs, at time.Time) {
+		t.Helper()
+		t.Cleanup(func() { evaluate = Conditions })
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		evaluate = func(ctx context.Context, d paths.Dirs, c config.Config, now time.Time) []Condition {
+			cancel()
+			return Conditions(ctx, d, c, now)
+		}
+		if err := Prepare(ctx, d, at); err == nil {
+			t.Error("a check cut short says nothing failed")
+		}
+		evaluate = Conditions
+	}
+	touch(t, filepath.Join(d.State, "health", "notice.json"), noon)
+	cutShort(t, d, noon.Add(time.Hour))
+	if after, _ := os.ReadFile(filepath.Join(d.State, "health", "notice.json")); string(after) != string(before) {
+		t.Fatalf("a check cut short wrote %s", after)
+	}
+	if NoticeDue(d, noon.Add(time.Hour+NoticeEvery)) || !NoticeDue(d, noon.Add(time.Hour+NoticeEvery+time.Second)) {
+		t.Error("a check cut short does not wait the usual time")
+	}
+	if id, _ := PreparedLine(d, updateHosts[0], noon.Add(time.Hour)); id != CondUnknownKeys {
+		t.Errorf("after a check cut short: %q", id)
+	}
+	// With no notice yet, one with no line is written, which no start shows.
+	d = noticeHome(t)
+	cutShort(t, d, noon)
+	if NoticeDue(d, noon.Add(NoticeEvery)) {
+		t.Error("a first check cut short does not wait the usual time")
+	}
+	if id, _ := PreparedLine(d, updateHosts[0], noon); id != "" {
+		t.Errorf("a first check cut short shows %q", id)
+	}
 }
 
 // writeNotice writes notice.json by hand.
@@ -578,7 +654,7 @@ func writeNotice(t *testing.T, d paths.Dirs, n notice) {
 	put(t, filepath.Join(d.State, "health", "notice.json"), data)
 }
 
-// A chat start shows its host's line while it was prepared in the last 2
+// A chat start shows its host's line while it was prepared in the last 24
 // hours and is not one shown in the last 24; a line this build could not
 // have prepared is never shown.
 func TestPreparedLineIsFreshAndNotShownToday(t *testing.T) {
@@ -588,8 +664,8 @@ func TestPreparedLineIsFreshAndNotShownToday(t *testing.T) {
 		t.Fatal(err)
 	}
 	for at, want := range map[time.Time]string{
-		noon.Add(2 * time.Hour):              CondUnknownKeys,
-		noon.Add(2*time.Hour + time.Second):  "",
+		noon.Add(24 * time.Hour):             CondUnknownKeys,
+		noon.Add(24*time.Hour + time.Second): "",
 		noon.Add(-time.Minute):               CondUnknownKeys,
 		noon.Add(-time.Minute - time.Second): "",
 	} {
@@ -677,6 +753,76 @@ func TestMarkShownKeepsTheDaysLines(t *testing.T) {
 	if got, _ := os.ReadFile(file); string(got) != want {
 		t.Fatalf("shown.json %s after an unknown id", got)
 	}
+
+	// A time more than a minute after now, as after the clock was set
+	// back, counts as none: it would otherwise hide the line for good.
+	if err := Prepare(t.Context(), d, noon); err != nil {
+		t.Fatal(err)
+	}
+	for at, quiet := range map[time.Time]bool{noon.Add(time.Minute): true, noon.Add(time.Minute + time.Second): false, noon.Add(24 * time.Hour): false} {
+		put(t, file, []byte(`{"id":"config.unknown_keys","at":"`+at.Format(time.RFC3339)+`"}`))
+		if id, _ := PreparedLine(d, updateHosts[0], noon); (id == "") != quiet {
+			t.Errorf("shown at %s, judged at %s: %q", at, noon, id)
+		}
+	}
+}
+
+// Prepare removes the needs-trust flag only while it is the file it read
+// as met: one install wrote again since, a new file or the same file
+// changed, stays.
+func TestAFlagWrittenAgainIsKept(t *testing.T) {
+	d := noticeHome(t)
+	flag := filepath.Join(d.State, "needs-trust.json")
+	trustFlagAt(t, d, noon.Add(-time.Hour))
+	root, err := paths.OpenRoot(d.State, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	for name, change := range map[string]func(){
+		"a new file": func() {
+			put(t, flag, []byte(`{"host":"codex","needs_trust":true}`+"\n"))
+			touch(t, flag, noon.Add(-time.Hour))
+		},
+		"a later time": func() { touch(t, flag, noon) },
+		"another size": func() {
+			f, err := os.OpenFile(flag, os.O_APPEND|os.O_WRONLY, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if _, err := f.WriteString(" "); err != nil {
+				t.Fatal(err)
+			}
+			touch(t, flag, noon.Add(-time.Hour))
+		},
+	} {
+		trustFlagAt(t, d, noon.Add(-time.Hour))
+		read := mustLstat(t, flag)
+		change()
+		if err := removeFlag(root, read); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(flag); err != nil {
+			t.Fatalf("%s: the flag install wrote again was removed: %v", name, err)
+		}
+	}
+	trustFlagAt(t, d, noon.Add(-time.Hour))
+	if err := removeFlag(root, mustLstat(t, flag)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(flag); !os.IsNotExist(err) {
+		t.Fatalf("the flag read is still there: %v", err)
+	}
+}
+
+func mustLstat(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
 }
 
 // Prepare removes the needs-trust flag once the hooks it waits for have

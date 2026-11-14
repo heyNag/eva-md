@@ -35,15 +35,15 @@ func TestEveryLine(t *testing.T) {
 		want             string
 	}{
 		{CondUnknownKeys, "", "", 0, 0, 0, "eva.md: its config has keys it does not know, which it ignores, so a setting may be lost. Correct or remove them in eva-md's config.toml."},
-		{CondWikiUnreadable, "", "", 0, 0, 0, "eva.md: the wiki's index.md cannot be read, so briefs and updates leave the wiki out. Restore index.md at the wiki's root."},
-		{CondWikiInstance, "", "", 0, 0, 0, "eva.md: the wiki is another install's, so nothing is written to it. Point wiki_path in eva-md's config.toml at this Mac's own wiki."},
+		{CondWikiUnreadable, "", "", 0, 0, 0, "eva.md: the wiki's index.md or .eva-md/schema.toml can't be read, so briefs and updates leave the wiki out. Restore it from the wiki's git history."},
+		{CondWikiInstance, "", "", 0, 0, 0, "eva.md: the wiki and eva-md's config name different installs, so nothing is written to the wiki. Point wiki_path and instance in config.toml at this Mac's wiki."},
 		{CondTrustReview, codex, "", 0, 0, 0, "eva.md: Codex chats are not saved until Codex approves eva-md's hooks. In Codex, type /hooks and approve eva-md."},
 		{CondCaptureSilent, claude, "", 0, 0, 3*time.Hour + 10*time.Minute, "eva.md: Claude Code's hooks have not run for 3 hours while it was in use, so its chats are not saved. Enable eva-md's plugin in Claude Code."},
 		{CondHookFailing, claude, "SessionStart", 4, 4, 0, "eva.md: 4 of the last 4 Claude Code SessionStart hooks failed: they timed out or could not save. Free disk space and check eva-md's state folder."},
 		{CondUpdateSignIn, claude, "", 0, 0, 0, "eva.md: Claude Code chats are not turned into notes while Claude Code is signed out. Run claude auth login."},
 		{CondUpdateSignIn, codex, "", 0, 0, 0, "eva.md: Codex chats are not turned into notes while Codex is signed out. Run codex login."},
 		{CondPushDiverged, "", "", 0, 0, 0, "eva.md: the wiki's remote has commits this clone lacks, so pushes stopped. Merge them in the wiki by hand, never with a force push."},
-		{CondHookFailing, codex, "Stop", 10, 20, 0, "eva.md: 10 of the last 20 Codex Stop hooks failed: they timed out or could not save. Free disk space and check eva-md's state folder."},
+		{CondHookFailing, codex, "Stop", 5, 8, 0, "eva.md: 5 of the last 8 Codex Stop hooks failed: they timed out or could not save. Free disk space and check eva-md's state folder."},
 		{CondUpdateFailing, codex, "", 3, 0, 0, "eva.md: the last 3 Codex updates failed, so its chats wait to become notes. Run eva-md update --pending --foreground to see why."},
 		{CondUpdateQuarantined, claude, "", 1, 0, 0, "eva.md: 1 Claude Code chat failed 3 updates in a row and is tried once more tomorrow. eva-md status names it."},
 		{CondUpdateQuarantined, claude, "", 2, 0, 0, "eva.md: 2 Claude Code chats failed 3 updates in a row and are tried once more tomorrow. eva-md status names them."},
@@ -201,7 +201,12 @@ func TestEachEventIsJudgedOnItsOwn(t *testing.T) {
 	claude := updateHosts[0]
 	beatFile(t, d, claude, "PostToolUse", noon, nil, runsOf(noon, 20, 0))
 	beatFile(t, d, claude, "Stop", noon, nil, runsOf(noon, 4, 4))
-	beatFile(t, d, claude, "UserPromptSubmit", noon, nil, runsOf(noon, 20, 9))
+	// 9 of 20 failed, 3 of the newest 8.
+	prompts := runsOf(noon, 20, 0)
+	for _, i := range []int{0, 2, 4, 6, 8, 10, 13, 16, 19} {
+		prompts[i].Failed = true
+	}
+	beatFile(t, d, claude, "UserPromptSubmit", noon, nil, prompts)
 	beatFile(t, d, claude, "SessionStart", noon, nil, runsOf(noon, 3, 3))
 	got := failingHooks(d, noon)
 	if len(got) != 1 || got[0] != (failingHook{claude, "Stop", 4, 4}) {
@@ -236,6 +241,19 @@ func TestRowSixSessionStartFailsEveryTime(t *testing.T) {
 		if got, _ := lineFor(conds, host); got.ID != "hook.failing/claude-code/SessionStart" {
 			t.Errorf("%s's line %q", host, got.ID)
 		}
+	}
+
+	// On an install in use, whose heartbeat keeps 16 runs that passed
+	// before the fault, the budget is the same 4 runs: 3 failures say
+	// nothing, the 4th is the condition, of the newest 8 runs.
+	beatFile(t, d, claude, "SessionStart", noon, nil, runsOf(noon, 19, 3))
+	if all, _ := ids(Conditions(t.Context(), d, c, noon)); len(all) != 0 {
+		t.Fatalf("16 runs that passed, then 3 failures: %q", all)
+	}
+	beatFile(t, d, claude, "SessionStart", noon, nil, runsOf(noon, 20, 4))
+	conds = Conditions(t.Context(), d, c, noon)
+	if all, _ := ids(conds); !slices.Equal(all, []string{"hook.failing/claude-code/SessionStart"}) || !strings.HasPrefix(conds[0].Text, "eva.md: 4 of the last 8 ") {
+		t.Fatalf("16 runs that passed, then 4 failures: %+v", conds)
 	}
 }
 
@@ -284,6 +302,20 @@ func TestRowsTwoAndThreeTrust(t *testing.T) {
 	}
 	if got, ok := lineFor(conds, codex); ok && got.Type == CondTrustReview {
 		t.Fatalf("Codex's own line is %q", got.ID)
+	}
+	// A Codex hook in a folder eva-md doesn't capture leaves only its
+	// stamp, and ends it as well: its hooks are trusted.
+	stamp := filepath.Join(d.State, "heartbeats", codex, "uncaptured.json")
+	put(t, stamp, []byte(`{"at":"`+install.Add(-time.Minute).Format(time.RFC3339)+`"}`))
+	if !hasType(Conditions(t.Context(), d, c, noon), CondTrustReview) {
+		t.Fatal("a stamp from before the flag ended trust.review")
+	}
+	put(t, stamp, []byte(`{"at":"`+install.Add(15*time.Minute).Format(time.RFC3339)+`"}`))
+	if cond := Conditions(t.Context(), d, c, noon); hasType(cond, CondTrustReview) {
+		t.Fatalf("after a Codex hook in a folder not captured: %+v", cond)
+	}
+	if err := os.Remove(stamp); err != nil {
+		t.Fatal(err)
 	}
 	beatWith(t, d, codex, "SessionStart", install.Add(20*time.Minute), true, false)
 	for _, cond := range Conditions(t.Context(), d, c, noon) {
@@ -453,5 +485,207 @@ func TestRowFifteenTwoConditions(t *testing.T) {
 			}
 		}
 		c.Unknown = nil
+	}
+}
+
+// hasType reports whether conds hold a condition of typ.
+func hasType(conds []Condition, typ string) bool {
+	return slices.ContainsFunc(conds, func(c Condition) bool { return c.Type == typ })
+}
+
+// trustHome is a home whose Codex hooks wait for a review: the flag install
+// left two hours before noon, no Codex hook since, and a Codex chat ten
+// minutes after the flag.
+func trustHome(t *testing.T) (paths.Dirs, config.Config, time.Time) {
+	t.Helper()
+	claude, codex := updateHosts[0], updateHosts[1]
+	d := isolated(t)
+	installedFor(t, d, claude, noon)
+	installedFor(t, d, codex, noon)
+	install := noon.Add(-2 * time.Hour)
+	trustFlagAt(t, d, install)
+	beatWith(t, d, claude, "SessionStart", noon.Add(-time.Minute), true, false)
+	codexChat(t, install.Add(10*time.Minute))
+	return d, config.Default(), install
+}
+
+// When Codex's chat folder could not be read, whether a Codex chat started
+// is not known, and the flag alone is trust.review, Claude Code's line, as
+// v1's notice said it; Codex is not taken for unused. (Root reads a folder
+// whose mode shuts it, so this holds only for another user.)
+func TestTrustReviewWhenCodexsChatsCannotBeRead(t *testing.T) {
+	d, c, install := trustHome(t)
+	if os.Geteuid() != 0 {
+		shut(t, codexDay(install))
+		stages := Stages(t.Context(), d, c, noon)
+		if i := slices.IndexFunc(stages, func(s Stage) bool { return s.Name == StageActivity && s.Host == updateHosts[1] }); stages[i].Unread == "" {
+			t.Fatalf("Codex's activity was read: %+v", stages[i])
+		}
+		conds := Conditions(t.Context(), d, c, noon)
+		if got, _ := lineFor(conds, updateHosts[0]); got.ID != "trust.review/codex" {
+			t.Fatalf("Claude Code's line %q; all %+v", got.ID, conds)
+		}
+	}
+}
+
+// A flag that is there but does not read as install writes it, cut short,
+// a link, one whose keys differ only in case or that says needs_trust
+// false, is pending all the same, as v1's notice took it: trust.review,
+// and, though Codex's hooks may have run since, Prepare never removes it.
+func TestATrustFlagThatDoesNotReadCleanIsPending(t *testing.T) {
+	flags := map[string]string{
+		"cut short":       `{"host":"codex","needs_tr`,
+		"a key in case":   `{"host":"codex","NEEDS_TRUST":true}`,
+		"needs no trust":  `{"host":"codex","needs_trust":false}`,
+		"another host":    `{"host":"claude","needs_trust":true}`,
+		"no host":         `{"needs_trust":true}`,
+		"not an object":   `[1]`,
+		"a link":          "",
+		"can't be opened": `{"host":"codex","needs_trust":true}`,
+	}
+	for name, content := range flags {
+		if name == "can't be opened" && os.Geteuid() == 0 {
+			continue // root opens a file whose mode shuts it
+		}
+		t.Run(name, func(t *testing.T) {
+			d, c, install := trustHome(t)
+			flag := filepath.Join(d.State, "needs-trust.json")
+			if err := os.Remove(flag); err != nil {
+				t.Fatal(err)
+			}
+			if name == "a link" {
+				// A link's own time can't be set back, so it is judged at
+				// trustFlag: pending, not clean.
+				target := filepath.Join(d.State, "elsewhere.json")
+				put(t, target, []byte(`{"host":"codex","needs_trust":true}`))
+				if err := os.Symlink(target, flag); err != nil {
+					t.Fatal(err)
+				}
+				if reviewer, _, clean, ok := trustFlag(d); !ok || clean || reviewer.ID != "codex" {
+					t.Fatalf("a link: %v %v %v", reviewer.ID, clean, ok)
+				}
+				return
+			}
+			put(t, flag, []byte(content))
+			touch(t, flag, install)
+			if name == "can't be opened" {
+				if err := os.Chmod(flag, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			conds := Conditions(t.Context(), d, c, noon)
+			if got, _ := lineFor(conds, updateHosts[0]); got.ID != "trust.review/codex" {
+				t.Fatalf("Claude Code's line %q; all %+v", got.ID, conds)
+			}
+			// Codex's hooks ran since: met, and still never removed.
+			beatWith(t, d, updateHosts[1], "SessionStart", noon.Add(-time.Minute), true, false)
+			if conds := Conditions(t.Context(), d, c, noon); hasType(conds, CondTrustReview) {
+				t.Fatalf("met, still %+v", conds)
+			}
+			if err := tidy(d, noon); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(flag); err != nil {
+				t.Fatalf("a flag that does not read clean was removed: %v", err)
+			}
+		})
+	}
+	// The flag as install writes it is clean, and a key that differs from
+	// one of its own only in case cancels nothing.
+	d, c, install := trustHome(t)
+	if reviewer, _, clean, ok := trustFlag(d); !ok || !clean || reviewer.ID != "codex" {
+		t.Fatalf("install's own flag: %v %v %v", reviewer.ID, clean, ok)
+	}
+	flag := filepath.Join(d.State, "needs-trust.json")
+	put(t, flag, []byte(`{"host":"codex","needs_trust":true,"NEEDS_TRUST":false}`))
+	touch(t, flag, install)
+	if reviewer, _, clean, ok := trustFlag(d); !ok || !clean || reviewer.ID != "codex" || !hasType(Conditions(t.Context(), d, c, noon), CondTrustReview) {
+		t.Fatalf("a key in another case cancelled the flag: %v %v %v", reviewer.ID, clean, ok)
+	}
+}
+
+// The wiki states the update and the daily commit refuse are conditions:
+// a schema missing, not TOML or of no version is wiki.unreadable; an
+// instance missing on either side, or not the config's, is wiki.instance;
+// a newer schema is wiki.schema_newer. A wiki they take is none.
+func TestTheWikiStatesTheUpdateRefuses(t *testing.T) {
+	schemaFile := func(c config.Config) string { return filepath.Join(c.WikiPath, ".eva-md", "schema.toml") }
+	for _, s := range []struct {
+		name  string
+		plant func(*testing.T, *config.Config)
+		want  []string
+	}{
+		{"a wiki it takes", func(*testing.T, *config.Config) {}, nil},
+		{"no schema", func(t *testing.T, c *config.Config) {
+			if err := os.Remove(schemaFile(*c)); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{CondWikiUnreadable}},
+		{"a schema not TOML", func(t *testing.T, c *config.Config) { put(t, schemaFile(*c), []byte("schema_version = = 1\n")) }, []string{CondWikiUnreadable}},
+		{"a schema of no version", func(t *testing.T, c *config.Config) {
+			put(t, schemaFile(*c), []byte("instance = \""+c.Instance+"\"\n"))
+		}, []string{CondWikiUnreadable}},
+		{"a schema of version 0", func(t *testing.T, c *config.Config) {
+			put(t, schemaFile(*c), []byte("schema_version = 0\ninstance = \""+c.Instance+"\"\n"))
+		}, []string{CondWikiUnreadable}},
+		{"a config with no instance", func(_ *testing.T, c *config.Config) { c.Instance = "" }, []string{CondWikiInstance}},
+		{"a schema with no instance", func(t *testing.T, c *config.Config) { put(t, schemaFile(*c), []byte("schema_version = 1\n")) }, []string{CondWikiInstance}},
+		{"another instance", func(t *testing.T, c *config.Config) {
+			put(t, schemaFile(*c), []byte("schema_version = 1\ninstance = \"another\"\n"))
+		}, []string{CondWikiInstance}},
+		{"a newer schema", func(t *testing.T, c *config.Config) {
+			put(t, schemaFile(*c), []byte("schema_version = 2\ninstance = \""+c.Instance+"\"\n"))
+		}, []string{CondSchemaNewer}},
+	} {
+		t.Run(s.name, func(t *testing.T) {
+			d, c := stageHome(t)
+			inUse(t, d, noon)
+			put(t, filepath.Join(c.WikiPath, "index.md"), []byte("# Wiki\n"))
+			if err := config.SaveSchema(schemaFile(c), config.WikiSchema{SchemaVersion: 1, Instance: c.Instance, Created: "2026-03-01"}); err != nil {
+				t.Fatal(err)
+			}
+			s.plant(t, &c)
+			var got []string
+			for _, cond := range Conditions(t.Context(), d, c, noon) {
+				if strings.HasPrefix(cond.Type, "wiki.") {
+					got = append(got, cond.Type)
+				}
+			}
+			if !slices.Equal(got, s.want) {
+				t.Fatalf("conditions %q, want %q", got, s.want)
+			}
+		})
+	}
+}
+
+// When today's run log or this month's commits can't be read, the records
+// read before them still count, as v1's notice counts them: yesterday's
+// failures in a row, and last month's diverged push. (Root reads a file
+// whose mode shuts it, so this holds only for another user.)
+func TestRecordsReadBeforeAnUnreadableFileCount(t *testing.T) {
+	d, c := stageHome(t)
+	put(t, filepath.Join(c.WikiPath, "index.md"), []byte("# Wiki\n"))
+	if err := config.SaveSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"), config.WikiSchema{SchemaVersion: 1, Instance: c.Instance, Created: "2026-03-01"}); err != nil {
+		t.Fatal(err)
+	}
+	inUse(t, d, noon)
+	codex := updateHosts[1]
+	yesterday := noon.AddDate(0, 0, -1)
+	at := func(d time.Duration) string { return yesterday.Add(-d).Format(time.RFC3339) }
+	plantRunLog(t, d, failedRecord(at(3*time.Hour), codex, "s1", update.ReasonHostError), failedRecord(at(2*time.Hour), codex, "s1", update.ReasonHostError),
+		failedRecord(at(time.Hour), codex, "s1", update.ReasonHostError), okRecord(noon.Add(-time.Hour).Format(time.RFC3339), codex, "s2"))
+	plantCommits(t, d, wikigit.Result{At: noon.AddDate(0, -1, 0).Format(time.RFC3339), Outcome: wikigit.Committed, Pages: 1, Push: wikigit.PushDiverged},
+		wikigit.Result{At: noon.Add(-time.Hour).Format(time.RFC3339), Outcome: wikigit.Committed, Pages: 1, Push: wikigit.PushOK})
+	if os.Geteuid() == 0 {
+		return
+	}
+	for _, file := range []string{filepath.Join(d.State, "updates", noon.Format(time.DateOnly)+".jsonl"), filepath.Join(d.State, "commits", noon.Format("2006-01")+".jsonl")} {
+		if err := os.Chmod(file, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conds := Conditions(t.Context(), d, c, noon)
+	if !hasType(conds, CondUpdateFailing) || !hasType(conds, CondPushDiverged) {
+		t.Fatalf("conditions %+v", conds)
 	}
 }

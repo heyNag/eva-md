@@ -147,7 +147,11 @@ func Run(ctx context.Context, host string, in io.Reader, out io.Writer, env Env)
 		if host == "codex" && event == "Stop" {
 			output = "{}"
 		}
-		writeOutput(out, output, deadline, env.withDeadline)
+		if !writeOutput(out, output, deadline, env.withDeadline) && ran != nil {
+			// The host did not get the output, so no line it carried was
+			// shown (see notice.go).
+			ran.shown = ""
+		}
 		launch(env, ran)
 		if late != nil {
 			lateBeat(ctx, env, host, *late, env.took(late.started))
@@ -254,21 +258,32 @@ func invocationDeadline(ctx context.Context, deadline time.Time) time.Time {
 // A caller-supplied io.Writer cannot be forcibly interrupted. Bound our wait
 // by the deadline, through withDeadline, contain its panic, and let the CLI
 // process exit end a permanently stalled write. Output to a stalled
-// destination can consequently be lost.
-func writeOutput(out io.Writer, output string, deadline time.Time, withDeadline func(context.Context, time.Time) (context.Context, context.CancelFunc)) {
-	if out == nil || output == "" {
-		return
+// destination can consequently be lost. It reports whether the output was
+// written whole, without an error: true for no output to write.
+func writeOutput(out io.Writer, output string, deadline time.Time, withDeadline func(context.Context, time.Time) (context.Context, context.CancelFunc)) bool {
+	if output == "" {
+		return true
+	}
+	if out == nil {
+		return false
 	}
 	ctx, cancel := withDeadline(context.Background(), deadline)
 	defer cancel()
 	if ctx.Err() != nil {
-		return
+		return false
 	}
-	done := make(chan struct{})
-	go func() { defer close(done); defer func() { _ = recover() }(); _, _ = io.WriteString(out, output) }()
+	done := make(chan bool, 1)
+	go func() {
+		written := false
+		defer func() { _ = recover(); done <- written }()
+		n, err := io.WriteString(out, output)
+		written = err == nil && n == len(output)
+	}()
 	select {
-	case <-done:
+	case written := <-done:
+		return written
 	case <-ctx.Done():
+		return false
 	}
 }
 

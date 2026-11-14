@@ -42,7 +42,7 @@ var wakeForm = wakeJob
 // list. A job with a reason not among them keeps v1's form, so a reason
 // added to the hooks never reaches a work command that would refuse it
 // and lose the trigger.
-var WakeReasons = []string{reasonDaily, reasonPushRetry, update.TriggerGap, update.TriggerStop, update.TriggerEnd, update.TriggerCompact, update.TriggerStart, reasonHealth}
+var WakeReasons = []string{reasonDaily, reasonPushRetry, update.TriggerGap, update.TriggerStop, update.TriggerEnd, update.TriggerCompact, update.TriggerStart}
 
 // wakeJob is j's wake form when j starts eva-md update or maintain:
 //

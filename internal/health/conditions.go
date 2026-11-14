@@ -95,15 +95,19 @@ func Conditions(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 	if len(c.Unknown) > 0 {
 		add(CondUnknownKeys, "", "", 0, 0, 0)
 	}
+	// The wiki as the update and the daily commit judge it: they refuse a
+	// schema they can't read or of no version, and an instance missing on
+	// either side or not the config's.
 	var schema config.WikiSchema
 	schemaRead := false
 	if c.WikiPath != "" {
-		if _, err := readPrivate(filepath.Join(c.WikiPath, "index.md"), 1<<20); err != nil {
+		_, indexErr := readPrivate(filepath.Join(c.WikiPath, "index.md"), 1<<20)
+		s, err := config.LoadSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"))
+		schema, schemaRead = s, err == nil && s.SchemaVersion >= 1
+		if indexErr != nil || !schemaRead {
 			add(CondWikiUnreadable, "", "", 0, 0, 0)
 		}
-		s, err := config.LoadSchema(filepath.Join(c.WikiPath, ".eva-md", "schema.toml"))
-		schema, schemaRead = s, err == nil
-		if schemaRead && c.Instance != "" && s.Instance != c.Instance {
+		if schemaRead && (c.Instance == "" || s.Instance == "" || s.Instance != c.Instance) {
 			add(CondWikiInstance, "", "", 0, 0, 0)
 		}
 	}
@@ -126,12 +130,13 @@ func Conditions(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 	}
 	addHooks(true)
 
+	// The records read, even when a later file could not be, as v1's
+	// notice uses them: an unreadable day or month hides no earlier one.
 	states := map[string]update.HostState{}
 	if c.WikiPath != "" && c.Updates {
-		if records, err := update.Recent(d.State, now, doctorLog); err == nil {
-			for _, host := range updateHosts {
-				states[host] = update.Host(records, host, now)
-			}
+		records, _ := update.Recent(d.State, now, doctorLog)
+		for _, host := range updateHosts {
+			states[host] = update.Host(records, host, now)
 		}
 	}
 	for _, host := range updateHosts {
@@ -142,11 +147,10 @@ func Conditions(ctx context.Context, d paths.Dirs, c config.Config, now time.Tim
 		}
 	}
 	var cs commits
-	commitsRead := false
-	if c.WikiPath != "" && c.Commits {
-		if records, err := commitRecords(d.State, now, doctorCommit); err == nil {
-			cs, commitsRead = readCommits(records), true
-		}
+	commitsRead := c.WikiPath != "" && c.Commits
+	if commitsRead {
+		records, _ := commitRecords(d.State, now, doctorCommit)
+		cs = readCommits(records)
 	}
 	if commitsRead && cs.push == wikigit.PushDiverged {
 		add(CondPushDiverged, "", "", 0, 0, 0)
@@ -217,9 +221,9 @@ func newCondition(typ, host, event string, n, of int, wait time.Duration) Condit
 	case CondUnknownKeys:
 		text = "its config has keys it does not know, which it ignores, so a setting may be lost. Correct or remove them in eva-md's config.toml."
 	case CondWikiUnreadable:
-		text = "the wiki's index.md cannot be read, so briefs and updates leave the wiki out. Restore index.md at the wiki's root."
+		text = "the wiki's index.md or .eva-md/schema.toml can't be read, so briefs and updates leave the wiki out. Restore it from the wiki's git history."
 	case CondWikiInstance:
-		text = "the wiki is another install's, so nothing is written to it. Point wiki_path in eva-md's config.toml at this Mac's own wiki."
+		text = "the wiki and eva-md's config name different installs, so nothing is written to the wiki. Point wiki_path and instance in config.toml at this Mac's wiki."
 	case CondTrustReview:
 		text = app + " chats are not saved until " + app + " approves eva-md's hooks. In " + app + ", type /hooks and approve eva-md."
 	case CondCaptureSilent:
@@ -253,10 +257,16 @@ type failingHook struct {
 	failed, runs int
 }
 
+// eventWindow is how many of an event's newest runs it is judged on: twice
+// the runs needed to judge, so a fault that starts after weeks of runs that
+// passed is a condition after hookMinRuns failures, as on a fresh install,
+// and not only once it is half of every run a heartbeat keeps.
+const eventWindow = 2 * hookMinRuns
+
 // failingHooks are the events, of each host in the adapter's order and in
-// each host's order of events, whose own last runs in the past 7 days, 4 or
-// more of them, failed half or more of the time. Each event is judged on
-// its own runs, never pooled with another's.
+// each host's order of events, whose own newest runs in the past 7 days, at
+// most eventWindow of them and 4 or more, failed half or more of the time.
+// Each event is judged on its own runs, never pooled with another's.
 func failingHooks(d paths.Dirs, now time.Time) []failingHook {
 	var out []failingHook
 	for _, host := range updateHosts {
@@ -265,12 +275,19 @@ func failingHooks(d paths.Dirs, now time.Time) []failingHook {
 			if !valid {
 				continue
 			}
-			failed, runs := 0, 0
+			var recent []hookRun
 			for _, r := range b.Runs {
-				if r.At.IsZero() || r.At.After(now.Add(time.Minute)) || now.Sub(r.At) > hookDays {
-					continue
+				if !r.At.IsZero() && !r.At.After(now.Add(time.Minute)) && now.Sub(r.At) <= hookDays {
+					recent = append(recent, r)
 				}
-				runs++
+			}
+			// Newest first; of runs at the same time, the one the heartbeat
+			// lists later, which it keeps oldest first.
+			slices.Reverse(recent)
+			slices.SortStableFunc(recent, func(a, b hookRun) int { return b.At.Compare(a.At) })
+			recent = recent[:min(len(recent), eventWindow)]
+			failed, runs := 0, len(recent)
+			for _, r := range recent {
 				if r.Failed {
 					failed++
 				}
@@ -283,47 +300,71 @@ func failingHooks(d paths.Dirs, now time.Time) []failingHook {
 	return out
 }
 
-// trustFlag reads the needs-trust flag install leaves: the host it names,
-// when that is one whose plugin needs a review, and the flag's file info.
-// ok is false when there is no flag, or one that can't be read or names no
-// such host.
-func trustFlag(d paths.Dirs) (reviewer adapter.Host, info os.FileInfo, ok bool) {
+// trustFlag reads the needs-trust flag install leaves, which can only be
+// for the host whose plugin needs a review (see reviewHost): that host, the
+// flag's file info, and whether the flag reads as install writes it, naming
+// that host with needs_trust true by those exact keys. ok is false when
+// there is no flag or no host needs a review. A flag that is there but does
+// not read so, as one cut short, a link, one that can't be opened or one
+// whose keys differ, is pending all the same, as v1's notice took it, and
+// is not clean, so Prepare never removes it.
+func trustFlag(d paths.Dirs) (reviewer adapter.Host, info os.FileInfo, clean, ok bool) {
 	file := filepath.Join(d.State, "needs-trust.json")
 	info, err := os.Lstat(file)
-	if err != nil || !info.Mode().IsRegular() {
-		return adapter.Host{}, nil, false
+	if err != nil {
+		return adapter.Host{}, nil, false, false
+	}
+	if reviewer, ok = reviewHost(); !ok {
+		return adapter.Host{}, nil, false, false
+	}
+	if !info.Mode().IsRegular() {
+		return reviewer, info, false, true
 	}
 	data, err := readPrivate(file, 16384)
-	var flag struct {
-		Host       string `json:"host"`
-		NeedsTrust bool   `json:"needs_trust"`
+	// Exact keys: encoding/json would match a key in another case, the
+	// last of them winning.
+	var fields map[string]json.RawMessage
+	if err != nil || json.Unmarshal(data, &fields) != nil {
+		return reviewer, info, false, true
 	}
-	if err != nil || json.Unmarshal(data, &flag) != nil || !flag.NeedsTrust {
-		return adapter.Host{}, nil, false
+	var host string
+	var needs bool
+	if json.Unmarshal(fields["host"], &host) != nil || json.Unmarshal(fields["needs_trust"], &needs) != nil {
+		return reviewer, info, false, true
 	}
-	reviewer, ok = trustPending(flag.Host)
-	return reviewer, info, ok
+	named, known := trustPending(host)
+	return reviewer, info, known && named.ID == reviewer.ID && needs, true
 }
 
-// trustMet reports whether the reviewer's SessionStart hook has run since
-// the flag was written: its hooks are trusted, so the flag is spent.
+// trustMet reports whether the reviewer's hooks have run since the flag
+// was written, so they are trusted and the flag is spent: its SessionStart
+// hook, or a hook of it in a folder eva-md doesn't capture, which leaves
+// only its stamp (see uncapturedAt).
 func trustMet(d paths.Dirs, reviewer adapter.Host, flag os.FileInfo, now time.Time) bool {
-	b, valid := readBeat(d, string(reviewer.ID), "SessionStart", now)
-	return valid && b.At.After(flag.ModTime())
+	if b, valid := readBeat(d, string(reviewer.ID), "SessionStart", now); valid && b.At.After(flag.ModTime()) {
+		return true
+	}
+	at, ok := uncapturedAt(d, string(reviewer.ID), now)
+	return ok && at.After(flag.ModTime())
 }
 
 // trustReview reports the host whose hooks wait for a review in it: the
-// flag is there, no SessionStart hook of that host has run since it was
-// written, and a chat of that host appeared more than the capture's bar
+// flag is there, no hook of that host has run since it was written (see
+// trustMet), and a chat of that host appeared more than the capture's bar
 // after it. Until a chat starts there, nothing is lost and nothing is said,
-// so a flag met on the day after an install raises nothing.
+// so a flag met on the day after an install raises nothing. When that
+// host's chat folder could not be read, whether a chat started is not
+// known, and the flag alone is the condition, as the card defines it.
 func trustReview(d paths.Dirs, stages []Stage, now time.Time) (adapter.Host, bool) {
-	reviewer, flag, ok := trustFlag(d)
+	reviewer, flag, _, ok := trustFlag(d)
 	if !ok || trustMet(d, reviewer, flag, now) {
 		return adapter.Host{}, false
 	}
 	i := slices.IndexFunc(stages, func(s Stage) bool { return s.Name == StageActivity && s.Host == string(reviewer.ID) })
-	if i < 0 || stages[i].Since.IsZero() || !stages[i].Since.After(flag.ModTime().Add(captureBar)) {
+	switch {
+	case i >= 0 && stages[i].Unread != "":
+		return reviewer, true
+	case i < 0 || stages[i].Since.IsZero() || !stages[i].Since.After(flag.ModTime().Add(captureBar)):
 		return adapter.Host{}, false
 	}
 	return reviewer, true

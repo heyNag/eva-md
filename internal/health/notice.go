@@ -33,8 +33,14 @@ const (
 	// NoticeEvery is the age past which a chat start asks for the notice
 	// to be prepared again.
 	NoticeEvery = 30 * time.Minute
-	// noticeFresh is how long a prepared line may be shown.
-	noticeFresh = 2 * time.Hour
+	// noticeFresh is how long a prepared line may be shown. The notice is
+	// prepared when a chat start or a prompt asks for it, so the line a
+	// start reads is the one prepared at the start or prompt before it,
+	// which may be the evening before: within a shorter time, a person
+	// whose starts are hours apart would never see a line. A condition
+	// that closed since is shown once at most, as the same start asks for
+	// the notice again.
+	noticeFresh = 24 * time.Hour
 	// shownQuiet is how long a line, once shown, is not shown again.
 	shownQuiet = 24 * time.Hour
 	// maxShown bounds the lines shown.json keeps.
@@ -94,10 +100,12 @@ func Prepare(ctx context.Context, d paths.Dirs, now time.Time) error {
 		return err
 	}
 	defer unlock()
-	conds := Conditions(ctx, d, c, now)
-	// A check cut short may have missed a condition: the last notice stays.
+	conds := evaluate(ctx, d, c, now)
+	// A check cut short may have missed a condition: the last notice stays,
+	// and is marked as checked, so chat starts wait the usual time before
+	// asking for another check, which would likely be cut short too.
 	if err := ctx.Err(); err != nil {
-		return err
+		return errors.Join(err, markChecked(d, now))
 	}
 	n := notice{V: 1, Prepared: now.Format(time.RFC3339), Lines: map[string]NoticeLine{}}
 	for _, host := range updateHosts {
@@ -118,8 +126,33 @@ func Prepare(ctx context.Context, d paths.Dirs, now time.Time) error {
 	return errors.Join(err, tidy(d, now))
 }
 
+// evaluate is Conditions; a test replaces it to cut a check short while it
+// runs.
+var evaluate = Conditions
+
+// markChecked marks the notice as checked at now without changing what it
+// says: it sets notice.json's modification time, which NoticeDue reads, or,
+// with no notice yet, writes one with no time and no line, which no chat
+// start shows. It has a moment of its own, since the check's time is out.
+func markChecked(d paths.Dirs, now time.Time) error {
+	root, err := paths.OpenRoot(filepath.Join(d.State, noticeFolder), true)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if _, err := root.Lstat(noticeFile); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := paths.WriteFileAtomicAt(ctx, root, noticeFile, []byte(`{"v":1,"prepared":"","lines":{}}`+"\n"), 0o600); err != nil {
+			return err
+		}
+	}
+	return root.Chtimes(noticeFile, now, now)
+}
+
 // tidy removes the needs-trust flag once the hooks it waits for have run,
 // unless install wrote it again meanwhile, and the push check's old timer.
+// A flag that does not read as install writes it stays.
 func tidy(d paths.Dirs, now time.Time) error {
 	root, err := paths.OpenRoot(d.State, false)
 	if err != nil {
@@ -127,15 +160,25 @@ func tidy(d paths.Dirs, now time.Time) error {
 	}
 	defer root.Close()
 	var errs []error
-	if reviewer, flag, ok := trustFlag(d); ok && trustMet(d, reviewer, flag, now) {
-		if info, err := root.Lstat("needs-trust.json"); err == nil && os.SameFile(info, flag) && info.ModTime().Equal(flag.ModTime()) && info.Size() == flag.Size() {
-			errs = append(errs, root.Remove("needs-trust.json"))
-		}
+	if reviewer, flag, clean, ok := trustFlag(d); ok && clean && trustMet(d, reviewer, flag, now) {
+		errs = append(errs, removeFlag(root, flag))
 	}
 	if err := root.Remove(filepath.Join("commit", "push-retry")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// removeFlag removes the needs-trust flag in root, the state folder, when
+// it is still the file flag describes: the same file, with the same
+// modification time and size. One install wrote again after flag was read
+// stays.
+func removeFlag(root *os.Root, flag os.FileInfo) error {
+	info, err := root.Lstat("needs-trust.json")
+	if err != nil || !os.SameFile(info, flag) || !info.ModTime().Equal(flag.ModTime()) || info.Size() != flag.Size() {
+		return nil
+	}
+	return root.Remove("needs-trust.json")
 }
 
 // NoticeDue reports whether a chat start should ask for the notice to be
@@ -151,7 +194,7 @@ func NoticeDue(d paths.Dirs, now time.Time) bool {
 }
 
 // PreparedLine is the line a chat start of host shows at now, by its id,
-// or "" for none: host's line in notice.json, prepared in the last 2 hours,
+// or "" for none: host's line in notice.json, prepared in the last 24 hours,
 // that is not one shown.json records as shown in the last 24. It reads the
 // two files and computes nothing; a line that is not one this build could
 // prepare is never shown.

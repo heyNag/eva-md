@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -122,24 +123,39 @@ func TestANoticeIsAskedForWhenMissingOrOld(t *testing.T) {
 	}
 }
 
-// A prepared line is shown as written, as the message; it is recorded as shown once the output is written, and
-// not shown again within 24 hours, on either host, but after them. A line
-// prepared over 2 hours before is not shown, nor another host's.
+// A prepared line is shown as written, as the message; it is recorded as
+// shown once the output is written, and not shown again within 24 hours,
+// on either host, but after them. A line prepared over 24 hours before is
+// not shown, nor another host's, and one whose output did not reach the
+// host is not recorded as shown.
 func TestAPreparedLineIsShownOnceADay(t *testing.T) {
 	env, p, _ := noticeSetup(t)
 	now := env.Now()
-	prepared(t, env, now.Add(-2*time.Hour-time.Second))
+	prepared(t, env, now.Add(-24*time.Hour-time.Second))
 	if out := invoke(t, "claude-code", p, env); messageOf(t, out) != "" || shownFile(t, env) != "" {
-		t.Fatalf("a line prepared over 2 hours before: %q", out)
+		t.Fatalf("a line prepared over 24 hours before: %q", out)
 	}
-	prepared(t, env, now.Add(-2*time.Hour))
+	prepared(t, env, now.Add(-24*time.Hour))
 	p.Session = "second-session"
 	if out := invoke(t, "codex", p, env); messageOf(t, out) != "" || shownFile(t, env) != "" {
 		t.Fatalf("Claude Code's line on Codex: %q", out)
 	}
+	// A host that closed the hook's output, as on its own timeout: the line
+	// did not reach it, and shows at the next start.
+	p.Session = "closed-session"
+	data, _ := json.Marshal(p)
+	attempted := false
+	Run(t.Context(), "claude-code", bytes.NewReader(data), writerFunc(func(b []byte) (int, error) {
+		attempted = true
+		return 0, syscall.EPIPE
+	}), env)
+	if !attempted || shownFile(t, env) != "" {
+		t.Fatalf("an output the host did not get: written %v, shown.json %s", attempted, shownFile(t, env))
+	}
+	p.Session = "third-session"
 	var written bool
 	var out bytes.Buffer
-	data, _ := json.Marshal(p)
+	data, _ = json.Marshal(p)
 	Run(t.Context(), "claude-code", bytes.NewReader(data), writerFunc(func(b []byte) (int, error) {
 		_, err := os.Lstat(filepath.Join(env.Dirs.State, "health", "shown.json"))
 		written = err == nil
