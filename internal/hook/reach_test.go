@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/build"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"maps"
 	"os"
@@ -29,16 +32,25 @@ import (
 // BRF-K01, RCL-K01, STO-K14, and the hooks' half of SRC-K12): the programs
 // it starts, the packages it links, and the search index.
 
-// outside are the programs the tests watch a hook start: git, which a hook
-// may run only to read (see readOnly) and which commits, pushes and fetches
-// for others, what reaches a network, and the hosts' CLIs, whose headless
-// runs are model calls; a hook starts none of the last three.
+// outside are the programs the tests watch a hook start above all: git,
+// which a hook may run only to read (see readOnly) and which commits,
+// pushes and fetches for others, what reaches a network, and the hosts'
+// CLIs, whose headless runs are model calls; a hook starts none of the
+// last three, whose stand-ins exit 1 at once. Every other program a hook
+// could start by its name is watched too.
 var outside = []string{"git", "ssh", "curl", "claude", "codex"}
 
-// standIns puts a recording stand-in for each program of outside first on
-// PATH and returns the log they write: one line a start, the program's name
-// and its arguments. Each exits 1 at once, but git, which hands over to the
-// real git, so a hook that runs it gets what it would have.
+// plainName is a program's name a stand-in can be written for.
+var plainName = regexp.MustCompile(`^[A-Za-z0-9._+-]+$`)
+
+// standIns makes PATH a folder of recording stand-ins alone: one for each
+// program of outside, and one for every other program a folder of PATH
+// held, by its name. It returns the log they write: one line a start, the
+// program's name and its arguments, and for git, after a tab, the two
+// variables of its environment that keep a read from writing or fetching.
+// The stand-ins of ssh, curl, claude and codex exit 1 at once; every other
+// hands over to the program it stands for, so a hook that runs it gets
+// what it would have. A program started by its full path is not seen.
 func standIns(t *testing.T) string {
 	t.Helper()
 	real, err := exec.LookPath("git")
@@ -47,49 +59,83 @@ func standIns(t *testing.T) string {
 	}
 	dir := t.TempDir()
 	log := filepath.Join(dir, "started.log")
-	for _, name := range outside {
-		then := "exit 1"
-		if name == "git" {
-			then = "exec '" + real + "' \"$@\""
+	programs := map[string]string{} // name to the program it stands for, or "" for none
+	for _, folder := range filepath.SplitList(os.Getenv("PATH")) {
+		entries, err := os.ReadDir(folder)
+		if !filepath.IsAbs(folder) || strings.Contains(folder, "'") || err != nil {
+			continue
 		}
-		script := "#!/bin/sh\nprintf '%s\\n' \"" + name + " $*\" >> '" + log + "'\n" + then + "\n"
+		for _, e := range entries {
+			path := filepath.Join(folder, e.Name())
+			info, err := os.Stat(path)
+			if _, ok := programs[e.Name()]; ok || !plainName.MatchString(e.Name()) || err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+				continue
+			}
+			programs[e.Name()] = path
+		}
+	}
+	for _, name := range outside {
+		programs[name] = ""
+	}
+	for name, path := range programs {
+		record := "printf '%s\\n' \"" + name + " $*\""
+		then := "exec '" + path + "' \"$@\""
+		switch {
+		case name == "git":
+			record = "printf '%s\\t%s\\n' \"git $*\" \"GIT_OPTIONAL_LOCKS=${GIT_OPTIONAL_LOCKS-} GIT_NO_LAZY_FETCH=${GIT_NO_LAZY_FETCH-}\""
+			then = "exec '" + real + "' \"$@\""
+		case path == "":
+			then = "exit 1"
+		}
+		script := "#!/bin/sh\n" + record + " >> '" + log + "'\n" + then + "\n"
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", dir)
 	return log
 }
 
-// startedOf reads a stand-ins' log, one start a line, or nil for none.
-func startedOf(t *testing.T, log string) []string {
+// startedOf reads a stand-ins' log, one start a line, or nil for none, and
+// for each git start the variables its stand-in wrote of its environment.
+func startedOf(t *testing.T, log string) (lines, envs []string) {
 	t.Helper()
 	data, err := os.ReadFile(log)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	for _, l := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+		line, env, _ := strings.Cut(l, "\t")
+		lines, envs = append(lines, line), append(envs, env)
+	}
+	return lines, envs
 }
 
-// The stand-ins record what they are started with, and nothing records a
-// program that was not started, so the tests below can fail.
+// The stand-ins record what they are started with, git with its
+// environment, a program of PATH's beside those of outside, and nothing
+// records a program that was not started, so the tests below can fail.
 func TestStandInsRecordTheirStarts(t *testing.T) {
 	setup(t)
 	log := standIns(t)
-	if got := startedOf(t, log); got != nil {
+	if got, _ := startedOf(t, log); got != nil {
 		t.Fatalf("nothing started, yet the log reads %q", got)
 	}
-	for _, name := range outside {
+	for _, name := range append(slices.Clone(outside), "true") {
 		cmd := exec.Command(name, "--a", "b")
 		cmd.Dir = t.TempDir()
+		cmd.Env = append(os.Environ(), "GIT_NO_LAZY_FETCH=1")
 		_ = cmd.Run()
 	}
-	want := []string{"git --a b", "ssh --a b", "curl --a b", "claude --a b", "codex --a b"}
-	if got := startedOf(t, log); !slices.Equal(got, want) {
+	want := []string{"git --a b", "ssh --a b", "curl --a b", "claude --a b", "codex --a b", "true --a b"}
+	got, envs := startedOf(t, log)
+	if !slices.Equal(got, want) {
 		t.Fatalf("the stand-ins logged %q, want %q", got, want)
+	}
+	if !strings.HasSuffix(envs[0], " GIT_NO_LAZY_FETCH=1") || envs[1] != "" {
+		t.Errorf("the stand-ins logged the environments %q", envs)
 	}
 }
 
@@ -160,10 +206,13 @@ type reachRun struct {
 	jobs    [][]string
 	before  []string
 	started []string
+	envs    []string // of each start, its environment as the stand-ins logged it
 }
 
 // runChat runs steps as one chat of host, and returns what each did. log
-// is the stand-ins' log, or "" for none.
+// is the stand-ins' log, or "" for none. Each start the log holds is given
+// to the step that was running when it was read, and the log is read once
+// more after the chat: a start no step was given fails the test.
 func runChat(t *testing.T, host string, p payload, env Env, steps []reachStep, log string) []reachRun {
 	t.Helper()
 	day := env.Now()
@@ -175,6 +224,7 @@ func runChat(t *testing.T, host string, p payload, env Env, steps []reachStep, l
 	p.ToolResponse = json.RawMessage(`"Exit code: 7\nTOOL OUTPUT"`)
 	p.Error = json.RawMessage(`{"type":"rate_limit_error","message":"an error"}`)
 	var runs []reachRun
+	read := 0 // the starts of the log given to a step
 	for i, s := range steps {
 		var out lockedBuffer
 		r := reachRun{step: s}
@@ -191,18 +241,20 @@ func runChat(t *testing.T, host string, p payload, env Env, steps []reachStep, l
 		if err != nil {
 			t.Fatal(err)
 		}
-		logged := 0
-		if log != "" {
-			logged = len(startedOf(t, log))
-		}
 		if code := Run(context.Background(), host, bytes.NewReader(data), &out, env); code != 0 {
 			t.Fatalf("%s exited %d", s.event, code)
 		}
 		if log != "" {
-			r.started = startedOf(t, log)[logged:]
+			lines, envs := startedOf(t, log)
+			r.started, r.envs, read = lines[read:], envs[read:], len(lines)
 		}
 		r.out = out.String()
 		runs = append(runs, r)
+	}
+	if log != "" {
+		if lines, _ := startedOf(t, log); len(lines) > read {
+			t.Errorf("after the chat's last hook, the stand-ins logged %q, which no hook's run was read with", lines[read:])
+		}
 	}
 	return runs
 }
@@ -254,16 +306,16 @@ func hasJob(runs []reachRun, want ...string) bool {
 }
 
 // checkStarts holds what each run of a chat started to what a hook may
-// start: no program of outside but git, git only to read (see readOnly),
-// and its jobs only through the spawn seam, once its output is written.
-// git runs in no step that gitAt does not allow. It returns a problem for
-// each start that breaks this.
-func checkStarts(runs []reachRun, gitAt func(i int) bool) []string {
+// start: no program but git, git only to read (see readOnly), in a
+// project that is a partial clone or may be, and its jobs only through the
+// spawn seam, once its output is written. git runs in no step that gitAt
+// does not allow. It returns a problem for each start that breaks this.
+func checkStarts(runs []reachRun, gitAt func(i int) bool, partial bool) []string {
 	var problems []string
 	for i, r := range runs {
 		what := r.step.event + "/" + r.step.source
-		for _, line := range r.started {
-			if why := readOnly(line); why != "" {
+		for j, line := range r.started {
+			if why := readOnly(line, r.envs[j], partial); why != "" {
 				problems = append(problems, fmt.Sprintf("%s: %s: %q", what, why, line))
 			}
 		}
@@ -335,7 +387,7 @@ func TestHooksStartNothingOutside(t *testing.T) {
 			reachWiki(t, host, &env, p)
 			log := standIns(t)
 			runs := runChat(t, host, p, env, aChat, log)
-			for _, problem := range append(checkStarts(runs, notGitProject), onlyIdentity(runs)...) {
+			for _, problem := range append(checkStarts(runs, notGitProject, false), onlyIdentity(runs)...) {
 				t.Error(problem)
 			}
 			checkDue(t, host, p, runs)
@@ -349,13 +401,34 @@ func notGitProject(i int) bool { return i == firstStart }
 
 // The checks above fail a hook that starts what it may not: a handler of
 // the hook's own list, registered here as a later package would register
-// one, that runs git to fetch, git on a prompt, curl at a chat's start, or
-// a job before the output is written, each makes the chat's checks report
-// it, and only it.
+// one, that runs git to fetch, git on a prompt, git that may write the
+// index or start a program the repository names, curl at a chat's start,
+// a host's CLI, any other program, or a job before the output is written,
+// each makes the chat's checks report it, and only it.
 func TestAHookThatStartsWhatItMayNotIsCaught(t *testing.T) {
 	run := func(name string, args ...string) func(*turn) {
 		return func(*turn) { _ = exec.Command(name, args...).Run() }
 	}
+	// read runs git in the chat's project as the hook's reads do, but for
+	// what fault drops.
+	project := ""
+	read := func(fault string, args ...string) func(*turn) {
+		return func(*turn) {
+			var full []string
+			for _, o := range []string{"-c core.fsmonitor=false", "-c core.hooksPath=/dev/null", "--no-optional-locks"} {
+				if o != fault {
+					full = append(full, strings.Fields(o)...)
+				}
+			}
+			cmd := exec.Command("git", append(append(full, "-C", project), args...)...)
+			cmd.Env = os.Environ()
+			if fault != "GIT_NO_LAZY_FETCH=1" {
+				cmd.Env = append(cmd.Env, "GIT_NO_LAZY_FETCH=1")
+			}
+			_ = cmd.Run()
+		}
+	}
+	const first = `^the chat's first hook ran "git .*", not only identity's rev-parse$`
 	for _, c := range []struct {
 		name  string
 		event string
@@ -371,7 +444,25 @@ func TestAHookThatStartsWhatItMayNotIsCaught(t *testing.T) {
 			`^Stop/: git push, which is not one of the reads a hook may run: "git push"$`,
 			`^Stop/ ran \["git push"\]$`,
 		}},
-		{"a git read on a prompt", "UserPromptSubmit", atStored, run("git", "rev-parse", "HEAD"), []string{`^UserPromptSubmit/ ran \["git rev-parse HEAD"\]$`}},
+		{"a git read on a prompt", "UserPromptSubmit", atStored, read("", "rev-parse", "HEAD"), []string{`^UserPromptSubmit/ ran \["git .* rev-parse HEAD"\]$`}},
+		{"a git status that may write the index", "SessionStart", atBriefed, read("--no-optional-locks", "status", "--porcelain=v2"), []string{
+			`^SessionStart/startup: git without --no-optional-locks, which lets it write the index: "git .*status --porcelain=v2"$`, first,
+		}},
+		{"a git read that may run the repository's monitor", "SessionStart", atBriefed, read("-c core.fsmonitor=false", "rev-parse", "HEAD"), []string{
+			`^SessionStart/startup: git without -c core\.fsmonitor=false, which lets it start a program the repository names: `, first,
+		}},
+		{"a git read that may run the repository's hooks", "SessionStart", atBriefed, read("-c core.hooksPath=/dev/null", "rev-parse", "HEAD"), []string{
+			`^SessionStart/startup: git without -c core\.hooksPath=/dev/null, which lets it start a program the repository names: `, first,
+		}},
+		{"a git read that may fetch what it lacks", "SessionStart", atBriefed, read("GIT_NO_LAZY_FETCH=1", "rev-parse", "HEAD"), []string{
+			`^SessionStart/startup: git without GIT_NO_LAZY_FETCH=1, which lets a partial clone fetch what it lacks: `, first,
+		}},
+		{"a git read given a program to run", "SessionStart", atBriefed, read("", "-c", "core.sshCommand=/bin/false", "rev-parse", "HEAD"), []string{
+			`^SessionStart/startup: git -c core\.sshCommand=/bin/false, which may start a program or write: `, first,
+		}},
+		{"a git log that checks signatures", "SessionStart", atBriefed, read("", "log", "--show-signature", "-1"), []string{
+			`^SessionStart/startup: git log --show-signature, which starts gpg: `, first,
+		}},
 		{"curl at a chat's start", "SessionStart", atGuarded, run("curl", "https://example.invalid"), []string{
 			`^SessionStart/startup: a start of curl: "curl https://example.invalid"$`,
 			`^the chat's first hook ran "curl https://example.invalid", not only identity's rev-parse$`,
@@ -380,10 +471,15 @@ func TestAHookThatStartsWhatItMayNotIsCaught(t *testing.T) {
 			`^SessionEnd/: a start of claude: "claude -p summarize"$`,
 			`^SessionEnd/ ran \["claude -p summarize"\]$`,
 		}},
+		{"another program on a reply", "Stop", atStored, run("uname", "-s"), []string{
+			`^Stop/: a start of uname: "uname -s"$`,
+			`^Stop/ ran \["uname -s"\]$`,
+		}},
 		{"a job before the output", "Stop", atStored, func(t *turn) { t.env.spawn("update", "--early") }, []string{`^Stop/ started \["update" "--early"\] before its output was written: "" of "\{\}"$`}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			env, p := setup(t)
+			project = p.Cwd
 			host := "codex"
 			pr := newProbe(t, &p, nil)
 			fired := false
@@ -396,7 +492,7 @@ func TestAHookThatStartsWhatItMayNotIsCaught(t *testing.T) {
 			reachWiki(t, host, &env, p)
 			log := standIns(t)
 			runs := runChat(t, host, p, env, aChat, log)
-			problems := append(checkStarts(runs, notGitProject), onlyIdentity(runs)...)
+			problems := append(checkStarts(runs, notGitProject, false), onlyIdentity(runs)...)
 			if !fired {
 				t.Fatal("the seeded handler never ran")
 			}
@@ -433,6 +529,22 @@ var readGit = map[string]string{
 	"merge-base": "whether a page's commit is on the branch",
 }
 
+// readObjects are the commands of readGit that read the repository's
+// objects, which a partial clone may lack and fetch.
+var readObjects = []string{"status", "rev-list", "log", "cat-file", "ls-tree", "merge-base"}
+
+// readOptions are the options a read may give git before its command, but
+// -c and -C, each with its reason.
+var readOptions = map[string]string{
+	"--no-optional-locks": "takes no lock it may do without, so a status never writes the index",
+	"--literal-pathspecs": "reads a cited path as itself, never as a pattern",
+	"--no-lazy-fetch":     "fetches nothing a partial clone lacks, in a git that ignores the variable",
+}
+
+// readConfig are the settings a read may give git with -c: those that turn
+// off what would start a program the repository or the user names.
+var readConfig = []string{"core.fsmonitor=false", "core.hooksPath=/dev/null", "log.showSignature=false"}
+
 // gitCommand is the command of a git command line, after its options: -c
 // and -C take a value.
 func gitCommand(args []string) (string, []string) {
@@ -449,85 +561,196 @@ func gitCommand(args []string) (string, []string) {
 }
 
 // readOnly says what of a git start the hook may not run, or "" when it
-// only reads.
-func readOnly(line string) string {
+// only reads: one of readGit's commands, config only with --get and no
+// --show-signature, which starts gpg; no option but -C and those of
+// readOptions, and no -c but those of readConfig; with --no-optional-locks,
+// fsmonitor and hooks off, and GIT_NO_LAZY_FETCH=1 in env, the environment
+// the stand-in logged; and in a project that is a partial clone, or may be,
+// --no-lazy-fetch on a command that reads objects too.
+func readOnly(line, env string, partial bool) string {
 	name, rest, _ := strings.Cut(line, " ")
 	if name != "git" {
 		return "a start of " + name
 	}
-	command, args := gitCommand(strings.Fields(rest))
+	args := strings.Fields(rest)
+	command, after := gitCommand(args)
 	switch _, ok := readGit[command]; {
 	case !ok:
 		return "git " + command + ", which is not one of the reads a hook may run"
-	case command == "config" && !slices.Contains(args, "--get"):
+	case command == "config" && !slices.Contains(after, "--get"):
 		return "git config without --get"
+	case slices.Contains(after, "--show-signature"):
+		return "git " + command + " --show-signature, which starts gpg"
+	}
+	options := args[:len(args)-len(after)-1]
+	var config []string
+	for i := 0; i < len(options); i++ {
+		switch o := options[i]; {
+		case (o == "-c" || o == "-C") && i+1 < len(options):
+			if o == "-c" {
+				config = append(config, options[i+1])
+			}
+			i++
+		case readOptions[o] == "":
+			return "git " + o + ", which is not an option of a read"
+		}
+	}
+	for _, c := range config {
+		if !slices.Contains(readConfig, c) {
+			return "git -c " + c + ", which may start a program or write"
+		}
+	}
+	if !slices.Contains(options, "--no-optional-locks") {
+		return "git without --no-optional-locks, which lets it write the index"
+	}
+	for _, want := range readConfig[:2] {
+		if !slices.Contains(config, want) {
+			return "git without -c " + want + ", which lets it start a program the repository names"
+		}
+	}
+	if !slices.Contains(strings.Fields(env), "GIT_NO_LAZY_FETCH=1") {
+		return "git without GIT_NO_LAZY_FETCH=1, which lets a partial clone fetch what it lacks"
+	}
+	if partial && slices.Contains(readObjects, command) && !slices.Contains(options, "--no-lazy-fetch") {
+		return "git " + command + " without --no-lazy-fetch in a partial clone, which a git before 2.44 needs to fetch nothing"
 	}
 	return ""
 }
 
-// The check of what git a hook may run passes a read, and fails a write, a
-// fetch, a push and a config write.
+// The check of what git a hook may run passes a read as the program's
+// reads run, and fails a write, a fetch, a push, a config write, a read
+// that may write the index, start a program the repository or the user
+// names, check a signature or fetch what a partial clone lacks.
 func TestReadOnlyGitIsTold(t *testing.T) {
-	for line, want := range map[string]bool{
-		"git -c core.fsmonitor=false -C /p rev-parse --show-toplevel":    true,
-		"git -c a=b --no-optional-locks -C /p config --get remote.x.url": true,
-		"git -C /p status --porcelain=v2":                                true,
-		"git -C /p fetch origin":                                         false,
-		"git -c core.hooksPath=/dev/null -C /p push":                     false,
-		"git -C /p commit -m x":                                          false,
-		"git -C /p config user.name x":                                   false,
-		"git -C /p ls-remote origin":                                     false,
-		"ssh host":                                                       false,
-		"git -C /p":                                                      false,
+	const hardened = "git -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-optional-locks"
+	const env = "GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1"
+	for _, c := range []struct {
+		line, env string
+		partial   bool
+		want      bool
+	}{
+		{hardened + " -C /p rev-parse --show-toplevel", env, false, true},
+		{hardened + " -C /p config --get remote.x.url", env, false, true},
+		{"git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c log.showSignature=false --no-optional-locks --literal-pathspecs -C /p log -1", env, false, true},
+		{hardened + " --no-lazy-fetch -C /p status --porcelain=v2", env, true, true},
+		{hardened + " -C /p rev-parse HEAD", env, true, true},
+		{hardened + " -C /p status --porcelain=v2", env, true, false},
+		{hardened + " -C /p rev-list --count HEAD", env, true, false},
+		{hardened + " -C /p status --porcelain=v2", "GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=", false, false},
+		{"git -C /p status --porcelain=v2", env, false, false},
+		{"git -c core.hooksPath=/dev/null --no-optional-locks -C /p status", env, false, false},
+		{"git -c core.fsmonitor=false --no-optional-locks -C /p rev-parse HEAD", env, false, false},
+		{"git -c core.fsmonitor=/tmp/evil -c core.hooksPath=/dev/null --no-optional-locks -C /p status", env, false, false},
+		{hardened + " -c core.hooksPath=/tmp/hooks -C /p rev-parse HEAD", env, false, false},
+		{hardened + " -c core.sshCommand=/tmp/x -C /p rev-list --count HEAD", env, false, false},
+		{hardened + " -c gpg.program=/tmp/x -C /p log -1", env, false, false},
+		{hardened + " -C /p log --show-signature -1", env, false, false},
+		{hardened + " --exec-path=/tmp -C /p rev-parse HEAD", env, false, false},
+		{hardened + " -C /p fetch origin", env, false, false},
+		{hardened + " -C /p push", env, false, false},
+		{hardened + " -C /p commit -m x", env, false, false},
+		{hardened + " -C /p config user.name x", env, false, false},
+		{hardened + " -C /p ls-remote origin", env, false, false},
+		{"ssh host", "", false, false},
+		{"git -C /p", env, false, false},
 	} {
-		if got := readOnly(line) == ""; got != want {
-			t.Errorf("%q read as read-only %v, want %v", line, got, want)
+		if got := readOnly(c.line, c.env, c.partial) == ""; got != c.want {
+			t.Errorf("%q with %q, partial %v, read as read-only %v, want %v: %q", c.line, c.env, c.partial, got, c.want, readOnly(c.line, c.env, c.partial))
 		}
 	}
 }
 
+// gitProject makes the project at dir a git repository whose remote is the
+// repository the system pages cite, with one commit, and returns that
+// commit, short; with partial, a partial clone of that remote, as its
+// config says, whose objects are all there.
+func gitProject(t *testing.T, dir string, partial bool) string {
+	t.Helper()
+	git(t, dir, "init", "--quiet", "--initial-branch=main")
+	git(t, dir, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "--quiet", "-m", "fixture")
+	git(t, dir, "remote", "add", "origin", "https://github.com/acme/ledger.git")
+	if partial {
+		git(t, dir, "config", "core.repositoryformatversion", "1")
+		git(t, dir, "config", "extensions.partialClone", "origin")
+		git(t, dir, "config", "remote.origin.promisor", "true")
+		git(t, dir, "config", "remote.origin.partialclonefilter", "blob:none")
+	}
+	head, err := exec.Command("git", "-C", dir, "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(head))
+}
+
+// gitChat runs aChat of host in a git project, a partial clone or not,
+// whose remote is the repository two system pages cite, and holds its
+// starts to what a hook may start: git at a chat's start, only to read,
+// and nothing else.
+func gitChat(t *testing.T, host string, partial bool) []reachRun {
+	t.Helper()
+	env, p := setup(t)
+	head := gitProject(t, p.Cwd, partial)
+	// The pages cite the project's commit, and the code status maintain
+	// saved is of another, so the brief counts how far the pages' code
+	// moved itself.
+	reachWikiAt(t, host, &env, p, head)
+	plantStatus(t, env, map[string]int{"ledger": 14}, "9c1d2e3")
+	log := standIns(t)
+	runs := runChat(t, host, p, env, aChat, log)
+	for _, problem := range checkStarts(runs, func(i int) bool { return aChat[i].event == "SessionStart" }, partial) {
+		t.Error(problem)
+	}
+	var commands []string
+	for _, r := range runs {
+		for _, line := range r.started {
+			command, _ := gitCommand(strings.Fields(strings.TrimPrefix(line, "git ")))
+			if !slices.Contains(commands, command) {
+				commands = append(commands, command)
+			}
+		}
+	}
+	for _, want := range []string{"rev-parse", "config", "status", "rev-list"} {
+		if !slices.Contains(commands, want) {
+			t.Errorf("the starts ran git %q, never %s, so the brief of a git project was not run", commands, want)
+		}
+	}
+	if !strings.Contains(runs[firstStart].out, "Ledger: Keeps the double-entry books (code unchanged since 2026-10-28)") {
+		t.Errorf("the brief did not count the pages' code: %q", runs[firstStart].out)
+	}
+	return runs
+}
+
 // In a git project whose remote is the repository two system pages cite,
 // the chat's starts run git, to resolve the project and to brief it, with
-// the code of those pages counted, but only commands that read, and none of
-// ssh, curl, claude or codex; no other event runs git, the prompts with
-// their pointers and recall included.
+// the code of those pages counted, but only commands that read, hardened
+// so that none writes the index, starts a program the repository or the
+// user names, or fetches, and no other program; no other event runs git,
+// the prompts with their pointers and recall included.
 func TestHooksInAGitProjectOnlyReadGit(t *testing.T) {
 	for _, host := range hosts {
 		t.Run(host, func(t *testing.T) {
-			env, p := setup(t)
-			git(t, p.Cwd, "init", "--quiet", "--initial-branch=main")
-			git(t, p.Cwd, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "--quiet", "-m", "fixture")
-			git(t, p.Cwd, "remote", "add", "origin", "https://github.com/acme/ledger.git")
-			head, err := exec.Command("git", "-C", p.Cwd, "rev-parse", "--short", "HEAD").Output()
-			if err != nil {
-				t.Fatal(err)
-			}
-			// The pages cite the project's commit, and the code status
-			// maintain saved is of another, so the brief counts how far the
-			// pages' code moved itself.
-			reachWikiAt(t, host, &env, p, strings.TrimSpace(string(head)))
-			plantStatus(t, env, map[string]int{"ledger": 14}, "9c1d2e3")
-			log := standIns(t)
-			runs := runChat(t, host, p, env, aChat, log)
-			for _, problem := range checkStarts(runs, func(i int) bool { return aChat[i].event == "SessionStart" }) {
-				t.Error(problem)
-			}
-			var commands []string
+			gitChat(t, host, false)
+		})
+	}
+}
+
+// In a project that is a partial clone, the git a hook runs to read the
+// repository's objects asks git, by its option as well as its environment,
+// to fetch nothing the clone lacks.
+func TestHooksInAPartialCloneFetchNothing(t *testing.T) {
+	for _, host := range hosts {
+		t.Run(host, func(t *testing.T) {
+			runs := gitChat(t, host, true)
+			lazy := 0
 			for _, r := range runs {
 				for _, line := range r.started {
-					command, _ := gitCommand(strings.Fields(strings.TrimPrefix(line, "git ")))
-					if !slices.Contains(commands, command) {
-						commands = append(commands, command)
+					if slices.Contains(strings.Fields(line), "--no-lazy-fetch") {
+						lazy++
 					}
 				}
 			}
-			for _, want := range []string{"rev-parse", "config", "status", "rev-list"} {
-				if !slices.Contains(commands, want) {
-					t.Errorf("the starts ran git %q, never %s, so the brief of a git project was not run", commands, want)
-				}
-			}
-			if !strings.Contains(runs[firstStart].out, "Ledger: Keeps the double-entry books (code unchanged since 2026-10-28)") {
-				t.Errorf("the brief did not count the pages' code: %q", runs[firstStart].out)
+			if lazy == 0 {
+				t.Error("no git a hook ran was told --no-lazy-fetch: the project was not read as a partial clone")
 			}
 		})
 	}
@@ -841,9 +1064,70 @@ func (l linker) dir(path string) string {
 	return ""
 }
 
+// inModule says whether path is a package of the module or of a module it
+// requires, not of Go's own library.
+func (l linker) inModule(path string) bool {
+	for m := range l.modules {
+		if path == m || strings.HasPrefix(path, m+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// socketPackages are the packages whose calls of socketNames open or
+// connect a socket, by import path.
+var socketPackages = []string{"syscall", "golang.org/x/sys/unix"}
+
+// socketNames are the calls, and the numbers of the system's calls, that
+// open or connect a socket.
+var socketNames = []string{"Socket", "Socketpair", "Connect", "SYS_SOCKET", "SYS_SOCKETPAIR", "SYS_CONNECT"}
+
+// socketCalls lists each use, in the Go files of pkg in dir that build,
+// of a name of socketNames from a package of socketPackages, as
+// <package>.<name>.
+func socketCalls(dir string, pkg *build.Package) []string {
+	var out []string
+	fset := token.NewFileSet()
+	for _, name := range append(slices.Clone(pkg.GoFiles), pkg.CgoFiles...) {
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			out = append(out, name+" does not parse")
+			continue
+		}
+		names := map[string]string{} // the name a socket package is known by in f
+		for _, spec := range f.Imports {
+			path := strings.Trim(spec.Path.Value, `"`)
+			if !slices.Contains(socketPackages, path) {
+				continue
+			}
+			names[path[strings.LastIndex(path, "/")+1:]] = path
+			if spec.Name != nil {
+				delete(names, path[strings.LastIndex(path, "/")+1:])
+				names[spec.Name.Name] = path
+			}
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok && names[id.Name] != "" && slices.Contains(socketNames, sel.Sel.Name) {
+				if call := names[id.Name] + "." + sel.Sel.Name; !slices.Contains(out, call) {
+					out = append(out, call)
+				}
+			}
+			return true
+		})
+	}
+	return out
+}
+
 // reach follows start's imports, not its tests', through every package it
 // reaches, and gives the chain of imports to each package that can open a
-// connection, and a problem for an import no folder holds.
+// connection: one of Go's library that connects names, and one of the
+// module or its dependencies that uses cgo or opens a socket through the
+// system's calls. It gives a problem for an import no folder holds.
 func (l linker) reach(start string) []string {
 	var found []string
 	seen := map[string]bool{start: true}
@@ -865,6 +1149,17 @@ func (l linker) reach(start string) []string {
 		if err != nil && !errors.As(err, &none) {
 			found = append(found, strings.Join(n.chain, " -> ")+": "+err.Error())
 			continue
+		}
+		// Go's own library opens sockets only in the packages connects
+		// names; any other package does it through the system's calls or
+		// through C.
+		if l.inModule(n.path) {
+			if slices.Contains(pkg.Imports, "C") {
+				found = append(found, strings.Join(n.chain, " -> ")+": cgo, through which C can open a socket")
+			}
+			for _, call := range socketCalls(dir, pkg) {
+				found = append(found, strings.Join(n.chain, " -> ")+": "+call+", which opens a socket")
+			}
 		}
 		for _, imp := range pkg.Imports {
 			if imp == "C" || imp == "unsafe" || seen[imp] {
@@ -1064,7 +1359,9 @@ func (l linker) reached(start string) []string {
 
 // The link check finds a package that connects wherever the hook reaches
 // it: imported by a package of the module, by a required module's, or by
-// Go's own library through another package, and passes what only parses.
+// Go's own library through another package, and a package of the module or
+// a required module that opens a socket through the system's calls or uses
+// cgo; and passes what only parses.
 func TestALinkThatConnectsIsFound(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	for _, c := range []struct {
@@ -1084,6 +1381,18 @@ func TestALinkThatConnectsIsFound(t *testing.T) {
 		{"crypto/tls on one system only", map[string]string{
 			"m/a/a_darwin.go": "package a\n\nimport _ \"crypto/tls\"\n",
 		}, []string{"example.com/m/hook -> example.com/m/a -> crypto/tls"}},
+		{"a socket through the system's calls", map[string]string{
+			"m/a/a.go": "package a\n\nimport (\n\t_ \"example.com/lib\"\n\tsys \"syscall\"\n)\n\nfunc open() { fd, _ := sys.Socket(sys.AF_INET, sys.SOCK_STREAM, 0); _ = sys.Connect(fd, nil) }\n",
+		}, []string{
+			"example.com/m/hook -> example.com/m/a: syscall.Connect, which opens a socket",
+			"example.com/m/hook -> example.com/m/a: syscall.Socket, which opens a socket",
+		}},
+		{"a socket through the system's call by its number", map[string]string{
+			"lib/lib.go": "package lib\n\nimport \"syscall\"\n\nvar _, _, _ = syscall.Syscall(syscall.SYS_CONNECT, 0, 0, 0)\n",
+		}, []string{"example.com/m/hook -> example.com/m/a -> example.com/lib: syscall.SYS_CONNECT, which opens a socket"}},
+		{"cgo in the required module", map[string]string{
+			"lib/c.go": "package lib\n\n// #include <sys/socket.h>\nimport \"C\"\n\nvar _ = C.socket\n",
+		}, []string{"example.com/m/hook -> example.com/m/a -> example.com/lib: cgo, through which C can open a socket"}},
 		{"an import no folder holds", map[string]string{
 			"m/a/a.go": "package a\n\nimport (\n\t_ \"example.com/lib\"\n\t_ \"example.com/nowhere\"\n)\n",
 		}, []string{"example.com/m/hook -> example.com/m/a -> example.com/nowhere: no folder holds it"}},
