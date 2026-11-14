@@ -52,8 +52,10 @@ func (r Report) Text() (string, error) {
 				}
 				commits = append(commits, c.ID+" "+state)
 			}
+			// The models are counted, never named, so that the text names
+			// no model wherever it is kept.
 			p("  runs, condition %s: commits %s; host versions %s; models asked %s; models answered %s",
-				x.Condition, list(commits), list(x.HostVersions), list(x.ModelsAsked), list(x.ModelsAnswered))
+				x.Condition, list(commits), list(x.HostVersions), count(x.ModelsAsked), count(x.ModelsAnswered))
 		}
 		for _, f := range h.Tasks {
 			parts := []string{fmt.Sprintf("judged %d, solved %d, solved first try %d", f.Judged, f.Solved, f.FirstTry)}
@@ -115,6 +117,27 @@ func list(ids []string) string {
 		}
 	}
 	return strings.Join(out, ", ")
+}
+
+// count counts ids, each once, and names none of them: "none" for an
+// empty list or one of "" alone, and ", and none" after the count when ""
+// is among others.
+func count(ids []string) string {
+	n, none := 0, len(ids) == 0
+	for _, id := range ids {
+		if id == "" {
+			none = true
+		} else {
+			n++
+		}
+	}
+	switch {
+	case n == 0:
+		return "none"
+	case none:
+		return strconv.Itoa(n) + ", and none"
+	}
+	return strconv.Itoa(n)
 }
 
 // figure prints a value of measure m: minutes from milliseconds, to two

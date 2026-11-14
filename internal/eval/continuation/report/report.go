@@ -168,6 +168,7 @@ type Runs struct {
 	Commits                          []Commit
 	HostVersions                     []string
 	// ModelsAsked and ModelsAnswered are each once, sorted; "" is none.
+	// The text counts them and names none.
 	ModelsAsked, ModelsAnswered []string
 }
 

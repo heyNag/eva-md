@@ -144,6 +144,14 @@ func TestRunsFromTheRecords(t *testing.T) {
 	if !reflect.DeepEqual(h.Runs, want) {
 		t.Fatalf("runs\n%+v\nwant\n%+v", h.Runs, want)
 	}
+	// Two records' no_model counts add too.
+	r, err := Build(testTasks(), mutate(t, func(fs []Folder) { fs[0].Records[0].NoModel, fs[0].Records[1].NoModel = 2, 3 }), testRates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hostOf(t, r, "codex").Runs[0]; got.Condition != task.Off || got.NoModel != 5 {
+		t.Fatalf("off's no model: %+v", got)
+	}
 }
 
 // Each task's figures under each condition, from its judged trials: odd
@@ -256,6 +264,42 @@ func TestVariance(t *testing.T) {
 	}
 }
 
+// A pair is left out of a figure when either side of it is 0, the arm's
+// or memory off's, and of that figure alone; a trial with no partner is
+// left out of both.
+func TestVarianceLeavesOutZeros(t *testing.T) {
+	tr := func(events, prompt float64) *trial {
+		return &trial{values: map[string]float64{"agent_events": events, "prompt_tokens": prompt}}
+	}
+	k := func(c task.Condition, n uint64) trialKey { return trialKey{"hx", c, "hid1", n} }
+	trials := map[trialKey]*trial{
+		// 1: both figures pair, ln(5/10) and ln(300/100).
+		k(task.Off, 1): tr(10, 100), k(task.Oracle, 1): tr(5, 300),
+		// 2: memory off made no event; its prompt pairs, ln(400/200).
+		k(task.Off, 2): tr(0, 200), k(task.Oracle, 2): tr(5, 400),
+		// 3: the ideal record made no event and read no prompt.
+		k(task.Off, 3): tr(10, 100), k(task.Oracle, 3): tr(0, 0),
+		// 4: memory off read no prompt; its events pair, ln(20/10).
+		k(task.Off, 4): tr(10, 0), k(task.Oracle, 4): tr(20, 100),
+		// 5: the ideal record's trial alone, of another host's off beside.
+		k(task.Oracle, 5): tr(7, 70), {"hy", task.Off, "hid1", 5}: tr(7, 70),
+	}
+	v := varianceOf("hx", task.Oracle, trials)
+	events := []float64{math.Log(0.5), math.Log(2)}
+	prompt := []float64{math.Log(3), math.Log(2)}
+	for _, c := range []struct {
+		name string
+		got  Pairs
+		xs   []float64
+	}{{"events", v.AgentEvents, events}, {"prompt", v.Prompt, prompt}} {
+		want := pairsOf(c.xs)
+		if c.got.N != 2 || !near(c.got.Mean, want.Mean) || !near(c.got.S, want.S) || c.got.Need != want.Need ||
+			math.IsInf(c.got.Mean, 0) || math.IsNaN(c.got.Mean) {
+			t.Errorf("%s: %+v, want %+v", c.name, c.got, want)
+		}
+	}
+}
+
 // The screens: a hidden decision passes, fails on the ideal record's one
 // first try or on memory off's one miss; a handoff passes at exactly 0.7;
 // one judged trial of memory off is too few; a control task has none.
@@ -350,8 +394,8 @@ func TestText(t *testing.T) {
 	for _, line := range []string{
 		"host claude-code\n",
 		"  runs, condition off: records 2, ended done 2, error 0, no_usage 0, memory_off 0, hidden_found 0; planned 18, judged 11, not run 2, unjudged sign_in 3, rate_limited 0, timeout 1, other_model 0, setup_failed 0, update_failed 0, host_failed 1, no_usage 0, memory_off 0, hidden_found 0; no model 0, tokens 45000\n",
-		"  runs, condition off: commits " + strings.Repeat("1", 40) + " clean, " + strings.Repeat("2", 40) + " dirty; host versions 1.2.3, 1.2.4; models asked made-up-model-1; models answered made-up-model-1\n",
-		"  runs, condition oracle: commits " + strings.Repeat("1", 40) + " clean; host versions 1.2.3; models asked none; models answered none, made-up-model-2\n",
+		"  runs, condition off: commits " + strings.Repeat("1", 40) + " clean, " + strings.Repeat("2", 40) + " dirty; host versions 1.2.3, 1.2.4; models asked 1; models answered 1\n",
+		"  runs, condition oracle: commits " + strings.Repeat("1", 40) + " clean; host versions 1.2.3; models asked none; models answered 1, and none\n",
 		"  task hid1 hidden, condition off: judged 3, solved 2, solved first try 1; corrections median 2, least 0, most 5; rounds median 3, least 1, most 5; agent events median 10, least 8, most 20; prompt tokens median 1000, least 500, most 3000; cached tokens median 800, least 400, most 2000; output tokens median 100, least 50, most 300; minutes median 2.00, least 1.00, most 5.00\n",
 		"  task hid1 hidden, condition eva: judged 2, solved 2, solved first try 1; corrections median 0.5, least 0, most 1; rounds median 1.5, least 1, most 2; agent events median 6, least 0, most 12; prompt tokens median 1150, least 800, most 1500; cached tokens median 800, least 600, most 1000; output tokens median 115, least 80, most 150; minutes median 2.50, least 1.67, most 3.33; memory tokens median 6000, least 5000, most 7000; memory minutes median 0.67, least 0.50, most 0.83\n",
 		"  task hid2 hidden, condition eva: judged 0, solved 0, solved first try 0; corrections none; rounds none; agent events none; prompt tokens none; cached tokens none; output tokens none; minutes none; memory tokens none; memory minutes none\n",
@@ -372,6 +416,29 @@ func TestText(t *testing.T) {
 		t.Errorf("hosts out of order:\n%s", text)
 	}
 	assertClean(t, text)
+	// The models are counted, never named.
+	if strings.Contains(text, "made-up-model") {
+		t.Errorf("a model's name:\n%s", text)
+	}
+}
+
+// count counts the models and names none: "none" for no id, or for only
+// the empty one, which is a record asking for no model or a row naming
+// none.
+func TestCountNamesNoModel(t *testing.T) {
+	for _, c := range []struct {
+		ids  []string
+		want string
+	}{
+		{nil, "none"},
+		{[]string{""}, "none"},
+		{[]string{"made-up-model-1"}, "1"},
+		{[]string{"", "made-up-model-1", "made-up-model-2"}, "2, and none"},
+	} {
+		if got := count(c.ids); got != c.want {
+			t.Errorf("%q: %q, want %q", c.ids, got, c.want)
+		}
+	}
 }
 
 // assertClean fails when text holds a path or a word a test task forbids.
@@ -519,6 +586,9 @@ func TestRefusals(t *testing.T) {
 		{"a ratio not 0 or 1", "row 1: its value is not a figure its measure can take", func(fs []Folder) { fs[0].Rows[0].Value = 0.5 }},
 		{"a count below 0", "its value is not a figure", func(fs []Folder) {
 			fs[0].Rows[rowIndex(t, fs[0].Rows, "continuation.hidden.off.corrections", "hid1.t1")].Value = -1
+		}},
+		{"a count not whole", "its value is not a figure", func(fs []Folder) {
+			fs[0].Rows[rowIndex(t, fs[0].Rows, "continuation.hidden.off.corrections", "hid1.t1")].Value = 1.5
 		}},
 		{"a row with a forbidden word", "folder 2: a row holds a word a task forbids", func(fs []Folder) { fs[1].Rows[3].Model = "zanzibrel-7" }},
 		{"a record with a forbidden word", "folder 1, record 2: it holds a word a task forbids", func(fs []Folder) { fs[0].Records[1].Model = "made-up-quokkaline" }},
