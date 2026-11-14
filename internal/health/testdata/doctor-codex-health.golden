@@ -1,0 +1,26 @@
+UNKNOWN  binary: stable hook binary is not installed; run eva-md install
+PASS  config: configuration parses
+FAIL  config keys: unknown keys are ignored: colour; correct or remove them in the eva-md config
+PASS  wiki location: wiki is a real, accessible directory
+PASS  wiki permissions: only your account can open the wiki folder
+PASS  wiki schema: schema 1
+PASS  wiki instance: instance matches
+PASS  wiki remote: standalone repository and expected origin match
+FAIL  wiki validation: 3 errors, 0 broken links, 4 orphans; run eva-md validate
+PASS  wiki temporary files: none found
+PASS  system names: written again from the system pages: 3 names for 1 system page
+PASS  inbox: 93 bytes; private permissions
+UNKNOWN  search index: no index yet, so search scans the inbox; run eva-md index, or wait for the day's maintenance
+PASS  Claude Code: not used in the last 14 days
+PASS  Codex: not used in the last 14 days
+UNKNOWN  mcp server: stable hook binary is not installed; run eva-md install
+UNKNOWN  daily commit: no daily commit has run yet; it runs at the first chat event of each day; eva-md commit runs it now
+UNKNOWN  push: no push recorded yet
+UNKNOWN  oversize pages: the daily lint has not run yet; it runs with the day's maintenance at the first chat event of a day
+UNKNOWN  source refs: the daily lint has not run yet; it runs with the day's maintenance at the first chat event of a day
+FAIL  system map: 1 system page, but systems/map.md and systems/index.md are missing, unreadable or over 256 KB; write any system page again with eva-md system write <slug> --replace, which rebuilds the map and systems/index.md
+UNKNOWN  system code: no code status yet; it is taken with the day's maintenance at the first chat event of a day; eva-md system status takes it now
+UNKNOWN  commit lag: the lag can't be told: no run-log or commit record says since when the files have waited; bar 24 hours
+PASS  push lag: no lag, bar 10 minutes; 0 commits not yet pushed
+--- json
+{"checks":[{"name":"binary","status":"UNKNOWN","detail":"stable hook binary is not installed","fix":"run eva-md install"},{"name":"config","status":"PASS","detail":"configuration parses"},{"name":"config keys","status":"FAIL","detail":"unknown keys are ignored: colour","fix":"correct or remove them in the eva-md config"},{"name":"wiki location","status":"PASS","detail":"wiki is a real, accessible directory"},{"name":"wiki permissions","status":"PASS","detail":"only your account can open the wiki folder"},{"name":"wiki schema","status":"PASS","detail":"schema 1"},{"name":"wiki instance","status":"PASS","detail":"instance matches"},{"name":"wiki remote","status":"PASS","detail":"standalone repository and expected origin match"},{"name":"wiki validation","status":"FAIL","detail":"3 errors, 0 broken links, 4 orphans","fix":"run eva-md validate"},{"name":"wiki temporary files","status":"PASS","detail":"none found"},{"name":"system names","status":"PASS","detail":"written again from the system pages: 3 names for 1 system page"},{"name":"inbox","status":"PASS","detail":"93 bytes; private permissions"},{"name":"search index","status":"UNKNOWN","detail":"no index yet, so search scans the inbox","fix":"run eva-md index, or wait for the day's maintenance"},{"name":"Claude Code","status":"PASS","detail":"not used in the last 14 days"},{"name":"Codex","status":"PASS","detail":"not used in the last 14 days"},{"name":"mcp server","status":"UNKNOWN","detail":"stable hook binary is not installed","fix":"run eva-md install"},{"name":"daily commit","status":"UNKNOWN","detail":"no daily commit has run yet","fix":"it runs at the first chat event of each day; eva-md commit runs it now"},{"name":"push","status":"UNKNOWN","detail":"no push recorded yet"},{"name":"oversize pages","status":"UNKNOWN","detail":"the daily lint has not run yet","fix":"it runs with the day's maintenance at the first chat event of a day"},{"name":"source refs","status":"UNKNOWN","detail":"the daily lint has not run yet","fix":"it runs with the day's maintenance at the first chat event of a day"},{"name":"system map","status":"FAIL","detail":"1 system page, but systems/map.md and systems/index.md are missing, unreadable or over 256 KB","fix":"write any system page again with eva-md system write \u003cslug\u003e --replace, which rebuilds the map and systems/index.md"},{"name":"system code","status":"UNKNOWN","detail":"no code status yet","fix":"it is taken with the day's maintenance at the first chat event of a day; eva-md system status takes it now"},{"name":"commit lag","status":"UNKNOWN","detail":"the lag can't be told: no run-log or commit record says since when the files have waited; bar 24 hours"},{"name":"push lag","status":"PASS","detail":"no lag, bar 10 minutes; 0 commits not yet pushed"}],"verdict":"every stage that could be read is within its bar; the lag of the wiki's commit can't be told"}

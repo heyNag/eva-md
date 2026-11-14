@@ -137,9 +137,10 @@ func turnLosses(events []event.Event) (closed, noReply int) {
 	return closed, noReply
 }
 
-// share words n of of as a percentage with two decimals.
+// share words n of of as a percentage to three significant digits, so a
+// share just past the bar of 0.5% reads past it, as 0.503%.
 func share(n, of int) string {
-	return fmt.Sprintf("%.2f%%", 100*float64(n)/float64(of))
+	return fmt.Sprintf("%.3g%%", 100*float64(n)/float64(of))
 }
 
 // lossRow is a host's row of its counted losses: FAIL past the bar of

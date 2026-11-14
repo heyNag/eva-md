@@ -94,7 +94,7 @@ func chatLines(t *testing.T, host, session string, at time.Time, n int, replies 
 	}
 	for i := range n {
 		ts := at.Add(time.Duration(i) * time.Minute).Format(time.RFC3339)
-		turn := fmt.Sprintf("turn-%d", i)
+		turn := fmt.Sprintf("turn-%d-%d", at.Unix(), i)
 		add(inbox.Entry{TS: ts, Turn: turn, Role: "user", Kind: "prompt", Text: "a prompt that holds " + plantedMarker})
 		if replies {
 			add(inbox.Entry{TS: ts, Turn: turn, Role: "assistant", Kind: "reply", Text: "a reply that holds " + plantedMarker})

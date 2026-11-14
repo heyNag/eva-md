@@ -1,0 +1,10 @@
+within: every stage is within its bar
+organizing rule: Codex organizing lags 3 hours, past its bar of 5 minutes: waiting for the size or quiet rule
+organizing behind: Codex organizing lags 3 hours, past its bar of 5 minutes: behind a running job
+organizing budget: Codex organizing lags 3 hours, past its bar of 5 minutes: deferred by the day's budget
+organizing held: Codex organizing lags 3 hours, past its bar of 5 minutes: held after a failure
+organizing sign_in: Codex organizing lags 3 hours, past its bar of 5 minutes: waiting for sign-in
+organizing off: Codex organizing lags 3 hours, past its bar of 5 minutes: switched off, paused by the owner or excluded
+commit: the wiki's commit lags 4 days, past its bar of 24 hours
+loss: Claude Code capture is losing chats: 1 event held back or kept as a name only in 199 hook runs (0.503%) in the past 7 days, past the bar of 0.5%
+unread: every stage that could be read is within its bar; the lag of the wiki's commit, the wiki's push can't be told
