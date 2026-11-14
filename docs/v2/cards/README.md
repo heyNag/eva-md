@@ -42,8 +42,8 @@ Rules every card carries, so they are said once here:
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | merged |
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | merged, with a second round for four rulings of the lead's; three known limits of its checker are named for DV-21 |
-| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | building since 2026-11-14 |
-| [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
+| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | merged |
+| [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | building since 2026-11-14; the live run is the owner's to allow |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
 | [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | merged; the continuation's check accepts all ten |
 | [EV-03c](EV-03c.md) | The pilot's report, over the continuation's rows, and the pilot's README | after EV-17g, which fixes the run record it reads |

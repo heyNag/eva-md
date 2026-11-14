@@ -40,3 +40,20 @@ Everything else. `internal/eval/spike`, `internal/eval/scenario`, `internal/eval
 - A failed call (a runner's reason) is counted and the run goes on; a reply without `CachedIn` writes no `spike.repair_tokens_cached_in` row: a test each.
 - Rows go through `results.Store` with `Forbid` holding every script's `scenario.Forbid`, and pass `results.Load`; the recording holds no prompt and no input, only answers: by test.
 - Two runs on the same answers give identical rows apart from time.
+
+## As merged
+
+Merged from `pkg/dv-03c-r1` on 2026-11-14, after a review, one fix round and a verification that accepted it. The review's major fault: nine of the sums behind the pooled rows, which the frontier reads, could each be deleted with every test still passing. Each has a test now. `SPEC.md` in the package is this part's contract.
+
+The lead's rulings at the merge, each as built:
+
+- **`honest_refused` counts only operations that add a record**, on the refused side and the accepted side alike. One that retires a record, marks one done or answers one counts in neither.
+- **A failed first call is left out of both tallies.** It counts in `calls_failed` only, and its facts score as missing.
+- **The rows of the store without repair count the run as if no repair call had been made**, so the difference between the two stores is what repair cost and bought.
+- **`spike.repair_input_bytes` and `spike.repair_prefix_bytes` are DV-03b's lengths**, without the prompt, which is the same on every call of an arm.
+- **A replay's answering function refuses a call whose context the run did not give**, so a wrapper cannot skip the check that no recorded line was left unused; and a recording of one arm cannot be replayed as another.
+
+For DV-03d, which reads these rows:
+
+- With a repeat of n, each scenario has n rows of each metric, one a round: the frontier takes them as trials and averages, never one row.
+- DV-03b's faithful canned answer to the eighth script is accepted whole by the checker and is not whole by the fidelity scorer: a next step that names a word of an ended step reads as keeping that step in force. So `stale_in_force` can count a faithful answer, and the frontier's reading of it says so. Whether the scorer should read it that way belongs to EV-14e.
