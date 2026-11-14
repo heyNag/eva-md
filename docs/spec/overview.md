@@ -139,6 +139,10 @@ The doctor takes a host command, such as `codex features list`, that prints more
 
 <!-- /v1 -->
 
+## Must keep
+
+The items of eva-md as a whole are listed in [scope.md](scope.md#must-keep), and each component's in its own spec.
+
 ## Since the split
 
 No change yet.

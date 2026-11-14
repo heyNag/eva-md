@@ -98,7 +98,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | --- | --- | --- |
 | SET-K12 | Hand-edited files are read strictly: no link or FIFO, a size cap, literal values never echoed, a pasted secret named by line | internal/config:TestBoundedPrivateConfigReads, internal/config:TestLoadAnswersIsStrict, internal/config:TestParseAnswersRefusesBadValues, internal/config:TestReadErrorNamesFileOnce, cmd/eva-md:TestSetupReportsTheAnswersFilesProblems |
 | SET-K13 | Exclusions match the written and resolved path and every parent; path before identity, remote before any marker | internal/config:TestExcluded, internal/config:TestExcludedSymlinkAliases, internal/config:TestRemoteExclusionForms, internal/hook:TestGuardsAndOrdering |
-| SET-K20 | Every time limit of setup is a variable tests raise once | cmd/eva-md:TestSetupFallsBackWhenACLIHangs, cmd/eva-md:TestPeekRemoteOutOfTime |
+| SET-K20 | Every time limit of setup is a variable tests raise once | cmd/eva-md:TestMain, internal/identity:TestMain |
 
 ## Since the split
 

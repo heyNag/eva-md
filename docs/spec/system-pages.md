@@ -101,7 +101,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 | SYS-K13 | A write checks each cited path exists at its commit, never waiting on a clone | internal/systempage:TestWriteChecksCodeInAClone |
 | SYS-K15 | Sibling scope for recall comes from pages listing two or more repos | internal/systempage:TestReposIndex, internal/systempage:TestReposIndexGoesWithTheLastSharedPage, internal/hook:TestRecallKeepsToTheChatsScope |
 | SYS-K16 | The Unverified section is tagged unverified in search hits | internal/resume:TestSearchFindsSystemLines |
-| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed | internal/coderef:TestTimeout, internal/systempage:TestWriteWaitsForTheWikiLock |
+| SYS-K17 | Every time bound is a variable tests raise, so no test depends on speed | internal/coderef:TestMain, internal/systempage:TestMain |
 
 ## Since the split
 

@@ -109,7 +109,7 @@ The must-keep items of [findings.md](../v2/findings.md) this component touches, 
 
 | Id | Item | Tests |
 | --- | --- | --- |
-| CAP-K15 | An entry is trusted only in the file its host, session and project name, and nothing said off the record reaches search | internal/inbox:TestWalkYieldsWhatSearchCanMatch, internal/inbox:TestWalkResumesFromAPosition |
+| CAP-K15 | An entry is trusted only in the file its host, session and project name, and nothing said off the record reaches search | internal/inbox:TestWalkYieldsWhatSearchCanMatch, internal/inbox:TestWalkResumesFromAPosition, internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile |
 | SRC-K01 | Nothing is shown from the cache: every candidate is read again from the inbox and checked, and the index stores no text | internal/resume:TestSearchIndexAndScanAgree, internal/resume:TestSearchFindsALineAtAStaleCandidatesNumber, internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile, internal/resume:TestSearchDeadAndStaleFiles |
 | SRC-K02 | Off-the-record ranges are never indexed, printed or counted | internal/resume:TestSearchPrivacy, internal/resume:TestSearchSkipsOffTheRecordRanges, internal/searchindex:TestOffRecordAndUntrustedNeverIndexed, internal/inbox:TestWalkYieldsWhatSearchCanMatch |
 | SRC-K03 | An entry must belong to the file it is read from | internal/resume:TestSearchTrustsOnlyEntriesThatMatchTheirFile, internal/inbox:TestWalkYieldsWhatSearchCanMatch, internal/searchindex:TestOffRecordAndUntrustedNeverIndexed |

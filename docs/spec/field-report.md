@@ -41,6 +41,14 @@ It does hold, by kind, counts of secrets the current rules would catch in what i
 
 <!-- /v1 -->
 
+## Must keep
+
+The must-keep items of [findings.md](../v2/findings.md) this component touches, numbered from K01 in each list, and the tests that hold them.
+
+| Id | Item | Tests |
+| --- | --- | --- |
+| OPS-K21 | Only eva's name is shown, and counts rather than captured content | internal/health:TestFieldReportHoldsNoText, internal/hook:TestRecordsHoldNoContent, internal/update:TestRunLogHoldsNoEntryText |
+
 ## Since the split
 
 No change yet.
