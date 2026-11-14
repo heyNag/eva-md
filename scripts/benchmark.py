@@ -484,7 +484,7 @@ def padded_inbox(run, evabench):
         # with the padded inbox, the wiki and the records above in place.
         mcp_starts,mcp_exits,mcp_searches,mcp_shows,mcp_statuses=mcp_timings(binary,env,cwd)
         p95=lambda values: sorted(values)[int((len(values)-1)*.95)]
-        code=code_scenarios(hook,cwd,wiki,state,sample["project"],run.loops(10),run.loops(25))
+        code=code_scenarios(hook,cwd,wiki,state,sample["project"],h,run.loops(10),run.loops(25))
         recalled=recall_scenario(hook,wiki,sample["project"])
         report={"offline":True,"isolated_home":True,"cross_host_resume":True,"inbox_bytes":files[0].stat().st_size,
                 "capture_samples":len(capture),"capture_p95_ms":round(p95(capture),3),
@@ -743,16 +743,20 @@ def main(argv=None):
     return 0
 
 
-def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10, prompts_timed=25):
+def code_scenarios(hook, cwd, wiki, state, key, home, briefs_timed=10, prompts_timed=25):
     """Times the code notes. Startup briefs in --cwd, whose project key the
     inbox recorded, point at 3 systems that cite its repo at HEAD~1, so each
     brief counts the commits since, 3 git calls, and every pointer must say
-    the code moved. Then prompts each name 3 of the 400 systems, whose map
-    lines cite a made-up repo's code and whose entries in a planted code
-    status, one for each of the 400 pages, say it moved 14 commits: every
-    pointer must say so, read from the status with no git. A --cwd repo with
-    a single commit skips the briefs. briefs_timed briefs and prompts_timed
-    prompts are timed."""
+    the code moved, unless git's trace of the brief, in home (evabench's
+    Home), shows the brief's clock cut its counts short (evabench's
+    code_brief); more than one brief in two passed over so fails. Then
+    prompts each name 3 of the 400 systems, whose map lines cite a made-up
+    repo's code and whose entries in a planted code status, one for each of
+    the 400 pages, say it moved 14 commits: every pointer must say so, read
+    from the status with no git. A --cwd repo with a single commit skips the
+    briefs. briefs_timed briefs and prompts_timed prompts are timed."""
+    from evabench import KILLED, code_brief, code_briefs_allowed, code_briefs_said, code_counts, code_notes
+    from evabench import context as added_context
     head1=subprocess.run(["git","-C",str(cwd),"rev-parse","HEAD~1"],capture_output=True,text=True)
     systems=wiki/"systems"
     mapfile=systems/"map.md"
@@ -763,15 +767,32 @@ def code_scenarios(hook, cwd, wiki, state, key, briefs_timed=10, prompts_timed=2
             (systems/("code-"+letter+".md")).write_text('---\ntype: system\ntitle: Code %s\nas_of: "2026-10-30"\n---\n\n## Summary\nCode.\n'%letter.upper())
             text+="- [Code %s](code-%s.md): Code of this repo · repos: %s · code: %s@%s · as of 2026-10-30\n"%(letter.upper(),letter,key,key,head1.stdout.strip())
         mapfile.write_text(text)
-        for i in range(briefs_timed):
-            out,elapsed=hook("codex","SessionStart","m1-code-"+str(i),source="startup")
-            value=json.loads(out)
-            context=value.get("hookSpecificOutput",{}).get("additionalContext",value.get("additionalContext",""))
-            lines=[l for l in context.split("\n") if l.startswith("System: Code ") and " (code moved " in l]
-            if len(lines)!=3:
-                raise RuntimeError("a startup brief did not say how far the code of 3 systems moved")
-            briefs.append(elapsed)
+        # Git's trace of each brief's git calls, from the home's global git
+        # config, which eva-md's git calls read, to a file of the brief's
+        # own: a count killed at its limit writes no exit. The config goes
+        # after the loop, so no other hook is traced.
+        gitconfig=Path(home.env["GIT_CONFIG_GLOBAL"])
+        traces=home.path/"code-traces"
+        traces.mkdir(mode=0o700)
+        passed_over,killed=0,0
+        try:
+            for i in range(briefs_timed):
+                trace=traces/("brief-%d.json"%i)
+                gitconfig.write_text("[trace2]\n\teventTarget = %s\n"%json.dumps(str(trace)))
+                out,elapsed=hook("codex","SessionStart","m1-code-"+str(i),source="startup")
+                counts=code_counts(trace.read_text().splitlines() if trace.exists() else [])
+                if code_brief(i,code_notes(added_context(out)),counts,elapsed):
+                    passed_over+=1
+                    killed+=KILLED in counts
+                briefs.append(elapsed)
+        finally:
+            gitconfig.unlink(missing_ok=True)
         say_late("code_brief","SessionStart",briefs)
+        said=code_briefs_said(passed_over,killed,len(briefs))
+        if said:
+            print(said,file=sys.stderr,flush=True)
+        if not code_briefs_allowed(passed_over,len(briefs)):
+            raise RuntimeError("code_brief: %d of %d briefs passed over, more than one in two: the code's counts may be broken"%(passed_over,len(briefs)))
     commit="4e2bf4c0a1b2"
     pages=[]
     for i in range(400):
