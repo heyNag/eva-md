@@ -59,8 +59,8 @@ func TestContinuationReport(t *testing.T) {
 	}
 	for _, line := range []string{
 		"host codex\n",
-		"  runs, condition off: records 1, ended done 1, error 0, no_usage 0, memory_off 0, hidden_found 0, arm_stopped 0; planned 2, judged 2, not run 0, ",
-		"  runs, condition oracle: records 1, ended done 1, error 0, no_usage 0, memory_off 0, hidden_found 0, arm_stopped 0; planned 2, judged 2, not run 0, ",
+		"  runs, condition off: records 1, ended done 1, error 0, no_usage 0, memory_off 0, hidden_found 0, web_used 0, arm_stopped 0; planned 2, judged 2, not run 0, ",
+		"  runs, condition oracle: records 1, ended done 1, error 0, no_usage 0, memory_off 0, hidden_found 0, web_used 0, arm_stopped 0; planned 2, judged 2, not run 0, ",
 		"  task hidden-banner hidden, condition off: judged 2, solved 2, solved first try 0; corrections median 1, least 1, most 1; rounds median 2, least 2, most 2; agent events median 6, ",
 		"  task hidden-banner hidden, condition oracle: judged 2, solved 2, solved first try 2; corrections median 0, least 0, most 0; rounds median 1, least 1, most 1; agent events median 3, ",
 		"  cost, condition off: judged 2; medians ",
