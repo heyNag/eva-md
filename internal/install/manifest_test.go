@@ -455,10 +455,12 @@ func TestManifestForeignFileOrFolderStops(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if !strings.HasSuffix(foreign, "/") {
-				if err := os.WriteFile(target, []byte("the person's own\n"), 0o600); err != nil {
+			if strings.HasSuffix(foreign, "/") {
+				if err := os.Mkdir(target, 0o700); err != nil {
 					t.Fatal(err)
 				}
+			} else if err := os.WriteFile(target, []byte("the person's own\n"), 0o600); err != nil {
+				t.Fatal(err)
 			}
 			home := filepath.Dir(filepath.Dir(filepath.Dir(opts.Dirs.Share)))
 			before := snapshot(t, home)
