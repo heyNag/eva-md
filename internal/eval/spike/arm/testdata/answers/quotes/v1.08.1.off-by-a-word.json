@@ -1,0 +1,6 @@
+{"ops": [
+  {"op": "next.add", "id": null, "kind": null, "text": "Write the parser, MARTIN-1.", "admit": null, "ev": [{"e": 1, "q": "Next write a parser, MARTIN-1", "as": "said"}]},
+  {"op": "next.add", "id": null, "kind": null, "text": "Write the renderer after the parser, MARTIN-2.", "admit": null, "ev": [{"e": 1, "q": "then the renderer, MARTIN-2.", "as": "said"}]},
+  {"op": "ask.add", "id": null, "kind": null, "text": "Should pages hold hidden ids, MARTIN-3?", "admit": null, "ev": [{"e": 1, "q": "Should pages hold hidden ids, MARTIN-3?", "as": "said"}]},
+  {"op": "item.add", "id": null, "kind": "fact", "text": "The project uses Go 1.26, MARTIN-4.", "admit": "environment", "ev": [{"e": 1, "q": "We use Go 1.26, MARTIN-4.", "as": "said"}]}
+], "nothing": null}

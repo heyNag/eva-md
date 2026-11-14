@@ -1,0 +1,67 @@
+# The contract spike's arm: passes, recording, replay, fidelity and rows
+
+`internal/eval/spike/arm` is the third part of the contract spike of [the v2 plan](../../../../docs/v2/plan.md) (section 8, Stage 0, row DV-03), card DV-03c. It runs one arm over the spike's scripts against any answering function, records each call's answer, replays a recording with no call, scores each store with the fidelity scorer of EV-14b, and turns the run into result rows. Like the rest of `internal/eval/spike` it is a throwaway: **it is deleted when DV-21 lands**, and no release builds it. Its non-test files import from eva-md only `internal/eval/spike`, `internal/eval/scenario`, `internal/eval/score` and `internal/eval/results`, never `internal/update`, so it runs on canned answers alone (`TestTheArmImportsOnlyItsFour`); nothing outside the spike's folders and `cmd/eva-eval` imports it (`spike`'s `TestNothingElseImportsTheSpike`). It makes no model call and starts no host: the answering function does that, and DV-03d gives it. It changes nothing v1 does, and has no switch.
+
+## The arm
+
+`Arm{Host, HostVersion, Tier, Effort string; Form spike.Form; Repeat int}` is one host, one model tier, one effort and one form of the contract. `Tier` is one of `small`, `middle`, `large` (`Tiers`): a model's name is never a field, and the tier is all an arm says of its model. `Effort` is one of `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (`Efforts`), the efforts of either host's table. `Host` is a results id and `HostVersion` a results version. `Repeat` is how many rounds are run, 0 running one; a negative one is refused.
+
+## The answering function
+
+`Ask func(ctx, Call) (Reply, error)`. `Call{Script string; Pass, Round int; Kind string; System string; Input, Schema []byte}`: the script's id; its pass and round, both from 1; `Kind` `first` or `repair`; `System` the prompt, `spike.Prompt` of the arm's form; `Input` the rendered pass for a first call, the repair input for a repair call; `Schema` `spike.Schema` or `spike.RepairSchema`. `Reply{Output []byte; Reason string; TokensIn, TokensOut, Attempts int; CachedIn *int; Seconds float64; Effort string}` is what the host's runner reports: `TokensIn` counts cached input too, `CachedIn` is nil when the runner reports no cached input, and `Effort` is the effort it used.
+
+A reply with a `Reason` is a failed call: its output is not read and the run goes on. An error from `Ask` stops the run, and so does a context that has ended, before the next call. So does a reply whose `Reason` or `Effort` is neither empty nor a short id (a results id: lower-case letters, digits, `.`, `_` and `-`, at most 64), whose counts are not from 0 to 2^40, or whose seconds are not a figure from 0 to 10^7, since a recording or a row would carry it and no sum of them may pass what a row holds.
+
+**What is kept of an answer.** An answer is never trusted to be small, shallow or well formed. The arm keeps an output when it is valid UTF-8, at most `MaxOutput` (1 MiB) bytes and one JSON value other than `null` (`json.Valid`, which refuses one nested past encoding/json's depth limit), and keeps it compacted (`json.Compact`, which escapes nothing); anything else is kept as no answer, which reads as not the schema's JSON. It is the kept answer that is parsed, by the spike's strict `ParseAnswer` and `ParseRepair` (which refuse a key given twice), sent back in a repair input and recorded, so a replay reads the very bytes the run read, and keeping what was kept changes nothing (`TestKeep`).
+
+## A run
+
+`Run(ctx, arm, scripts []spike.Script, ask Ask, rec io.Writer) (Result, error)` refuses, before any call, an arm that breaks the rules above, no script, a script given twice or that fails `Validate`, a script whose id makes a row's scenario longer than a results id, and no `ask`. Then for each round, each script in the order given and each of its passes:
+
+1. The pass's session is rendered with `spike.Render`, showing what the script's `on` store holds, and asked as a first call.
+2. A failed call leaves the pass with no answer: the stores do not change, and the pass is not added to either tally, so it counts in no measure of DV-03b, its plants included, and only in `calls_failed`.
+3. An answer that is not the schema's JSON is `Outcome.Invalid`. Otherwise `spike.Check` judges it against what `on` shows; when `ToRepair` lists an operation, one repair call is asked with `spike.RepairInput(input, answer, verdict)`, `input` the first call's `Input`, and `spike.ApplyRepair` gives the final verdict, with an empty repair when the repair call failed or its answer is not the schema's JSON (`RepairInvalid`). The outcome's `RepairInputBytes` and `RepairPrefixBytes` are as DV-03b defines them: the repair input's length, and the length of the first call's input it starts with (F-065's cacheable prefix). Neither counts the prompt, which both calls share and whose length is `len(spike.Prompt(form))`, the same on every call of an arm (`TestOneQuoteOffByAWord`).
+4. **Two stores.** `on` applies the final verdict; `off` only the operations the first check accepted. Later passes are rendered from `on`, so `off` measures what repair changed in what was kept, not a run without repair: its passes were shown what repair had kept. An operation the first check accepted names `on`'s handles; `off` applies it to its own record of the same operation, and skips one whose target only a repair made, which `off` never held (`TestOffFollowsOnsHandles`). The `on` tally adds each pass's outcome; the `off` tally adds it with no repair call, so it reads the first verdict, and its calls are the first calls alone, as if no repair call had been made.
+
+`rec`, when not nil, gets one line per call as it is made, in one write each. An error writing it stops the run.
+
+`Result{Arm; Rounds []Round}`; `Round{Scripts []ScriptResult; On, Off Side}`, each script's sides and their sums over all; `Side{Tally; Calls; Items; Fidelity; Required, Held, Recalled; Honest, HonestOf}`, `Items` the store's records after the last pass (nil over all) and `Calls{First, Repair, Failed, TokensIn, TokensOut, RepairTokensIn, RepairCachedIn, RepairCachedReported int; Seconds float64}`. A run that fails returns no result.
+
+## The recording
+
+Each call is one JSON line, its keys in this order and nothing else: `{"v":1,"host","host_version","tier","effort","form","round","script","pass","call","output","reason","tokens_in","tokens_out","tokens_cached_in","attempts","seconds","effort_used"}`. `host` to `form` are the arm's; `call` is `first` or `repair`; `output` is the kept answer as JSON, or null for a failed call or an answer not kept; `reason` is the reason or empty; `tokens_cached_in` is null when the runner reported none; `effort_used` is the reply's effort. It holds no model name, no path, no prompt and no input: only answers (`TestTheRecordingHoldsOnlyAnswers`). An answer is written as kept, with `<`, `>`, `&`, U+2028 and U+2029 unescaped, so a replay reads the bytes the run kept.
+
+## Replay
+
+`Replay(r io.Reader, arm Arm) (Ask, string, error)` reads a recording whole and gives an `Ask` that answers each call from its line, and the host version, which every line must share. It refuses, before an `Ask` exists and so before any call: an arm that breaks the rules (its host version may be empty); a recording of another host, tier, effort or form, or of another host version than the arm's when it gives one; lines of two host versions; a line given twice, by round, script, pass and call; a reason that is not a short id; a failed call with an answer; and any line that is not one of the format's: not UTF-8, not one JSON object, a key missing, unknown or given twice, a null where `output` and `tokens_cached_in` alone may be null, a value of another type, a count with a fraction, a count or seconds out of a reply's range, another `v`, a round or pass not from 1, a script that is no id, a host version that is no version, an `effort_used` that is no id, an answer longer than `MaxOutput`, a line longer than an answer and the rest of its line, an empty line, more than `MaxLines` (16,384) lines, or none.
+
+The `Ask` fails on a call the recording lacks or that was asked already, and `Run` fails with it. `Run` gives `ask` a context that carries the run: its arm, and the checks it makes once every call is made. A replay's `Ask` must be given that context, or one made from it (a time limit, say): it refuses a call whose context carries no run, so a wrapper that drops the context fails the run instead of dropping the check below unseen. It refuses a call of a run of another arm than the recording's, by host, host version (the recording's, even when `Replay` was given none), tier, effort or form, so a recording of one arm cannot be replayed as another's rows (`TestReplayServesOnlyItsArmsRun`). Through the run it adds a check, which `Run` makes once every call is made: a replay that leaves a line unused fails the run. A replay serves one run. A run replayed gives the same result, the same calls, the same rows apart from their time, and, recorded again, the same recording byte for byte (`TestRecordThenReplay`).
+
+## Fidelity
+
+Each store's records become a `score.Export`, scored by `score.Score` against the script's scenario: an item of kind k is a k, a next step `next`, a question `open`, a note a `log` item dated by its day; a retired record keeps its kind with state `retired`; its tag is its authority, with no scope; its sources are its cited entries, session and number (`TestExportByHand`).
+
+**`honest_refused`** is the share of what the user said that the checker refused. Its numerator is the operations finally refused (for `off`, refused by the first check) that add a record and cite an entry the pass shows whose author is `typed` or `chosen`: each is exported alone as a `stated` item, of its kind as above (an `item.add` or `item.supersede` its own kind, a next step `next`, a question `open`, a note a dated line under its newest cited shown entry's day), citing the shown entries it names, and scored; it counts when the scorer finds it `supports` a fact. Its denominator adds the accepted operations tagged `stated` or `accepted` that added a record whose item, in the store's export, the scorer finds `supports` a fact. An operation that retires, marks done or answers a record adds none and is in neither. The ratio is left out with no denominator. An operation the first check refused and a repair recovered is a refusal on `off` and none on `on` (`TestOneQuoteOffByAWord`); a note citing entries of two days is dated by the newer, whichever it cites first (`TestSoloNeedsAUsersEntry`).
+
+Over all the scripts of a round the scorer's counts are summed and its two shares are of every script's facts that must hold together, those an empty store leaves missing, as `eva-eval fidelity` pools v1's (`TestPooledFidelity`). The calls, tokens and seconds, the facts that must hold, hold and are recalled, and `honest_refused`'s two counts are summed too, and each `all` row of a sum is the sum of the scripts' rows (`TestPoolSumsEveryField`).
+
+## Rows
+
+`Rows(res Result, template results.Row) []results.Row` gives, from `template`: instrument `spike`; model the arm's tier word; host and host version the arm's; every other field the template's. For each round, each side, `on` then `off`, each script in order and then `all`, with scenario `<form>.<effort>.<on|off>.<script id>` or `<form>.<effort>.<on|off>.all`:
+
+| Metric | Unit | What |
+| --- | --- | --- |
+| `spike.<id>` for each of DV-03b's `CountIDs` | `count` | the side's tally |
+| `spike.<id>` for each of DV-03b's `Ratios()` | `ratio` | left out with no denominator |
+| `spike.calls_first`, `spike.calls_repair`, `spike.calls_failed` | `count` | calls made, first and repair, and of those the failed ones |
+| `spike.tokens_in`, `spike.tokens_out`, `spike.repair_tokens_in` | `tokens` | over every call, failed ones included, and over the repair calls |
+| `spike.repair_tokens_cached_in` | `tokens` | the repair calls' cached input, only when there was one and every one reported it (F-065) |
+| `spike.seconds` | `seconds` | over every call |
+| `spike.honest_refused` | `ratio` | as above, left out with no denominator |
+| EV-14b's `fidelity.*` | theirs | `Result.Rows` of the side's store |
+
+`off` has no repair call, so its repair figures are 0 and it has no cached row. With `Repeat` rounds each scenario has one row of each metric a round, which `results.Summarize` takes as trials of one scenario. Every row holds only ids and numbers; every id the arm writes is one `spike`'s `TestNoPlantedValueIsInAnID` holds against the scripts' planted words, so the rows pass a `results.Store` whose `Forbid` holds every script's `scenario.Forbid`, and `results.Load` (`TestRowsPassTheStore`).
+
+## Known and left
+
+DV-03b's three known limits of the checker stand, and the figures are read with them in mind: a quote is not normalized to NFC; a hold-off cited as a yes is accepted, which the plant measures count; a value joined to another by a colon or a comma (`8080` in `localhost:8080`) is refused as cut short, which `honest_refused` counts when the value is the user's. DV-03b's faithful answer to v1.08 is accepted whole but is not whole by the scorer: a next step that names the parser keeps the ended step to write it in force, and the agent's report that the parser is finished is not kept.

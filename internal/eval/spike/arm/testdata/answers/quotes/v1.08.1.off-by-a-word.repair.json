@@ -1,0 +1,3 @@
+{"fixes": [
+  {"index": 1, "op": {"op": "next.add", "id": null, "kind": null, "text": "Write the parser, MARTIN-1.", "admit": null, "ev": [{"e": 1, "q": "Next write the parser, MARTIN-1", "as": "said"}]}}
+]}
