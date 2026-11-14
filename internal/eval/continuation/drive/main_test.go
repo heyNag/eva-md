@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +40,80 @@ type rig struct {
 	file   string // the script's file
 	clock  time.Time
 	tmp    string // the temporary root the rig gives the driver
+	// ended says how each chat call of the rig's runs ended, as the driver
+	// saw it, for diagnose.
+	ended []string
+}
+
+// traced makes the rig's next run keep a trace, in a folder of its own
+// named for name, which diagnose shows.
+func (r *rig) traced(name string) {
+	r.opts.Trace = filepath.Join(r.base, "trace-"+name)
+}
+
+// diagnose says what the rig's runs did, for a test that fails: each of
+// the fake's calls, by its process, with how it ended by its own record
+// (or that it has none: something ended it from outside, or its runtime
+// did, or it killed itself as its script asked); how each chat call ended
+// as the driver saw it and what it was read as; and, when the last run
+// kept a trace, what each call printed, its first 2 KB. Only made-up data
+// passes through a rig, so nothing a real run holds is shown.
+func (r *rig) diagnose() string {
+	r.t.Helper()
+	var b strings.Builder
+	calls, err := fakehost.Read(r.script.Dir)
+	ends, eerr := fakehost.ReadEnds(r.script.Dir)
+	fmt.Fprintf(&b, "the fake's calls (%v, ends %v):\n", err, eerr)
+	used := make([]bool, len(ends))
+	for i, c := range calls {
+		end := "no end recorded"
+		for j, e := range ends {
+			if !used[j] && e.Pid == c.Pid {
+				used[j] = true
+				end = fmt.Sprintf("exit %d", e.Exit)
+				if e.Fault != "" {
+					end += ", " + e.Fault
+				}
+				break
+			}
+		}
+		fmt.Fprintf(&b, "  %d: pid %d, %s %s, session %q: %s\n", i+1, c.Pid, c.Host, c.Mode, c.Session, end)
+	}
+	b.WriteString("the chat calls as the driver saw them:\n")
+	for i, e := range r.ended {
+		fmt.Fprintf(&b, "  %d: %s\n", i+1, e)
+	}
+	if r.opts.Trace == "" {
+		b.WriteString("no trace kept\n")
+		return b.String()
+	}
+	b.WriteString("the trace:\n")
+	err = filepath.WalkDir(r.opts.Trace, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(r.opts.Trace, p)
+		fmt.Fprintf(&b, "  %s (%d bytes): %q\n", filepath.ToSlash(rel), len(data), data[:min(len(data), 2<<10)])
+		return nil
+	})
+	if err != nil {
+		fmt.Fprintf(&b, "  reading it: %v\n", err)
+	}
+	return b.String()
+}
+
+// endedAs is how a chat call ended, by the error its wait gave, and what
+// it was read as.
+func endedAs(err error, rep report) string {
+	how := "exit status 0"
+	if err != nil {
+		how = err.Error()
+	}
+	return fmt.Sprintf("%s; read as answered %v, fail %q, session %q, usage %v", how, rep.Answered, rep.Fail, rep.Session, rep.Usage)
 }
 
 // useTempFolders makes roots the driver's temporary folders for the test.
@@ -99,6 +175,7 @@ func newRig(t *testing.T, facts int) *rig {
 		MaxSessions: 100, MaxTokens: 1 << 40, SessionTimeout: time.Hour,
 		PassEnv: []string{fakehost.ScriptVar}, Repo: repo, Spend: true,
 		Clock: func() time.Time { r.clock = r.clock.Add(time.Second); return r.clock },
+		ended: func(err error, rep report) { r.ended = append(r.ended, endedAs(err, rep)) },
 	}
 	return r
 }

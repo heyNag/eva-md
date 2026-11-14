@@ -169,6 +169,10 @@ type Options struct {
 	// openTrace makes a file of the trace, which is new; nil makes it for
 	// its owner alone. A test fails it instead.
 	openTrace func(path string) (io.WriteCloser, error)
+	// ended is told how each chat call ended, by the error its wait gave
+	// (nil for an exit of 0), and the report it was read as; nil tells
+	// nothing. A test says it when a trial comes out other than it should.
+	ended func(err error, r report)
 }
 
 // Dirs are a trial's folders.

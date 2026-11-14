@@ -33,8 +33,15 @@ func traceRig(t *testing.T) *rig {
 	return r
 }
 
+// rigGitDir is the git folder of the rig's repository, relative to the
+// rig's base.
+var rigGitDir = filepath.Join("repo", ".git")
+
 // tree lists the files under dir, as paths relative to it, with their
-// modes, folders included.
+// modes, folders included. It does not go into repo/.git, the git folder
+// of the rig's repository when dir is the rig's base: what is in there is
+// git's, and git may make and remove files in it at any moment, which
+// would fail the walk.
 func tree(t *testing.T, dir string) map[string]fs.FileMode {
 	t.Helper()
 	got := map[string]fs.FileMode{}
@@ -42,13 +49,19 @@ func tree(t *testing.T, dir string) map[string]fs.FileMode {
 		if err != nil {
 			return err
 		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && rel == rigGitDir {
+			return filepath.SkipDir
+		}
 		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(dir, p)
 		got[rel] = info.Mode()
-		return err
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -191,13 +204,14 @@ func TestATracedWordGoesNowhereElse(t *testing.T) {
 	if len(r.rows()) == 0 {
 		t.Fatal("no row")
 	}
-	if found := holding(t, r.base, tracedWord, r.opts.Trace, r.script.Dir, r.file); len(found) != 0 {
+	if found := holding(t, r.base, tracedWord, r.opts.Trace, r.script.Dir, r.file, filepath.Join(r.base, rigGitDir)); len(found) != 0 {
 		t.Fatalf("the word is in %v", found)
 	}
 }
 
 // holding lists the files under dir that hold word, but those under the
-// paths skipped.
+// paths skipped. A caller that walks the rig's base skips the rig's
+// repository's .git, which git changes at any moment, as tree does.
 func holding(t *testing.T, dir, word string, skip ...string) []string {
 	t.Helper()
 	var found []string
@@ -241,7 +255,7 @@ func TestNoTraceWithoutTheFlag(t *testing.T) {
 	if strings.Contains(out, "trace") {
 		t.Fatalf("the plan names a trace:\n%s", out)
 	}
-	if found := holding(t, r.base, tracedWord, r.script.Dir, r.file); len(found) != 0 {
+	if found := holding(t, r.base, tracedWord, r.script.Dir, r.file, filepath.Join(r.base, rigGitDir)); len(found) != 0 {
 		t.Fatalf("the word is in %v", found)
 	}
 	for p := range tree(t, r.base) {
@@ -325,15 +339,11 @@ func TestTraceFoldersRefused(t *testing.T) {
 			if calls := r.calls(); len(calls) != 0 {
 				t.Fatalf("the fake ran: %+v", calls)
 			}
-			// The run writes the fake's script; git's own background work in
-			// the rig's repository may come and go.
+			// The run writes the fake's script; tree leaves out the rig's
+			// repository's .git, which is git's.
 			after := tree(t, r.base)
 			for _, m := range []map[string]fs.FileMode{before, after} {
-				for p := range m {
-					if p == "script.json" || strings.HasPrefix(p, filepath.Join("repo", ".git")) {
-						delete(m, p)
-					}
-				}
+				delete(m, "script.json")
 			}
 			if !mapsEqual(before, after) {
 				t.Fatalf("the run made or changed %v, from %v", after, before)
@@ -465,5 +475,41 @@ func TestATraceThatCannotBeWrittenStopsTheRun(t *testing.T) {
 				t.Fatalf("a rows file: %v", err)
 			}
 		})
+	}
+}
+
+// The rig's repository starts no background work of git's, and the walks
+// that read the rig's base do not go into its .git: git may make and
+// remove files there at any moment (CI's macOS job once failed a walk on
+// a lock file of git's maintenance that had gone), so what is in there
+// may decide nothing. A folder in .git no walk may read stands in for a
+// file that goes while the walk lists it: a walk that goes in fails.
+func TestTheRigsGitIsLeftAlone(t *testing.T) {
+	r := traceRig(t)
+	for key, want := range map[string]string{"maintenance.auto": "false", "gc.auto": "0"} {
+		if got := git(t, r.opts.Repo, "config", "--get", key); got != want {
+			t.Errorf("the rig's repository reads %s = %q, want %q", key, got, want)
+		}
+	}
+	shut := filepath.Join(r.base, rigGitDir, "made-up-shut")
+	mkdir(t, shut)
+	if err := os.Chmod(shut, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(shut, 0o755) })
+	if _, err := os.ReadDir(shut); err == nil {
+		t.Fatal("the shut folder can be read, so it shows nothing (is the test run as root?)")
+	}
+	got := tree(t, r.base)
+	if _, ok := got["repo"]; !ok {
+		t.Fatalf("the walk missed the repository: %v", got)
+	}
+	for p := range got {
+		if p == rigGitDir || strings.HasPrefix(p, rigGitDir+string(filepath.Separator)) {
+			t.Fatalf("the walk went into the repository's .git: %s", p)
+		}
+	}
+	if found := holding(t, r.base, tracedWord, r.script.Dir, r.file, filepath.Join(r.base, rigGitDir)); len(found) != 0 {
+		t.Fatalf("the word is in %v", found)
 	}
 }

@@ -24,6 +24,10 @@
 // usage, or at the turn bound; name another model, or none; pad its output;
 // print a line on stderr, or a word in its answer; and keep what each call
 // printed, for a test to compare with what the driver kept of it.
+// Each call that returns records how it ended, as a line of Ends: its
+// exit status and, for a fault of its own (exit 3), what failed, which it
+// also prints on stderr. A call with no such line was ended from outside
+// or by its runtime, or killed itself as its script asked.
 // Its failures can be kept to one session and to the rounds of a session
 // from one on.
 //
@@ -54,6 +58,10 @@ const ScriptVar = "EVA_FAKEHOST_SCRIPT"
 
 // Calls is the record's file in the script's folder.
 const Calls = "calls.jsonl"
+
+// Ends is the file, in the script's folder, of how each call that returned
+// ended.
+const Ends = "ends.jsonl"
 
 // Script is what the fake does.
 type Script struct {
@@ -154,6 +162,7 @@ const ChildVar = "EVA_FAKEHOST_CHILD"
 
 // Call is one recorded call.
 type Call struct {
+	Pid     int               `json:"pid"` // the process the call ran as
 	Host    adapter.ID        `json:"host"`
 	Mode    string            `json:"mode"` // "version", "start", "continue", or "other" for a call that is none
 	Args    []string          `json:"args"`
@@ -167,6 +176,14 @@ type Call struct {
 	// Around are the files of the folder that holds the call's folder,
 	// which the driver makes a trial's, as Files lists them.
 	Around []string `json:"around,omitempty"`
+}
+
+// End is how a call that returned ended: the process it ran as, its exit
+// status, and for a fault of the fake's own, what failed.
+type End struct {
+	Pid   int    `json:"pid"`
+	Exit  int    `json:"exit"`
+	Fault string `json:"fault,omitempty"`
 }
 
 // Main runs the fake and exits when the process is a host's CLI with a
@@ -188,33 +205,52 @@ func Main() {
 	if host.ID == "" {
 		return
 	}
-	os.Exit(serve(host, file, os.Args[1:], os.Stdout))
+	os.Exit(serve(host, file, os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func serve(host adapter.Host, file string, args []string, out io.Writer) int {
+// serve answers one call, printing on out and errOut, and gives its exit
+// status. A fault of its own gives 3 and says what failed on errOut; once
+// the script is read, each return is recorded as the call's end.
+func serve(host adapter.Host, file string, args []string, out, errOut io.Writer) (code int) {
+	var fault string
+	failed := func(what string, err error) int {
+		fault = what + ": " + err.Error()
+		return 3
+	}
 	data, err := os.ReadFile(file)
 	if err != nil {
+		fmt.Fprintf(errOut, "fakehost: reading the script: %v\n", err)
 		return 3
 	}
 	var s Script
 	if err := json.Unmarshal(data, &s); err != nil {
+		fmt.Fprintf(errOut, "fakehost: reading the script: %v\n", err)
 		return 3
 	}
-	errOut := io.Writer(os.Stderr)
+	// The fault goes to the call's stderr; the copy Printed keeps is closed
+	// before this runs, and does not hold it.
+	defer func() {
+		if fault != "" {
+			fmt.Fprintf(errOut, "fakehost: %s\n", fault)
+		}
+		if err := recordEnd(s, End{Pid: os.Getpid(), Exit: code, Fault: fault}); err != nil {
+			fmt.Fprintf(errOut, "fakehost: recording the end: %v\n", err)
+		}
+	}()
 	if s.Printed {
 		prior, err := Read(s.Dir)
 		if err != nil {
-			return 3
+			return failed("reading the record", err)
 		}
 		name := printedName(s.Dir, len(prior)+1)
 		kept, err := os.Create(name + ".stdout")
 		if err != nil {
-			return 3
+			return failed("keeping stdout", err)
 		}
 		defer kept.Close()
 		keptErr, err := os.Create(name + ".stderr")
 		if err != nil {
-			return 3
+			return failed("keeping stderr", err)
 		}
 		defer keptErr.Close()
 		out, errOut = io.MultiWriter(out, kept), io.MultiWriter(errOut, keptErr)
@@ -223,7 +259,7 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		fmt.Fprint(errOut, s.Stderr)
 	}
 	dir, _ := os.Getwd()
-	c := Call{Host: host.ID, Args: args, Dir: dir, Fixed: map[string]string{}}
+	c := Call{Pid: os.Getpid(), Host: host.ID, Args: args, Dir: dir, Fixed: map[string]string{}}
 	for _, kv := range os.Environ() {
 		name, value, _ := strings.Cut(kv, "=")
 		c.Env = append(c.Env, name)
@@ -235,7 +271,7 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	if slices.Equal(args, []string{"--version"}) {
 		c.Mode = "version"
 		if err := record(s, c); err != nil {
-			return 3
+			return failed("recording the call", err)
 		}
 		v := s.Version
 		if v == "" {
@@ -248,13 +284,13 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		// Not a headless chat: recorded, and refused.
 		c.Mode = "other"
 		if err := record(s, c); err != nil {
-			return 3
+			return failed("recording the call", err)
 		}
 		return 2
 	}
 	calls, err := Read(s.Dir)
 	if err != nil {
-		return 3
+		return failed("reading the record", err)
 	}
 	if c.Session == "" {
 		c.Mode = "start"
@@ -263,17 +299,17 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		c.Mode = "continue"
 	}
 	if c.Files, err = files(dir); err != nil {
-		return 3
+		return failed("listing the folder", err)
 	}
 	if c.Around, err = files(filepath.Dir(dir)); err != nil {
-		return 3
+		return failed("listing the folder around it", err)
 	}
 	if err := record(s, c); err != nil {
-		return 3
+		return failed("recording the call", err)
 	}
 	if s.Stall {
-		if spawn(s.Ready) != nil {
-			return 3
+		if err := spawn(s.Ready); err != nil {
+			return failed("starting a child", err)
 		}
 		block()
 	}
@@ -308,13 +344,20 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		overlay = task.OverlaySolution
 	}
 	if err := lay(s.Task, overlay, dir); err != nil {
-		return 3
+		return failed("laying the overlay", err)
 	}
-	if s.ReadOnly && (readOnly(dir) != nil || readOnly(os.Getenv("HOME")) != nil) {
-		return 3
+	if s.ReadOnly {
+		if err := readOnly(dir); err != nil {
+			return failed("leaving a read-only folder in the workspace", err)
+		}
+		if err := readOnly(os.Getenv("HOME")); err != nil {
+			return failed("leaving a read-only folder in the home", err)
+		}
 	}
-	if s.Steal != "" && failing && steal(s, dir) != nil {
-		return 3
+	if s.Steal != "" && failing {
+		if err := steal(s, dir); err != nil {
+			return failed("copying a hidden file", err)
+		}
 	}
 	session := c.Session
 	if s.NoSession && failing {
@@ -323,8 +366,10 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	if s.NoModel {
 		model = ""
 	}
-	if s.Leave && spawn("") != nil {
-		return 3
+	if s.Leave {
+		if err := spawn(""); err != nil {
+			return failed("leaving a child", err)
+		}
 	}
 	if s.Pad > 0 {
 		emit(out, map[string]any{"type": "padding", "text": strings.Repeat("p", s.Pad)})
@@ -336,8 +381,8 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 		block()
 	}
 	if s.StallAfter && failing {
-		if spawn(s.Ready) != nil {
-			return 3
+		if err := spawn(s.Ready); err != nil {
+			return failed("starting a child", err)
 		}
 		block()
 	}
@@ -573,7 +618,12 @@ func record(s Script, c Call) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(s.Dir, Calls), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	return appendLine(filepath.Join(s.Dir, Calls), line)
+}
+
+// appendLine appends line and a newline to the file at path, in one write.
+func appendLine(path string, line []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return err
 	}
@@ -582,6 +632,38 @@ func record(s Script, c Call) error {
 		err = cerr
 	}
 	return err
+}
+
+// recordEnd appends e to the ends, in one write.
+func recordEnd(s Script, e End) error {
+	line, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	return appendLine(filepath.Join(s.Dir, Ends), line)
+}
+
+// ReadEnds reads the ends in dir; none is no end.
+func ReadEnds(dir string) ([]End, error) {
+	data, err := os.ReadFile(filepath.Join(dir, Ends))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ends []End
+	for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		var e End
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			return nil, err
+		}
+		ends = append(ends, e)
+	}
+	return ends, nil
 }
 
 // printedName is where a script that keeps what its calls printed keeps
