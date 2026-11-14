@@ -59,10 +59,10 @@ Rules every card carries, so they are said once here:
 | [SEAM-0b](SEAM-0b.md) | The hook's handler list | merged |
 | [SEAM-0e](SEAM-0e.md) | A git child that a signal ended says which signal: what one failed run of CI could not tell | merged |
 | [SEAM-0f](SEAM-0f.md) | Hook tests that a slow machine cannot fail | merged |
-| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | ready |
+| [DV-12b](DV-12b.md) | v1's update and maintain under the worker, behind a switch | building since 2026-11-14 |
 | [HO-10b](HO-10b.md) | Install and setup ask the adapter | merged |
-| [HO-11](HO-11.md) | The install manifest | ready |
-| [HO-12a](HO-12a.md) | Health's host names through the adapter | ready |
+| [HO-11](HO-11.md) | The install manifest | building since 2026-11-14 |
+| [HO-12a](HO-12a.md) | Health's host names through the adapter | ready; after DV-12b, which adds a file to the same package |
 | [HO-12b](HO-12b.md) | Each stage's lag beside its bar, and a verdict | after HO-12a and DV-12b |
 | [HO-12c](HO-12c.md) | One line, prepared outside the hook | after HO-12b |
 | [DV-13](DV-13.md) | The cost ledger, a token budget, and a low effort by default | after DV-12b and CT-2 |
@@ -82,7 +82,7 @@ Rules every card carries, so they are said once here:
 | [ST-02b](ST-02b.md) | The store's properties catch a store that never crashed, and a pass that loses a session's notes | ready; before ST-05 is held to the harness |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
 | [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | merged; ST-03c mends ST-03a's reading of a lock or a verified mark behind Unicode white space |
-| [ST-03c](ST-03c.md) | The codec's protection reads a lock as v1 read it, behind white space, quotes and escapes | ready; before ST-05 reads a page through the codec |
+| [ST-03c](ST-03c.md) | The codec's protection reads a lock as v1 read it, behind white space, quotes and escapes | building since 2026-11-14; before ST-05 reads a page through the codec |
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
 | [ST-04b](ST-04b.md) | Four tests and a figure that merged packages owe | ready; not beside ST-03c, which changes one of its files |
@@ -98,7 +98,7 @@ Rules every card carries, so they are said once here:
 | [EV-17d](EV-17d.md) | The evaluation build, which no release can carry | merged; EV-17f adds the check of each published binary for a build tag |
 | [EV-17e](EV-17e.md) | The 28 continuation tasks and their three fixture repositories | after EV-17a and the pilot (EV-03); it also settles grading as another user and the build cache grading uses (EV-17g checks a chat's reach for hidden files) |
 | [EV-17f](EV-17f.md) | The release workflow reads each binary it built for a build tag | ready; two reviewers; its first run on a real release is the owner's next cut |
-| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | ready, since the counters release is cut (2026.11.13) |
+| [EV-10a](EV-10a.md) | v1's design split into component specs, and dated decision records | ready, since the counters release is cut (2026.11.13); after DV-12b, which changes two of its files |
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | after EV-10a |
 
 SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner. A fifth part, e, was added after one run of CI failed in a way its log could not explain: it makes the death of a git child by a signal say which signal.
