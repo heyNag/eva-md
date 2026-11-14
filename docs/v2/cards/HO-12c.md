@@ -35,6 +35,7 @@ internal/hook/resume.go
 internal/hook/maintain.go
 internal/hook/handlers.go
 cmd/eva-md/commands.go
+cmd/eva-md/notice_test.go
 README.md
 ```
 
@@ -53,3 +54,14 @@ README.md
 - In `internal/hook/notice_test.go`, a healthy fixture state built by running the hook and `Prepare` holds no file whose name has `needs`, `retry`, `fail`, `error`, `stale`, `pending` or `missing` in it.
 - A marker planted in inbox entries appears in neither file this part writes.
 - `scripts/linux-gate.sh` against the commit this part started from, switch off and on; report the figures.
+
+## The lead's rulings of 2026-11-14
+
+Written when HO-12b merged (its card's "As merged" says what it left for this part).
+
+1. **A test file of the command is in the paths block**: `cmd/eva-md/notice_test.go` (new) holds the tests of `doctor --notice` (it prints nothing and exits 0 whatever happens, also with the switch off and with no config) and the one HO-12b could not write: with the switch on, the doctor prints the verdict first.
+2. **HO-12b's `Stage` has three fields beyond its card's list**: `Unread`, `Notes` and `Off`. A stage that is `Off` (a host eva-md is not installed for, `updates = false`, `commits = false`) raises no condition: `capture.silent`, `commit.stale` and `push.stale` are raised only from a stage that is on and past its budget. A stage that could not be read (`Unread`) raises none either. Whether a host is used is `unusedHost` in `verdict.go`; this part is in the same package and calls it, and changes nothing in HO-12b's files.
+3. **Each handler at a chat's launch is recovered in `handlers.go`** (DV-12b's card, "The SEAM-0b point"): a handler that panics starts nothing of its own and stops no other handler, and the hook still exits 0. This part adds that with its own handler, by test, with the switch off as well as on, since it is a guard and no behaviour a person sees.
+4. **The documents** are the lead's at the merge: give one sentence a line for `docs/spec/health.md`'s "Since the split" (it has about 800 bytes of room, so few and short; say which of them could go to `docs/spec/hooks.md` or the spec that holds the chat-start notice instead) and for `docs/known-limitations.md`. README's doctor line is this part's own, in the paths block.
+5. **The check** is the scoped one the order names, not the whole suite; the latency gate is run once, against origin/main, when the machine is quiet, with the switch off and with it on.
+
