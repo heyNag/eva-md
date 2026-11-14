@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -122,6 +123,12 @@ func (d *Doc) Protection() Protection {
 		// does not read as entries.
 		p.Locked, p.Verified = true, true
 	}
+	// Only the bare key at a line's start is read by its value: any other
+	// line that names a mark, as a lenient reader may read it, protects.
+	canonical := map[int]bool{}
+	for _, e := range d.entries {
+		canonical[e.lines[0]] = e.canonical
+	}
 	// A line that belongs to no key but reads as a protection key, such as
 	// one indented less than the block or with a tab or U+FEFF before it,
 	// is a mark a person wrote; so is a key line with no space after its
@@ -129,6 +136,16 @@ func (d *Doc) Protection() Protection {
 	for i := 1; i < d.close; i++ {
 		if d.kinds[i] != opaque && d.kinds[i] != keyLine {
 			continue
+		}
+		if !canonical[i] {
+			switch looseKey(text(d.lines[i])) {
+			case "locked":
+				p.Locked = true
+			case "verified":
+				p.Verified = true
+			case unknownKey:
+				p.Locked, p.Verified = true, true
+			}
 		}
 		s := unlead(text(d.lines[i]))
 		key, ok := "", false
@@ -156,7 +173,13 @@ func (d *Doc) Protection() Protection {
 		// Only the bare key, its value after a space or a tab, is read by
 		// its value; any other form a person wrote protects.
 		bare := e.canonical && len(e.cont) == 0 && (e.rest == "" || e.rest[0] == ' ' || e.rest[0] == '\t')
-		switch e.key {
+		key := e.key
+		if w := strings.TrimFunc(key, loose); w == "locked" || w == "verified" {
+			// "'locked '", or "locked" after a no-break space: a reader
+			// that trims more than YAML does reads the mark.
+			key = w
+		}
+		switch key {
 		case unknownKey, mergeKey:
 			// Either may stand for locked or verified.
 			p.Locked, p.Verified = true, true
@@ -770,6 +793,105 @@ func unlead(s string) string {
 	return s
 }
 
+// blank reports a rune a lenient reader may trim from a key: white space
+// as Go's unicode package knows it, and U+FEFF.
+func blank(r rune) bool {
+	return unicode.IsSpace(r) || r == '\ufeff'
+}
+
+// loose reports a rune a lenient reader may trim from a key: blank, or a
+// quote.
+func loose(r rune) bool {
+	return blank(r) || r == '"' || r == '\''
+}
+
+// looseKey reads the mark a line names as a reader more lenient than YAML
+// may, as v1 did: "locked" or "verified" when the text before its first
+// colon, inside quotes too, trims by loose to that word, or is one
+// double-quoted string whose escapes give such a text; unknownKey when the
+// line starts with a quote not closed on it, which another reader may
+// close anywhere, or its key is a double-quoted string with an escape YAML
+// does not have, which another reader may read as anything; else "".
+func looseKey(l string) string {
+	s := strings.TrimLeftFunc(l, blank)
+	if strings.HasPrefix(s, `"`) || strings.HasPrefix(s, "'") {
+		if quoteEnd(s, 0) < 0 {
+			return unknownKey
+		}
+	}
+	if q := quotedKey(s); q != "" && !escapesValid(q[1:len(q)-1]) {
+		return unknownKey
+	}
+	before, _, ok := strings.Cut(l, ":")
+	if !ok {
+		return ""
+	}
+	w := strings.TrimFunc(before, loose)
+	if t := strings.TrimFunc(before, blank); w != "locked" && w != "verified" && len(t) > 1 && t[0] == '"' && quoteEnd(t, 0) == len(t)-1 {
+		w = strings.TrimFunc(yamlUnescape(t[1:len(t)-1]), loose)
+	}
+	if w == "locked" || w == "verified" {
+		return w
+	}
+	return ""
+}
+
+// quotedKey is the double-quoted scalar, quotes and all, that s starts
+// with after an explicit "? " and any tag or anchor, or "" when there is
+// none or it does not close on the line.
+func quotedKey(s string) string {
+	if strings.HasPrefix(s, "? ") || strings.HasPrefix(s, "?\t") {
+		s = strings.TrimLeft(s[1:], " \t")
+	}
+	for strings.HasPrefix(s, "!") || strings.HasPrefix(s, "&") {
+		i := strings.IndexAny(s, " \t")
+		if i < 0 {
+			return ""
+		}
+		s = strings.TrimLeft(s[i:], " \t")
+	}
+	if !strings.HasPrefix(s, `"`) {
+		return ""
+	}
+	end := quoteEnd(s, 0)
+	if end < 0 {
+		return ""
+	}
+	return s[:end+1]
+}
+
+// escapesValid reports whether every escape in the inside of a
+// double-quoted scalar is one of YAML 1.2's, and each \x, \u or \U is a
+// character.
+func escapesValid(in string) bool {
+	width := map[byte]int{'x': 2, 'u': 4, 'U': 8}
+	for i := 0; i < len(in); i++ {
+		if in[i] != '\\' {
+			continue
+		}
+		if i+1 == len(in) {
+			return false
+		}
+		c := in[i+1]
+		if n := width[c]; n > 0 {
+			if i+2+n > len(in) {
+				return false
+			}
+			v, err := strconv.ParseUint(in[i+2:i+2+n], 16, 32)
+			if err != nil || !utf8.ValidRune(rune(v)) {
+				return false
+			}
+			i += 1 + n
+			continue
+		}
+		if strings.IndexByte("0abt\tnvfre \"/\\N_LP", c) < 0 {
+			return false
+		}
+		i++
+	}
+	return true
+}
+
 // isAnchorByte reports a byte of libyaml's anchor and alias names.
 func isAnchorByte(c byte) bool {
 	return c == '_' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
@@ -836,11 +958,12 @@ func plainKeyEnd(s string) int {
 	return -1
 }
 
-// yamlUnescape reads the escapes of a double-quoted YAML scalar. An escape
-// YAML does not know is kept as written.
+// yamlUnescape reads the escapes of a double-quoted YAML scalar as YAML 1.2
+// does: "\_", "\L" and "\P" are U+00A0, U+2028 and U+2029, not a space. An
+// escape YAML does not know is kept as written.
 func yamlUnescape(s string) string {
 	simple := map[byte]string{'0': "\x00", 'a': "\a", 'b': "\b", 't': "\t", '\t': "\t", 'n': "\n", 'v': "\v", 'f': "\f",
-		'r': "\r", 'e': "\x1b", ' ': " ", '"': `"`, '/': "/", '\\': `\`, 'N': "\u0085", '_': " ", 'L': " ", 'P': " "}
+		'r': "\r", 'e': "\x1b", ' ': " ", '"': `"`, '/': "/", '\\': `\`, 'N': "\u0085", '_': "\u00a0", 'L': "\u2028", 'P': "\u2029"}
 	width := map[byte]int{'x': 2, 'u': 4, 'U': 8}
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

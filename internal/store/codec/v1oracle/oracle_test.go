@@ -213,13 +213,12 @@ func TestFormsReadAsV1ReadThem(t *testing.T) {
 	}
 }
 
-// protectsLess are the differences v1 read as locked or verified and the
-// codec does not, each named in the codec's SPEC section 12. On every
-// other difference the codec protects at least as much as v1 did.
+// protectsLess are the differences v1 read as verified and the codec does
+// not: the five empty verified forms named in the codec's SPEC section 12,
+// which are no verified mark. On every other difference the codec protects
+// at least as much as v1 did.
 var protectsLess = []string{"empty-verified", "verified-comment-only", "verified-empty-list-comment", "verified-null-comment",
-	"verified-empty-map-comment", "locked-space-before-colon", "verified-space-before-colon", "verified-quote-in-key",
-	"locked-spaces-in-quotes", "verified-colon-in-quoted-key", "nbsp-before-locked", "verified-nbsp-before-colon",
-	"locked-nbsp-in-quotes", "verified-unclosed-quote"}
+	"verified-empty-map-comment"}
 
 // Each input of the codec's table of differences is read otherwise by v1:
 // ReadV1 refuses it, reads other fields, or protects where v1 did not. The
