@@ -10,24 +10,86 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/paths"
-	"github.com/heyNag/eva-md/internal/update"
 )
 
 // Absent reports whether a host's command isn't on PATH, as on a Mac
 // without that app, and names the app for a doctor row. host is a plugin
-// host (claude, codex) or an update host (claude-code, codex).
+// host (claude, codex) or an update host (claude-code, codex); a host
+// eva-md doesn't know is absent, with no app.
 func Absent(host string) (app string, absent bool) {
-	cli, app := "codex", "Codex"
-	if host == "claude" || host == update.HostClaude {
-		cli, app = "claude", "Claude Code"
+	h, ok := hostOf(host)
+	if !ok {
+		return "", true
 	}
-	_, err := exec.LookPath(cli)
-	return app, err != nil
+	_, err := exec.LookPath(h.Names.CLI)
+	return h.Names.App, err != nil
+}
+
+// hostOf finds a host by the name a row is given: its id, as an update host
+// (claude-code, codex), or its install name, as a plugin host (claude,
+// codex). The two spellings of a host are never another host's.
+func hostOf(host string) (adapter.Host, bool) {
+	if h, ok := adapter.ByID(host); ok {
+		return h, true
+	}
+	return adapter.ByInstallName(host)
+}
+
+// cli is a host's command, by its id or its install name.
+func cli(host string) string {
+	h, _ := hostOf(host)
+	return h.Names.CLI
+}
+
+// marketplace is the folder of a host's eva-md marketplace,
+// <share>/marketplace/<install name>, by its id or its install name, or ""
+// for a host eva-md doesn't know.
+func marketplace(d paths.Dirs, host string) string {
+	h, ok := hostOf(host)
+	if !ok {
+		return ""
+	}
+	return filepath.Join(d.Share, "marketplace", h.Names.InstallName)
+}
+
+// hostIDs are every host's id, in the adapter's order: Claude Code, then
+// Codex.
+func hostIDs() []string {
+	var ids []string
+	for _, h := range adapter.All() {
+		ids = append(ids, string(h.ID))
+	}
+	return ids
+}
+
+// reviewHost is the host whose changed plugin needs a review in it before
+// its hooks run, whose hooks' trust the doctor reads, or false when no host
+// needs one.
+func reviewHost() (adapter.Host, bool) {
+	for _, h := range adapter.All() {
+		if h.Plugin().NeedsReview {
+			return h, true
+		}
+	}
+	return adapter.Host{}, false
+}
+
+// trustPending finds the host the needs-trust flag names, by its install
+// name, as install writes it: one whose plugin needs a review in it, or
+// false.
+func trustPending(name string) (adapter.Host, bool) {
+	h, ok := adapter.ByInstallName(name)
+	if !ok || !h.Plugin().NeedsReview {
+		return adapter.Host{}, false
+	}
+	return h, true
 }
 
 // Time limits on the hosts' own commands: each host's native plugin
@@ -52,8 +114,9 @@ func init() {
 // budget of each host's plugin inventory: inventoryTimeout, or a short one in
 // the test of a listing that stalls.
 func inspectHosts(ctx context.Context, r *Report, d paths.Dirs, inventory time.Duration) {
-	codexEnabled := false
-	for _, host := range []string{"claude", "codex"} {
+	enabled := map[adapter.ID]bool{}
+	for _, h := range adapter.All() {
+		host := h.Names.InstallName
 		// Inventory may contact an unrelated remote marketplace. Give each
 		// host its own budget so a stalled listing cannot consume doctor's
 		// whole deadline and conceal independent local hook-trust evidence.
@@ -81,47 +144,61 @@ func inspectHosts(ctx context.Context, r *Report, d paths.Dirs, inventory time.D
 		} else {
 			r.add(host+" plugin", "PASS", "one enabled plugin at the expected path", "")
 		}
-		if host == "codex" && !timedOut && err == nil && status.Installed && status.Enabled {
-			codexEnabled = true
+		if !timedOut && err == nil && status.Installed && status.Enabled {
+			enabled[h.ID] = true
 		}
 	}
-	if data, e := hostCommand(ctx, "codex", "features", "list"); e == nil {
-		known, enabled := false, false
-		for _, line := range strings.Split(string(data), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 && fields[0] == "hooks" {
-				known = true
-				enabled = fields[len(fields)-1] == "true"
-			}
+	for _, h := range adapter.All() {
+		args := h.Plugin().FeaturesArgs
+		if args == nil {
+			continue
 		}
-		if known && enabled {
-			r.add("codex hooks feature", "PASS", "enabled", "")
-		} else if known {
-			r.add("codex hooks feature", "FAIL", "disabled", "run codex features enable hooks")
-		} else {
-			r.add("codex hooks feature", "UNKNOWN", "not reported by this version", "")
+		if data, e := hostCommand(ctx, h.Names.CLI, args...); e == nil {
+			addFeatureRow(r, h, data)
 		}
 	}
-	if _, absent := Absent("codex"); !absent {
-		inspectTrust(ctx, r, codexEnabled)
+	if h, ok := reviewHost(); ok {
+		if _, absent := Absent(string(h.ID)); !absent {
+			inspectTrust(ctx, r, enabled[h.ID])
+		}
 	}
 	r.add("claude managed hook policy", "UNKNOWN", "policy is judged by hook heartbeats, not settings-file guesses", "confirm SessionStart fires in an enabled session")
 }
 
-// inspectTrust adds the Codex hook trust row, on a Mac that has Codex.
-func inspectTrust(ctx context.Context, r *Report, codexEnabled bool) {
+// addFeatureRow adds the row of a host's hooks feature from what its
+// features list printed, by the doctor's rule: on passes, any other state
+// fails with the command that turns it on, and a list with no hooks row is
+// unknown.
+func addFeatureRow(r *Report, h adapter.Host, out []byte) {
+	name := h.Names.CLI + " hooks feature"
+	known, on := adapter.ReadHooksRows(out).On()
+	if known && on {
+		r.add(name, "PASS", "enabled", "")
+	} else if known {
+		r.add(name, "FAIL", "disabled", "run "+h.Names.CLI+" features enable hooks")
+	} else {
+		r.add(name, "UNKNOWN", "not reported by this version", "")
+	}
+}
+
+// inspectTrust adds the hook trust row of the host whose plugin needs a
+// review in it, Codex, on a Mac that has it. enabled says its plugin is
+// installed and enabled.
+func inspectTrust(ctx context.Context, r *Report, enabled bool) {
+	h, _ := reviewHost()
+	name, app := h.Names.InstallName+" hook trust", h.Names.App
 	cwd, _ := os.Getwd()
 	count, trusted, err := probeTrust(ctx, cwd)
 	if err != nil {
-		r.add("codex hook trust", "UNKNOWN", "read-only hooks/list is unavailable", "review /hooks in Codex")
-	} else if count == 0 && codexEnabled {
-		r.add("codex hook trust", "FAIL", "Codex loads no eva-md hooks for the enabled plugin", "check the Codex hooks feature, then run eva-md install --host codex")
+		r.add(name, "UNKNOWN", "read-only hooks/list is unavailable", "review /hooks in "+app)
+	} else if count == 0 && enabled {
+		r.add(name, "FAIL", app+" loads no eva-md hooks for the enabled plugin", "check the "+app+" hooks feature, then run eva-md install --host "+h.Names.InstallName)
 	} else if count == 0 {
-		r.add("codex hook trust", "UNKNOWN", "no eva-md hooks loaded", "install eva-md before reviewing /hooks")
+		r.add(name, "UNKNOWN", "no eva-md hooks loaded", "install eva-md before reviewing /hooks")
 	} else if count != 7 || trusted != count {
-		r.add("codex hook trust", "FAIL", fmt.Sprintf("%d of 7 required events trusted and enabled (%d loaded)", trusted, count), "inspect eva-md's seven hooks and approve them in Codex /hooks")
+		r.add(name, "FAIL", fmt.Sprintf("%d of 7 required events trusted and enabled (%d loaded)", trusted, count), "inspect eva-md's seven hooks and approve them in "+app+" /hooks")
 	} else {
-		r.add("codex hook trust", "PASS", fmt.Sprintf("%d hooks trusted and enabled", count), "")
+		r.add(name, "PASS", fmt.Sprintf("%d hooks trusted and enabled", count), "")
 	}
 }
 
@@ -163,11 +240,17 @@ func hostCommand(ctx context.Context, name string, args ...string) ([]byte, erro
 	return b.buffer.Bytes(), nil
 }
 
-// probeTrust sends only read-only methods, never a thread/turn or approval.
+// probeTrust asks the host whose plugin needs a review in it, Codex, which
+// of eva-md's hooks it loads and trusts. It sends only read-only methods,
+// never a thread/turn or approval.
 func probeTrust(parent context.Context, cwd string) (count, trusted int, err error) {
+	reviewer, ok := reviewHost()
+	if !ok {
+		return 0, 0, errors.New("no host reviews its hooks")
+	}
 	ctx, cancel := context.WithTimeout(parent, trustTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "codex", "--no-daemon", "app-server", "--stdio")
+	cmd := exec.CommandContext(ctx, reviewer.Names.CLI, "--no-daemon", "app-server", "--stdio")
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = time.Second
 	in, err := cmd.StdinPipe()
@@ -262,7 +345,7 @@ func probeTrust(parent context.Context, cwd string) (count, trusted int, err err
 		return 0, 0, errors.New("host reported hook loading diagnostics")
 	}
 	expected := map[string]bool{}
-	for _, event := range hostEvents("codex") {
+	for _, event := range reviewer.Events() {
 		// hooks.json uses PascalCase; the app-server wire enum uses camelCase.
 		expected[strings.ToLower(event[:1])+event[1:]] = true
 	}

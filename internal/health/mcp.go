@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/install"
@@ -39,7 +40,8 @@ func init() {
 // compares a file and starts nothing, so eva-md status has the rows too.
 func inspectMCPManifests(r *Report, d paths.Dirs) {
 	binary := filepath.Join(d.Share, "bin", "eva-md")
-	for _, host := range []string{"claude", "codex"} {
+	for _, h := range adapter.All() {
+		host := h.Names.InstallName
 		name := host + " mcp manifest"
 		if !Installed(d, host) {
 			if app, absent := Absent(host); absent {
@@ -60,7 +62,7 @@ func inspectMCPManifests(r *Report, d paths.Dirs) {
 
 // pluginFolder is a plugin host's installed plugin folder.
 func pluginFolder(d paths.Dirs, host string) string {
-	return filepath.Join(d.Share, "marketplace", cli(host), "plugins", "eva-md")
+	return filepath.Join(marketplace(d, host), "plugins", "eva-md")
 }
 
 // inspectMCPServer adds the doctor's mcp server row: the installed binary,
@@ -105,7 +107,7 @@ const DoctorClient = "eva-md-doctor"
 func probeMCP(parent context.Context, binary string, limit time.Duration) (tools []string, took time.Duration, err error) {
 	ctx, cancel := context.WithTimeout(parent, limit)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, "mcp", "--host", "claude-code")
+	cmd := exec.CommandContext(ctx, binary, "mcp", "--host", string(adapter.ClaudeCode))
 	cmd.Dir = "/"
 	home, _ := os.UserHomeDir()
 	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
@@ -331,10 +333,14 @@ func TrustAwaited(d paths.Dirs, now time.Time) bool {
 		Host       string `json:"host"`
 		NeedsTrust bool   `json:"needs_trust"`
 	}
-	if err != nil || json.Unmarshal(data, &flag) != nil || flag.Host != "codex" || !flag.NeedsTrust {
+	if err != nil || json.Unmarshal(data, &flag) != nil || !flag.NeedsTrust {
 		return false
 	}
-	b, valid := readBeat(d, "codex", "SessionStart", now)
+	reviewer, ok := trustPending(flag.Host)
+	if !ok {
+		return false
+	}
+	b, valid := readBeat(d, string(reviewer.ID), "SessionStart", now)
 	return !valid || !b.At.After(info.ModTime())
 }
 

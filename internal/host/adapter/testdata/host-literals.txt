@@ -1,8 +1,7 @@
-cmd/eva-md 6
+cmd/eva-md 2
 cmd/live-accuracy 1
 internal/catchup 13
 internal/config 1
-internal/health 28
 internal/hook 7
 internal/inbox 2
 internal/ledger/audit 4

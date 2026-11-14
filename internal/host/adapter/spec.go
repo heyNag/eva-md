@@ -13,7 +13,8 @@ type Row struct {
 	Host    ID
 	Lowest  string
 	Highest string
-	// Events are the hook events v1's plugin declares on the host.
+	// Events are the hook events v1's plugin declares on the host, in the
+	// order v1's doctor and status list them.
 	Events []string
 	Quirks []Quirk
 	// Source says where the repository records each value.
@@ -65,7 +66,7 @@ var (
 var table = []Row{
 	{
 		Host: ClaudeCode, Lowest: "2.1.311", Highest: "2.1.316",
-		Events: []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "PreCompact", "PostCompact", "PostModelSwitch", "SessionEnd"},
+		Events: []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PreCompact", "SessionEnd", "PostToolUseFailure", "StopFailure", "PostCompact", "PostModelSwitch"},
 		Quirks: []Quirk{claudeCodeMarketplaceRoot},
 		Source: "Lowest: the lowest version the repository records eva-md being checked on, 2.1.311, where docs/design.md records --json-schema working with --tools \"\" and strict validation requiring the marketplace description. " +
 			"Highest: docs/verification.md, Live checks, Claude Code marketplace removal. " +
@@ -73,7 +74,7 @@ var table = []Row{
 	},
 	{
 		Host: Codex, Lowest: "0.164.0", Highest: "0.166.0",
-		Events: []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PreCompact", "Interrupt", "SessionEnd"},
+		Events: []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PreCompact", "SessionEnd", "Interrupt"},
 		Quirks: []Quirk{codexMarketplaceRoot, codexFolderMissing, codexHooksFeature},
 		Source: "Lowest: the lowest version the repository records eva-md being checked on, 0.164.0, where docs/design.md records hook trust over the plugin's contents and the unified shell's exit status. " +
 			"Highest: docs/verification.md, Live checks, Codex tool features and Codex plugin inventory. " +
@@ -93,6 +94,18 @@ func Rows(id ID) []Row {
 		}
 	}
 	return rows
+}
+
+// Events gives the hook events eva-md's plugin declares on the host, as its
+// newest row lists them, in the order v1's doctor and status list them; none
+// for a host eva-md doesn't know. It is a copy: a change to it leaves the
+// table alone.
+func (h Host) Events() []string {
+	rows := Rows(h.ID)
+	if len(rows) == 0 {
+		return nil
+	}
+	return rows[len(rows)-1].Events
 }
 
 // Quirks gives every quirk of every row.

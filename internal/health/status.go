@@ -153,6 +153,17 @@ type sessionFile struct {
 	size int64
 }
 
+// hostFile says whether a file's name starts with a host's id and a hyphen,
+// as an inbox session file's, <host>-<session>.jsonl, does.
+func hostFile(name string) bool {
+	for _, host := range updateHosts {
+		if strings.HasPrefix(name, host+"-") {
+			return true
+		}
+	}
+	return false
+}
+
 // newestSessions lists a project folder's session files, newest change
 // first, at most filesPerFolder. It lists at most *left of the folder's
 // entries, in batches, and takes what it listed from *left; all reports that
@@ -173,7 +184,7 @@ func newestSessions(dir string, left *int) (files []sessionFile, all bool) {
 		*left -= len(batch)
 		for _, e := range batch {
 			name := e.Name()
-			if !e.Type().IsRegular() || !strings.HasSuffix(name, ".jsonl") || !strings.HasPrefix(name, "claude-code-") && !strings.HasPrefix(name, "codex-") {
+			if !e.Type().IsRegular() || !strings.HasSuffix(name, ".jsonl") || !hostFile(name) {
 				continue
 			}
 			info, err := e.Info()

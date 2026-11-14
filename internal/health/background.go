@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/lint"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/systempage"
@@ -39,7 +40,9 @@ const (
 	pushFailing   = 72 * time.Hour
 )
 
-var updateHosts = []string{update.HostClaude, update.HostCodex}
+// updateHosts are the hosts by their ids, as the run log and the
+// heartbeats name them, in the adapter's order.
+var updateHosts = hostIDs()
 
 // The rows the records on disk give: each host's updates from the run log,
 // the daily commit and the push from the commit records, the lint's result
@@ -167,20 +170,10 @@ func holdWords(reason, host string) string {
 func holdFix(reason, host string) string {
 	switch reason {
 	case update.ReasonAuth:
-		if host == update.HostCodex {
-			return "log in with codex login"
-		}
-		return "log in with claude auth login"
+		h, _ := adapter.ByID(host)
+		return "log in with " + h.Login()
 	}
 	return "fix or remove the required MCP server in Codex's settings"
-}
-
-// cli is a host's command.
-func cli(host string) string {
-	if host == update.HostCodex {
-		return "codex"
-	}
-	return "claude"
 }
 
 // sessionRefs names up to 3 sessions as host:<first 8 characters>.
@@ -619,7 +612,11 @@ func inspectSystems(r *Report, c config.Config) {
 // Installed reports whether eva-md's plugin is installed for host,
 // claude-code or codex, by its marketplace's marker, without asking the host.
 func Installed(d paths.Dirs, host string) bool {
-	data, err := readPrivate(filepath.Join(d.Share, "marketplace", cli(host), ".eva-md-managed"), 1024)
+	folder := marketplace(d, host)
+	if folder == "" {
+		return false
+	}
+	data, err := readPrivate(filepath.Join(folder, ".eva-md-managed"), 1024)
 	return err == nil && string(data) == "eva-md marketplace v1\n"
 }
 
