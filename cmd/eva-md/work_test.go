@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/config"
+	"github.com/heyNag/eva-md/internal/hook"
 	"github.com/heyNag/eva-md/internal/inbox"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/session"
@@ -232,8 +233,12 @@ func TestSessionKeys(t *testing.T) {
 	if sessionKey(update.HostCodex, "plain-id_1.2") != "codex-plain-id_1.2" {
 		t.Error("a plain id is not its own key")
 	}
-	if a, b := sessionKey(update.HostCodex, "UpperCase"), sessionKey(update.HostCodex, "uppercase"); a == b || strings.EqualFold(a, b) {
-		t.Errorf("ids that differ in letter case share a key: %q, %q", a, b)
+	// The pairs: one id that is its own key, and two that both take the
+	// hashed key.
+	for _, pair := range [][2]string{{"UpperCase", "uppercase"}, {"CaseOnly", "CASEONLY"}, {"Mixed Case", "mixed CASE"}} {
+		if a, b := sessionKey(update.HostCodex, pair[0]), sessionKey(update.HostCodex, pair[1]); a == b || strings.EqualFold(a, b) {
+			t.Errorf("ids that differ in letter case share a key: %q, %q", a, b)
+		}
 	}
 	if a, b := sessionKey(update.HostCodex, "same"), sessionKey(update.HostClaude, "same"); a == b {
 		t.Errorf("two hosts share a key: %q", a)
@@ -553,5 +558,193 @@ func TestWorkStatusGivesEachReason(t *testing.T) {
 		if all := strings.ToLower(out + j); strings.Contains(all, plantedMarker) {
 			t.Errorf("held %v: the planted marker was printed or journaled:\n%s\n%s", tc.held, out, j)
 		}
+	}
+}
+
+// journalFinishes lists the outcomes of the journal's finish lines of kind.
+func journalFinishes(t *testing.T, d paths.Dirs, kind string) []string {
+	t.Helper()
+	var out []string
+	for line := range strings.Lines(journal(t, d)) {
+		var e struct{ Ev, Kind, Outcome string }
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			t.Fatalf("journal line %q: %v", line, err)
+		}
+		if e.Ev == "finish" && e.Kind == kind {
+			out = append(out, e.Outcome)
+		}
+	}
+	return out
+}
+
+// Each word the hooks carry into a wake form is a reason eva-md work
+// --wake takes, with a maintain, a session and a sweep alike, and so is
+// tick.
+func TestWorkTakesEveryReasonTheHooksWakeFor(t *testing.T) {
+	d := isolated(t)
+	if err := config.Save(d.ConfigFile(), config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().Format(time.DateOnly)
+	for _, reason := range append(slices.Clone(hook.WakeReasons), "tick") {
+		for _, rest := range [][]string{{"--maintain"}, {"--maintain", "--push-only"}, {"--session", "codex:a"}, {"--sweep=" + day}} {
+			args := append([]string{"work", "--wake", "--reason", reason}, rest...)
+			if code, _, errOut := evaWork(t, args...); code != 0 || errOut != "" {
+				t.Errorf("%q: %d %q", args, code, errOut)
+			}
+		}
+	}
+}
+
+// The day's sweep through the worker takes an idle chat that has a
+// backlog, as v1's update --sweep=DAY does: one call, recorded with the
+// trigger sweep, since a sweep alone names none, and the sweep is no
+// longer due.
+func TestTheSweepRunsThroughTheWorker(t *testing.T) {
+	d, fake := updateFixture(t, tangerine)
+	workerOn(t, d, nil)
+	at := time.Now().Add(-3 * time.Hour)
+	file := chatFile(t, d, update.HostCodex, "idle-sweep", "main", at)
+	if err := os.Chtimes(file, at, at); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().Format(time.DateOnly)
+	if !update.SweepDue(d.State, day) {
+		t.Fatal("the sweep was not due")
+	}
+	if code, out, errOut := evaWork(t, "work", "--wake", "--reason", update.TriggerStart, "--sweep="+day); code != 0 || out != "" || errOut != "" {
+		t.Fatalf("wake: %d %q %q", code, out, errOut)
+	}
+	if got := updated(t, d); got["codex:idle-sweep"] != update.TriggerSweep || len(got) != 1 || len(fake.Requests()) != 1 {
+		t.Fatalf("run log %v, %d calls", got, len(fake.Requests()))
+	}
+	if update.SweepDue(d.State, day) {
+		t.Fatal("the sweep is still due")
+	}
+	if marks := wakeMarks(t, d); len(marks) != 0 {
+		t.Fatalf("marks left: %q", marks)
+	}
+}
+
+// A call of the update job names its reason as its trigger, as the hooks
+// pass it to v1's update, a word no release names as other, and the sweep
+// alone names none, as the hooks start v1's update --sweep=DAY.
+func TestTheUpdateJobsTrigger(t *testing.T) {
+	refs := []update.Ref{{Host: update.HostCodex, ID: "a"}}
+	for _, tc := range []struct {
+		reason string
+		refs   []update.Ref
+		want   string
+	}{
+		{update.TriggerStart, nil, ""},
+		{update.TriggerStart, refs, update.TriggerStart},
+		{update.TriggerEnd, refs, update.TriggerEnd},
+		{"tick", refs, update.TriggerOther},
+	} {
+		if got := jobTrigger(tc.reason, tc.refs); got != tc.want {
+			t.Errorf("%q with %d sessions: %q, want %q", tc.reason, len(tc.refs), got, tc.want)
+		}
+	}
+}
+
+// Marks of two reasons, left while update.lock is held and run by one
+// tick, run as two calls, each recording its own trigger; a mark names its
+// host, so a session of the other host with the same id is not updated.
+func TestMarksOfTwoReasonsRecordTwoTriggers(t *testing.T) {
+	d, fake := updateFixture(t, tangerine)
+	workerOn(t, d, nil)
+	at := time.Now().Add(-time.Hour)
+	chatFile(t, d, update.HostClaude, "ra", "one", at)
+	chatFile(t, d, update.HostClaude, "rb", "two", at)
+	chatFile(t, d, update.HostCodex, "ra", "three", at)
+	unlock, busy, err := update.TryLock(d.Locks(), "update.lock")
+	if err != nil || busy {
+		t.Fatal(busy, err)
+	}
+	for _, args := range [][]string{
+		{"work", "--wake", "--reason", update.TriggerEnd, "--session", "claude-code:ra"},
+		{"work", "--wake", "--reason", update.TriggerStop, "--session", "claude-code:rb"},
+	} {
+		if code, out, errOut := evaWork(t, args...); code != 0 || out != "" || errOut != "" {
+			t.Fatalf("%q: %d %q %q", args, code, out, errOut)
+		}
+	}
+	unlock()
+	if code, out, errOut := evaWork(t, "work", "--tick"); code != 0 || out != "" || errOut != "" {
+		t.Fatalf("tick: %d %q %q", code, out, errOut)
+	}
+	got := updated(t, d)
+	if got["claude-code:ra"] != update.TriggerEnd || got["claude-code:rb"] != update.TriggerStop || len(got) != 2 || len(fake.Requests()) != 2 {
+		t.Fatalf("run log %v, %d calls", got, len(fake.Requests()))
+	}
+	if outcomes := journalFinishes(t, d, updateKind); !slices.Equal(outcomes, []string{"busy", "busy", "done"}) {
+		t.Fatalf("the update job's runs ended %q", outcomes)
+	}
+}
+
+// A pass that fails makes the update job's run failed in the journal, and
+// its mark is used: the next tick runs nothing.
+func TestAFailedPassFailsTheUpdateJob(t *testing.T) {
+	d, fake := updateFixture(t, "This is not what an update answers.")
+	workerOn(t, d, nil)
+	chatFile(t, d, update.HostCodex, "fails", "main", time.Now().Add(-time.Hour))
+	if code, out, errOut := evaWork(t, "work", "--wake", "--reason", update.TriggerEnd, "--session", "codex:fails"); code != 0 || out != "" || errOut != "" {
+		t.Fatalf("wake: %d %q %q", code, out, errOut)
+	}
+	records, err := update.Days(d.State, time.Now(), 2)
+	if err != nil || len(records) != 1 || records[0].Outcome != update.OutcomeFailed {
+		t.Fatalf("run log %+v: %v", records, err)
+	}
+	if outcomes := journalFinishes(t, d, updateKind); !slices.Equal(outcomes, []string{"failed"}) {
+		t.Fatalf("the update job's runs ended %q", outcomes)
+	}
+	calls := len(fake.Requests())
+	if code, _, _ := evaWork(t, "work", "--tick"); code != 0 || len(fake.Requests()) != calls || len(wakeMarks(t, d)) != 0 {
+		t.Fatalf("tick: %d, %d calls after %d, marks %q", code, len(fake.Requests()), calls, wakeMarks(t, d))
+	}
+}
+
+// A session marked and waiting behind a busy worker is counted once, as
+// behind a running job, not also as waiting for the size or quiet rule for
+// its backlog; a session with a backlog and no mark still waits for the
+// rule.
+func TestAMarkedSessionWaitsForOneReason(t *testing.T) {
+	d, _ := updateFixture(t, tangerine)
+	saved := workClock
+	workClock = func() time.Time { return workNow }
+	t.Cleanup(func() { workClock = saved })
+	workerOn(t, d, nil)
+	chatFile(t, d, update.HostCodex, "Marked one", "main", workNow.Add(-3*time.Hour))
+	chatFile(t, d, update.HostClaude, "unmarked", "other", workNow.Add(-3*time.Hour))
+	for _, lock := range []string{"worker.lock", "waiter.lock"} {
+		unlock, busy, err := paths.TryLock(d.Locks(), lock)
+		if err != nil || busy {
+			t.Fatal(busy, err)
+		}
+		defer unlock()
+	}
+	if err := work.Wake(t.Context(), d, []work.Mark{{Kind: updateKind, Key: sessionKey(update.HostCodex, "Marked one"), Reason: update.TriggerEnd, Host: update.HostCodex}},
+		work.Options{Now: func() time.Time { return workNow.Add(-2 * time.Hour) }}); err != nil {
+		t.Fatal(err)
+	}
+	want := "work: waiting for the size or quiet rule: 1, the oldest for 3 hours\n" +
+		"work: behind a running job: 1, the oldest for 2 hours\n"
+	if code, out, errOut := evaWork(t, "work", "--status"); code != 0 || out != want || errOut != "" {
+		t.Fatalf("%d\n%s\nwant\n%s%q", code, out, want, errOut)
+	}
+	if rep := work.Status(t.Context(), d, workNow); len(rep.Items) != 2 {
+		t.Fatalf("two sessions wait, %d items: %+v", len(rep.Items), rep.Items)
+	}
+	// A mark a run has taken is being run: its session waits for nothing.
+	run := filepath.Join(d.State, "work", "run", "a-run")
+	if err := os.MkdirAll(run, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := updateKind + "-" + sessionKey(update.HostCodex, "Marked one")
+	if err := os.Rename(filepath.Join(d.State, "work", "wake", name), filepath.Join(run, name)); err != nil {
+		t.Fatal(err)
+	}
+	if rep := work.Status(t.Context(), d, workNow); len(rep.Items) != 1 || rep.Items[0].Host != update.HostClaude || rep.Items[0].Reason != work.WaitRule {
+		t.Fatalf("with the mark taken by a run: %+v", rep.Items)
 	}
 }

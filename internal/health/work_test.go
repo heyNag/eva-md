@@ -42,7 +42,7 @@ func init() {
 			if !waitHome.set {
 				return nil
 			}
-			return UpdateWaits(ctx, waitHome.d, waitHome.c, "update", now)
+			return UpdateWaits(ctx, waitHome.d, waitHome.c, "update", now, nil)
 		}})
 	work.Register(work.Job{Kind: "maintain", Priority: 4,
 		Run: func(context.Context, []work.Mark, io.Writer) work.Outcome { return work.Done }})
@@ -183,7 +183,7 @@ func TestUpdateWaitsGiveEachSessionsReason(t *testing.T) {
 		}},
 	} {
 		d, c := waitFixture(t, tc.which)
-		got := inUTC(UpdateWaits(t.Context(), d, c, "update", workNow))
+		got := inUTC(UpdateWaits(t.Context(), d, c, "update", workNow, nil))
 		slices.SortFunc(got, func(a, b work.Waiting) int {
 			return strings.Compare(a.Host+string(a.Reason), b.Host+string(b.Reason))
 		})
@@ -201,7 +201,7 @@ func TestUpdateWaitsGiveEachSessionsReason(t *testing.T) {
 		}
 		// With updates off, every backlog is switched off.
 		c.Updates = false
-		for _, w := range UpdateWaits(t.Context(), d, c, "update", workNow) {
+		for _, w := range UpdateWaits(t.Context(), d, c, "update", workNow, nil) {
 			if w.Reason != work.WaitOff {
 				t.Errorf("fixture %d, updates off: %+v", tc.which, w)
 			}
@@ -227,7 +227,7 @@ func TestUpdateWaitsReadTheRunLogAsTheJobStopsByIt(t *testing.T) {
 	}
 	f.Write(append(line, '\n'))
 	f.Close()
-	got := UpdateWaits(t.Context(), d, c, "update", workNow.Add(10*time.Minute))
+	got := UpdateWaits(t.Context(), d, c, "update", workNow.Add(10*time.Minute), nil)
 	tomorrow := time.Date(2026, 11, 15, 0, 0, 0, 0, time.Local)
 	var claude, codex []work.Waiting
 	for _, w := range got {
@@ -259,7 +259,7 @@ func TestUpdateWaitsReadTheRunLogAsTheJobStopsByIt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := UpdateWaits(t.Context(), d, c, "update", workNow); len(got) != 0 {
+	if got := UpdateWaits(t.Context(), d, c, "update", workNow, nil); len(got) != 0 {
 		t.Errorf("drained or damaged sessions wait: %+v", got)
 	}
 }
@@ -354,5 +354,109 @@ func TestTheWorkRowIsAbsentWithTheSwitchOff(t *testing.T) {
 	f.Close()
 	if !strings.Contains(string(render(t, Status(t.Context(), d), home)), "PASS  background work: ") {
 		t.Fatal("no background work row with the switch on")
+	}
+}
+
+// appendRecord adds r to the fixture's run log of workNow's day.
+func appendRecord(t *testing.T, d paths.Dirs, r update.Record) {
+	t.Helper()
+	line, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(d.State, "updates", workNow.Format(time.DateOnly)+".jsonl"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A session whose tail the update set aside as too small to process, with
+// nothing appended since, has no backlog by its watermark, as v1's update
+// and its backlog row judge it, so it waits for nothing; once an entry is
+// appended past the size the update saw, it waits again.
+func TestUpdateWaitsPassOverATailTooSmallToProcess(t *testing.T) {
+	d, c := waitFixture(t, backoffHome)
+	store := inbox.Store{Root: d.Inbox()}
+	path := store.Path("general", update.HostClaude, "c2-"+plantedMarker)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetMark(path, inbox.Mark{Offset: 0, Wait: info.Size()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range UpdateWaits(t.Context(), d, c, "update", workNow, nil) {
+		if w.Host == update.HostClaude {
+			t.Errorf("a tail too small to process waits: %+v", w)
+		}
+	}
+	if lines := strings.Join(WorkLines(work.Status(t.Context(), d, workNow), workNow), "; "); strings.Contains(lines, "size or quiet") {
+		t.Errorf("the row counts a tail too small to process: %q", lines)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"v":1,"ts":"2026-11-14T11:00:00Z","host":"claude-code","session":"x","role":"assistant","kind":"reply","text":"more"}` + "\n")
+	f.Close()
+	var rule int
+	for _, w := range UpdateWaits(t.Context(), d, c, "update", workNow, nil) {
+		if w.Host == update.HostClaude && w.Reason == work.WaitRule {
+			rule++
+		}
+	}
+	if rule != 1 {
+		t.Errorf("a tail grown past what the update saw: %d items waiting for the rule", rule)
+	}
+}
+
+// skip passes over a session by its host and the session part of its
+// inbox file's name, and no other.
+func TestUpdateWaitsPassOverWhatSkipNames(t *testing.T) {
+	d, c := waitFixture(t, backoffHome)
+	var asked []string
+	got := UpdateWaits(t.Context(), d, c, "update", workNow, func(host, sid string) bool {
+		asked = append(asked, host+":"+sid)
+		return host == update.HostClaude && sid == "c2-"+plantedMarker
+	})
+	slices.Sort(asked)
+	if want := []string{"claude-code:c2-" + plantedMarker, "codex:r-" + plantedMarker}; !slices.Equal(asked, want) {
+		t.Errorf("skip was asked %q, want %q", asked, want)
+	}
+	if len(got) != 1 || got[0].Host != update.HostCodex || got[0].Reason != work.WaitHeld {
+		t.Errorf("waits %+v", got)
+	}
+}
+
+// A backoff's class is the failure that started it, not a newer failure
+// that made no call, which the backoff passes over; and backoffReasons are
+// the failures that start v1's backoff, by the run log's own rule.
+func TestABackoffsClassIsTheFailureThatStartedIt(t *testing.T) {
+	d, c := waitFixture(t, backoffHome)
+	appendRecord(t, d, update.Record{At: workNow.Add(time.Minute).Format(time.RFC3339), Host: update.HostCodex, Session: "other", Outcome: update.OutcomeFailed, Reason: update.ReasonWatermark})
+	var codex []work.Waiting
+	for _, w := range UpdateWaits(t.Context(), d, c, "update", workNow.Add(2*time.Minute), nil) {
+		if w.Host == update.HostCodex {
+			codex = append(codex, w)
+		}
+	}
+	if len(codex) != 1 || codex[0].Reason != work.WaitHeld || codex[0].Class != update.ReasonRateLimit || !codex[0].NextTry.Equal(workNow.Add(5*time.Minute)) {
+		t.Errorf("a backoff after a rate limit, then a watermark: %+v", codex)
+	}
+	if got := backoffClass([]string{update.ReasonWatermark}); got != update.StopBackoff {
+		t.Errorf("a row with no backoff's failure: %q", got)
+	}
+	for _, reason := range []string{update.ReasonRateLimit, update.ReasonHostError, update.ReasonWikiError, update.ReasonCLIMissing,
+		update.ReasonAuth, update.ReasonMCPFailed, update.ReasonInvalidOutput, update.ReasonToolUsed, update.ReasonPageRefused,
+		update.ReasonTimeout, update.ReasonModelRejected, update.ReasonWatermark, update.ReasonLeft} {
+		r := update.Record{At: workNow.Format(time.RFC3339), Host: update.HostCodex, Session: "s", Outcome: update.OutcomeFailed, Reason: reason, Calls: 1}
+		backs := !update.Host([]update.Record{r}, update.HostCodex, workNow).BackoffUntil.IsZero()
+		if backs != slices.Contains(backoffReasons, reason) {
+			t.Errorf("%s: v1 backs off %v, backoffReasons says %v", reason, backs, !backs)
+		}
 	}
 }

@@ -141,11 +141,19 @@ func hostPart(host string) string {
 //   - work.WaitBudget when the host's model calls today reached daily_cap;
 //   - work.WaitRule otherwise.
 //
+// A session has a backlog by its watermark as v1's update and its backlog
+// row judge it, by inbox.Mark.Pending: a tail the update set aside as too
+// small to process, with nothing appended since, is none. skip, when it is
+// not nil, passes over a session by its host and the session part of its
+// inbox file's name: the update job passes over one whose mark the worker
+// holds, which work.Status counts as behind a running job, so a session
+// has one reason.
+//
 // It reads the run log's newest records, as status does, a watermark, a
 // marker and the start of the first entry past the watermark a file, and
 // writes nothing. A watermark that can't be read, or past the end of its
 // file, gives no item: the update backlog row names it.
-func UpdateWaits(ctx context.Context, d paths.Dirs, c config.Config, kind string, now time.Time) []work.Waiting {
+func UpdateWaits(ctx context.Context, d paths.Dirs, c config.Config, kind string, now time.Time, skip func(host, sid string) bool) []work.Waiting {
 	records, _ := update.Recent(d.State, now, doctorLog)
 	states := map[string]update.HostState{}
 	for _, host := range updateHosts {
@@ -167,11 +175,11 @@ func UpdateWaits(ctx context.Context, d paths.Dirs, c config.Config, kind string
 		files, _ := newestSessions(filepath.Join(d.Inbox(), p.Name()), &left)
 		for _, f := range files {
 			m, err := store.Mark(f.path)
-			if err != nil || m.Offset >= f.size {
+			if err != nil || m.Offset > f.size || m.Pending(f.size) == 0 {
 				continue
 			}
 			host, sid, ok := sessionOf(filepath.Base(f.path))
-			if !ok {
+			if !ok || skip != nil && skip(host, sid) {
 				continue
 			}
 			since := oldestPast(f.path, m.Offset)
@@ -188,10 +196,7 @@ func UpdateWaits(ctx context.Context, d paths.Dirs, c config.Config, kind string
 			case s.Held != "":
 				w.Reason, w.Class, w.NextTry = work.WaitHeld, s.Held, tomorrow
 			case now.Before(s.BackoffUntil):
-				w.Reason, w.Class, w.NextTry = work.WaitHeld, update.StopBackoff, s.BackoffUntil
-				if len(s.Failures) > 0 {
-					w.Class = s.Failures[0]
-				}
+				w.Reason, w.Class, w.NextTry = work.WaitHeld, backoffClass(s.Failures), s.BackoffUntil
 			case slices.ContainsFunc(s.Quarantined, func(q string) bool { return sameSession(q, sid) }):
 				w.Reason, w.Class, w.NextTry = work.WaitHeld, update.StopQuarantined, tomorrow
 			case s.Calls >= c.DailyCap:
@@ -203,6 +208,22 @@ func UpdateWaits(ctx context.Context, d paths.Dirs, c config.Config, kind string
 		}
 	}
 	return out
+}
+
+// backoffReasons are the failures that start a host's backoff, as the run
+// log's rules name them (docs/design.md, "Failures, budget and
+// quarantine").
+var backoffReasons = []string{update.ReasonRateLimit, update.ReasonHostError, update.ReasonWikiError, update.ReasonCLIMissing}
+
+// backoffClass is the class of a host's backoff: the newest failure in its
+// row of failures, newest first, that starts a backoff, passing over one
+// that does not, such as a watermark that made no call, which the backoff
+// passes over too; or backoff when the row holds none.
+func backoffClass(failures []string) string {
+	if i := slices.IndexFunc(failures, func(r string) bool { return slices.Contains(backoffReasons, r) }); i >= 0 {
+		return failures[i]
+	}
+	return update.StopBackoff
 }
 
 // sessionOf is the host and the session part of a session file's name,

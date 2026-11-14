@@ -199,6 +199,8 @@ func TestTheWakeFormTakesOnlyWhatItKnows(t *testing.T) {
 	}{
 		{job{args: []string{"index"}, reason: reasonDaily}, nil},
 		{job{args: []string{"update", "--session", "codex:a"}}, nil},
+		{job{args: []string{"update", "--session", "codex:a"}, reason: "a_reason_to_come"}, nil},
+		{job{args: []string{"maintain"}, reason: "a_reason_to_come"}, nil},
 		{job{args: nil, reason: reasonDaily}, nil},
 		{job{args: []string{"update", "--pending"}, reason: update.TriggerEnd}, nil},
 		{job{args: []string{"update", "--sweep"}, reason: update.TriggerStart}, nil},
@@ -223,5 +225,15 @@ func TestTheWakeFormTakesOnlyWhatItKnows(t *testing.T) {
 		if !reflect.DeepEqual(got.args, tc.want) || got.reason != tc.in.reason || !got.git {
 			t.Errorf("%q: became %+v, want %q with git", tc.in.args, got, tc.want)
 		}
+	}
+}
+
+// The reasons a wake form carries are the hooks' reasons, every one: a
+// reason added to the hooks is added to WakeReasons, and so to the words
+// eva-md work --wake takes, or this fails.
+func TestWakeReasonsAreTheHooksReasons(t *testing.T) {
+	got, want := slices.Sorted(slices.Values(WakeReasons)), slices.Sorted(slices.Values(reasons))
+	if !slices.Equal(got, want) {
+		t.Fatalf("WakeReasons %q, the hooks' reasons %q", got, want)
 	}
 }

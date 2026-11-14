@@ -19,6 +19,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/health"
+	"github.com/heyNag/eva-md/internal/hook"
 	"github.com/heyNag/eva-md/internal/paths"
 	"github.com/heyNag/eva-md/internal/update"
 	"github.com/heyNag/eva-md/internal/work"
@@ -35,9 +36,9 @@ const (
 	pushKey      = "push"
 )
 
-// wakeReasons are the words a wake may give as its reason: the hooks'
-// reasons for a job, and tick.
-var wakeReasons = []string{"daily", "push_retry", update.TriggerGap, update.TriggerStop, update.TriggerEnd, update.TriggerCompact, update.TriggerStart, "tick"}
+// wakeReasons are the words a wake may give as its reason: the reasons
+// the hooks carry into a wake form, and tick.
+var wakeReasons = append(slices.Clone(hook.WakeReasons), "tick")
 
 // workClock is the clock eva-md work --status judges waits by, which tests
 // pin.
@@ -250,7 +251,13 @@ func sessionsByKey(dirs paths.Dirs) map[string][]update.Ref {
 // the inbox's session files; one that matches none is done. A call that
 // stopped because another holds update.lock, as a person's --foreground
 // run does, makes the job busy, and the worker keeps every mark for the
-// next wake or tick.
+// next wake or tick. A lock held when the job starts stops its first call,
+// before any session is updated. One taken between two of its calls, by a
+// run that started in that moment, keeps the marks of the reasons already
+// run too, as the worker keeps a busy run's marks whole: the next wake or
+// tick runs them again, which costs a drained session a scan of its file,
+// and gives a session whose pass failed one more try, as a later trigger
+// of v1's would.
 func runUpdateJob(ctx context.Context, marks []work.Mark, log io.Writer) work.Outcome {
 	dirs, c, ok := workSetup(log)
 	if !ok {
@@ -287,11 +294,8 @@ func runUpdateJob(ctx context.Context, marks []work.Mark, log io.Writer) work.Ou
 		if len(a.refs) == 0 && a.sweep == "" {
 			continue
 		}
-		job := update.Job{Dirs: dirs, Config: c, Version: version, Runner: newRunner, Now: updateClock, SweepDay: a.sweep, Log: log}
-		// As the hooks pass it: a job for the sweep alone names no trigger.
-		if len(a.refs) > 0 {
-			job.Trigger = update.TriggerName(reason)
-		}
+		job := update.Job{Dirs: dirs, Config: c, Version: version, Runner: newRunner, Now: updateClock, SweepDay: a.sweep, Log: log,
+			Trigger: jobTrigger(reason, a.refs)}
 		s, err := job.CatchUp(ctx, a.refs, a.sweep != "")
 		if err == nil || errors.Is(err, context.Canceled) {
 			fmt.Fprintln(log, "update: "+s.Line())
@@ -313,13 +317,52 @@ func runUpdateJob(ctx context.Context, marks []work.Mark, log io.Writer) work.Ou
 	return outcome
 }
 
-// updateWaiting is the update job's Waiting (see health.UpdateWaits).
+// jobTrigger is the trigger a call of the update job names for reason with
+// the sessions refs, as the hooks pass it to v1's update: the reason, by
+// update.TriggerName, and none for the sweep alone, whose sessions the
+// update records as swept.
+func jobTrigger(reason string, refs []update.Ref) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	return update.TriggerName(reason)
+}
+
+// updateWaiting is the update job's Waiting (see health.UpdateWaits). It
+// passes over a session whose mark the worker holds, waiting in its wake
+// folder or taken by a run: work.Status counts the one that waits as behind
+// a running job, and the one taken is being updated, so neither waits for
+// the size or quiet rule, or for anything else the run log says.
 func updateWaiting(ctx context.Context, now time.Time) []work.Waiting {
 	dirs, c, ok := workSetup(io.Discard)
 	if !ok || c.WikiPath == "" {
 		return nil
 	}
-	return health.UpdateWaits(ctx, dirs, c, updateKind, now)
+	held := heldMarks(dirs)
+	return health.UpdateWaits(ctx, dirs, c, updateKind, now, func(host, sid string) bool {
+		return held[updateKind+"-"+fileKey(host, sid)]
+	})
+}
+
+// heldMarks lists the names of the marks the worker holds: those in its
+// wake folder and in each run's folder. It reads folder listings only.
+func heldMarks(dirs paths.Dirs) map[string]bool {
+	root := filepath.Join(dirs.State, "work")
+	folders := []string{filepath.Join(root, "wake")}
+	runs, _ := os.ReadDir(filepath.Join(root, "run"))
+	for _, r := range runs {
+		if r.IsDir() {
+			folders = append(folders, filepath.Join(root, "run", r.Name()))
+		}
+	}
+	held := map[string]bool{}
+	for _, folder := range folders {
+		entries, _ := os.ReadDir(folder)
+		for _, e := range entries {
+			held[e.Name()] = true
+		}
+	}
+	return held
 }
 
 // runMaintainJob is the maintain job: v1's maintain, with --push-only when

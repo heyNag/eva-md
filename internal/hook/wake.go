@@ -36,6 +36,14 @@ func wake(t *turn) {
 // wakeForm is wakeJob; a test replaces it to see a fault in it.
 var wakeForm = wakeJob
 
+// WakeReasons are the reasons a job may carry into its wake form, each a
+// word eva-md work --wake takes as its --reason: a job's reasons, as this
+// build's handlers ask for them, which a test holds equal to the hooks'
+// list. A job with a reason not among them keeps v1's form, so a reason
+// added to the hooks never reaches a work command that would refuse it
+// and lose the trigger.
+var WakeReasons = []string{reasonDaily, reasonPushRetry, update.TriggerGap, update.TriggerStop, update.TriggerEnd, update.TriggerCompact, update.TriggerStart}
+
 // wakeJob is j's wake form when j starts eva-md update or maintain:
 //
 //	update [--session host:id ...] [--trigger NAME] [--sweep=YYYY-MM-DD]
@@ -45,11 +53,12 @@ var wakeForm = wakeJob
 //
 // with the job's reason, the same sessions, sweep day and push flag, and
 // git set, since the worker may run maintain. The trigger an update names
-// is its reason, which the wake carries. Any other job, one with no
-// reason, or one with an argument this form doesn't know, is left as it
-// is, so the hook starts v1's job rather than one the worker would refuse.
+// is its reason, which the wake carries. Any other job, one with a reason
+// not among WakeReasons, or one with an argument this form doesn't know, is
+// left as it is, so the hook starts v1's job rather than one the worker
+// would refuse.
 func wakeJob(j job) job {
-	if len(j.args) == 0 || j.reason == "" {
+	if len(j.args) == 0 || !slices.Contains(WakeReasons, j.reason) {
 		return j
 	}
 	args := []string{"work", "--wake", "--reason", j.reason}
