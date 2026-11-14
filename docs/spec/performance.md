@@ -107,3 +107,8 @@ The script turns the trace on for these briefs alone, through the home's global 
 A brief is cut short when the notes it lacks are the last ones, the counts before them exited 0, at most one count followed them, killed or exited 0, and either that count was killed or the brief took 60 ms or more, the most one count may take (`CodeCall`).
 Such a brief is passed over, keeps its time among the samples and is counted beside the report, and more than one brief in two passed over fails.
 A repo with a single commit skips these briefs, as before.
+
+**2026-11-14, EV-10c: the benchmark's targets are held by a test.**
+No behaviour changes.
+`internal/spec/benchmark_test.go` holds `scripts/benchmark.py` to the targets the specs state: capture and a prompt under 50 ms, the startup brief under 300 ms and SessionEnd under 200 ms.
+It also holds that the benchmark checks what a hook wrote as well as how long it took, and runs in a temporary home.

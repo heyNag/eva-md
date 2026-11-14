@@ -130,4 +130,10 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 ## Since the split
 
-No change yet.
+**2026-11-14, EV-10c: what a hook starts and links is held by tests.**
+No behaviour changes.
+`internal/hook/reach_test.go` holds that a hook starts no program by its name but git, and links no package that can open a connection, in Go, through the system's calls or through cgo.
+It holds that a hook runs git only to read, and only at a chat's start, for identity and the brief: with `--no-optional-locks`, fsmonitor and hooks off, lazy fetches off, and `--no-lazy-fetch` on the reads of objects in a partial clone.
+The first hook of a chat in a folder that is no repository runs `git rev-parse --show-toplevel` once; a prompt, the push retry and the next day's maintain start no git.
+A hook's output and what it stores are the same with a search index that is whole, damaged or gone, and the index's files are unchanged after it.
+A program a hook started by its full path would not be seen by these tests.

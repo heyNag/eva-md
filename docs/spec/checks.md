@@ -99,3 +99,12 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 The release workflow's build job reads each binary it built, in the step right before the upload, with `go version -m` and by its bytes, and fails on one that is not eva-md's command, records a build tag or holds either mark of the evaluation build's code.
 `internal/release/release_tagcheck_test.go` holds the step in place and runs it, with the runner's variables set, on the release's own build, the same build with the tag, and made-up binaries.
 The step runs for the first time at the next release.
+
+**2026-11-14, EV-10c: a must-keep row may name a check that is no Go test, and CI is held to the run of record.**
+No behaviour changes.
+A `## Must keep` table's Tests cell may name `check:<path>`, such as `check:scripts/benchmark.py`: `internal/spec` fails unless the file exists and a workflow that a push or a pull request runs runs it, itself or through a script of the repository.
+The step that runs it must be one that can fail its run: no `continue-on-error` and no `if`, on the step or its job.
+The benchmark is held so through the Linux job's `scripts/linux-check.sh`, not through the latency gate's step, which is advisory.
+`internal/release/ci_guard_test.go` holds `ci.yml` to the run of record: its token reads contents only, and a push to main and every pull request run it, unfiltered.
+Its macOS job runs `go test ./...` and `go test -race ./...` whole, each as the whole of its step, and its Linux job runs `scripts/linux-check.sh` whole.
+Nothing there may skip or narrow them: no `if`, `needs`, `continue-on-error`, folder, shell, `GOFLAGS` or `GITHUB_ENV`, and no YAML the check's line reader cannot read as GitHub does.
