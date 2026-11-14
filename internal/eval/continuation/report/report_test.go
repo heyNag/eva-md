@@ -505,6 +505,12 @@ func TestRefusals(t *testing.T) {
 		{"a killed run: rows no record covers", "folder 1, host codex, condition oracle: 108 rows and 12 judged trials, where its records count 0 and 0", func(fs []Folder) {
 			fs[0].Records = fs[0].Records[:2]
 		}},
+		{"a row of a task its records did not run", "no record of host codex, condition off, in its folder ran trial ctl1.t1", func(fs []Folder) {
+			fs[0].Records[0].Tasks = []string{"hid1", "hid2", "hid3", "hand1"}
+		}},
+		{"a row of a trial past its records' trials", "no record of host codex, condition oracle, in its folder ran trial hid1.t3", func(fs []Folder) {
+			fs[0].Records[2].Trials = 2
+		}},
 		{"a record of a host with no rows", "folder 3, host claude-code, condition eva: 0 rows and 0 judged trials, where its records count 9 and 1", func(fs []Folder) {
 			r := fs[1].Records[1]
 			r.Condition, r.Run = "eva", "20261114t150000z"

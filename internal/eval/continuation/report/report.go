@@ -281,7 +281,12 @@ func Build(tasks []task.Task, folders []Folder, rates *Rates) (Report, error) {
 	rowCount := map[groupKey]int{}
 	records := map[string][]drive.Record{} // by host
 	conds := map[string]map[task.Condition]bool{}
-	type sums struct{ rows, judged int }
+	// sums are what the records of a host and condition in one folder
+	// count, and the tasks and the most trials they ran.
+	type sums struct {
+		rows, judged, trials int
+		tasks                map[string]bool
+	}
 	recorded := map[groupKey]*sums{}
 
 	for fi, f := range folders {
@@ -326,11 +331,17 @@ func Build(tasks []task.Task, folders []Folder, rates *Rates) (Report, error) {
 			}
 			conds[rec.Host][c] = true
 			g := groupKey{fi, rec.Host, c}
-			if recorded[g] == nil {
-				recorded[g] = &sums{}
+			s := recorded[g]
+			if s == nil {
+				s = &sums{tasks: map[string]bool{}}
+				recorded[g] = s
 			}
-			recorded[g].rows += rec.Rows
-			recorded[g].judged += rec.Judged
+			s.rows += rec.Rows
+			s.judged += rec.Judged
+			s.trials = max(s.trials, rec.Trials)
+			for _, id := range rec.Tasks {
+				s.tasks[id] = true
+			}
 		}
 		judged := map[groupKey]map[trialKey]bool{}
 		for i, row := range f.Rows {
@@ -380,6 +391,12 @@ func Build(tasks []task.Task, folders []Folder, rates *Rates) (Report, error) {
 				tr.models = append(tr.models, row.Model)
 			}
 			g := groupKey{fi, row.Host, c}
+			// A row of a task or a trial number none of its records ran is
+			// a run's that wrote no record. A row of a host and condition
+			// with no record at all is refused below, with the counts.
+			if s := recorded[g]; s != nil && (!s.tasks[id] || row.Seed > uint64(s.trials)) {
+				return Report{}, fmt.Errorf("%s: no record of host %s, condition %s, in its folder ran trial %s", at, row.Host, c, row.Scenario)
+			}
 			rowCount[g]++
 			if judged[g] == nil {
 				judged[g] = map[trialKey]bool{}
