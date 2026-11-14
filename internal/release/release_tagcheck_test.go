@@ -669,10 +669,25 @@ var tagCheckCaches = sync.OnceValues(func() ([]string, error) {
 	return caches, nil
 })
 
-// tagCheckEnv is the environment the builds and the step run in: a home of
-// their own with Go's telemetry off in it, no Go settings but these, Go's
-// own caches, no network, no other toolchain, and go first on PATH. A later
-// value of a name wins, as os/exec reads it.
+// tagCheckTag is the made-up tag the release's build is given here, as
+// Build gives it the tag it publishes.
+const tagCheckTag = "2026.11.99"
+
+// tagCheckRunner is what the runner sets for a step of the build job beyond
+// the test's environment, with the workflow's TAG, so that a step that read
+// any of it would run here as it does there.
+var tagCheckRunner = []string{
+	"CI=true", "GITHUB_ACTIONS=true", "GITHUB_WORKFLOW=Release", "GITHUB_JOB=build", "GITHUB_EVENT_NAME=push",
+	"GITHUB_REF=refs/tags/" + tagCheckTag, "GITHUB_REF_NAME=" + tagCheckTag, "GITHUB_REF_TYPE=tag",
+	"GITHUB_REPOSITORY=heyNag/eva-md", "RUNNER_OS=Linux", "RUNNER_ARCH=X64", "TAG=" + tagCheckTag,
+}
+
+// tagCheckEnv is the environment the builds and the step run in, built
+// from nothing so that no variable of the machine the test runs on reaches
+// them: a home of their own with Go's telemetry off in it, the test's
+// TMPDIR, no Go settings but these, Go's own caches, no network, no other
+// toolchain, and go first on the test's PATH. A later value of a name wins,
+// as os/exec reads it.
 func tagCheckEnv(t *testing.T) []string {
 	t.Helper()
 	caches, err := tagCheckCaches()
@@ -691,9 +706,26 @@ func tagCheckEnv(t *testing.T) []string {
 	if err := os.WriteFile(filepath.Join(telemetry, "mode"), []byte("off\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "GOENV=off",
-		"GOCACHE="+caches[0], "GOMODCACHE="+caches[1], "GOPROXY=off", "GOTOOLCHAIN=local", "GOFLAGS=-mod=readonly",
-		"PATH="+filepath.Dir(tagCheckGo())+string(os.PathListSeparator)+os.Getenv("PATH"))
+	env := []string{"HOME=" + home, "XDG_CONFIG_HOME=" + filepath.Join(home, ".config"), "GOENV=off",
+		"GOCACHE=" + caches[0], "GOMODCACHE=" + caches[1], "GOPROXY=off", "GOTOOLCHAIN=local", "GOFLAGS=-mod=readonly",
+		"PATH=" + filepath.Dir(tagCheckGo()) + string(os.PathListSeparator) + os.Getenv("PATH")}
+	if tmp := os.Getenv("TMPDIR"); tmp != "" {
+		env = append(env, "TMPDIR="+tmp)
+	}
+	return env
+}
+
+// tagCheckModules fails the test, saying what to run, when Go's module
+// cache lacks a module ./cmd/eva-md needs: the builds run with no network,
+// and this package's own tests need neither of eva-md's two modules, so go
+// test of it alone never fetches them.
+func tagCheckModules(t *testing.T, env []string, root string) {
+	t.Helper()
+	full := append(slices.Clone(env), "CGO_ENABLED=0", "GOOS=darwin")
+	code, out := tagCheckCommand(t, root, full, tagCheckGo(), "list", "-e", "-deps", "-f", "{{with .Error}}{{.}}{{end}}", "./cmd/eva-md")
+	if out = strings.TrimSpace(out); code != 0 || out != "" {
+		t.Fatalf("Go's module cache lacks a module ./cmd/eva-md needs, and these tests build it with no network; run go mod download in the repository first. go list exited %d:\n%s", code, out)
+	}
 }
 
 // tagCheckCommand runs name with args in dir and env, and gives its exit
@@ -723,7 +755,7 @@ func tagCheckCommand(t *testing.T, dir string, env []string, name string, args .
 func tagCheckBuild(t *testing.T, base []string, dir, arch, pkg string, env []string, args ...string) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "eva-md")
-	build := append([]string{"build", "-trimpath", "-mod=readonly", "-buildvcs=false", "-ldflags", "-X main.version=2026.11.99", "-o", out}, args...)
+	build := append([]string{"build", "-trimpath", "-mod=readonly", "-buildvcs=false", "-ldflags", "-X main.version=" + tagCheckTag, "-o", out}, args...)
 	full := append(append(slices.Clone(base), "CGO_ENABLED=0", "GOOS=darwin", "GOARCH="+arch), env...)
 	if code, output := tagCheckCommand(t, dir, full, tagCheckGo(), append(build, pkg)...); code != 0 {
 		t.Fatalf("go %q in %s exited %d:\n%s", build, dir, code, output)
@@ -770,9 +802,9 @@ func (b builtBinary) shown(t *testing.T, marks []string) string {
 }
 
 // runTagCheck runs the step's run block as the runner's shell: bash runs
-// one, with RUNNER_TEMP holding a release folder of the files given, by
-// name, beside three that are no binary, and gives its exit code and
-// output. A file given as "link:" and a path is a link to that path, and
+// one, in env with what the runner sets after it and RUNNER_TEMP holding a
+// release folder of the files given, by name, beside three that are no
+// binary, and gives its exit code and output. A file given as "link:" and a path is a link to that path, and
 // one given as "folder:" and a path a folder that holds a copy of it.
 func runTagCheck(t *testing.T, run string, env []string, files map[string]string) (int, string) {
 	t.Helper()
@@ -816,7 +848,7 @@ func runTagCheck(t *testing.T, run string, env []string, files map[string]string
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tagCheckCommand(t, temp, append(slices.Clone(env), "RUNNER_TEMP="+temp), bash, "--noprofile", "--norc", "-eo", "pipefail", script)
+	return tagCheckCommand(t, temp, append(append(slices.Clone(env), tagCheckRunner...), "RUNNER_TEMP="+temp), bash, "--noprofile", "--norc", "-eo", "pipefail", script)
 }
 
 // errorLines are the lines of the step's output that GitHub shows as
@@ -836,8 +868,8 @@ func errorLines(out string) []string {
 // either is the same build with the evaluation's tag, or is a made-up
 // binary of eva-md's module that records a tag, from the flag or from
 // GOFLAGS, holds one of the evaluation build's marks with no tag, is
-// another package, or is no Go binary at all; and it fails when there is no
-// binary. Each binary is first shown to hold what it is meant to.
+// another package, even one whose path starts with eva-md's command's, or
+// is no Go binary at all; and it fails when there is no binary. Each binary is first shown to hold what it is meant to.
 func TestReleaseTagCheckFailsATaggedBinary(t *testing.T) {
 	workflow := repoText(t, ".github", "workflows", "release.yml")
 	run := tagCheckRun(t, workflow)
@@ -855,6 +887,7 @@ func TestReleaseTagCheckFailsATaggedBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	tagCheckModules(t, env, root)
 	fileOf := func(arch string) string { return "eva-md-darwin-" + arch }
 	release, tagged := map[string]string{}, map[string]string{}
 	for _, arch := range arches {
@@ -893,6 +926,8 @@ func TestReleaseTagCheckFailsATaggedBinary(t *testing.T) {
 		"cmd/eva-md/main.go": "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nvar version = \"dev\"\n\nfunc main() { fmt.Println(\"made-up\", version, os.Getenv(\"EVA_MD_EVAL_ACTOR\")) }\n",
 	})
 	other := madeUp(map[string]string{"cmd/other/main.go": plainMain})
+	// A package whose path starts with eva-md's command's.
+	longer := madeUp(map[string]string{"cmd/eva-md2/main.go": plainMain})
 	last := arches[len(arches)-1]
 	notGo := filepath.Join(t.TempDir(), "notgo")
 	if err := os.WriteFile(notGo, []byte("#!/bin/sh\necho made-up\n"), 0o755); err != nil {
@@ -919,7 +954,7 @@ func TestReleaseTagCheckFailsATaggedBinary(t *testing.T) {
 	}
 
 	// Each case puts its binaries in place of the release's own build, by
-	// arch, and runs the step with env after the tests' environment. bad
+	// arch, and runs the step with env after the builds' environment. bad
 	// are the files the step must fail on, each named first in at least one
 	// of its errors and no other file in any; found is what its errors
 	// must say it found. No bad is a pass.
@@ -942,6 +977,7 @@ func TestReleaseTagCheckFailsATaggedBinary(t *testing.T) {
 		{"made-up, evalbuild.go with no constraint", map[string]string{last: builtBinary{madeUpBuild(withFile, "./cmd/eva-md", nil), "", marks[:1]}.shown(t, marks)}, nil, []string{fileOf(last)}, marks[:1]},
 		{"made-up, the variable in main.go alone", map[string]string{last: builtBinary{madeUpBuild(withVariable, "./cmd/eva-md", nil), "", marks[1:]}.shown(t, marks)}, nil, []string{fileOf(last)}, marks[1:]},
 		{"made-up, another package", map[string]string{last: builtBinary{madeUpBuild(other, "./cmd/other", nil), "", nil}.shown(t, marks)}, nil, []string{fileOf(last)}, []string{"github.com/heyNag/eva-md/cmd/other,"}},
+		{"made-up, a package whose path starts with eva-md's", map[string]string{last: builtBinary{madeUpBuild(longer, "./cmd/eva-md2", nil), "", nil}.shown(t, marks)}, nil, []string{fileOf(last)}, []string{"github.com/heyNag/eva-md/cmd/eva-md2,"}},
 		{"no Go binary", map[string]string{last: notGo}, nil, []string{fileOf(last)}, []string{"has no build information"}},
 		{"a link to the release's build", map[string]string{last: "link:" + release[last]}, nil, []string{fileOf(last)}, []string{"is not a regular file"}},
 		{"a folder that holds a tagged build", map[string]string{last: "folder:" + tagged[last]}, nil, []string{fileOf(last)}, []string{"is not a regular file"}},
