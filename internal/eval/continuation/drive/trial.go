@@ -158,6 +158,9 @@ func (p *plan) runTrial(ctx context.Context, run string, t task.Task, n int, owe
 			vctx, cancel := context.WithTimeout(ctx, VersionTimeout)
 			defer cancel()
 			c, err := runCall(vctx, cli, args, tr.Env, tr.Dirs.Home, 64<<10, files)
+			if p.opts.ended != nil {
+				p.opts.ended(callEnd{Call: traceVersion, Pid: c.pid, Err: err, Over: c.over})
+			}
 			if c.traceErr != nil {
 				traceErr = traceFault(c.traceErr)
 				return nil, traceErr
@@ -188,6 +191,9 @@ func (p *plan) runTrial(ctx context.Context, run string, t task.Task, n int, owe
 		lctx, cancel := context.WithTimeout(ctx, VersionTimeout)
 		defer cancel()
 		c, err := runCall(lctx, tr.CLI, args, tr.Env, tr.Dirs.Home, 1<<20, files)
+		if p.opts.ended != nil {
+			p.opts.ended(callEnd{Call: traceTools, Pid: c.pid, Err: err, Over: c.over})
+		}
 		if c.traceErr != nil {
 			traceErr = traceFault(c.traceErr)
 			return nil, traceErr
@@ -593,7 +599,7 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 		r.Fail = CodeHostFailed
 	}
 	if s.p.opts.ended != nil {
-		s.p.opts.ended(err, r)
+		s.p.opts.ended(callEnd{Call: traceChat, Pid: got.pid, Err: err, Over: over, Report: r})
 	}
 	return r, nil
 }
@@ -659,6 +665,7 @@ func runGroup(ctx context.Context, cli string, args, env []string, dir string, l
 type callOutput struct {
 	out  []byte // the first limit bytes of stdout
 	over bool   // stdout ran past them
+	pid  int    // the process the call ran as; 0 when it did not start
 	// traceErr is the first error writing or closing the call's trace.
 	traceErr error
 }
@@ -740,6 +747,9 @@ func runCall(ctx context.Context, cli string, args, env []string, dir string, li
 		_ = r.Close()
 	}
 	c := callOutput{out: stdout.buffer.Bytes(), over: stdout.over}
+	if cmd.Process != nil {
+		c.pid = cmd.Process.Pid
+	}
 	if files != nil {
 		_, xerr := io.WriteString(files.exit, exitLine(cmd.ProcessState, ended, held))
 		c.traceErr = errors.Join(sinks[0].ferr, sinks[1].ferr, xerr)

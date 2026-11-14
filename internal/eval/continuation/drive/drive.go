@@ -210,10 +210,27 @@ type Options struct {
 	// openTrace makes a file of the trace, which is new; nil makes it for
 	// its owner alone. A test fails it instead.
 	openTrace func(path string) (io.WriteCloser, error)
-	// ended is told how each chat call ended, by the error its wait gave
-	// (nil for an exit of 0), and the report it was read as; nil tells
-	// nothing. A test says it when a trial comes out other than it should.
-	ended func(err error, r report)
+	// ended is told how each call of the CLI ended as the driver saw it:
+	// the version's, the web tools' list when the host table asks for it,
+	// and each chat call that ran to its end; nil tells nothing. A test
+	// says it when a trial comes out other than it should.
+	ended func(callEnd)
+}
+
+// callEnd is how one call of the CLI ended, as Options.ended is told it.
+type callEnd struct {
+	// Call is traceVersion, traceTools or traceChat.
+	Call string
+	// Pid is the process the call ran as; 0 when it did not start.
+	Pid int
+	// Err is the error the call's run gave: nil for an exit of 0, an
+	// *exec.ExitError for any other exit or a signal, or another error
+	// for a program that could not be started or an output still held.
+	Err error
+	// Over says its stdout ran past its limit.
+	Over bool
+	// Report is what a chat call was read as; the others have none.
+	Report report
 }
 
 // Dirs are a trial's folders.

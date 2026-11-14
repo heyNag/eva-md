@@ -24,7 +24,8 @@
 // limit or with another status; exit having printed nothing; kill itself,
 // before an answer or after a whole one; answer with no session, with no
 // usage, or at the turn bound; name another model, or none; pad its output;
-// print a line on stderr, or a word in its answer; and keep what each call
+// print a line on stderr, or a word in its answer; fail its --version, by
+// an exit, a fault of its own or a kill; and keep what each call
 // printed, for a test to compare with what the driver kept of it.
 // Each call that returns records how it ended, as a line of Ends: its
 // exit status and, for a fault of its own (exit 3), what failed, which it
@@ -167,6 +168,12 @@ type Script struct {
 	// Codex as "tool"). It is one of the failures From and Session keep to
 	// some calls.
 	Web string `json:"web"`
+	// VersionFault makes --version fail: "exit" records the call and exits
+	// 1 having printed nothing; "fault" is a fault of the fake's own before
+	// it records the call, exit 3, whose end alone is recorded; "killed"
+	// kills itself with SIGKILL before it records anything, as a process
+	// that dies before it reaches its record does.
+	VersionFault string `json:"version_fault"`
 }
 
 // DefaultFeatures are the features Codex's features list names when a
@@ -351,8 +358,18 @@ func serve(host adapter.Host, file string, args []string, out, errOut io.Writer)
 	slices.Sort(c.Env)
 	if slices.Equal(args, []string{"--version"}) {
 		c.Mode = "version"
+		switch s.VersionFault {
+		case "killed":
+			_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+			block()
+		case "fault":
+			return failed("recording the call", errors.New("a fault its script asked for"))
+		}
 		if err := record(s, c); err != nil {
 			return failed("recording the call", err)
+		}
+		if s.VersionFault == "exit" {
+			return 1
 		}
 		v := s.Version
 		if v == "" {

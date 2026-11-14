@@ -55,7 +55,7 @@ func TestTraceSaysHowEachCallEnded(t *testing.T) {
 			c.edit(t, r)
 			res := guarded(t, r)
 			if res.err != nil || res.s.Unjudged[c.code] != 1 {
-				t.Fatalf("run: %+v %v\n%s\n%s", res.s, res.err, res.out, r.diagnose())
+				t.Fatalf("run: %+v %v\n%s", res.s, res.err, res.out)
 			}
 			dir := filepath.Join(r.opts.Trace, res.s.Run, fakehost.FixtureID, "off", "t1")
 			for file, want := range map[string]string{"1-version.exit": "exit 0\n", "2-chat.exit": c.want} {

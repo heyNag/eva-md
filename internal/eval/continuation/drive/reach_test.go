@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -372,7 +373,7 @@ func TestNoTrialFolderIsLeft(t *testing.T) {
 			r.script.ReadOnly = true
 			r.traced("one")
 			if s, out, err := r.run(); err != nil || s.Judged != 2 {
-				t.Fatalf("run: %+v %v\n%s\n%s", s, err, out, r.diagnose())
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
 			}
 			// The fake did leave what it was asked to.
 			if calls := r.calls(); !strings.Contains(strings.Join(calls[len(calls)-1].Around, " "), "home/made-up-locked/inner/file") {
@@ -383,7 +384,7 @@ func TestNoTrialFolderIsLeft(t *testing.T) {
 			r.script.SignIn = true
 			r.traced("two")
 			if s, out, err := r.run(); err != nil || s.Unjudged[CodeSignIn] != 2 {
-				t.Fatalf("run: %+v %v\n%s\n%s", s, err, out, r.diagnose())
+				t.Fatalf("run: %+v %v\n%s", s, err, out)
 			}
 			emptyWork(t, r)
 			r.opts.Out = filepath.Join(r.base, "out-three")
@@ -391,7 +392,7 @@ func TestNoTrialFolderIsLeft(t *testing.T) {
 			r.traced("three")
 			_, out, err := r.run()
 			if !isStopped(err, CodeNoUsage) {
-				t.Fatalf("run: %v\n%s\n%s", err, out, r.diagnose())
+				t.Fatalf("run: %v\n%s", err, out)
 			}
 			emptyWork(t, r)
 		})
@@ -412,10 +413,15 @@ func TestADiagnosisSaysHowEachCallEnded(t *testing.T) {
 		t.Fatalf("run: %+v %v\n%s", s, err, out)
 	}
 	d := r.diagnose()
+	if len(r.ended) != 2 || r.ended[0].Call != traceVersion || r.ended[1].Call != traceChat {
+		t.Fatalf("the driver's calls: %+v", r.ended)
+	}
 	for _, want := range []string{
 		"claude-code version, session \"\": exit 0\n",
 		"claude-code start, session \"fake-session-1\": exit 3, laying the overlay: ",
-		"1: exit status 3; read as answered false, fail \"host_failed\"",
+		fmt.Sprintf("1: version, pid %d, exit status 0; the fake's record: a version call and an end, exit 0\n", r.ended[0].Pid),
+		fmt.Sprintf("2: chat, pid %d, exit status 3; read as answered false, fail \"host_failed\"", r.ended[1].Pid),
+		"; the fake's record: a start call and an end, exit 3, laying the overlay: ",
 		"-chat.stderr (", "fakehost: laying the overlay: ",
 		"-version.stdout (", "1.2.3 (fake)",
 	} {
@@ -431,9 +437,12 @@ func TestADiagnosisSaysHowEachCallEnded(t *testing.T) {
 		t.Fatalf("run: %+v %v\n%s", s, err, out)
 	}
 	d = r.diagnose()
+	if len(r.ended) != 4 || r.ended[3].Call != traceChat {
+		t.Fatalf("the driver's calls: %+v", r.ended)
+	}
 	for _, want := range []string{
 		"claude-code start, session \"fake-session-2\": no end recorded",
-		"2: signal: killed; read as answered false, fail \"host_failed\"",
+		fmt.Sprintf("4: chat, pid %d, signal: killed; read as answered false, fail \"host_failed\", session \"\", usage false; the fake's record: a start call\n", r.ended[3].Pid),
 	} {
 		if !strings.Contains(d, want) {
 			t.Fatalf("the diagnosis has no %q:\n%s", want, d)
