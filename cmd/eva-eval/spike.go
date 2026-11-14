@@ -70,6 +70,15 @@ var (
 	spikeProbeRun func(ctx context.Context, cli string, args ...string) ([]byte, error)
 )
 
+// The arm's run and its rows, which tests replace to see that the run's
+// own guards hold: the cap on calls when an arm asks for more than the
+// plan line said, and the store's Forbid when a row holds the model's
+// name.
+var (
+	spikeArmRun = arm.Run
+	spikeRows   = arm.Rows
+)
+
 // The plan's defaults, and the row's allowance (plan section 8, row DV-03).
 const (
 	planAllowance      = 2000
@@ -241,7 +250,7 @@ func (p plan) render() string {
 	w("## Rules and defaults\n\n")
 	w("- **Arms.** Every host eva-md knows (%s), every tier (%s), every effort asked for (%s; `--efforts`, default %s) and both forms of the contract (%s): %d arms. The tier is all a row says of its model.\n",
 		strings.Join(hosts, ", "), strings.Join(arm.Tiers, ", "), strings.Join(o.efforts, ", "), strings.Join(planEfforts, ","), strings.Join(forms, ", "), len(p.arms))
-	w("- **Calls.** An arm makes one first call for each pass of the spike's %d scripts, %d passes, in each round, and runs %d round%s (`--repeat`, default 1). It makes at most one repair call for each first call, and this plan counts every one.\n",
+	w("- **Calls.** An arm makes one first call for each pass of the spike's %d scripts, %d passes, in each round, and runs %d round%s (`--repeat`, default 1). It makes at most one repair call for each first call, and this plan counts every one. A call is one call through v1's update runner, which can run the host's CLI more than once for it: when the host refuses the call's effort, its model or a flag, the runner tries again lower, without it, or with the host's default model (a fallback, which stops the run). This plan counts none of those runs, and `eva-eval spike run` says how many it took.\n",
 		len(p.scripts), passes(spike.Scripts()), o.repeat, plural(o.repeat, "", "s"))
 	w("- **Tokens.** A first call's input is the bytes of the prompt, of the pass rendered with nothing shown and of the answer's schema, divided by 4 and rounded up, plus the host's overhead per call. A repair call's input adds the output allowance to its first call's. Each call's output is the output allowance, %s tokens (`--output-allowance`, default %s). Tokens are input and output together.\n",
 		num(o.allowance), num(planAllowance))
@@ -441,6 +450,7 @@ type spikeCaller struct {
 	home                     string
 	runner                   update.Runner
 	reported                 string // the model the host's output first said answered, if it said
+	calls, attempts          int    // the calls through the runner, and the runs of the CLI they took
 }
 
 func (c *spikeCaller) ask(ctx context.Context, call arm.Call) (arm.Reply, error) {
@@ -452,7 +462,9 @@ func (c *spikeCaller) ask(ctx context.Context, call arm.Call) (arm.Reply, error)
 	req := update.Request{Host: c.host, Model: c.model, Effort: c.effort, Rules: call.System, Input: call.Input,
 		Schema: call.Schema, RunDir: dir, CLI: c.cli, IgnoreUserConfig: c.ignore}
 	start := time.Now()
+	c.calls++
 	res, err := c.runner.Run(ctx, req)
+	c.attempts += res.Attempts
 	if err != nil {
 		return arm.Reply{}, err
 	}
@@ -521,6 +533,33 @@ func checkResults(dir string) error {
 	return err
 }
 
+// resolved is path made absolute with every link it can resolve resolved:
+// those of its longest part that exists, the rest joined on as given.
+func resolved(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	rest := ""
+	for dir := abs; ; dir = filepath.Dir(dir) {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(real, rest)
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return abs
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
+}
+
+// within says whether path is dir or lies inside it, links resolved and
+// letter case set aside, since macOS's file system does not tell case
+// apart: a guard that refuses too much is the safe side.
+func within(path, dir string) bool {
+	p, d := strings.ToLower(resolved(path)), strings.ToLower(resolved(dir))
+	return p == d || strings.HasPrefix(p, strings.TrimSuffix(d, string(filepath.Separator))+string(filepath.Separator))
+}
+
 func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet("eva-eval spike run", flag.ContinueOnError)
 	f.SetOutput(errOut)
@@ -586,6 +625,9 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		if _, err := os.Lstat(*record); !errors.Is(err, fs.ErrNotExist) {
 			return refuse("--record must name a file that does not exist yet")
 		}
+		if within(*record, *outDir) {
+			return refuse("--record must name a file outside the --out folder, whose rows file the run appends to")
+		}
 	}
 	var forbid []string
 	for _, s := range scripts {
@@ -623,7 +665,7 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		fmt.Fprintf(errOut, "eva-eval: a row the run would write holds the model's name, or a word a script plants, so the run is refused (%s). Nothing was called.\n", err)
 		return 2
 	}
-	fmt.Fprintf(out, "The arm %s %s, tier %s, effort %s, form %s makes %d first calls, one for each of the %d passes of the spike's %d scripts in each of %d round%s, and at most %d repair calls: %d calls at most.\n",
+	fmt.Fprintf(out, "The arm %s %s, tier %s, effort %s, form %s makes %d first calls, one for each of the %d passes of the spike's %d scripts in each of %d round%s, and at most %d repair calls: %d calls at most. A call can run the host's CLI more than once when the host refuses its effort, its model or a flag; the run says how many runs it took.\n",
 		a.Host, a.HostVersion, a.Tier, a.Effort, a.Form, first, passes(scripts), len(scripts), *repeat, plural(*repeat, "", "s"), first, 2*first)
 	if live && !*spend {
 		fmt.Fprintf(errOut, "eva-eval: the run's calls are made on %s's subscription. Nothing was called; run it again with --spend-model-quota to make them.\n", a.Host)
@@ -636,6 +678,7 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		}
 	}
 	code := func() int {
+		var caller *spikeCaller
 		if live {
 			home, err := os.MkdirTemp("", "eva-eval-spike-")
 			if err != nil {
@@ -643,8 +686,8 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 				return 1
 			}
 			defer os.RemoveAll(home)
-			c := &spikeCaller{host: *host, effort: *effort, model: *model, cli: *cli, ignore: *ignore, home: home, runner: spikeRunner(*host)}
-			ask = c.ask
+			caller = &spikeCaller{host: *host, effort: *effort, model: *model, cli: *cli, ignore: *ignore, home: home, runner: spikeRunner(*host)}
+			ask = caller.ask
 			fmt.Fprintf(errOut, "eva-eval: asking %s; nothing is kept of the run but its rows and the recording\n", a.Host)
 		} else {
 			fmt.Fprintln(errOut, "eva-eval: replaying the recording; nothing is called")
@@ -655,12 +698,16 @@ func spikeRunCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		if rec != nil {
 			w = rec
 		}
-		res, err := arm.Run(ctx, a, scripts, ask, w)
+		res, err := spikeArmRun(ctx, a, scripts, ask, w)
+		if caller != nil {
+			fmt.Fprintf(out, "The host's CLI was run %d time%s for %d call%s through the runner.\n",
+				caller.attempts, plural(caller.attempts, "", "s"), caller.calls, plural(caller.calls, "", "s"))
+		}
 		if err != nil {
 			fmt.Fprintf(errOut, "eva-eval: %s; no row was written\n", hide(err.Error(), *model))
 			return 1
 		}
-		rows := arm.Rows(res, template)
+		rows := spikeRows(res, template)
 		if err := (results.Store{Dir: *outDir, Forbid: forbid}).Append(rows...); err != nil {
 			fmt.Fprintf(errOut, "eva-eval: %s\n", hide(err.Error(), *model))
 			return 1
@@ -951,31 +998,48 @@ func decide(arms []frontierArm, hosts []string) verdict {
 		return out
 	}
 	// The evidence form, design 5.4: segments when quote_miss_final is over
-	// 2% at either host's default row of the quotes form.
+	// 2% on either host at the default tier and effort. Design 8.3's default
+	// is read over the rows of both forms, since its bar does not depend on
+	// the form; quote_miss_final is then read at the quotes row of its tier
+	// and effort, or, when that row is missing or has none, at the quotes
+	// form's own default row.
 	over, unread := []string{}, []string{}
 	var notes []string
 	for _, h := range hosts {
-		q, _, ok := pick(of(h, spike.FormQuotes))
+		quotes := of(h, spike.FormQuotes)
+		var q frontierArm
+		found := false
+		if d, _, ok := pick(of(h, "")); ok {
+			if i := slices.IndexFunc(quotes, func(x frontierArm) bool { return x.tier == d.tier && x.effort == d.effort }); i >= 0 {
+				if _, measured := quotes[i].on().mean("spike.quote_miss_final"); measured {
+					q, found = quotes[i], true
+				}
+			}
+		}
+		where := "at the default tier and effort"
+		if !found {
+			q, _, found = pick(quotes)
+			where = "at the quotes form's default row, the default tier and effort having no quotes row to read"
+		}
 		miss, measured := q.on().mean("spike.quote_miss_final")
 		switch {
-		case !ok || !measured:
+		case !found || !measured:
 			unread = append(unread, h)
+			continue
 		case miss > barQuoteMiss+epsilon:
 			over = append(over, h)
-			notes = append(notes, fmt.Sprintf("%s %.3f at tier %s, effort %s", h, miss, q.tier, q.effort))
-		default:
-			notes = append(notes, fmt.Sprintf("%s %.3f at tier %s, effort %s", h, miss, q.tier, q.effort))
 		}
+		notes = append(notes, fmt.Sprintf("%s %.3f at tier %s, effort %s, %s", h, miss, q.tier, q.effort, where))
 	}
 	switch {
 	case len(over) > 0:
 		v.form = spike.FormSegments
-		v.formWhy = fmt.Sprintf("quote_miss_final is over 2%% at the quotes form's default row on %s (%s)", strings.Join(over, " and "), strings.Join(notes, "; "))
+		v.formWhy = fmt.Sprintf("quote_miss_final is over 2%% on %s (%s)", strings.Join(over, " and "), strings.Join(notes, "; "))
 	case len(unread) > 0:
-		v.formWhy = fmt.Sprintf("it cannot be read: no quotes row with a quote_miss_final to read at the quotes form's default row on %s", strings.Join(unread, " and "))
+		v.formWhy = fmt.Sprintf("it cannot be read: no quotes row with a quote_miss_final to read at the default tier and effort, or at the quotes form's default row, on %s", strings.Join(unread, " and "))
 	default:
 		v.form = spike.FormQuotes
-		v.formWhy = fmt.Sprintf("quote_miss_final is at most 2%% at the quotes form's default row on every host (%s)", strings.Join(notes, "; "))
+		v.formWhy = fmt.Sprintf("quote_miss_final is at most 2%% on every host (%s)", strings.Join(notes, "; "))
 	}
 	for _, h := range hosts {
 		a, meets, ok := pick(of(h, v.form))
@@ -985,17 +1049,22 @@ func decide(arms []frontierArm, hosts []string) verdict {
 		}
 		v.defaults[h], v.meets[h] = a, meets
 		hasSmall := slices.ContainsFunc(of(h, v.form), func(x frontierArm) bool { return x.tier == arm.TierSmall })
+		// The rows the default is read among: those of the form, or all.
+		among := "row"
+		if v.form != "" {
+			among = string(v.form) + " row"
+		}
 		switch {
 		case a.tier == arm.TierSmall:
-			v.why[h] = "the cheapest small row that meets the bar"
+			v.why[h] = "the cheapest small " + among + " that meets the bar"
 		case meets && hasSmall:
-			v.why[h] = "no small row meets the bar, so the middle tier's cheapest row that meets it"
+			v.why[h] = "no small " + among + " meets the bar, so the middle tier's cheapest " + among + " that meets it"
 		case meets:
-			v.why[h] = "no small row was measured, so the middle tier's cheapest row that meets it"
+			v.why[h] = "no small " + among + " was measured, so the middle tier's cheapest " + among + " that meets it"
 		case hasSmall:
-			v.why[h] = "no small row meets the bar, and no middle row does: the middle tier's cheapest row, which misses the bar"
+			v.why[h] = "no small " + among + " meets the bar, and no middle one does: the middle tier's cheapest " + among + ", which misses the bar"
 		default:
-			v.why[h] = "no small row was measured, and no middle row meets the bar: the middle tier's cheapest row, which misses the bar"
+			v.why[h] = "no small " + among + " was measured, and no middle one meets the bar: the middle tier's cheapest " + among + ", which misses the bar"
 		}
 	}
 	return v
@@ -1070,13 +1139,13 @@ func frontier(rows []results.Row, arms []frontierArm) string {
 	w("From %d arms, of commit %s (%s).\n\n", len(arms), strings.Join(slices.Sorted(maps.Keys(commits)), ", "), tree)
 	w("How to read it:\n\n")
 	w("- One line for each host, tier, effort and form, from the arm's `<form>.<effort>.on.all` rows, with repair: the store that applies each pass's final verdicts. A row of each metric is one trial (a round of a run); each figure is the mean over the trials, a share over those that have one. The tier is all a row says of its model.\n")
-	w("- `wrong_write` is the scorer's count a trial; its share is the wrong writes over the operations accepted after repair, the nearest count of stored statements the rows hold, and the bar of design 8.3 reads the share.\n")
+	w("- `wrong_write` is the scorer's count a trial; its share is the wrong writes over the operations accepted after repair, the nearest count of stored statements the rows hold, and the bar of design 8.3 reads the share. That count also holds the accepted operations that retire, mark done or answer a record and store no statement, so the share is lower than a share of stored statements: a lenient reading, until the lead rules on it. The stricter reading, the count a trial at most 0.02, can be read from the table's `wrong_write`.\n")
 	w("- `stale_in_force` is shown and is no bar: the scorer counts a faithful answer to v1.08 as stale, since a next step that names a word of an ended step reads as keeping that step in force (EV-14e may change that reading), so a count of about 1 a trial can be no fault of the model.\n")
 	w("- Refusals and hedges: the typed refusals and hedges the scripts plant that an operation kept as a decision or a procedure citing them (cited), and of those the ones accepted under the user's authority (accepted).\n")
 	w("- Tokens a call are every call's input and output over the calls, first and repair; seconds a call likewise.\n")
-	w("- The default row (design 8.3): the cheapest, by tier then measured tokens a trial, with `fact_recall` at least %.2f, `wrong_write` at most %.2f as a share and `misattributed` 0; if no small row meets that, the middle tier's cheapest that does, or else its cheapest, which is said to miss the bar. A large row is never the default. It is read for each host among the rows of the evidence form.\n", barRecall, barWrongWrite)
-	w("- The evidence form (design 5.4): segments when `quote_miss_final` is over 2%% on either host at the quotes form's default row, read by the same rule among that form's rows; else quotes.\n")
-	w("- Assent (plan section 8): if a typed refusal or hedge was accepted as assent at a default row, a short typed yes does not count, and decision 10 stays at dialog choices and plan approvals.\n\n")
+	w("- The default row (design 8.3): the cheapest, by tier then measured tokens a trial, with `fact_recall` at least %.2f, `wrong_write` at most %.2f as a share and `misattributed` 0; if no small row meets that, the middle tier's cheapest that does, or else its cheapest, which is said to miss the bar. A large row is never the default. Its tier and effort are read for each host over the rows of both forms, and the row it names is then read by the same rule among the rows of the evidence form.\n", barRecall, barWrongWrite)
+	w("- The evidence form (design 5.4): segments when `quote_miss_final` is over 2%% on either host at the default tier and effort, read at the quotes row of that tier and effort, or, when the host has no such row with a `quote_miss_final`, at the quotes form's own default row, read by the same rule among that form's rows; else quotes.\n")
+	w("- Assent (plan section 8, the threshold \"Typed refusals cited as assent\"): if any typed refusal or hedge was cited as assent at a default row, whether or not the checker then accepted the operation, a short typed yes does not count, and decision 10 stays at dialog choices and plan approvals. The line gives the cited and the accepted counts side by side.\n\n")
 	w("| Host | Version | Tier | Effort | Form | Trials | fact_recall | wrong_write | wrong_write share | misattributed | stale_in_force | honest_refused | quote_miss_final | Refusals cited, accepted | Hedges cited, accepted | repair_yield | Tokens a call | Seconds a call |\n")
 	w("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, a := range arms {
@@ -1120,8 +1189,8 @@ func frontier(rows []results.Row, arms []frontierArm) string {
 		if !v.meets[h] {
 			met = "it misses the bar"
 		}
-		w("- **The default row on %s:** %s, %s: fact_recall %s, wrong_write share %.3f, misattributed %s; %s.\n",
-			h, d.label(), v.why[h], on.show("fidelity.fact_recall", "%.3f"), share, on.show("fidelity.misattributed", "%.2f"), met)
+		w("- **The default row on %s:** %s, %s: fact_recall %s, wrong_write share %.3f (%s a trial), misattributed %s; %s.\n",
+			h, d.label(), v.why[h], on.show("fidelity.fact_recall", "%.3f"), share, on.show("fidelity.wrong_write", "%.2f"), on.show("fidelity.misattributed", "%.2f"), met)
 	}
 	for _, h := range hosts {
 		d, ok := v.defaults[h]
@@ -1129,18 +1198,23 @@ func frontier(rows []results.Row, arms []frontierArm) string {
 			continue
 		}
 		on := d.on()
+		citedR, _ := on.sum("spike.assent_cited_refusal")
+		citedH, _ := on.sum("spike.assent_cited_hedge")
 		refused, _ := on.sum("spike.accepted_from_refusal")
 		hedged, _ := on.sum("spike.accepted_from_hedge")
 		pr, _ := on.sum("spike.plants_refusal")
 		ph, _ := on.sum("spike.plants_hedge")
+		// The plan's threshold is a refusal cited as assent, whatever the
+		// checker then did with the operation; an accepted one was cited
+		// too, so either count fires the rule.
 		switch {
-		case refused+hedged > 0:
-			w("- **Assent on %s:** at the default row %.0f typed refusals and %.0f typed hedges were accepted as assent, of %.0f and %.0f shown, over %d trials: a short typed yes does not count, and decision 10 stays at dialog choices and plan approvals.\n",
-				h, refused, hedged, pr, ph, on.trials())
+		case citedR+citedH+refused+hedged > 0:
+			w("- **Assent on %s:** at the default row %.0f typed refusals and %.0f typed hedges were cited as assent, and %.0f and %.0f accepted, of %.0f and %.0f shown, over %d trials: a short typed yes does not count, and decision 10 stays at dialog choices and plan approvals.\n",
+				h, citedR, citedH, refused, hedged, pr, ph, on.trials())
 		case pr+ph == 0:
 			w("- **Assent on %s:** not measured: the default row's trials showed no planted refusal or hedge.\n", h)
 		default:
-			w("- **Assent on %s:** at the default row no typed refusal or hedge was accepted as assent, of %.0f and %.0f shown, over %d trials.\n", h, pr, ph, on.trials())
+			w("- **Assent on %s:** at the default row no typed refusal or hedge was cited as assent, and none accepted, of %.0f and %.0f shown, over %d trials.\n", h, pr, ph, on.trials())
 		}
 	}
 	for _, h := range hosts {

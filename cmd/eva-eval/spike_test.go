@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -357,6 +358,19 @@ func TestRunRefusals(t *testing.T) {
 		{"repeat", func(r *spikeRig, out, rec string) []string {
 			return liveArgs(r, codex, out, "--spend-model-quota", "--repeat", "0")
 		}, "--repeat must be"},
+		{"a recording that is the rows file", func(r *spikeRig, out, rec string) []string {
+			return liveArgs(r, codex, out, "--spend-model-quota", "--record", filepath.Join(out, results.FileName))
+		}, "--record must name a file outside the --out folder"},
+		{"a recording in the results folder through a link", func(r *spikeRig, out, rec string) []string {
+			link := filepath.Join(filepath.Dir(rec), "link")
+			if err := os.Symlink(filepath.Dir(out), link); err != nil {
+				t.Fatal(err)
+			}
+			return liveArgs(r, codex, out, "--spend-model-quota", "--record", filepath.Join(link, filepath.Base(out), "sub", "rec.jsonl"))
+		}, "--record must name a file outside the --out folder"},
+		{"a recording in the results folder without quota", func(r *spikeRig, out, rec string) []string {
+			return liveArgs(r, claude, out, "--record", filepath.Join(out, "rec.jsonl"))
+		}, "--record must name a file outside the --out folder"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newSpikeRig(t)
@@ -410,7 +424,7 @@ func TestRunWithoutQuotaSaysWhatItWouldCall(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "rows")
 	code, stdout, errOut := spikeCmd(liveArgs(r, string(adapter.Codex), out, "--repeat", "2")...)
 	n := 2 * totalPasses()
-	want := fmt.Sprintf("makes %d first calls, one for each of the %d passes of the spike's %d scripts in each of 2 rounds, and at most %d repair calls: %d calls at most.\n", n, n/2, len(spike.Scripts()), n, 2*n)
+	want := fmt.Sprintf("makes %d first calls, one for each of the %d passes of the spike's %d scripts in each of 2 rounds, and at most %d repair calls: %d calls at most. A call can run the host's CLI more than once", n, n/2, len(spike.Scripts()), n, 2*n)
 	if code != 2 || !strings.Contains(stdout, want) || !strings.Contains(errOut, "Nothing was called") {
 		t.Fatalf("exit %d, out %q, err %q", code, stdout, errOut)
 	}
@@ -844,14 +858,14 @@ func TestFrontierASmallRowPasses(t *testing.T) {
 	if l := line(out, "- **The evidence form:**"); !strings.HasPrefix(l, "- **The evidence form:** quotes, since quote_miss_final is at most 2%") {
 		t.Errorf("form: %q", l)
 	}
-	if l := line(out, "- **The default row on claude-code:**"); !strings.Contains(l, "tier small, effort medium, form quotes, the cheapest small row that meets the bar") ||
+	if l := line(out, "- **The default row on claude-code:**"); !strings.Contains(l, "tier small, effort medium, form quotes, the cheapest small quotes row that meets the bar") ||
 		!strings.HasSuffix(l, "it meets the bar.") {
 		t.Errorf("claude-code: %q", l)
 	}
 	if l := line(out, "- **The default row on codex:**"); !strings.Contains(l, "tier small, effort medium, form quotes") || !strings.HasSuffix(l, "it meets the bar.") {
 		t.Errorf("codex: %q", l)
 	}
-	if l := line(out, "- **Assent on codex:**"); !strings.Contains(l, "no typed refusal or hedge was accepted as assent, of 24 and 24 shown, over 1 trials") {
+	if l := line(out, "- **Assent on codex:**"); !strings.Contains(l, "no typed refusal or hedge was cited as assent, and none accepted, of 24 and 24 shown, over 1 trials") {
 		t.Errorf("assent: %q", l)
 	}
 	if l := line(out, "| claude-code | 1.0.0 | small | medium | quotes | 2 | 0.950 |"); l == "" {
@@ -879,7 +893,7 @@ func TestFrontierOnlyAMiddleRowPasses(t *testing.T) {
 		!strings.HasSuffix(l, "it meets the bar.") {
 		t.Errorf("codex: %q", l)
 	}
-	if l := line(out, "- **Assent on codex:**"); !strings.Contains(l, "0 typed refusals and 1 typed hedges were accepted as assent") ||
+	if l := line(out, "- **Assent on codex:**"); !strings.Contains(l, "0 typed refusals and 2 typed hedges were cited as assent, and 0 and 1 accepted") ||
 		!strings.Contains(l, "a short typed yes does not count") {
 		t.Errorf("assent: %q", l)
 	}
@@ -906,11 +920,11 @@ func TestFrontierNoRowPasses(t *testing.T) {
 		armRows(claudeID, "large", "low", q, good(2000)),
 	)
 	l := line(out, "- **The default row on claude-code:**")
-	if !strings.Contains(l, "tier middle, effort medium, form quotes, no small row meets the bar, and no middle row does: the middle tier's cheapest row, which misses the bar") ||
+	if !strings.Contains(l, "tier middle, effort medium, form quotes, no small row meets the bar, and no middle one does: the middle tier's cheapest row, which misses the bar") ||
 		!strings.HasSuffix(l, "it misses the bar.") || strings.Contains(l, "meets the bar.") {
 		t.Errorf("claude-code: %q", l)
 	}
-	if l := line(out, "- **Assent on claude-code:**"); !strings.Contains(l, "2 typed refusals and 0 typed hedges were accepted") {
+	if l := line(out, "- **Assent on claude-code:**"); !strings.Contains(l, "0 typed refusals and 0 typed hedges were cited as assent, and 2 and 0 accepted") {
 		t.Errorf("assent: %q", l)
 	}
 	// With no middle row at all there is no default to name.
@@ -933,7 +947,8 @@ func TestFrontierSegments(t *testing.T) {
 		armRows(codexID, "middle", "low", s, good(900)),
 	}
 	out := frontierOf(t, rows...)
-	if l := line(out, "- **The evidence form:**"); !strings.HasPrefix(l, "- **The evidence form:** segments, since quote_miss_final is over 2% at the quotes form's default row on codex (") {
+	if l := line(out, "- **The evidence form:**"); !strings.HasPrefix(l, "- **The evidence form:** segments, since quote_miss_final is over 2% on codex (") ||
+		!strings.Contains(l, "codex 0.030 at tier small, effort low, at the default tier and effort") {
 		t.Errorf("form: %q", l)
 	}
 	if l := line(out, "- **The default row on claude-code:**"); !strings.Contains(l, "tier small, effort low, form segments") {
@@ -1040,5 +1055,187 @@ func TestRunSaysAnotherEffort(t *testing.T) {
 	data, _ := os.ReadFile(rec)
 	if !strings.Contains(string(data), `"effort_used":""`) || !strings.Contains(string(data), `"effort_used":"low"`) {
 		t.Error("the recording does not keep the effort each answer used")
+	}
+}
+
+// within finds a path in a folder, or the folder itself, through links,
+// and not in a folder whose name only begins with the folder's.
+func TestWithin(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "rows")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path, dir string
+		want      bool
+	}{
+		{filepath.Join(real, results.FileName), real, true},
+		{real, real, true},
+		{filepath.Join(link, "a", "b.jsonl"), real, true},
+		{filepath.Join(real, "x.jsonl"), link, true},
+		{filepath.Join(dir, "rows2", "rec.jsonl"), real, false},
+		{filepath.Join(dir, "rec.jsonl"), real, false},
+		{filepath.Join(dir, "none", "rec.jsonl"), filepath.Join(dir, "none2"), false},
+		{filepath.Join(dir, "none", "rec.jsonl"), filepath.Join(dir, "none"), true},
+	} {
+		if got := within(tc.path, tc.dir); got != tc.want {
+			t.Errorf("within(%s, %s) = %v", tc.path, tc.dir, got)
+		}
+	}
+}
+
+// The evidence form is read at the default tier and effort over both
+// forms: small models that drift on quotes while a small segments row
+// meets the bar make segments the form and that row the default, though a
+// middle quotes row also meets the bar.
+func TestFrontierEvidenceFormAtTheDefaultTier(t *testing.T) {
+	q, s := spike.FormQuotes, spike.FormSegments
+	var rows [][]results.Row
+	for _, h := range []string{claudeID, codexID} {
+		rows = append(rows,
+			armRows(h, "small", "low", q, good(1000).with("fidelity.fact_recall", 0.80, "spike.quote_miss_final", 0.10)),
+			armRows(h, "small", "low", s, good(1000)),
+			armRows(h, "middle", "low", q, good(5000)))
+	}
+	out := frontierOf(t, rows...)
+	if l := line(out, "- **The evidence form:**"); !strings.HasPrefix(l, "- **The evidence form:** segments, since quote_miss_final is over 2% on claude-code and codex (") ||
+		!strings.Contains(l, "claude-code 0.100 at tier small, effort low, at the default tier and effort") {
+		t.Errorf("form: %q", l)
+	}
+	for _, h := range []string{claudeID, codexID} {
+		if l := line(out, "- **The default row on "+h+":**"); !strings.Contains(l, "tier small, effort low, form segments, the cheapest small segments row that meets the bar") ||
+			!strings.HasSuffix(l, "it meets the bar.") {
+			t.Errorf("%s: %q", h, l)
+		}
+	}
+	// With no quotes row at the default tier and effort, the quotes form's
+	// own default row is read.
+	out = frontierOf(t,
+		armRows(codexID, "small", "low", s, good(1000)),
+		armRows(codexID, "middle", "low", q, good(5000).with("spike.quote_miss_final", 0.01)),
+		armRows(claudeID, "small", "low", q, good(1000)))
+	if l := line(out, "- **The evidence form:**"); !strings.HasPrefix(l, "- **The evidence form:** quotes, since quote_miss_final is at most 2% on every host (") ||
+		!strings.Contains(l, "codex 0.010 at tier middle, effort low, at the quotes form's default row") ||
+		!strings.Contains(l, "claude-code 0.010 at tier small, effort low, at the default tier and effort") {
+		t.Errorf("form, no quotes row at the default: %q", l)
+	}
+	if l := line(out, "- **The default row on codex:**"); !strings.Contains(l, "tier middle, effort low, form quotes, no small quotes row was measured") {
+		t.Errorf("codex: %q", l)
+	}
+	// A quotes row at the default tier and effort that drifts, beside a
+	// quotes form whose own default would not: the default tier rules.
+	out = frontierOf(t,
+		armRows(codexID, "small", "medium", s, good(500)),
+		armRows(codexID, "small", "medium", q, good(900).with("spike.quote_miss_final", 0.05)),
+		armRows(codexID, "small", "low", q, good(600)),
+		armRows(claudeID, "small", "low", q, good(1000)))
+	if l := line(out, "- **The evidence form:**"); !strings.HasPrefix(l, "- **The evidence form:** segments") ||
+		!strings.Contains(l, "codex 0.050 at tier small, effort medium") {
+		t.Errorf("form, a drift at the default tier: %q", l)
+	}
+}
+
+// A typed refusal or hedge cited as assent at the default row fires the
+// rule even when the checker accepted none of them: the plan's threshold
+// is "cited".
+func TestFrontierAssentCitedNotAccepted(t *testing.T) {
+	q := spike.FormQuotes
+	out := frontierOf(t,
+		armRows(claudeID, "small", "low", q, good(1000).with("spike.assent_cited_refusal", 3.0)),
+		armRows(codexID, "small", "low", q, good(1000).with("spike.assent_cited_hedge", 1.0)))
+	if l := line(out, "- **Assent on claude-code:**"); !strings.Contains(l, "3 typed refusals and 0 typed hedges were cited as assent, and 0 and 0 accepted, of 24 and 24 shown") ||
+		!strings.Contains(l, "a short typed yes does not count") {
+		t.Errorf("claude-code: %q", l)
+	}
+	if l := line(out, "- **Assent on codex:**"); !strings.Contains(l, "0 typed refusals and 1 typed hedges were cited as assent") ||
+		!strings.Contains(l, "a short typed yes does not count") {
+		t.Errorf("codex: %q", l)
+	}
+}
+
+// The run's own cap holds it to the calls its plan line printed: an arm
+// that asks one call more than that is stopped before the call reaches
+// the runner, and no row is written.
+func TestRunCapsItsCalls(t *testing.T) {
+	for _, kind := range []string{arm.KindFirst, arm.KindRepair} {
+		t.Run(kind, func(t *testing.T) {
+			r := newSpikeRig(t)
+			fake := liveFake(t, r)
+			first := totalPasses()
+			saved := spikeArmRun
+			t.Cleanup(func() { spikeArmRun = saved })
+			spikeArmRun = func(ctx context.Context, a arm.Arm, scripts []spike.Script, ask arm.Ask, rec io.Writer) (arm.Result, error) {
+				for i := 0; i <= first; i++ {
+					schema := spike.Schema(a.Form)
+					if kind == arm.KindRepair {
+						schema = spike.RepairSchema(a.Form)
+					}
+					if _, err := ask(ctx, arm.Call{Script: "s", Pass: i, Round: 1, Kind: kind, System: spike.Prompt(a.Form), Input: []byte("x"), Schema: schema}); err != nil {
+						return arm.Result{}, err
+					}
+				}
+				return arm.Result{}, errors.New("the cap let a call too many through")
+			}
+			out := filepath.Join(t.TempDir(), "rows")
+			code, stdout, errOut := spikeCmd(liveArgs(r, claudeID, out, "--spend-model-quota")...)
+			if code != 1 || !strings.Contains(errOut, "the run asked for more "+kind+" calls than the") || !strings.Contains(errOut, "no row was written") {
+				t.Fatalf("exit %d, out %q, err %q", code, stdout, errOut)
+			}
+			if len(fake.requests) != first {
+				t.Errorf("%d calls reached the runner, not %d", len(fake.requests), first)
+			}
+			if want := fmt.Sprintf("The host's CLI was run %d times for %d calls through the runner.\n", first, first); !strings.Contains(stdout, want) {
+				t.Errorf("out %q", stdout)
+			}
+			if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
+				t.Error("the stopped run wrote rows")
+			}
+		})
+	}
+}
+
+// The store holds the model's name out of the rows a second time: a row
+// that held it is not written, and the error does not name it.
+func TestRunStoreForbidsTheModel(t *testing.T) {
+	r := newSpikeRig(t)
+	liveFake(t, r)
+	saved := spikeRows
+	t.Cleanup(func() { spikeRows = saved })
+	spikeRows = func(res arm.Result, template results.Row) []results.Row {
+		rows := arm.Rows(res, template)
+		rows[len(rows)-1].Scenario = "quotes.low.on." + madeUpModel
+		return rows
+	}
+	out := filepath.Join(t.TempDir(), "rows")
+	code, stdout, errOut := spikeCmd(liveArgs(r, codexID, out, "--spend-model-quota")...)
+	if code != 1 || !strings.Contains(errOut, "holds a word the run forbids") {
+		t.Fatalf("exit %d, out %q, err %q", code, stdout, errOut)
+	}
+	noModel(t, "the output", stdout, errOut)
+	if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("a row that held the model's name was written")
+	}
+}
+
+// The run says how many runs of the host's CLI its calls took, which is
+// more than the calls when the runner tried a call again.
+func TestRunSaysTheCLIRuns(t *testing.T) {
+	r := newSpikeRig(t)
+	fake := liveFake(t, r)
+	fake.fail = func(n int, res *update.Result) error {
+		if n == 1 {
+			res.Attempts = 3
+		}
+		return nil
+	}
+	code, stdout, errOut := spikeCmd(liveArgs(r, codexID, filepath.Join(t.TempDir(), "rows"), "--spend-model-quota")...)
+	n := len(fake.requests)
+	if want := fmt.Sprintf("The host's CLI was run %d times for %d calls through the runner.\n", n+2, n); code != 0 || !strings.Contains(stdout, want) {
+		t.Fatalf("exit %d, out %q, err %q", code, stdout, errOut)
 	}
 }
