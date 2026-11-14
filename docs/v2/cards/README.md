@@ -79,7 +79,7 @@ Rules every card carries, so they are said once here:
 | [IF-01b](IF-01b.md) | The reader's fake | merged |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | merged; owed: the fake gains `ItemsCiting`, and keeps words and `Evidence`, once ST-05 puts them in the store's interface and the model |
 | [ST-02](ST-02.md) | The storage properties, as tests against a reference model | merged; ST-02b carries what its notes and IF-01c's owe |
-| [ST-02b](ST-02b.md) | The store's properties catch a store that never crashed, and a pass that loses a session's notes | building since 2026-11-14; before ST-05 is held to the harness |
+| [ST-02b](ST-02b.md) | The store's properties catch a store that never crashed, and a pass that loses a session's notes | merged; ST-05 is held to six properties |
 | [ST-03a](ST-03a.md) | The line-preserving, fail-closed codec | merged |
 | [ST-03b](ST-03b.md) | v1's pages read through the codec, as v1 read them | merged; ST-03c mends ST-03a's reading of a lock or a verified mark behind Unicode white space |
 | [ST-03c](ST-03c.md) | The codec's protection reads a lock as v1 read it, behind white space, quotes and escapes | merged; the format's specification owes two sentences on it (the card's last section) |
