@@ -30,6 +30,12 @@
 // grading lays the hidden tests again before each of them, so that the
 // chat's code one test runs cannot rewrite the next.
 //
+// Every call of a chat, under every condition, has the host's web tools
+// turned off by the host table (hostEntry.WebOff), since the hidden tests
+// may be published where a web search made at the host's provider, past
+// any limit on the network, would find them. A call whose output names a
+// web tool's call all the same stops the run as web_used.
+//
 // A run given --trace keeps what each call of the host's CLI printed, in a
 // folder for the driver's user alone, outside --work and --out and any
 // checkout of the repository (trace.go), so that a wrong reading of a real
@@ -95,15 +101,20 @@ const (
 	// chat's reach, or a grading folder a chat redirected, which would put
 	// a grading's copy of the hidden tests out of the check's sight.
 	CodeHiddenFound = "hidden_found"
+	// CodeWebUsed is a call whose output names a call of a web tool, a
+	// search or a fetch, which the host table turns off for every chat: a
+	// search run at the host's provider is past any limit on the network,
+	// and could find the hidden tests where they are published.
+	CodeWebUsed = "web_used"
 )
 
 // Codes lists every code of an unjudged trial, in a fixed order.
 var Codes = []string{CodeSignIn, CodeRateLimited, CodeTimeout, CodeOtherModel, CodeSetupFailed, CodeUpdateFailed, CodeHostFailed,
-	CodeNoUsage, CodeMemoryOff, CodeHiddenFound}
+	CodeNoUsage, CodeMemoryOff, CodeHiddenFound, CodeWebUsed}
 
 // stopCodes are the codes that stop the run: each says the set-up is
 // wrong, so every further trial would spend a session to learn nothing.
-var stopCodes = []string{CodeNoUsage, CodeMemoryOff, CodeHiddenFound}
+var stopCodes = []string{CodeNoUsage, CodeMemoryOff, CodeHiddenFound, CodeWebUsed}
 
 // EndedArmStopped is how a run ends that its condition stopped before a
 // trial started, by ErrStopRun: that trial and every later one are

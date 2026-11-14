@@ -32,6 +32,10 @@ type chat struct {
 	// Extra are the flags of the condition: hostEntry.Off's, or those
 	// hostEntry.Plugin gives, then Launch.Args.
 	Extra []string
+	// Web are the flags that turn the host's web tools off, which
+	// hostEntry.WebOff gave for the trial. They come after Extra, so that
+	// no flag of a condition turns a web tool back on.
+	Web []string
 }
 
 // report is what the driver reads from one call's output.
@@ -64,6 +68,9 @@ type report struct {
 	// them names more. The rows' tokens are read as the reader says, which
 	// may name fewer.
 	Spent int64
+	// Web says the output names a call of a web tool, a search or a fetch,
+	// which no chat should have had: the set-up is wrong.
+	Web bool
 }
 
 // pluginLoad is how a chat loads eva-md's plugin: flags, and files written
@@ -88,6 +95,14 @@ type hostEntry struct {
 	// trial's home, with the host's own memory still off. It never writes a
 	// trust record.
 	Plugin func(home string, h adapter.Host) (pluginLoad, error)
+	// WebOff gives the flags that turn the host's web tools off, its web
+	// search and its web fetch, for every call of a trial, whatever its
+	// condition, while the chat keeps the tools that edit files and run
+	// commands. list runs the host's CLI with the arguments given, in the
+	// trial's environment, and gives what it printed on stdout; an entry
+	// that must ask the CLI what it can turn off uses it. An error says the
+	// web tools cannot be turned off, and stops the run before any chat.
+	WebOff func(list func(args ...string) ([]byte, error)) ([]string, error)
 	// Read reads what one call printed on stdout.
 	Read func(out []byte) report
 	// ConfigEnv are the variables that point the host at a configuration
@@ -113,6 +128,22 @@ var hosts = map[adapter.ID]hostEntry{
 	//     fire under an API key.
 	//   - F-067: the run is headless under an API key; its permission mode
 	//     lets the chat edit files and run tests in the trial's workspace.
+	//   - Web tools off (WebOff): no host fact records it yet, so this is a
+	//     guess for the pilot's smoke run to prove. --disallowedTools takes
+	//     tool names and takes those tools from the chat, whatever its
+	//     permission mode (working-papers/research/claude-surface.md 6.1
+	//     names the flag); WebSearch and WebFetch are the built-in web tools,
+	//     as eva-md's own hook matcher names them (internal/install/
+	//     templates.go). Edit, Write and Bash stay. F-113 (not recorded)
+	//     says the stream's opening event names the tools on offer, where
+	//     the smoke run reads that neither is there. No variable is known to
+	//     turn them back on.
+	//   - Web calls (Read): a tool_use block named WebSearch or WebFetch, a
+	//     server_tool_use block named web_search or web_fetch, or a count of
+	//     web searches or fetches above 0 in a result's usage
+	//     (server_tool_use) or in a model's entry of modelUsage, as DV-11c's
+	//     reader of the same host names them (internal/derive/modelrun/
+	//     claude.go). A guess as well, for the smoke run to confirm.
 	adapter.ClaudeCode: {
 		// The prompt comes last, after "--", so that one that starts with "-"
 		// is read as no flag, and no flag that takes several values takes it.
@@ -126,7 +157,11 @@ var hosts = map[adapter.ID]hostEntry{
 				args = append(args, "--resume", c.Resume)
 			}
 			args = append(args, c.Extra...)
+			args = append(args, c.Web...)
 			return append(args, "--", c.Prompt)
+		},
+		WebOff: func(func(...string) ([]byte, error)) ([]string, error) {
+			return slices.Concat([]string{"--disallowedTools"}, claudeWebTools), nil
 		},
 		Off:    []string{"--settings", `{"autoMemoryEnabled":false}`},
 		OffEnv: []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"},
@@ -155,6 +190,18 @@ var hosts = map[adapter.ID]hostEntry{
 	//     trial.
 	//   - F-067: the run is headless under an API key; it may edit files and
 	//     run tests in the workspace, which need not be a repository.
+	//   - Web tools off (WebOff): no host fact records it yet, so this is a
+	//     guess for the pilot's smoke run to prove, from what v1's update
+	//     already passes (internal/update/codex.go): -c web_search=disabled
+	//     turns the web search off, and --disable turns off each feature of
+	//     codexWebFeatures that the CLI's own features list names, since it
+	//     refuses a name it does not know. The list is read once a trial, in
+	//     its environment, and one that cannot be read stops the run. The
+	//     shell and the edit tool stay. exec --json prints no list of the
+	//     tools on offer. No variable is known to turn them back on.
+	//   - Web calls (Read): an item of type web_search, started or
+	//     completed, as DV-11b's reader of exec --json names it
+	//     (internal/derive/modelrun/codex.go). A guess as well.
 	adapter.Codex: {
 		Argv: func(c chat) []string {
 			args := []string{"exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox"}
@@ -162,6 +209,7 @@ var hosts = map[adapter.ID]hostEntry{
 				args = append(args, "--model", c.Model)
 			}
 			args = append(args, c.Extra...)
+			args = append(args, c.Web...)
 			if c.Resume != "" {
 				args = append(args, "resume", c.Resume)
 			}
@@ -184,9 +232,70 @@ var hosts = map[adapter.ID]hostEntry{
 				Files: map[string][]byte{filepath.Join(".codex", "requirements.toml"): managed},
 			}, nil
 		},
+		WebOff:    codexWebOff,
 		Read:      readExecJSON,
 		ConfigEnv: []string{"CODEX_HOME"},
 	},
+}
+
+// codexWebFeatures are the Codex features that give a chat a tool that
+// reaches the web, from v1's list of tool features (codexTools in
+// internal/update/codex.go): the standalone web search, and browser and
+// computer use, whose browser fetches pages. None edits a file or runs a
+// command.
+var codexWebFeatures = []string{"standalone_web_search", "browser_use", "browser_use_external",
+	"browser_use_full_cdp_access", "computer_use"}
+
+// codexWebOff turns Codex's web search off by its setting, and each
+// feature of codexWebFeatures that codex features list names, whether on
+// or off. A list that cannot be read, or names no feature, is an error:
+// whether a web feature is there to turn off is then unknown.
+func codexWebOff(list func(args ...string) ([]byte, error)) ([]string, error) {
+	out, err := list("features", "list")
+	if err != nil {
+		return nil, errors.New("the host's CLI did not list its features, so its web tools cannot be turned off")
+	}
+	// A feature's line is its name, its stage and whether it is on, as v1's
+	// update reads it (codexDisable in internal/update/codex.go).
+	listed := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if f := strings.Fields(line); len(f) >= 3 && (f[len(f)-1] == "true" || f[len(f)-1] == "false") {
+			listed[f[0]] = true
+		}
+	}
+	if len(listed) == 0 {
+		return nil, errors.New("the host's CLI listed no features, so its web tools cannot be turned off")
+	}
+	args := []string{"-c", "web_search=disabled"}
+	for _, name := range codexWebFeatures {
+		if listed[name] {
+			args = append(args, "--disable", name)
+		}
+	}
+	return args, nil
+}
+
+// claudeWebTools are Claude Code's web tools, by the names a tool_use block
+// gives them; claudeServerWeb are the API's own, by the names a
+// server_tool_use block gives them.
+var (
+	claudeWebTools  = []string{"WebSearch", "WebFetch"}
+	claudeServerWeb = []string{"web_search", "web_fetch"}
+)
+
+// claudeWebCounts are the counts of web searches and fetches the API ran,
+// in a result's usage.server_tool_use (snake case) or in a model's entry of
+// modelUsage (camel case), as DV-11c's reader names them.
+var claudeWebCounts = []string{"web_search_requests", "web_fetch_requests", "webSearchRequests", "webFetchRequests"}
+
+// webCounted reports whether one of claudeWebCounts in u is above 0.
+func webCounted(u map[string]json.RawMessage) bool {
+	for _, k := range claudeWebCounts {
+		if num(u[k]) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // pluginDir is where install renders eva-md's plugin for the host in a
@@ -300,7 +409,10 @@ func num(raw json.RawMessage) int64 {
 // or is the end of a run at its turn bound (subtype error_max_turns),
 // which leaves the chat's work as it stands; any other error, such as one
 // of the host's service (a 5xx), is no answer. The usage was given when
-// each result event has a usage object or a modelUsage naming a model.
+// each result event has a usage object or a modelUsage naming a model. A
+// web tool was called when a tool_use block names one of claudeWebTools, a
+// server_tool_use block one of claudeServerWeb, or a result's counts of
+// claudeWebCounts one above 0.
 func readStreamJSON(out []byte) report {
 	var r report
 	broken := false
@@ -315,12 +427,17 @@ func readStreamJSON(out []byte) report {
 				Model   string `json:"model"`
 				Content []struct {
 					Type string `json:"type"`
+					Name string `json:"name"`
 				} `json:"content"`
 			}
 			_ = json.Unmarshal(e["message"], &m)
 			for _, c := range m.Content {
-				if c.Type == "tool_use" {
+				switch {
+				case c.Type == "tool_use":
 					r.AgentEvents++
+					r.Web = r.Web || slices.Contains(claudeWebTools, c.Name)
+				case c.Type == "server_tool_use" && slices.Contains(claudeServerWeb, c.Name):
+					r.Web = true
 				}
 			}
 			if m.Model != "" {
@@ -333,6 +450,7 @@ func readStreamJSON(out []byte) report {
 			var by, mu tokens
 			best, most := "", int64(-1)
 			for name, u := range models {
+				r.Web = r.Web || webCounted(u)
 				cached := num(u["cacheReadInputTokens"])
 				n := num(u["outputTokens"])
 				mu.add(tokens{num(u["inputTokens"]) + num(u["cacheCreationInputTokens"]) + cached, cached, n})
@@ -343,6 +461,9 @@ func readStreamJSON(out []byte) report {
 			var u map[string]json.RawMessage
 			given := json.Unmarshal(e["usage"], &u) == nil && u != nil
 			if given {
+				var server map[string]json.RawMessage
+				_ = json.Unmarshal(u["server_tool_use"], &server)
+				r.Web = r.Web || webCounted(server)
 				cached := num(u["cache_read_input_tokens"])
 				by = tokens{num(u["input_tokens"]) + num(u["cache_creation_input_tokens"]) + cached, cached, num(u["output_tokens"])}
 			}
@@ -400,7 +521,8 @@ func (t *tokens) add(u tokens) {
 // (401 or 403) or a rate limit (429). The call answered when a turn
 // completed and none failed: exec has no turn bound, so a turn.failed or
 // an error event is no answer. The usage was given when each
-// turn.completed has a usage object.
+// turn.completed has a usage object. A web tool was called when an item
+// started or completed is a web_search.
 func readExecJSON(out []byte) report {
 	var r report
 	broken := false
@@ -409,11 +531,17 @@ func readExecJSON(out []byte) report {
 		switch str(e["type"]) {
 		case "thread.started":
 			r.Session = str(e["thread_id"])
-		case "item.completed":
+		case "item.started", "item.completed":
 			var item struct {
 				Type string `json:"type"`
 			}
 			_ = json.Unmarshal(e["item"], &item)
+			if item.Type == "web_search" {
+				r.Web = true
+			}
+			if str(e["type"]) == "item.started" {
+				break
+			}
 			switch item.Type {
 			case "agent_message", "reasoning", "error":
 			default:
