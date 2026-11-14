@@ -228,12 +228,17 @@ func TestTheWakeFormTakesOnlyWhatItKnows(t *testing.T) {
 	}
 }
 
-// The reasons a wake form carries are the hooks' reasons, every one: a
-// reason added to the hooks is added to WakeReasons, and so to the words
-// eva-md work --wake takes, or this fails.
+// The reasons a wake form carries are the hooks' reasons, every one but
+// health, whose job, doctor --notice, is never an update or a maintain and
+// so never a wake: a reason added to the hooks is added to WakeReasons, and
+// so to the words eva-md work --wake takes, or this fails.
 func TestWakeReasonsAreTheHooksReasons(t *testing.T) {
-	got, want := slices.Sorted(slices.Values(WakeReasons)), slices.Sorted(slices.Values(reasons))
+	hooks := slices.DeleteFunc(slices.Clone(reasons), func(r string) bool { return r == reasonHealth })
+	got, want := slices.Sorted(slices.Values(WakeReasons)), slices.Sorted(slices.Values(hooks))
 	if !slices.Equal(got, want) {
 		t.Fatalf("WakeReasons %q, the hooks' reasons %q", got, want)
+	}
+	if j := wakeJob(noticeJob); !reflect.DeepEqual(j, noticeJob) {
+		t.Fatalf("the notice's job became %+v", j)
 	}
 }

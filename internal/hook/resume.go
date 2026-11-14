@@ -95,6 +95,10 @@ func resumeContext(ctx context.Context, host string, p payload, env Env, project
 		r.context += strings.Join(lines, "\n")
 	}
 	out := r.encode(p.Event)
+	if out != "" && b.noticeID != "" && p.turn != nil {
+		// Recorded as shown once the output is written (see notice.go).
+		p.turn.shown = b.noticeID
+	}
 	if out != "" {
 		d.Chars, d.Routes = runes(r.context), ordered(routes)
 		if b.brief {
@@ -133,6 +137,9 @@ type briefed struct {
 	brief, fresh bool
 	fallback     bool
 	shown        resume.Shown
+	// noticeID is the id of the prepared health line the reply's message
+	// carries, with the switch health on.
+	noticeID string
 }
 
 // routes are the routes of health.Routes that b's text adds.
@@ -202,13 +209,18 @@ func brief(ctx context.Context, host string, p payload, env Env, project identit
 		}
 		marker = briefMarker{Hash: result.NowHash, Variant: variant, Refreshes: used, Slug: result.Slug}
 	}
-	notice := ""
+	notice, noticeID := "", ""
 	if p.Event == "SessionStart" || !found {
-		notice = health.QuickNotice(ctx, env.Dirs, env.Config, host)
+		if health.Switch.On(env.Config) {
+			// The line is prepared outside the hook (see notice.go).
+			noticeID, notice = health.PreparedLine(env.Dirs, host, now)
+		} else {
+			notice = health.QuickNotice(ctx, env.Dirs, env.Config, host)
+		}
 	}
 	data, _ := json.Marshal(marker)
 	b := briefed{reply: reply{context: result.Text}, text: result.Text, marker: string(data), brief: variant != "refresh", fresh: variant == "startup" || variant == "clear",
-		fallback: p.Event == "UserPromptSubmit" && !found, shown: result.Shown}
+		fallback: p.Event == "UserPromptSubmit" && !found, shown: result.Shown, noticeID: noticeID}
 	// A health notice is a fixed diagnostic, not recovered chat content.
 	if notice != "" && b.context == "" {
 		b.context = notice
