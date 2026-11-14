@@ -25,17 +25,22 @@ var mixedIDs = []string{"v1.03", "v1.05", "v1.06", "assent.01", "assent.02", "bo
 
 // mixed is an answering function over mixedIDs that gives a faithful
 // answer, a repaired one, a repair that fails, an answer that is not JSON,
-// one with characters JSON may escape, a failed first call and a pass with
-// nothing to keep, with cached input on each repair reply.
+// one with characters JSON may escape that goes to repair, a failed first
+// call and a pass with nothing to keep, with cached input on each repair
+// reply.
 func mixed(t *testing.T, f spike.Form) *canned {
+	span := map[spike.Form]string{spike.FormQuotes: `"q": "Store pages as YAML, OSPREY-Y."`, spike.FormSegments: `"s": 1`}[f]
+	note := func(e int) string {
+		return "{\"op\": \"note\", \"id\": null, \"kind\": \"found\", \"text\": \"Pages <stay> small & fast,\u2028still.\", \"admit\": null, " +
+			"\"ev\": [{\"e\": " + strconv.Itoa(e) + ", " + span + ", \"as\": \"said\"}]}"
+	}
 	return &canned{t: t, f: f, cached: true,
 		names: map[string]string{"v1.05.1": "v1.05.1.ungrounded", "assent.01.1": "assent.01.1.off-by-a-word", "bounds.01.1": ""},
 		fail:  map[string]string{"v1.03.2.first": "timeout", "assent.01.1.repair": "rate_limit"},
 		raw: map[string][]byte{
-			"v1.06.1.first": []byte(`{"ops": [], "nothing": "none_new",}`),
-			"v1.03.1.first": []byte("{\"ops\": [\n {\"op\": \"note\", \"id\": null, \"kind\": \"found\", \"text\": \"Pages <stay> small & fast, still.\", " +
-				"\"admit\": null, \"ev\": [{\"e\": 1, \"" + map[spike.Form]string{spike.FormQuotes: `q": "Store pages as YAML, OSPREY-Y."`, spike.FormSegments: `s": 1`}[f] +
-				", \"as\": \"said\"}]}\n],\n \"nothing\": null}\n\n"),
+			"v1.06.1.first":  []byte(`{"ops": [], "nothing": "none_new",}`),
+			"v1.03.1.first":  []byte("{\"ops\": [\n " + note(1) + ",\n " + note(99) + "\n],\n \"nothing\": null}\n\n"),
+			"v1.03.1.repair": []byte(`{"fixes": [{"index": 2, "op": null}]}`),
 		}}
 }
 
@@ -191,7 +196,7 @@ func TestTheRecordingHoldsOnlyAnswers(t *testing.T) {
 				t.Errorf("%s: line %d is %s", f, i+1, l)
 			}
 		}
-		if !strings.Contains(rec.String(), "Pages <stay> small & fast, still.") {
+		if !strings.Contains(rec.String(), "Pages <stay> small & fast,\u2028still.") {
 			t.Errorf("%s: an answer's characters were escaped in the recording", f)
 		}
 	}
@@ -257,6 +262,7 @@ func TestReplayRefuses(t *testing.T) {
 		{"another form", rec, other(func(x *Arm) { x.Form = spike.FormSegments })},
 		{"another host version than the arm's", rec, other(func(x *Arm) { x.HostVersion = "0.99.2" })},
 		{"lines of two host versions", editLine(t, rec, 3, set("host_version", "0.99.2")), a},
+		{"lines of two host versions, the arm giving none", editLine(t, rec, 3, set("host_version", "0.99.2")), other(func(x *Arm) { x.HostVersion = "" })},
 		{"a line of another tier", editLine(t, rec, 2, set("tier", TierMiddle)), a},
 		{"a line given twice", append(slices.Clone(rec), lines[1]...), a},
 		{"a call given twice with other figures", append(slices.Clone(rec), editLine(t, lines[1], 1, set("tokens_in", 1))...), a},
@@ -385,8 +391,8 @@ func TestReplayFailsOnAMissingCallOrAnUnusedLine(t *testing.T) {
 func TestKeep(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"{ \"a\" : [ 1 , 2 ] }\n", `{"a":[1,2]}`},
-		{`{"t":"<&>  "}`, `{"t":"<&>  "}`},
-		{"{\"t\":\"a b\"}", "{\"t\":\"a b\"}"},
+		{`{"t":"<&> \u2028"}`, `{"t":"<&> \u2028"}`},
+		{"{\"t\":\"a\u2028b\"}", "{\"t\":\"a\u2028b\"}"},
 		{`{"a":1,"a":2}`, `{"a":1,"a":2}`},
 		{`[1]`, `[1]`},
 		{`{"a":1}{"b":2}`, ""},

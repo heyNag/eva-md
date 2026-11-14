@@ -91,23 +91,22 @@ func (c *canned) ask(_ context.Context, call Call) (Reply, error) {
 		r.Reason = reason
 		return r, nil
 	}
-	if out, ok := c.raw[at+"."+call.Kind]; ok {
-		r.Output = out
-		return r, nil
+	if c.cached && call.Kind == KindRepair {
+		n := (len(call.System) + len(call.Input)) / 8
+		r.CachedIn = &n
 	}
 	name, ok := c.names[at]
 	if !ok {
 		name = at + ".faithful"
 	}
+	out, ok := c.raw[at+"."+call.Kind]
 	switch {
+	case ok:
+		r.Output = out
 	case name == "":
 		r.Output = []byte(`{"ops": [], "nothing": "none_new"}`)
 	case call.Kind == KindRepair:
 		r.Output = answer(c.t, c.f, name+".repair")
-		if c.cached {
-			n := (len(call.System) + len(call.Input)) / 8
-			r.CachedIn = &n
-		}
 	default:
 		r.Output = answer(c.t, c.f, name)
 	}
@@ -222,6 +221,17 @@ func TestOneQuoteOffByAWord(t *testing.T) {
 		if on1.Count("repair_recovered") != 1 || on1.Count("ops_accepted_final") != 6 || off1.Count("ops_accepted_final") != 5 ||
 			off1.Count("refused_"+code) != 1 || on1.Count("refused_"+code) != 0 || off1.Count("repair_calls") != 0 {
 			t.Errorf("%s: on and off tallies do not tell the repair apart", f)
+		}
+		// What the repair call reads is the prompt and its input, and what
+		// it shares with the first call is the prompt and the first input.
+		prompt := len(spike.Prompt(f))
+		if on1.Count("repair_input_bytes") != prompt+len(c.calls[1].Input) || on1.Count("repair_prefix_bytes") != prompt+len(c.calls[0].Input) ||
+			off1.Count("repair_input_bytes") != 0 {
+			t.Errorf("%s: repair input %d bytes, prefix %d", f, on1.Count("repair_input_bytes"), on1.Count("repair_prefix_bytes"))
+		}
+		if want := (prompt + len(c.calls[1].Input)) / 4; sr.On.Calls.RepairTokensIn != want || sr.Off.Calls.RepairTokensIn != 0 ||
+			sr.On.Calls.TokensIn != want+(prompt+len(c.calls[0].Input))/4 || sr.Off.Calls.TokensIn != (prompt+len(c.calls[0].Input))/4 {
+			t.Errorf("%s: tokens %+v on, %+v off", f, sr.On.Calls, sr.Off.Calls)
 		}
 		if sr.On.Fidelity.Metrics.FactHolds != 1 || sr.Off.Fidelity.Metrics.FactHolds >= 1 {
 			t.Errorf("%s: fact_holds %v on, %v off", f, sr.On.Fidelity.Metrics.FactHolds, sr.Off.Fidelity.Metrics.FactHolds)
@@ -413,6 +423,19 @@ func TestHonestRefused(t *testing.T) {
 	}
 	if v := got[scenarioID(arm(f), "on", "all")+" spike.honest_refused"]; v != 0.5 {
 		t.Errorf("honest_refused over all %v, want 0.5", v)
+	}
+	// v1.08, faithful: five items of the user's, one of which, a next step
+	// that names an ended step's value, the scorer finds stale; the note is
+	// the tool's.
+	sd := run(t, arm(f), &canned{t: t, f: f}, "v1.08").Rounds[0].Scripts[0].On
+	kept := 0
+	for _, it := range sd.Items {
+		if it.Tag == spike.TagStated || it.Tag == spike.TagAccepted {
+			kept++
+		}
+	}
+	if kept != 5 || sd.Honest != 0 || sd.HonestOf != 4 {
+		t.Errorf("v1.08: %d items of the user's, honest %d of %d, want 0 of 4", kept, sd.Honest, sd.HonestOf)
 	}
 }
 
