@@ -90,7 +90,7 @@ Rules every card carries, so they are said once here:
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
 | [EV-14c](EV-14c.md) | Six new families, half held out | merged; EV-14e mends the scorer before these figures are put in a gate |
 | [EV-14d](EV-14d.md) | v1's fidelity row, from a recording | merged |
-| [EV-14e](EV-14e.md) | The scorer tells an agreement from a statement, and asks a slot of some kinds only | building since 2026-11-14; two reviewers; before the families' figures are put in a gate |
+| [EV-14e](EV-14e.md) | The scorer tells an agreement from a statement, and asks a slot of some kinds only | merged; no score moved on any set kept; the families' figures may now go in a gate |
 | [EV-17a](EV-17a.md) | Continuation tasks, their hidden tests, and the rows they give | merged |
 | [EV-17b](EV-17b.md) | The continuation driver, with memory off and the ideal record | merged, with a second round for two rulings of the lead's; the pilot runs on it, and its host table waits for the pilot's recordings |
 | [EV-17c](EV-17c.md) | The v1 condition: memory built from the earlier chat as v1 builds it, and what it cost; the pilot's v1 arm | merged; real runs after decision 28's keys |

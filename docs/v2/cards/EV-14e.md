@@ -54,3 +54,13 @@ The card's checker left these to the lead.
 - A slot is asked of every kind unless the fact says otherwise (opt-out), as carded.
 - An echo held in full beside the correction stays `stale_in_force`.
 - At the merge the lead amends EV-14b's notes, which say there is no third exemption, and EV-14c's row in the index.
+
+## As merged
+
+Merged on 2026-11-14 (a9dc7bd, from `pkg/ev-14e-r1`, after two reviews, one round of fixes and a verification that accepted it).
+
+- **No score moved** on v1's 12 pages, the ideal stores and every seeded distortion, the five fidelity pages of `cmd/eva-eval/testdata`, or any family on 20 seeds. Only a store that files an acceptance under stated, asks a hypothesis as an open question with no hedge, or cites the agent's echo beside a correction scores otherwise.
+- **`Unasked` bears only on supports and lacks** (the second reviewer's major, mended): a fact that may be kept only without the user's tag, or only as something other than a rule, is still broken by an item that holds any of its values, asked of the item's kind or not.
+- **Beyond the card's list, inside its paths:** `Distort` uses the same check, so the seeded set never plants a fault in a slot the scorer does not ask.
+- **Known and left, the card's rule:** an item that keeps the correction in full and names the agent's echo only by the echo's own reference stays `stale_in_force`, since that reference is no slot of the replaced fact. A later card may spare it.
+- **Known and left:** in the accepted family an acceptance under stated is found with the wrong authority, and `fact_holds` falls, but the item's own outcome stays supports, since the item also stands for two history verdicts.
