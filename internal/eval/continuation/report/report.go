@@ -37,14 +37,18 @@ type Folder struct {
 	Records []drive.Record
 }
 
-// SizeOK returns an error when the file at path is larger than MaxFile,
-// and nil when it is no larger or does not exist. It does not open it.
+// SizeOK returns an error when the file at path, a link followed, is not a
+// plain file, whose size says what a read would take, or is larger than
+// MaxFile, and nil when it is neither or does not exist. It does not open
+// it.
 func SizeOK(path string) error {
 	info, err := os.Stat(path)
-	if err != nil {
+	switch {
+	case err != nil:
 		return nil
-	}
-	if info.Size() > MaxFile {
+	case !info.Mode().IsRegular():
+		return errors.New("is not a plain file")
+	case info.Size() > MaxFile:
 		return errors.New("is over 64 MiB")
 	}
 	return nil

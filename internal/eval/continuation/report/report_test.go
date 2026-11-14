@@ -597,6 +597,30 @@ func TestReadFolder(t *testing.T) {
 			t.Errorf("%s at 64 MiB: %v", name, err)
 		}
 	}
+	// A rows or runs file that is a folder, or a link to a device whose
+	// size is 0 however much it gives, is refused unopened.
+	for _, name := range []string{results.FileName, drive.RunsFile} {
+		odd := t.TempDir()
+		copyFile(t, filepath.Join("testdata", "c", drive.RunsFile), filepath.Join(odd, drive.RunsFile))
+		if err := os.Remove(filepath.Join(odd, name)); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(os.DevNull, filepath.Join(odd, name)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadFolder(odd, cat); err == nil || !strings.HasSuffix(err.Error(), "is not a plain file") {
+			t.Errorf("%s a device: %v", name, err)
+		}
+		if err := os.Remove(filepath.Join(odd, name)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(odd, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadFolder(odd, cat); err == nil || !strings.HasSuffix(err.Error(), "is not a plain file") {
+			t.Errorf("%s a folder: %v", name, err)
+		}
+	}
 	// A rows file the loader refuses, or the catalogue lacks, is refused
 	// without the loader's words.
 	bad := t.TempDir()
