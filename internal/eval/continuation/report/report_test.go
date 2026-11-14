@@ -528,8 +528,13 @@ func TestRefusals(t *testing.T) {
 		}
 		assertClean(t, err.Error())
 	}
-	// The unchanged folders build, so each refusal above is its change's.
+	// The unchanged folders build, so each refusal above is its change's;
+	// and so do two runs that share an id and a host and a condition but
+	// are not the same, as two started in one second may.
 	if _, err := Build(testTasks(), mutate(t, func([]Folder) {}), testRates); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(testTasks(), mutate(t, func(fs []Folder) { fs[2].Records[0].Run = fs[1].Records[0].Run }), testRates); err != nil {
 		t.Fatal(err)
 	}
 }

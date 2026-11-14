@@ -9,6 +9,7 @@
 package report
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -276,7 +277,7 @@ func Build(tasks []task.Task, folders []Folder, rates *Rates) (Report, error) {
 
 	trials := map[trialKey]*trial{}
 	seen := map[[3]string]bool{} // host, metric, scenario
-	runs := map[[3]string]bool{} // run, host, condition
+	runs := map[string]bool{}    // records, as JSON
 	rowCount := map[groupKey]int{}
 	records := map[string][]drive.Record{} // by host
 	conds := map[string]map[task.Condition]bool{}
@@ -308,11 +309,17 @@ func Build(tasks []task.Task, folders []Folder, rates *Rates) (Report, error) {
 					return Report{}, fmt.Errorf("%s: task %s is not in --tasks", at, id)
 				}
 			}
-			k := [3]string{rec.Run, rec.Host, rec.Condition}
-			if runs[k] {
+			// A record is the same run's when it is the same in every
+			// field: two runs started in one second, each in a --work of
+			// its own, may share an id.
+			k, err := json.Marshal(rec)
+			if err != nil {
+				return Report{}, errors.New(at + ": it cannot be compared")
+			}
+			if runs[string(k)] {
 				return Report{}, fmt.Errorf("%s: run %s of host %s, condition %s, is given twice", at, rec.Run, rec.Host, rec.Condition)
 			}
-			runs[k] = true
+			runs[string(k)] = true
 			records[rec.Host] = append(records[rec.Host], rec)
 			if conds[rec.Host] == nil {
 				conds[rec.Host] = map[task.Condition]bool{}
