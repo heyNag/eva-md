@@ -85,7 +85,7 @@ Rules every card carries, so they are said once here:
 | [ST-03c](ST-03c.md) | The codec's protection reads a lock as v1 read it, behind white space, quotes and escapes | merged; the format's specification owes two sentences on it (the card's last section) |
 | [ST-01b](ST-01b.md) | The profile checker reads through the codec, so both read a lock alike | merged |
 | [ST-04](ST-04.md) | The migrator and the minimum reader version | merged; ST-07's card settles the files v1's `.gitignore` hid |
-| [ST-04b](ST-04b.md) | Four tests and a figure that merged packages owe | building since 2026-11-14 |
+| [ST-04b](ST-04b.md) | Four tests and a figure that merged packages owe | merged, and the retrieval baseline accepted again on `main`; `docs/verification.md` owes three sentences, which wait for EV-10a's merge |
 | [EV-14a](EV-14a.md) | The scenario model, with v1's 12 scripts ported | merged |
 | [EV-14b](EV-14b.md) | The fidelity scorer, and a reader for v1's pages | merged |
 | [EV-14c](EV-14c.md) | Six new families, half held out | merged; EV-14e mends the scorer before these figures are put in a gate |
