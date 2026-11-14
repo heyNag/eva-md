@@ -185,6 +185,18 @@ func TestLoadRunsRefuses(t *testing.T) {
 	if got, err := load(stopped); err != nil || len(got) != 1 || got[0].Ended != CodeHiddenFound {
 		t.Fatalf("a stopped run's line: %+v %v", got, err)
 	}
+	// A run its condition stopped at its first trial: that trial not run.
+	armStopped := func(edit func(m map[string]any)) string {
+		return line(func(m map[string]any) {
+			m["ended"], m["judged"], m["not_run"], m["rows"] = EndedArmStopped, 0, 1, 0
+			if edit != nil {
+				edit(m)
+			}
+		})
+	}
+	if got, err := load(armStopped(nil)); err != nil || len(got) != 1 || got[0].Ended != EndedArmStopped {
+		t.Fatalf("a run its condition stopped: %+v %v", got, err)
+	}
 	for name, body := range map[string]string{
 		"an unknown field":   line(func(m map[string]any) { m["made_up"] = 1 }),
 		"an unknown code":    line(func(m map[string]any) { m["unjudged"].(map[string]any)["made_up"] = 0 }),
@@ -201,18 +213,21 @@ func TestLoadRunsRefuses(t *testing.T) {
 		"a stop with no trial": line(func(m map[string]any) {
 			m["ended"] = CodeHiddenFound
 		}),
-		"dirty missing":    line(func(m map[string]any) { delete(m, "dirty") }),
-		"kept missing":     line(func(m map[string]any) { delete(m, "kept") }),
-		"judged missing":   line(func(m map[string]any) { delete(m, "judged") }),
-		"not_run missing":  line(func(m map[string]any) { delete(m, "not_run") }),
-		"no_model missing": line(func(m map[string]any) { delete(m, "no_model") }),
-		"tokens missing":   line(func(m map[string]any) { delete(m, "tokens") }),
-		"rows missing":     line(func(m map[string]any) { delete(m, "rows") }),
-		"model missing":    line(func(m map[string]any) { delete(m, "model") }),
-		"a null count":     line(func(m map[string]any) { m["judged"] = nil }),
-		"a null flag":      line(func(m map[string]any) { m["dirty"] = nil }),
-		"a partial line":   line(nil) + strings.TrimSuffix(line(nil), "\n"),
-		"not a record":     line(nil) + "{\n",
+		"arm_stopped, one uncounted":    armStopped(func(m map[string]any) { m["planned"] = 2 }),
+		"arm_stopped, none not run":     armStopped(func(m map[string]any) { m["judged"], m["not_run"] = 1, 0 }),
+		"arm_stopped as a trial's code": line(func(m map[string]any) { m["unjudged"].(map[string]any)[EndedArmStopped] = 0 }),
+		"dirty missing":                 line(func(m map[string]any) { delete(m, "dirty") }),
+		"kept missing":                  line(func(m map[string]any) { delete(m, "kept") }),
+		"judged missing":                line(func(m map[string]any) { delete(m, "judged") }),
+		"not_run missing":               line(func(m map[string]any) { delete(m, "not_run") }),
+		"no_model missing":              line(func(m map[string]any) { delete(m, "no_model") }),
+		"tokens missing":                line(func(m map[string]any) { delete(m, "tokens") }),
+		"rows missing":                  line(func(m map[string]any) { delete(m, "rows") }),
+		"model missing":                 line(func(m map[string]any) { delete(m, "model") }),
+		"a null count":                  line(func(m map[string]any) { m["judged"] = nil }),
+		"a null flag":                   line(func(m map[string]any) { m["dirty"] = nil }),
+		"a partial line":                line(nil) + strings.TrimSuffix(line(nil), "\n"),
+		"not a record":                  line(nil) + "{\n",
 	} {
 		if got, err := load(body); err == nil {
 			t.Errorf("%s: loaded %+v", name, got)

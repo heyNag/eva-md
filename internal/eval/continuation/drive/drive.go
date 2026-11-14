@@ -11,7 +11,9 @@
 // record or settings. A trial a host failure leaves unjudged writes no row,
 // and the run goes on to the next. A trial unjudged for a fault of the
 // set-up, a call that gave no usage among them, stops the run: every
-// further trial would spend a session to learn nothing.
+// further trial would spend a session to learn nothing. A condition that
+// knows as much stops the run before a trial starts (ErrStopRun), and the
+// run ends arm_stopped, that trial and those after it not run.
 //
 // What a chat can reach: --work must be empty or absent; each trial's
 // folder is removed once its rows are written, it is unjudged, or the run
@@ -103,18 +105,42 @@ var Codes = []string{CodeSignIn, CodeRateLimited, CodeTimeout, CodeOtherModel, C
 // wrong, so every further trial would spend a session to learn nothing.
 var stopCodes = []string{CodeNoUsage, CodeMemoryOff, CodeHiddenFound}
 
+// EndedArmStopped is how a run ends that its condition stopped before a
+// trial started, by ErrStopRun: that trial and every later one are
+// counted not run. It is no code of an unjudged trial.
+const EndedArmStopped = "arm_stopped"
+
+// ErrStopRun is the error an Arm's Prepare returns, wrapped or not, to
+// stop the run before the trial it was given starts: the condition knows
+// that every further trial would spend a session to learn nothing. The
+// trial is counted not run, as each after it is, and the run ends
+// EndedArmStopped. The trial's folders were made and the host's CLI asked
+// its version by then; nothing else of the trial ran.
+var ErrStopRun = errors.New("the condition stopped the run")
+
 // Stopped is Run's error when a trial left unjudged with one of the codes
-// that stop a run ended it: the trials after it were not run.
+// that stop a run ended it, the trials after it not run, or when the
+// condition stopped the run before a trial started, Code being
+// EndedArmStopped, that trial and those after it not run.
 type Stopped struct {
 	Code string
 }
 
-func (e *Stopped) Error() string { return "the run stopped: a trial is unjudged, " + e.Code }
+func (e *Stopped) Error() string {
+	if e.Code == EndedArmStopped {
+		return "the run stopped: the condition stopped it before a trial started, " + e.Code
+	}
+	return "the run stopped: a trial is unjudged, " + e.Code
+}
 
 // Unjudged is the error that leaves a trial unjudged: a host or a
-// condition failed in a way that says nothing of the answer.
+// condition failed in a way that says nothing of the answer. Cost is what
+// the condition spent in the trial before it gave up, when an Arm's
+// Prepare gives it: it counts toward --max-tokens and in the run's record,
+// as what After and Spent return do.
 type Unjudged struct {
 	Code string
+	Cost Cost
 }
 
 func (u *Unjudged) Error() string { return "the trial is unjudged: " + u.Code }
@@ -145,6 +171,10 @@ type Options struct {
 	// Trace is --trace: a folder, new or empty, where each call of the
 	// host's CLI keeps what it printed (trace.go); "" keeps none.
 	Trace string
+	// SignIn is --sign-in: a program a condition may run in each trial to
+	// sign the host's CLI in within the trial's home, or "". The driver
+	// never runs it; a condition that takes it checks it in its Check.
+	SignIn string
 
 	// Delivered says whether the chat of a trial was given a fact, by id,
 	// before the round that supplied it. Nil: not measured, and no
@@ -217,10 +247,22 @@ type Cost struct {
 type Arm struct {
 	// Check runs once before any trial; an error starts none.
 	Check func(o Options) error
-	// Prepare runs in each trial before its chat.
+	// Prepare runs in each trial before its chat. An *Unjudged leaves the
+	// trial unjudged, its Cost counted and Spent not asked; ErrStopRun
+	// stops the run before the trial starts, nothing of it spent.
 	Prepare func(ctx context.Context, t Trial) (Launch, error)
 	// After runs once the trial's chat has ended.
 	After func(ctx context.Context, t Trial) (Cost, error)
+	// Spent gives what the condition has spent in trial t so far, outside
+	// the chat, when the trial ends without After once it has reached
+	// Prepare (which may be nil):
+	// its chat or its plugin left it unjudged, an error or the run's end
+	// stopped it, or Prepare itself gave an error other than an *Unjudged
+	// or ErrStopRun, the run's end among them. It is asked once, before the
+	// trial's folder goes, with the run's context, which may have ended.
+	// What it gives counts toward --max-tokens and in the run's record; no
+	// row holds it.
+	Spent func(ctx context.Context, t Trial) Cost
 }
 
 var arms = map[task.Condition]Arm{}
@@ -704,8 +746,9 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 // trials runs the plan's trials in the run s, counting what each gave in
 // s, and returns the versions of the host's CLI they read. It stops at the
 // first error, or at a trial left unjudged with a code of stopCodes, which
-// gives a *Stopped; the trials after the one it stops at are counted not
-// run.
+// gives a *Stopped, the trials after the one it stops at counted not run;
+// or at a trial whose condition stopped the run before it started, which
+// gives a *Stopped of EndedArmStopped, that trial counted not run too.
 func (p *plan) trials(ctx context.Context, s *Summary, commit string, dirty bool, out io.Writer) ([]string, error) {
 	o := p.opts
 	store := results.Store{Dir: o.Out, Forbid: p.forbid}
@@ -727,6 +770,10 @@ func (p *plan) trials(ctx context.Context, s *Summary, commit string, dirty bool
 			}
 			switch {
 			case err != nil:
+			case r.stopped:
+				// The trial did not start: it is counted not run, with the
+				// rest, in one line.
+				fmt.Fprintf(out, "trial %s.t%d and the %d after it: not run, the condition stopped the run\n", t.ID, n, s.Planned-done)
 			case r.unjudged != "":
 				s.Unjudged[r.unjudged]++
 				fmt.Fprintf(out, "trial %s.t%d: unjudged, %s\n", t.ID, n, r.unjudged)
@@ -748,6 +795,9 @@ func (p *plan) trials(ctx context.Context, s *Summary, commit string, dirty bool
 			case err != nil:
 				s.NotRun = s.Planned - done
 				return versions, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
+			case r.stopped:
+				s.NotRun = s.Planned - done + 1
+				return versions, &Stopped{Code: EndedArmStopped}
 			case slices.Contains(stopCodes, r.unjudged):
 				s.NotRun = s.Planned - done
 				return versions, &Stopped{Code: r.unjudged}

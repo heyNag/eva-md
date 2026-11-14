@@ -70,8 +70,9 @@ func tree(t *testing.T, dir string) map[string]fs.FileMode {
 }
 
 // On each host, a trace keeps each call's stdout and stderr exactly as the
-// fake printed them, the version's and each chat's, of each trial, in
-// files named by run, task, condition, trial and call, and nothing else;
+// fake printed them, the version's and each chat's, of each trial, and how
+// each call ended, an exit of 0 here, in files named by run, task,
+// condition, trial and call, and nothing else;
 // its folders are its user's alone, and so are its files. The plan says a
 // trace is kept.
 func TestTraceKeepsEachCall(t *testing.T) {
@@ -119,6 +120,10 @@ func TestTraceKeepsEachCall(t *testing.T) {
 					}
 					want[name+ext] = 0o600
 				}
+				if got, err := os.ReadFile(filepath.Join(r.opts.Trace, name+".exit")); err != nil || string(got) != "exit 0\n" {
+					t.Fatalf("%s.exit holds %q: %v", name, got, err)
+				}
+				want[name+".exit"] = 0o600
 			}
 			if got := tree(t, r.opts.Trace); !mapsEqual(got, want) {
 				t.Fatalf("the trace holds %v, want %v", got, want)
@@ -259,7 +264,7 @@ func TestNoTraceWithoutTheFlag(t *testing.T) {
 		t.Fatalf("the word is in %v", found)
 	}
 	for p := range tree(t, r.base) {
-		if strings.HasSuffix(p, ".stdout") || strings.HasSuffix(p, ".stderr") {
+		if strings.HasSuffix(p, ".stdout") || strings.HasSuffix(p, ".stderr") || strings.HasSuffix(p, ".exit") {
 			if !strings.HasPrefix(p, filepath.Base(r.script.Dir)+string(filepath.Separator)) {
 				t.Fatalf("%s was made", p)
 			}
@@ -422,11 +427,14 @@ func TestATraceThatCannotBeWrittenStopsTheRun(t *testing.T) {
 		how   string // "open", "write" or "close"
 		calls int    // the calls made
 	}{
-		"opening the version's": {"1-version.stdout", "open", 0},
-		"writing the version's": {"1-version.stdout", "write", 1},
-		"opening a chat's":      {"2-chat.stderr", "open", 1},
-		"writing a chat's":      {"2-chat.stdout", "write", 2},
-		"closing a follow-up's": {"3-chat.stderr", "close", 3},
+		"opening the version's":     {"1-version.stdout", "open", 0},
+		"writing the version's":     {"1-version.stdout", "write", 1},
+		"opening a chat's":          {"2-chat.stderr", "open", 1},
+		"writing a chat's":          {"2-chat.stdout", "write", 2},
+		"closing a follow-up's":     {"3-chat.stderr", "close", 3},
+		"opening a version's end":   {"1-version.exit", "open", 0},
+		"writing a chat's end":      {"2-chat.exit", "write", 2},
+		"closing a follow-up's end": {"3-chat.exit", "close", 3},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := traceRig(t)

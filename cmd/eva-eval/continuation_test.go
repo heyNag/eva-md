@@ -104,6 +104,73 @@ func (r contRig) calls(t *testing.T) []fakehost.Call {
 	return calls
 }
 
+// argsFor is the rig's run with the condition cond in place of off.
+func (r contRig) argsFor(cond string, more ...string) []string {
+	args := r.args(more...)
+	i := slices.Index(args, "--condition")
+	args[i+1] = cond
+	return args
+}
+
+// nothingRan fails when the fake host ran or the run made a folder.
+func (r contRig) nothingRan(t *testing.T) {
+	t.Helper()
+	if calls := r.calls(t); len(calls) != 0 {
+		t.Fatalf("the fake ran: %+v", calls)
+	}
+	for _, p := range []string{filepath.Join(r.base, "work"), filepath.Join(r.base, "out")} {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			t.Fatalf("%s was made", p)
+		}
+	}
+}
+
+// --sign-in is a flag of run, in either form, that reaches the driver's
+// options; it is refused given twice, with no path, or with a condition
+// other than eva, and the usage lists it.
+func TestContinuationRunSignInFlag(t *testing.T) {
+	r := newContRig(t)
+	program := filepath.Join(r.base, "sign-in")
+	for _, args := range [][]string{
+		r.argsFor("eva", "--eva-md", r.cli, "--sign-in", program, "--spend-model-quota"),
+		r.argsFor("eva", "--eva-md", r.cli, "-sign-in="+program, "--spend-model-quota"),
+	} {
+		o, msg := runOptions(args[2:])
+		if msg != "" || o.SignIn != program || o.Condition != "eva" {
+			t.Fatalf("%v: %q, %+v", args, msg, o)
+		}
+		// The run gets as far as the condition's check, which refuses the
+		// untagged eva-md: the flag was read as one of run's.
+		code, _, errOut := cmd(args...)
+		if code != 2 || !strings.Contains(errOut, "evaluation build") {
+			t.Fatalf("%v: exit %d\n%s", args, code, errOut)
+		}
+	}
+	if o, msg := runOptions(r.args()[2:]); msg != "" || o.SignIn != "" {
+		t.Fatalf("no --sign-in: %q, %+v", msg, o)
+	}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{r.argsFor("eva", "--eva-md", r.cli, "--sign-in", program, "--sign-in", program), "--sign-in is given twice"},
+		{r.argsFor("eva", "--eva-md", r.cli, "--sign-in"), "a flag of continuation run is unknown or has no valid value"},
+		{r.argsFor("eva", "--eva-md", r.cli, "--sign-in="), "--sign-in needs a program's path"},
+		{r.args("--sign-in", program, "--spend-model-quota"), "--sign-in is for --condition eva alone"},
+		{r.argsFor("oracle", "--sign-in", program), "--sign-in is for --condition eva alone"},
+	} {
+		code, _, errOut := cmd(c.args...)
+		if code != 2 || !strings.Contains(errOut, c.want) || !strings.Contains(errOut, "usage:") {
+			t.Fatalf("%v: exit %d\n%s", c.args, code, errOut)
+		}
+	}
+	code, _, errOut := cmd("continuation")
+	if code != 2 || !strings.Contains(errOut, "[--sign-in PATH, with --condition eva]") {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	r.nothingRan(t)
+}
+
 // The command lists its two forms in eva-eval's usage.
 func TestContinuationIsRegistered(t *testing.T) {
 	code, _, errOut := cmd("continuation")
@@ -341,7 +408,8 @@ func TestContinuationRunKeepsTrialsAndRefusesASecondAttempt(t *testing.T) {
 	}
 }
 
-// --trace keeps each call's stdout and stderr in the folder it names, and
+// --trace keeps each call's stdout, stderr and how it ended in the folder
+// it names, and
 // the plan says so; one inside --out is refused before anything starts.
 func TestContinuationRunTrace(t *testing.T) {
 	r := newContRig(t)
@@ -362,8 +430,13 @@ func TestContinuationRunTrace(t *testing.T) {
 		return err
 	})
 	slices.Sort(kept)
-	want := []string{"1-version.stderr", "1-version.stderr", "1-version.stdout", "1-version.stdout", "2-chat.stderr", "2-chat.stderr",
-		"2-chat.stdout", "2-chat.stdout", "3-chat.stderr", "3-chat.stderr", "3-chat.stdout", "3-chat.stdout"}
+	var want []string
+	for _, call := range []string{"1-version", "2-chat", "3-chat"} {
+		for _, ext := range []string{".exit", ".stderr", ".stdout"} {
+			// Two trials, each with its three calls.
+			want = append(want, call+ext, call+ext)
+		}
+	}
 	if err != nil || !slices.Equal(kept, want) {
 		t.Fatalf("the trace holds %v: %v", kept, err)
 	}

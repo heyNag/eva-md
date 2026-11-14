@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 
 	"github.com/heyNag/eva-md/internal/eval/continuation/task"
 )
@@ -16,13 +17,16 @@ import (
 // starts printed, the version's and each chat call's, so that a wrong
 // reading of a real host's output, such as a call read as giving no
 // usage, a rate limit read as a host's failure or a model not found, can
-// be mended from the run. Each call writes two files, its stdout and its
-// stderr as the driver read them and within the limit it reads stdout by:
+// be mended from the run. Each call writes three files: its stdout and its
+// stderr as the driver read them and within the limit it reads stdout by,
+// and, once its wait has ended, how it ended, in one line (exitLine):
 //
-//	<trace>/<run>/<task>/<condition>/t<n>/<k>-version.stdout, .stderr
-//	<trace>/<run>/<task>/<condition>/t<n>/<k>-chat.stdout, .stderr
+//	<trace>/<run>/<task>/<condition>/t<n>/<k>-version.stdout, .stderr, .exit
+//	<trace>/<run>/<task>/<condition>/t<n>/<k>-chat.stdout, .stderr, .exit
 //
-// where k counts the trial's calls from 1. The folder is new or empty,
+// where k counts the trial's calls from 1. The .exit file tells a call
+// that printed nothing because it exited so from one a signal ended, or
+// one the driver killed at its time limit. The folder is new or empty,
 // made for the driver's user alone (0700, its files 0600), and lies
 // outside --work, --out, --tasks, --repos and the git checkouts of --repo
 // and of the folder the driver is run from, since what a host prints
@@ -213,12 +217,43 @@ func (c *callTrace) start(kind string) (*callFiles, error) {
 		_ = stdout.Close()
 		return nil, traceFault(err)
 	}
-	return &callFiles{stdout: stdout, stderr: stderr}, nil
+	exit, err := c.open(name + ".exit")
+	if err != nil {
+		_, _ = stdout.Close(), stderr.Close()
+		return nil, traceFault(err)
+	}
+	return &callFiles{stdout: stdout, stderr: stderr, exit: exit}, nil
 }
 
-// callFiles are the two files one call's output is kept in.
+// callFiles are the files one call is kept in: its two streams, and how
+// it ended.
 type callFiles struct {
-	stdout, stderr io.WriteCloser
+	stdout, stderr, exit io.WriteCloser
+}
+
+// exitLine is the line a call's .exit file holds: how the wait for it
+// ended, and nothing else, no path and nothing it printed. The line is
+// "exit N" for an exit status, "signal NAME" for a signal (Go's name for
+// it, such as "killed"), or "not started" for a program that could not be
+// started; then ", after its time limit or the run's end" when the call's
+// context had ended by then, as when the driver killed its group at the
+// session's limit; then ", its output held past the wait" when a process
+// it started still held its output after WaitDelay.
+func exitLine(state *os.ProcessState, ended, held bool) string {
+	line := "not started"
+	if state != nil {
+		line = "exit " + strconv.Itoa(state.ExitCode())
+		if ws, ok := state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			line = "signal " + ws.Signal().String()
+		}
+	}
+	if ended {
+		line += ", after its time limit or the run's end"
+	}
+	if held {
+		line += ", its output held past the wait"
+	}
+	return line + "\n"
 }
 
 // traceFault is the error of a trace that could not be written: what
