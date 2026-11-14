@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -28,12 +29,14 @@ import (
 
 // The test binary is run again as each program a trial starts: a fake
 // eva-md (fakeVar), a fake sign-in program (signInVar), a job a fake hook
-// leaves holding eva-md's locks (childVar), the driver's fake host CLI
+// leaves holding eva-md's locks (childVar), a process a stalled fake leaves
+// in its group (grandchildVar), the driver's fake host CLI
 // (fakehost) and HO-14's fake plugin commands (hostfake). The limits of
 // the arm and of the driver are raised once, so that nothing a slow
 // machine does reaches them; a test that needs a limit to end ends it at
 // an exact point (stalled).
 func TestMain(m *testing.M) {
+	grandchildMain()
 	childMain()
 	fakeMain()
 	signInMain()
@@ -58,6 +61,9 @@ const (
 	fakeVar   = "EVA_V1ARM_FAKE_SCRIPT"
 	signInVar = "EVA_V1ARM_SIGN_IN_SCRIPT"
 	childVar  = "EVA_V1ARM_CHILD"
+	// grandchildVar names the process a stalled fake leaves in its own
+	// process group (grandchild).
+	grandchildVar = "EVA_V1ARM_GRANDCHILD"
 )
 
 // fakeScript is what the fake eva-md does.
@@ -70,6 +76,9 @@ type fakeScript struct {
 	// makes setup write a line to the named pipe and block until killed.
 	SetupFail  []int  `json:"setup_fail"`
 	SetupStall string `json:"setup_stall"`
+	// Grandchild, when set, is a process a stalled setup leaves in its
+	// process group before it stalls.
+	Grandchild *grandchild `json:"grandchild"`
 	// NoPlugin makes setup install no plugin.
 	NoPlugin bool `json:"no_plugin"`
 	// HookFail makes the hook of that event exit 1; HookStall makes it
@@ -264,6 +273,9 @@ func fake(file string) int {
 		}
 		n := 1 + count(earlier, "setup")
 		if s.SetupStall != "" {
+			if s.Grandchild != nil && startGrandchild(*s.Grandchild) != nil {
+				return 3
+			}
 			stallOn(s.SetupStall)
 		}
 		if slices.Contains(s.SetupFail, n) {
@@ -444,12 +456,82 @@ func childMain() {
 	os.Exit(0)
 }
 
+// grandchild is a process a stalled command starts and leaves behind in
+// the command's own process group, as a program that runs another does: it
+// writes its pid to PID, holds the named pipe Pipe open for writing, and
+// blocks until killed. Its reader sees the pipe's end only once it is gone.
+type grandchild struct {
+	Pipe string `json:"pipe"`
+	PID  string `json:"pid"`
+}
+
+// startGrandchild starts g, in this process's group and with none of its
+// standard files, and returns once g holds its pipe open.
+func startGrandchild(g grandchild) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	spec, err := json.Marshal(g)
+	if err != nil {
+		return err
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	cmd := exec.Command(exe)
+	cmd.Env = []string{grandchildVar + "=" + string(spec)}
+	cmd.ExtraFiles = []*os.File{w}
+	err = cmd.Start()
+	w.Close()
+	if err != nil {
+		return err
+	}
+	_ = cmd.Process.Release()
+	var b [1]byte
+	if n, _ := r.Read(b[:]); n != 1 {
+		return os.ErrInvalid
+	}
+	return nil
+}
+
+// grandchildMain is a grandchild, when the process is one.
+func grandchildMain() {
+	spec := os.Getenv(grandchildVar)
+	if spec == "" {
+		return
+	}
+	var g grandchild
+	if json.Unmarshal([]byte(spec), &g) != nil {
+		os.Exit(3)
+	}
+	if os.WriteFile(g.PID, []byte(strconv.Itoa(os.Getpid())), 0o644) != nil {
+		os.Exit(3)
+	}
+	held, err := os.OpenFile(g.Pipe, os.O_WRONLY, 0)
+	if err != nil {
+		os.Exit(3)
+	}
+	defer held.Close()
+	ready := os.NewFile(3, "ready")
+	_, _ = ready.Write([]byte{1})
+	ready.Close()
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
 // signInScript is what the fake sign-in program does.
 type signInScript struct {
 	Dir   string `json:"dir"`
 	Fail  bool   `json:"fail"`
 	Stall string `json:"stall"`
 	Print string `json:"print"`
+	// Grandchild, when set, is a process it leaves in its process group
+	// before it stalls.
+	Grandchild *grandchild `json:"grandchild"`
 }
 
 // signInMain is the fake sign-in program, when the process is one: it
@@ -478,6 +560,9 @@ func signInMain() {
 		os.Stderr.WriteString(s.Print + "\n")
 	}
 	if s.Stall != "" {
+		if s.Grandchild != nil && startGrandchild(*s.Grandchild) != nil {
+			os.Exit(3)
+		}
 		stallOn(s.Stall)
 	}
 	if s.Fail {

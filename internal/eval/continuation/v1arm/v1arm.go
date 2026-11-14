@@ -23,7 +23,9 @@
 //
 // When the first two trials of a run both end setup_failed or
 // update_failed, each further one would too, so the third stops the run
-// before it starts anything, and the run ends in an error.
+// before it runs anything of its own (the driver has made the trial's
+// folders and asked the host's CLI its version by then), and the run ends
+// in an error.
 //
 // What this cannot bound: the jobs eva-md's hooks start in a session of
 // their own, out of any group the arm kills. The arm waits, before the
@@ -358,7 +360,11 @@ func (a *arm) after(ctx context.Context, t drive.Trial) (drive.Cost, error) {
 	s := a.state(t)
 	if err := a.waitJobs(ctx, t); err != nil {
 		a.ended(s, t, err)
-		return drive.Cost{}, err
+		// What the run log holds is spent all the same, the trial's own
+		// update's included, and counts toward the ceiling; a job still
+		// spending is why the wait ran out.
+		cost, _ := a.cost(t)
+		return cost, err
 	}
 	cost, err := a.cost(t)
 	if err != nil {

@@ -5,11 +5,14 @@ import (
 	"debug/buildinfo"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -156,6 +159,11 @@ func TestAStalledCommandIsUnjudged(t *testing.T) {
 				if _, err := a.prepare(t.Context(), tr.Trial); err != nil {
 					t.Fatal(err)
 				}
+				// What the run log holds when the wait runs out is still
+				// what the trial spent.
+				if err := writeRecord(stateDir(tr.Trial), update.Record{Host: string(h.ID), Session: "made-up-new-chat-11", Outcome: update.OutcomeOK, TokensIn: 70, TokensOut: 5, DurationMS: 11}); err != nil {
+					t.Fatal(err)
+				}
 			}
 			unlock, busy, err := paths.TryLock(filepath.Join(stateDir(tr.Trial), "locks"), maintainLock)
 			if err != nil || busy {
@@ -163,14 +171,148 @@ func TestAStalledCommandIsUnjudged(t *testing.T) {
 			}
 			defer unlock()
 			a.held = func(string) { end() }
+			var cost drive.Cost
 			if where == "after it" {
-				_, err = a.after(t.Context(), tr.Trial)
+				cost, err = a.after(t.Context(), tr.Trial)
 			} else {
 				_, err = a.prepare(t.Context(), tr.Trial)
 			}
 			var u *drive.Unjudged
 			if !errors.As(err, &u) || u.Code != drive.CodeUpdateFailed {
 				t.Fatalf("%v", err)
+			}
+			if where == "after it" && cost != (drive.Cost{Tokens: 75, Ms: 11}) {
+				t.Fatalf("the run log's spend is not counted when the wait runs out: %+v", cost)
+			}
+		})
+	}
+}
+
+// A command stalled past its limit is killed with its whole process group:
+// a process that setup or the sign-in program started and left in its
+// group, holding none of its standard files, is gone once prepare returns.
+func TestAStalledCommandsGroupIsKilled(t *testing.T) {
+	h := adapter.All()[0]
+	ok := []fakeUpdate{{Line: "1 pass: 1 ok", Outcome: update.OutcomeOK}}
+	for _, name := range []string{"setup", "sign-in"} {
+		t.Run(name, func(t *testing.T) {
+			a := testArm()
+			dir := tempDir(t)
+			pipe, _ := stalled(t, a, dir)
+			g := &grandchild{Pipe: fifo(t, dir, "held"), PID: filepath.Join(dir, "grandchild.pid")}
+			// The pipe's end is read once no process holds it open: the
+			// grandchild is gone.
+			gone := make(chan struct{})
+			go func() {
+				defer close(gone)
+				if f, err := os.Open(g.Pipe); err == nil {
+					_, _ = io.Copy(io.Discard, f)
+					f.Close()
+				}
+			}()
+			s := fakeScript{Updates: ok}
+			if name == "setup" {
+				s.SetupStall, s.Grandchild = pipe, g
+			}
+			tr := newTrial(t, h, s)
+			if name == "sign-in" {
+				link := filepath.Join(dir, "sign-in")
+				if err := os.Symlink(testBinary(t), link); err != nil {
+					t.Fatal(err)
+				}
+				writeJSON(t, filepath.Join(dir, "sign-in.json"), signInScript{Dir: tr.record, Stall: pipe, Grandchild: g})
+				tr.Env = append(tr.Env, signInVar+"="+filepath.Join(dir, "sign-in.json"))
+				a.signIn = link
+			}
+			_, err := a.prepare(t.Context(), tr.Trial)
+			var u *drive.Unjudged
+			if !errors.As(err, &u) || u.Code != drive.CodeSetupFailed {
+				t.Fatalf("%v", err)
+			}
+			select {
+			case <-gone:
+			case <-time.After(2 * time.Minute):
+				// A hang guard: the arm left the grandchild alive.
+				if data, err := os.ReadFile(g.PID); err == nil {
+					if pid, err := strconv.Atoi(string(data)); err == nil {
+						_ = syscall.Kill(pid, syscall.SIGKILL)
+					}
+				}
+				t.Fatal("a process the stalled command left in its group outlived it")
+			}
+		})
+	}
+}
+
+// The run's own end, an interrupt or a hang-up, while a command or a wait
+// of the arm's stalls, is the run's error as it is, never a trial's code:
+// it leaves the trial neither setup_failed nor update_failed, and does not
+// count toward the rule that stops a run.
+func TestTheRunsEndIsNoTrialsFailure(t *testing.T) {
+	h := adapter.All()[0]
+	ok := []fakeUpdate{{Line: "1 pass: 1 ok", Outcome: update.OutcomeOK}}
+	for _, name := range []string{"sign-in", "setup", "a hook", "the update", "a lock before the chat", "a lock after it"} {
+		t.Run(name, func(t *testing.T) {
+			a := testArm()
+			dir := tempDir(t)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			pipe := fifo(t, dir, "stalled")
+			go func() {
+				f, err := os.Open(pipe)
+				if err != nil {
+					return
+				}
+				defer f.Close()
+				var b [64]byte
+				if n, _ := f.Read(b[:]); n > 0 && strings.HasPrefix(string(b[:n]), "stalled") {
+					cancel()
+				}
+			}()
+			s := fakeScript{Updates: ok}
+			switch name {
+			case "setup":
+				s.SetupStall = pipe
+			case "a hook":
+				s.HookStall = pipe
+			case "the update":
+				s.Updates = []fakeUpdate{{Stall: pipe}}
+			}
+			tr := newTrial(t, h, s)
+			if name == "sign-in" {
+				link := filepath.Join(dir, "sign-in")
+				if err := os.Symlink(testBinary(t), link); err != nil {
+					t.Fatal(err)
+				}
+				writeJSON(t, filepath.Join(dir, "sign-in.json"), signInScript{Dir: tr.record, Stall: pipe})
+				tr.Env = append(tr.Env, signInVar+"="+filepath.Join(dir, "sign-in.json"))
+				a.signIn = link
+			}
+			var err error
+			if strings.HasPrefix(name, "a lock") {
+				if name == "a lock after it" {
+					if _, err := a.prepare(t.Context(), tr.Trial); err != nil {
+						t.Fatal(err)
+					}
+				}
+				unlock, busy, err := paths.TryLock(filepath.Join(stateDir(tr.Trial), "locks"), maintainLock)
+				if err != nil || busy {
+					t.Fatal(err)
+				}
+				defer unlock()
+				a.held = func(string) { cancel() }
+			}
+			if name == "a lock after it" {
+				_, err = a.after(ctx, tr.Trial)
+			} else {
+				_, err = a.prepare(ctx, tr.Trial)
+			}
+			var u *drive.Unjudged
+			if !errors.Is(err, context.Canceled) || errors.As(err, &u) {
+				t.Fatalf("the run's end gave %v", err)
+			}
+			if first := a.state(tr.Trial).first; first != [2]string{} {
+				t.Fatalf("the run's end counted toward the stop rule: %q", first)
 			}
 		})
 	}
