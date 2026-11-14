@@ -7,11 +7,11 @@ Capture, resume and wiki updates are built: the background update job and its tr
 ## Read first
 
 - [README.md](README.md): what eva-md does, setup, commands and privacy.
-- [docs/design.md](docs/design.md): the source of truth for behaviour.
-- [docs/decisions.md](docs/decisions.md): the agreed decisions. Don't reopen them without a strong reason.
-- [docs/verification.md](docs/verification.md): how behaviour is checked, automatically and live.
+- [docs/spec/](docs/spec/INDEX.md): the source of truth for behaviour.
+- [docs/decisions.md](docs/decisions.md): the dated decision records. Don't reopen them without a strong reason.
+- [docs/verification.md](docs/verification.md): frozen; see the specs.
 - [docs/known-limitations.md](docs/known-limitations.md): what eva-md doesn't do or doesn't do well: open gaps, limits kept by design, and limits of its hosts and tools.
-- [docs/v2/plan.md](docs/v2/plan.md): the plan for v2, which is being built on `main` beside v1, behind switches that default to v1's behaviour. It governs what is built next; docs/design.md still says what v1 does. Each work package has a card in [docs/v2/cards/](docs/v2/cards/README.md), and a builder starts from its card; `internal/cardcheck` holds the cards and [the contract matrix](docs/v2/contract-matrix.md) to the plan. Whoever leads the build, or takes it over, reads [docs/v2/leading-the-build.md](docs/v2/leading-the-build.md): how a package goes from card to `main`.
+- [docs/v2/plan.md](docs/v2/plan.md): the plan for v2, which is being built on `main` beside v1, behind switches that default to v1's behaviour. It governs what is built next; the specs still say what v1 does. Each work package has a card in [docs/v2/cards/](docs/v2/cards/README.md), and a builder starts from its card; `internal/cardcheck` holds the cards and [the contract matrix](docs/v2/contract-matrix.md) to the plan. Whoever leads the build, or takes it over, reads [docs/v2/leading-the-build.md](docs/v2/leading-the-build.md): how a package goes from card to `main`.
 - [docs/releasing.md](docs/releasing.md): who cuts a release and how, the tag format, what the release workflow publishes, and how to verify or pull a release.
 
 ## Layout
@@ -78,4 +78,4 @@ The benchmark uses an isolated temporary home. `--cwd` must be a git repository 
 
 On Linux, run `scripts/linux-check.sh` in their place: it runs these same checks, and fails when any of them does.
 
-If a change alters behaviour, update docs/design.md and, where it applies, README.md (commands, flags, config keys, setup steps), docs/verification.md, docs/known-limitations.md and docs/releasing.md in the same change.
+If a change alters behaviour, write it in its spec's `## Since the split` (a decision in a dated record) and, where it applies, in README.md (commands, flags, config keys, setup steps), docs/known-limitations.md and docs/releasing.md, in the same change.
