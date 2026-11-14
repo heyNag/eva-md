@@ -722,9 +722,19 @@ func tagCheckEnv(t *testing.T) []string {
 func tagCheckModules(t *testing.T, env []string, root string) {
 	t.Helper()
 	full := append(slices.Clone(env), "CGO_ENABLED=0", "GOOS=darwin")
-	code, out := tagCheckCommand(t, root, full, tagCheckGo(), "list", "-e", "-deps", "-f", "{{with .Error}}{{.}}{{end}}", "./cmd/eva-md")
-	if out = strings.TrimSpace(out); code != 0 || out != "" {
-		t.Fatalf("Go's module cache lacks a module ./cmd/eva-md needs, and these tests build it with no network; run go mod download in the repository first. go list exited %d:\n%s", code, out)
+	// Only what go list prints for a package's error counts: go may warn on
+	// its stderr, as when the module cache is one it cannot write.
+	ctx, cancel := context.WithTimeout(context.Background(), tagCheckHangGuard)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, tagCheckGo(), "list", "-e", "-deps", "-f", "{{with .Error}}{{.}}{{end}}", "./cmd/eva-md")
+	var stderr bytes.Buffer
+	cmd.Dir, cmd.Env, cmd.Stderr = root, full, &stderr
+	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		t.Fatal("go list hung")
+	}
+	if errs := strings.TrimSpace(string(out)); err != nil || errs != "" {
+		t.Fatalf("Go's module cache lacks a module ./cmd/eva-md needs, and these tests build it with no network; run go mod download in the repository first. go list: %v\n%s\n%s", err, errs, stderr.String())
 	}
 }
 
