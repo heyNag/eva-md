@@ -222,12 +222,18 @@ func TestOneQuoteOffByAWord(t *testing.T) {
 			off1.Count("refused_"+code) != 1 || on1.Count("refused_"+code) != 0 || off1.Count("repair_calls") != 0 {
 			t.Errorf("%s: on and off tallies do not tell the repair apart", f)
 		}
-		// What the repair call reads is the prompt and its input, and what
-		// it shares with the first call is the prompt and the first input.
+		// The repair input's bytes and its prefix's are as DV-03b defines
+		// them: the repair input's length and the first input's, with no
+		// prompt.
 		prompt := len(spike.Prompt(f))
-		if on1.Count("repair_input_bytes") != prompt+len(c.calls[1].Input) || on1.Count("repair_prefix_bytes") != prompt+len(c.calls[0].Input) ||
-			off1.Count("repair_input_bytes") != 0 {
+		if on1.Count("repair_input_bytes") != len(c.calls[1].Input) || on1.Count("repair_prefix_bytes") != len(c.calls[0].Input) ||
+			off1.Count("repair_input_bytes") != 0 || off1.Count("repair_prefix_bytes") != 0 {
 			t.Errorf("%s: repair input %d bytes, prefix %d", f, on1.Count("repair_input_bytes"), on1.Count("repair_prefix_bytes"))
+		}
+		// honest_refused reads on's final verdicts and off's first: the
+		// decision the repair recovered is no refusal on, and is one off.
+		if sr.On.Honest != 0 || sr.On.HonestOf != 2 || sr.Off.Honest != 1 || sr.Off.HonestOf != 2 {
+			t.Errorf("%s: honest %d of %d on, %d of %d off; want 0 of 2 and 1 of 2", f, sr.On.Honest, sr.On.HonestOf, sr.Off.Honest, sr.Off.HonestOf)
 		}
 		if want := (prompt + len(c.calls[1].Input)) / 4; sr.On.Calls.RepairTokensIn != want || sr.Off.Calls.RepairTokensIn != 0 ||
 			sr.On.Calls.TokensIn != want+(prompt+len(c.calls[0].Input))/4 || sr.Off.Calls.TokensIn != (prompt+len(c.calls[0].Input))/4 {
@@ -476,6 +482,15 @@ func TestSoloNeedsAUsersEntry(t *testing.T) {
 	if !ok || !reflect.DeepEqual(it, want) {
 		t.Errorf("note exported as %+v, want %+v", it, want)
 	}
+	// A note citing entries of two days is dated by the newer, whether it
+	// is cited first or last.
+	day1, day2 := time.Date(2026, 3, 1, 23, 0, 0, 0, time.UTC), time.Date(2026, 3, 2, 1, 0, 0, 0, time.UTC)
+	for _, days := range []map[int64]time.Time{{2: day2, 3: day1}, {2: day1, 3: day2}} {
+		it, ok := solo(note, in, days)
+		if !ok || it.Date != day2.Format(time.DateOnly) {
+			t.Errorf("a note citing entries of %v dated %q, want %s", days, it.Date, day2.Format(time.DateOnly))
+		}
+	}
 	ask := spike.Op{Op: "ask.add", Text: str("q"), Ev: []spike.Span{{E: 3, As: "said"}}}
 	if it, _ := solo(ask, in, at); it.Kind != scenario.KindOpen || it.State != score.StateActive {
 		t.Errorf("a question exported as %+v", it)
@@ -559,5 +574,139 @@ func TestPooledFidelity(t *testing.T) {
 	}
 	if m.FactHolds == mean {
 		t.Error("the pooled share is the mean of the scripts' shares, not the share of their facts")
+	}
+}
+
+// TestPoolSumsEveryField: over all scripts, every call figure, every count
+// of the scorer and every fact and honesty count is the sum of the
+// scripts', and so is each `all` row of them; the two shares are of the
+// summed facts. Each script gives every field a value of its own, not 0,
+// so no sum can be dropped unseen.
+func TestPoolSumsEveryField(t *testing.T) {
+	var scripts []ScriptResult
+	for i := range 3 {
+		var sd Side
+		n := 0
+		// next is a value no other field of any script holds.
+		next := func() int {
+			n++
+			return (i+1)*1000 + n*7
+		}
+		calls := reflect.ValueOf(&sd.Calls).Elem()
+		for k := range calls.NumField() {
+			switch fv := calls.Field(k); fv.Kind() {
+			case reflect.Int:
+				fv.SetInt(int64(next()))
+			case reflect.Float64:
+				fv.SetFloat(float64(next()) + 0.25)
+			default:
+				t.Fatalf("Calls.%s is of a kind this test does not fill", calls.Type().Field(k).Name)
+			}
+		}
+		metrics := reflect.ValueOf(&sd.Fidelity.Metrics).Elem()
+		for k := range metrics.NumField() {
+			switch fv := metrics.Field(k); fv.Kind() {
+			case reflect.Int:
+				fv.SetInt(int64(next()))
+			case reflect.Float64:
+				fv.SetFloat(0.5) // a share, which pool works out again
+			default:
+				t.Fatalf("Metrics.%s is of a kind this test does not fill", metrics.Type().Field(k).Name)
+			}
+		}
+		sd.Required = next()
+		sd.Held, sd.Recalled = sd.Required/3+i, sd.Required/2+i
+		sd.HonestOf = next()
+		sd.Honest = sd.HonestOf/2 + i
+		// Every repair call reported cached input, so the cached row is
+		// written for each script and for all.
+		sd.Calls.RepairCachedReported = sd.Calls.Repair
+		scripts = append(scripts, ScriptResult{Script: fmt.Sprintf("s%d", i+1), On: sd, Off: sd})
+	}
+	var on, off Side
+	on.pool(scripts, func(sr ScriptResult) Side { return sr.On })
+	off.pool(scripts, func(sr ScriptResult) Side { return sr.Off })
+
+	// sum is the sum over the scripts of an int or float field.
+	sum := func(field func(Side) reflect.Value) reflect.Value {
+		var total reflect.Value
+		for _, sr := range scripts {
+			v := field(sr.On)
+			if !total.IsValid() {
+				total = reflect.New(v.Type()).Elem()
+			}
+			switch v.Kind() {
+			case reflect.Int:
+				total.SetInt(total.Int() + v.Int())
+			case reflect.Float64:
+				total.SetFloat(total.Float() + v.Float())
+			}
+		}
+		return total
+	}
+	pooledCalls := reflect.ValueOf(on.Calls)
+	for k := range pooledCalls.NumField() {
+		want := sum(func(s Side) reflect.Value { return reflect.ValueOf(s.Calls).Field(k) })
+		if !pooledCalls.Field(k).Equal(want) {
+			t.Errorf("pooled Calls.%s = %v, want the sum %v", pooledCalls.Type().Field(k).Name, pooledCalls.Field(k), want)
+		}
+	}
+	pooledMetrics := reflect.ValueOf(on.Fidelity.Metrics)
+	for k := range pooledMetrics.NumField() {
+		if pooledMetrics.Field(k).Kind() != reflect.Int {
+			continue
+		}
+		want := sum(func(s Side) reflect.Value { return reflect.ValueOf(s.Fidelity.Metrics).Field(k) })
+		if !pooledMetrics.Field(k).Equal(want) {
+			t.Errorf("pooled Metrics.%s = %v, want the sum %v", pooledMetrics.Type().Field(k).Name, pooledMetrics.Field(k), want)
+		}
+	}
+	counts := map[string]func(Side) int{
+		"Required": func(s Side) int { return s.Required }, "Held": func(s Side) int { return s.Held },
+		"Recalled": func(s Side) int { return s.Recalled }, "Honest": func(s Side) int { return s.Honest },
+		"HonestOf": func(s Side) int { return s.HonestOf },
+	}
+	for name, get := range counts {
+		want := 0
+		for _, sr := range scripts {
+			want += get(sr.On)
+		}
+		if get(on) != want {
+			t.Errorf("pooled %s = %d, want the sum %d", name, get(on), want)
+		}
+	}
+	m := on.Fidelity.Metrics
+	if m.FactHolds != float64(on.Held)/float64(on.Required) || m.FactRecall != float64(on.Recalled)/float64(on.Required) {
+		t.Errorf("pooled shares %v and %v, not of the summed facts", m.FactHolds, m.FactRecall)
+	}
+
+	// Each `all` row of a sum is the sum of the scripts' rows, on both
+	// sides.
+	a := arm(spike.FormQuotes)
+	got := figures(Rows(Result{Arm: a, Rounds: []Round{{Scripts: scripts, On: on, Off: off}}}, template()))
+	summed := []string{"spike.calls_first", "spike.calls_repair", "spike.calls_failed", "spike.tokens_in", "spike.tokens_out",
+		"spike.repair_tokens_in", "spike.repair_tokens_cached_in", "spike.seconds",
+		score.MetricWrongWrite, score.MetricNoise, score.MetricMisattributed, score.MetricStaleInForce, score.MetricDupes,
+		score.MetricOTRStored, score.MetricViolations}
+	for _, side := range []string{"on", "off"} {
+		for _, metric := range summed {
+			want := 0.0
+			for _, sr := range scripts {
+				v, ok := got[scenarioID(a, side, sr.Script)+" "+metric]
+				if !ok {
+					t.Fatalf("%s %s %s: no row", side, sr.Script, metric)
+				}
+				want += v
+			}
+			if v, ok := got[scenarioID(a, side, "all")+" "+metric]; !ok || v != want {
+				t.Errorf("%s all %s = %v (given %v), want the sum %v", side, metric, v, ok, want)
+			}
+		}
+		if v := got[scenarioID(a, side, "all")+" spike.honest_refused"]; v != float64(on.Honest)/float64(on.HonestOf) {
+			t.Errorf("%s all honest_refused %v, not of the summed counts", side, v)
+		}
+		if v := got[scenarioID(a, side, "all")+" "+score.MetricFactHolds]; v != m.FactHolds {
+			t.Errorf("%s all fact_holds %v, want %v", side, v, m.FactHolds)
+		}
 	}
 }

@@ -227,8 +227,8 @@ func Run(ctx context.Context, arm Arm, scripts []spike.Script, ask Ask, rec io.W
 			return Result{}, fmt.Errorf("arm: script %s makes a row's scenario too long", id)
 		}
 	}
-	fin := &finishers{}
-	r := runner{arm: arm, ask: ask, rec: rec, ctx: context.WithValue(ctx, finishKey{}, fin)}
+	fin := &thisRun{arm: arm}
+	r := runner{arm: arm, ask: ask, rec: rec, ctx: context.WithValue(ctx, runKey{}, fin)}
 	res := Result{Arm: arm}
 	for round := 1; round <= arm.rounds(); round++ {
 		var rd Round
@@ -251,12 +251,18 @@ func Run(ctx context.Context, arm Arm, scripts []spike.Script, ask Ask, rec io.W
 	return res, nil
 }
 
-// finishKey keys the finishers in the context Run gives ask: a replay
-// adds its check that no line was left unused, which Run makes once every
-// call is made.
-type finishKey struct{}
+// runKey keys the run in the context Run gives ask. Through it a replay
+// sees the arm the run is of, and adds its check that no line was left
+// unused, which Run makes once every call is made. A replay refuses a call
+// whose context carries no run, so that check cannot be dropped unseen.
+type runKey struct{}
 
-type finishers struct{ checks []func() error }
+// thisRun is one Run as its context carries it: its arm, and the checks
+// it makes once every call is made.
+type thisRun struct {
+	arm    Arm
+	checks []func() error
+}
 
 // runner is one run's state.
 type runner struct {
@@ -385,7 +391,7 @@ func (r *runner) pass(round int, s spike.Script, n int, in spike.Input, shown []
 	}
 	input := spike.RepairInput(in.Bytes, out, o.First)
 	o.RepairCalled = true
-	o.RepairInputBytes, o.RepairPrefixBytes = len(system)+len(input), len(system)+len(in.Bytes)
+	o.RepairInputBytes, o.RepairPrefixBytes = len(input), len(in.Bytes)
 	c.Kind, c.Input, c.Schema = KindRepair, input, spike.RepairSchema(f)
 	reply, out, err = r.call(c)
 	if err != nil {

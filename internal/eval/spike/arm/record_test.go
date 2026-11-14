@@ -296,6 +296,9 @@ func TestReplayRefuses(t *testing.T) {
 		{"no line", nil, a},
 		{"a line not UTF-8", bytes.Replace(rec, []byte(`"low"`), []byte("\"lo\xffw\""), 1), a},
 		{"a line too long", append(slices.Clone(rec), []byte(`{"output":"`+strings.Repeat("x", maxLine)+`"}`+"\n")...), a},
+		// A JSON string of MaxOutput+1 bytes: a line within maxLine whose
+		// answer is longer than an arm keeps.
+		{"an answer longer than an arm keeps", editLine(t, rec, 1, set("output", strings.Repeat("x", MaxOutput-1))), a},
 		{"an arm with an unknown tier", rec, other(func(x *Arm) { x.Tier = "tiny" })},
 	}
 	for _, c := range cases {
@@ -306,6 +309,78 @@ func TestReplayRefuses(t *testing.T) {
 	}
 	if ask, _, err := Replay(bytes.NewReader(rec), a); err != nil || ask == nil {
 		t.Fatalf("the recording itself is refused: %v", err)
+	}
+}
+
+// TestReplayServesOnlyItsArmsRun: a replay answers no call of a Run of
+// another arm than the recording's, by host, host version, tier, effort
+// or form, even when Replay was given no host version, and no call whose
+// context Run did not give, so its check that no line is left unused
+// cannot be dropped.
+func TestReplayServesOnlyItsArmsRun(t *testing.T) {
+	f := spike.FormQuotes
+	a := arm(f)
+	rec := recording(t, f, a)
+	other := func(change func(*Arm)) Arm {
+		x := a
+		change(&x)
+		return x
+	}
+	noVersion := other(func(x *Arm) { x.HostVersion = "" })
+	cases := []struct {
+		name          string
+		replay, runAs Arm
+	}{
+		{"another host", a, other(func(x *Arm) { x.Host = "claude-code" })},
+		{"another host version", a, other(func(x *Arm) { x.HostVersion = "9.9.9" })},
+		{"another host version, Replay given none", noVersion, other(func(x *Arm) { x.HostVersion = "9.9.9" })},
+		{"another tier", a, other(func(x *Arm) { x.Tier = TierLarge })},
+		{"another effort", a, other(func(x *Arm) { x.Effort = "high" })},
+		{"another form", a, other(func(x *Arm) { x.Form = spike.FormSegments })},
+		{"another arm whole", a, Arm{Host: "claude-code", HostVersion: "2.0.0", Tier: TierLarge, Effort: "high", Form: f}},
+	}
+	for _, c := range cases {
+		ask, _, err := Replay(bytes.NewReader(rec), c.replay)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := Run(context.Background(), c.runAs, scripts(t, mixedIDs...), ask, nil)
+		if err == nil || !strings.Contains(err.Error(), "another arm") || !reflect.DeepEqual(res, Result{}) {
+			t.Errorf("%s: the replay served the run (%v)", c.name, err)
+		}
+	}
+	// Replay given no host version still serves a Run of the recording's.
+	ask, _, err := Replay(bytes.NewReader(rec), noVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), a, scripts(t, mixedIDs...), ask, nil); err != nil {
+		t.Errorf("a replay given no host version refused its own arm's run: %v", err)
+	}
+	// An Ask that drops Run's context is refused, over every script or
+	// fewer, so a line left unused cannot go unseen.
+	for _, ids := range [][]string{mixedIDs, mixedIDs[:1]} {
+		ask, _, err := Replay(bytes.NewReader(rec), a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wrapped := func(_ context.Context, c Call) (Reply, error) { return ask(context.Background(), c) }
+		if _, err := Run(context.Background(), a, scripts(t, ids...), wrapped, nil); err == nil || !strings.Contains(err.Error(), "context Run gives") {
+			t.Errorf("a replay asked without Run's context over %v: %v", ids, err)
+		}
+	}
+	// A context made from Run's, as a runner's time limit is, still serves.
+	ask, _, err = Replay(bytes.NewReader(rec), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limited := func(ctx context.Context, c Call) (Reply, error) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		return ask(ctx, c)
+	}
+	if _, err := Run(context.Background(), a, scripts(t, mixedIDs[:1]...), limited, nil); err == nil || !strings.Contains(err.Error(), "unused") {
+		t.Errorf("a replay over fewer scripts through a context made from Run's: %v", err)
 	}
 }
 

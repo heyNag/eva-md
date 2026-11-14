@@ -103,9 +103,11 @@ type key struct {
 // version than arm gives when it gives one; one whose lines do not share
 // a host version; a line given twice; a reason that is not a short id;
 // and any line that is not one of the format's. Its Ask fails on a call
-// it lacks or was asked already, and once a Run that used it has made
-// every call, that Run fails if a line was left unused. A replay is used
-// by one Run.
+// it lacks or was asked already, on a call whose context is not one Run
+// gave, and on a call of a Run of another arm: another host, host
+// version, tier, effort or form than the recording's. Once a Run that
+// used it has made every call, that Run fails if a line was left unused.
+// A replay is used by one Run.
 func Replay(r io.Reader, arm Arm) (Ask, string, error) {
 	if err := arm.check(false); err != nil {
 		return nil, "", err
@@ -147,11 +149,19 @@ func Replay(r io.Reader, arm Arm) (Ask, string, error) {
 		return nil, "", errors.New("arm: the recording holds no line")
 	}
 	used := map[key]bool{}
-	registered := map[*finishers]bool{}
+	registered := map[*thisRun]bool{}
 	ask := func(ctx context.Context, c Call) (Reply, error) {
-		if fin, ok := ctx.Value(finishKey{}).(*finishers); ok && !registered[fin] {
-			registered[fin] = true
-			fin.checks = append(fin.checks, func() error {
+		run, ok := ctx.Value(runKey{}).(*thisRun)
+		switch {
+		case !ok:
+			return Reply{}, errors.New("a replay answers only a call made by Run, with the context Run gives")
+		case run.arm.Host != arm.Host || run.arm.Tier != arm.Tier || run.arm.Effort != arm.Effort || run.arm.Form != arm.Form ||
+			run.arm.HostVersion != version:
+			return Reply{}, errors.New("the run is of another arm than the recording")
+		}
+		if !registered[run] {
+			registered[run] = true
+			run.checks = append(run.checks, func() error {
 				if len(used) < len(lines) {
 					return fmt.Errorf("arm: the replay left %d of the recording's %d lines unused", len(lines)-len(used), len(lines))
 				}
