@@ -341,6 +341,34 @@ func TestContinuationRunKeepsTrialsAndRefusesASecondAttempt(t *testing.T) {
 	}
 }
 
+// --trace keeps each call's stdout and stderr in the folder it names, and
+// the plan says so; one inside --out is refused before anything starts.
+func TestContinuationRunTrace(t *testing.T) {
+	r := newContRig(t)
+	trace := filepath.Join(r.base, "trace")
+	code, out, errOut := cmd(r.args("--spend-model-quota", "--trace", filepath.Join(r.base, "out", "trace"))...)
+	if code != 2 || !strings.Contains(errOut, "--trace overlaps --out") || len(r.calls(t)) != 0 {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	code, out, errOut = cmd(r.args("--spend-model-quota", "--trace", trace)...)
+	if code != 0 || errOut != "" || !strings.Contains(out, "; trial folders removed; each call's output kept in the trace\n") || strings.Contains(out, r.base) {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	var kept []string
+	err := filepath.WalkDir(trace, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			kept = append(kept, filepath.Base(p))
+		}
+		return err
+	})
+	slices.Sort(kept)
+	want := []string{"1-version.stderr", "1-version.stderr", "1-version.stdout", "1-version.stdout", "2-chat.stderr", "2-chat.stderr",
+		"2-chat.stdout", "2-chat.stdout", "3-chat.stderr", "3-chat.stderr", "3-chat.stdout", "3-chat.stdout"}
+	if err != nil || !slices.Equal(kept, want) {
+		t.Fatalf("the trace holds %v: %v", kept, err)
+	}
+}
+
 // check prints a line a task and exits 1 when one fails its check.
 func TestContinuationCheck(t *testing.T) {
 	r := newContRig(t)

@@ -28,9 +28,15 @@
 // grading lays the hidden tests again before each of them, so that the
 // chat's code one test runs cannot rewrite the next.
 //
+// A run given --trace keeps what each call of the host's CLI printed, in a
+// folder for the driver's user alone, outside --work and --out and any
+// checkout of the repository (trace.go), so that a wrong reading of a real
+// host's output can be mended from the run. Nothing of it reaches a row,
+// the run's record or the output.
+//
 // What this cannot guard: a chat run as the invoking user can read
-// --tasks, --repos and --out by their paths, and the trials --keep-trials
-// keeps, or copy a hidden test reworded, compressed or encoded, as git's
+// --tasks, --repos, --out and --trace by their paths, and the trials
+// --keep-trials keeps, or copy a hidden test reworded, compressed or encoded, as git's
 // own objects store it; a process that leaves its process group outlives
 // the call that started it; and code the grading runs may write wherever
 // that user can, a hidden test into the workspace's git objects among
@@ -136,6 +142,9 @@ type Options struct {
 	Repo           string        // the repository the rows' commit is read from
 	Spend          bool          // --spend-model-quota: without it nothing starts
 	KeepTrials     bool          // --keep-trials: the trials' folders are kept
+	// Trace is --trace: a folder, new or empty, where each call of the
+	// host's CLI keeps what it printed (trace.go); "" keeps none.
+	Trace string
 
 	// Delivered says whether the chat of a trial was given a fact, by id,
 	// before the round that supplied it. Nil: not measured, and no
@@ -157,6 +166,9 @@ type Options struct {
 	// at an exact point instead.
 	removeLimit func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
 	removeAll   func(path string) error
+	// openTrace makes a file of the trace, which is new; nil makes it for
+	// its owner alone. A test fails it instead.
+	openTrace func(path string) (io.WriteCloser, error)
 }
 
 // Dirs are a trial's folders.
@@ -373,6 +385,7 @@ type plan struct {
 	cli    string // the CLI, links resolved
 	evaMD  string
 	work   string // links resolved
+	trace  string // links resolved; "" keeps none
 	forbid []string
 	// passed are the variables passed whose values are among forbid.
 	passed []passedVar
@@ -494,6 +507,9 @@ func prepare(o Options) (*plan, error) {
 		p.forbid = append(p.forbid, task.Forbid(t)...)
 	}
 	if err := p.checkOut(); err != nil {
+		return nil, err
+	}
+	if err := p.checkTrace(); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -626,8 +642,12 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	if o.KeepTrials {
 		folders = "kept, each closed to others once it ends"
 	}
-	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %s; ceilings: sessions %d, tokens %d; trial folders %s\n",
-		o.Condition, p.host.ID, len(p.tasks), o.Trials, sessions, o.MaxSessions, o.MaxTokens, folders)
+	trace := ""
+	if p.trace != "" {
+		trace = "; each call's output kept in the trace"
+	}
+	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %s; ceilings: sessions %d, tokens %d; trial folders %s%s\n",
+		o.Condition, p.host.ID, len(p.tasks), o.Trials, sessions, o.MaxSessions, o.MaxTokens, folders, trace)
 	if !countable || int64(s.Planned) > o.MaxSessions {
 		return s, usagef("the plan's %s sessions are over --max-sessions %d", sessions, o.MaxSessions)
 	}
@@ -649,6 +669,11 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	}
 	if err := p.checkPassed(commit, dirty); err != nil {
 		return s, err
+	}
+	if p.trace != "" {
+		if err := makeTrace(p.trace); err != nil {
+			return s, traceFault(err)
+		}
 	}
 	if s.Run, err = newRun(p.work, o.Clock()); err != nil {
 		return s, err

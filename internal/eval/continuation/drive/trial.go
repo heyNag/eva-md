@@ -111,6 +111,12 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 		tr.Env = append(tr.Env, name+"="+os.Getenv(name))
 	}
 	tr.Env = append(tr.Env, p.entry.OffEnv...)
+	calls, err := p.newCallTrace(run, t, n)
+	if err != nil {
+		return trialResult{}, err
+	}
+	// A trace that cannot be written stops the run, before its next call.
+	var traceErr error
 	link := filepath.Join(tr.Dirs.Bin, p.host.Names.CLI)
 	probe := adapter.Probe(ctx, p.host.ID, adapter.Env{
 		LookPath: func(file string) (string, error) {
@@ -122,15 +128,27 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 		// The probe's own limit, 5 seconds, is not used: the version is read
 		// within VersionTimeout, in the trial's environment.
 		Run: func(_ context.Context, cli string, args ...string) ([]byte, error) {
+			files, err := calls.start(traceVersion)
+			if err != nil {
+				traceErr = err
+				return nil, err
+			}
 			vctx, cancel := context.WithTimeout(ctx, VersionTimeout)
 			defer cancel()
-			out, over, err := runGroup(vctx, cli, args, tr.Env, tr.Dirs.Home, 64<<10)
-			if err != nil || over {
+			c, err := runCall(vctx, cli, args, tr.Env, tr.Dirs.Home, 64<<10, files)
+			if c.traceErr != nil {
+				traceErr = traceFault(c.traceErr)
+				return nil, traceErr
+			}
+			if err != nil || c.over {
 				return nil, errors.New("the host's version is unavailable")
 			}
-			return out, nil
+			return c.out, nil
 		},
 	})
+	if traceErr != nil {
+		return trialResult{}, traceErr
+	}
 	if probe.Version == "" {
 		return trialResult{}, errors.New("the host's CLI gave no version")
 	}
@@ -176,7 +194,7 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 		return res, nil
 	}
 
-	s := session{p: p, tr: tr, env: env, extra: extra, hidden: hidden}
+	s := session{p: p, tr: tr, env: env, extra: extra, hidden: hidden, calls: calls}
 	code, err := s.run(ctx)
 	res.tokens = s.counted
 	res.outcome, res.model = s.outcome, s.model
@@ -248,6 +266,8 @@ type session struct {
 	// hidden are the task's hidden files, which the session looks for in
 	// the trial's folder after each call and each grading a prompt follows.
 	hidden *hidden
+	// calls keeps what each call printed, when the run keeps a trace.
+	calls *callTrace
 }
 
 // reached reports whether a hidden file is within the chat's reach: in the
@@ -435,7 +455,8 @@ func followUp(failing []string, facts []task.Fact) string {
 // CodeNoUsage: what the call spent no ceiling can count. The tokens the
 // output names are kept, for the ceiling. A call that exits other than 0
 // with an answer, as at the turn bound, is graded as it stands. An error
-// is the driver's own failure to run the CLI, which stops the run.
+// is the driver's own failure to run the CLI, which stops the run, or to
+// keep the call's trace, which stops it too, the call's tokens counted.
 func (s *session) call(ctx context.Context, c chat) (report, error) {
 	left := s.p.opts.SessionTimeout - s.spent
 	if left <= 0 {
@@ -445,6 +466,10 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 	if limit == nil {
 		limit = context.WithTimeout
 	}
+	files, err := s.calls.start(traceChat)
+	if err != nil {
+		return report{}, err
+	}
 	cctx, cancel := limit(ctx, left)
 	defer cancel()
 	start, began := s.p.opts.Clock(), time.Now()
@@ -452,12 +477,16 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 	if most <= 0 {
 		most = outputLimit
 	}
-	out, over, err := runGroup(cctx, s.tr.CLI, s.p.entry.Argv(c), s.env, s.tr.Dirs.Workspace, most)
+	got, err := runCall(cctx, s.tr.CLI, s.p.entry.Argv(c), s.env, s.tr.Dirs.Workspace, most, files)
+	out, over := got.out, got.over
 	s.spent += time.Since(began)
 	s.outcome.WallMs += s.p.opts.Clock().Sub(start).Milliseconds()
 	switch {
 	case ctx.Err() != nil:
 		return spentOnly(s.p.entry.Read(out)), ctx.Err()
+	case got.traceErr != nil:
+		// The call's tokens are counted; the run stops before its next.
+		return spentOnly(s.p.entry.Read(out)), traceFault(got.traceErr)
 	case cctx.Err() != nil:
 		// What the call printed before the limit ended it is read for the
 		// tokens it names, which the ceiling counts.
@@ -497,21 +526,34 @@ func spentOnly(r report) report {
 	return report{PromptTokens: r.PromptTokens, CachedTokens: r.CachedTokens, OutputTokens: r.OutputTokens, Spent: r.Spent}
 }
 
-// cappedBuffer keeps the first limit bytes written to it, and says
-// whether more came.
+// cappedBuffer keeps the first limit bytes written to it, unless it drops
+// them, and says whether more came. Given a file, it writes the bytes it
+// keeps there too, as they come, and keeps the first error that gives.
 type cappedBuffer struct {
 	buffer bytes.Buffer
 	limit  int
+	n      int // the bytes kept
 	over   bool
+	drop   bool
+	file   io.Writer
+	ferr   error
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	n := len(p)
-	if room := b.limit - b.buffer.Len(); n > room {
+	if room := b.limit - b.n; n > room {
 		p = p[:max(room, 0)]
 		b.over = true
 	}
-	_, _ = b.buffer.Write(p)
+	b.n += len(p)
+	if !b.drop {
+		_, _ = b.buffer.Write(p)
+	}
+	if b.file != nil && b.ferr == nil && len(p) > 0 {
+		if _, err := b.file.Write(p); err != nil {
+			b.ferr = err
+		}
+	}
 	return n, nil
 }
 
@@ -524,42 +566,105 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 // when the last process holding the pipe does; one that left the group and
 // still holds it after WaitDelay is an error.
 func runGroup(ctx context.Context, cli string, args, env []string, dir string, limit int) ([]byte, bool, error) {
+	c, err := runCall(ctx, cli, args, env, dir, limit, nil)
+	return c.out, c.over, err
+}
+
+// callOutput is what runCall read of a call.
+type callOutput struct {
+	out  []byte // the first limit bytes of stdout
+	over bool   // stdout ran past them
+	// traceErr is the first error writing or closing the call's trace.
+	traceErr error
+}
+
+// runCall is runGroup that, given files, keeps in them what the call
+// printed as it is read: the first limit bytes of stdout, those runGroup
+// gives, in one, and as many of stderr, then also a pipe of its own, in
+// the other. It closes the files, and a failure to write or close them is
+// the result's traceErr; the call runs to its end all the same.
+func runCall(ctx context.Context, cli string, args, env []string, dir string, limit int, files *callFiles) (callOutput, error) {
 	r, w, err := os.Pipe()
 	if err != nil {
-		return nil, false, pathless(err)
+		closeFiles(files)
+		return callOutput{}, pathless(err)
+	}
+	stdout := &cappedBuffer{limit: limit}
+	readers, writers, sinks := []*os.File{r}, []*os.File{w}, []*cappedBuffer{stdout}
+	if files != nil {
+		stdout.file = files.stdout
+		er, ew, err := os.Pipe()
+		if err != nil {
+			_, _ = r.Close(), w.Close()
+			closeFiles(files)
+			return callOutput{}, pathless(err)
+		}
+		readers, writers = append(readers, er), append(writers, ew)
+		sinks = append(sinks, &cappedBuffer{limit: limit, drop: true, file: files.stderr})
 	}
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdout = w
+	if files != nil {
+		cmd.Stderr = writers[1]
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = WaitDelay
-	out := &cappedBuffer{limit: limit}
-	copied := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(out, r)
-		close(copied)
-	}()
+	copied := make(chan struct{}, len(readers))
+	for i := range readers {
+		go func() {
+			_, _ = io.Copy(sinks[i], readers[i])
+			copied <- struct{}{}
+		}()
+	}
 	err = cmd.Start()
-	_ = w.Close()
+	for _, w := range writers {
+		_ = w.Close()
+	}
 	if err == nil {
 		err = cmd.Wait()
 		_ = killGroup(cmd.Process.Pid)
 	}
 	held := time.NewTimer(WaitDelay)
 	defer held.Stop()
-	select {
-	case <-copied:
-	case <-held.C:
-		_ = r.Close()
-		<-copied
-		if err == nil {
-			err = errors.New("a process the host's CLI started still holds its output")
+	for done := 0; done < len(readers); {
+		select {
+		case <-copied:
+			done++
+		case <-held.C:
+			for _, r := range readers {
+				_ = r.Close()
+			}
+			for ; done < len(readers); done++ {
+				<-copied
+			}
+			if err == nil {
+				err = errors.New("a process the host's CLI started still holds its output")
+			}
 		}
 	}
-	_ = r.Close()
-	return out.buffer.Bytes(), out.over, err
+	for _, r := range readers {
+		_ = r.Close()
+	}
+	c := callOutput{out: stdout.buffer.Bytes(), over: stdout.over}
+	if files != nil {
+		c.traceErr = errors.Join(sinks[0].ferr, sinks[1].ferr)
+		if cerr := closeFiles(files); c.traceErr == nil {
+			c.traceErr = cerr
+		}
+	}
+	return c, err
+}
+
+// closeFiles closes a call's trace files, when it has them, and gives the
+// first error.
+func closeFiles(files *callFiles) error {
+	if files == nil {
+		return nil
+	}
+	return errors.Join(files.stdout.Close(), files.stderr.Close())
 }
 
 // killGroup kills the process group pid leads.
