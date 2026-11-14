@@ -291,8 +291,11 @@ func (sc Scenario) checkFact(f Fact, at Turn, planted map[string]Turn) error {
 			return errors.New("a slot needs a known class and a value")
 		}
 		for i, k := range s.Unasked {
-			if !slices.Contains(f.Kinds, k) || slices.Contains(s.Unasked[:i], k) {
-				return fmt.Errorf("a slot leaves unasked a kind the fact does not permit, or one twice: %q", k)
+			if !slices.Contains(f.Kinds, k) {
+				return fmt.Errorf("a slot leaves unasked a kind the fact does not permit, %q", k)
+			}
+			if slices.Contains(s.Unasked[:i], k) {
+				return fmt.Errorf("a slot leaves kind %q unasked twice", k)
 			}
 		}
 		if !slices.ContainsFunc(f.Kinds, func(k Kind) bool { return !slices.Contains(s.Unasked, k) }) {

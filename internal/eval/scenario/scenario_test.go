@@ -2,11 +2,13 @@ package scenario
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -274,6 +276,19 @@ func TestValidateRefusesBrokenScenarios(t *testing.T) {
 		{"an unknown slot class", "a slot needs a known class", func(sc *Scenario) { sc.Facts[0].Slots[1].Class = "colour" }},
 		{"an empty slot value", "a slot needs a known class", func(sc *Scenario) { sc.Facts[0].Slots[1].Value = " " }},
 		{"an empty form", "a slot needs a known class", func(sc *Scenario) { sc.Facts[0].Slots[1].Forms = []string{"yaml", ""} }},
+		{"a slot unasked of a kind the fact does not permit", "leaves unasked a kind the fact does not permit", func(sc *Scenario) {
+			sc.Facts[0].Slots[1].Unasked = []Kind{KindFact}
+		}},
+		{"a slot unasked of a kind twice", `leaves kind "fact" unasked twice`, func(sc *Scenario) {
+			sc.Facts[0].Kinds, sc.Facts[0].Slots[1].Unasked = []Kind{KindDecision, KindFact}, []Kind{KindFact, KindFact}
+		}},
+		{"a permitted kind that asks no slot", `no slot is asked of kind "fact"`, func(sc *Scenario) {
+			sc.Facts[0].Kinds = []Kind{KindDecision, KindFact}
+			sc.Facts[0].Slots[0].Unasked, sc.Facts[0].Slots[1].Unasked = []Kind{KindFact}, []Kind{KindFact}
+		}},
+		{"a slot no permitted kind asks", "a slot is asked of no kind the fact permits", func(sc *Scenario) {
+			sc.Facts[0].Kinds, sc.Facts[0].Slots[1].Unasked = []Kind{KindDecision, KindFact}, []Kind{KindFact, KindDecision}
+		}},
 		{"a log kind without a date", "a log date is set exactly", func(sc *Scenario) { sc.Facts[0].Kinds = append(sc.Facts[0].Kinds, KindLog) }},
 		{"a date without a log kind", "a log date is set exactly", func(sc *Scenario) { sc.Facts[0].LogDate = "2026-01-13" }},
 		{"a log date that is not a day", "the log date is not a day", func(sc *Scenario) {
@@ -331,6 +346,31 @@ func TestValidateRefusesBrokenScenarios(t *testing.T) {
 	sc.Sessions[1].Turns = append(sc.Sessions[1].Turns, Turn{At: on(1, 10, 1), Author: event.AuthorSubagent, Kind: event.KindReply, Agent: "worker-1", Text: "Noted."})
 	if err := sc.Validate(); err != nil {
 		t.Errorf("a textless control, an other's not_with_authority fact and a subagent's reply at the time of the turn ahead: %v", err)
+	}
+}
+
+// TestSlotUnaskedOfSomeKinds: a slot may be left unasked of some of the
+// kinds its fact permits, so long as each kind still asks a slot and the
+// slot is asked of one; a slot that leaves no kind unasked is written as
+// before, with no field for it, so no scenario written so far changes.
+func TestSlotUnaskedOfSomeKinds(t *testing.T) {
+	sc := reversal()
+	sc.Facts[0].Kinds = []Kind{KindDecision, KindFact, KindOpen}
+	sc.Facts[0].Slots[0].Unasked = []Kind{KindOpen}
+	sc.Facts[0].Slots[1].Unasked = []Kind{KindFact}
+	if err := sc.Validate(); err != nil {
+		t.Errorf("a slot unasked of one permitted kind each: %v", err)
+	}
+	plain, err := json.Marshal(slot(SlotIdent, "YAML", "yml"))
+	if err != nil || string(plain) != `{"class":"ident","value":"YAML","forms":["yml"]}` {
+		t.Errorf("a slot with no unasked kind is written %s, %v", plain, err)
+	}
+	s := slot(SlotPhrase, "guess")
+	s.Unasked = []Kind{KindOpen}
+	data, err := json.Marshal(s)
+	var back Slot
+	if err != nil || string(data) != `{"class":"phrase","value":"guess","unasked":["open"]}` || json.Unmarshal(data, &back) != nil || !reflect.DeepEqual(back, s) {
+		t.Errorf("a slot unasked of open is written %s and read back as %+v, %v", data, back, err)
 	}
 }
 

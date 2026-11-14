@@ -524,6 +524,221 @@ func TestSharedValueOfAnotherClass(t *testing.T) {
 	}
 }
 
+// TestAcceptanceCarriesAccepted: an acceptance, a fact of the user's that
+// supersedes another's, filed under stated is found with the wrong
+// authority, which costs fact_holds its share and moves nothing else;
+// under accepted it holds. Any other fact of the user's holds under
+// either tag: the cases' k5, and v1.10's TERN-7, which supersedes a fact
+// of the user's own.
+func TestAcceptanceCarriesAccepted(t *testing.T) {
+	sc := cases()
+	// at is the place in the ideal store of the item in force that cites
+	// line seq: 1 plants k5, 13 the acceptance w2.
+	at := func(seq int64) int {
+		i := slices.IndexFunc(base().Items, func(it score.Item) bool { return it.State == score.StateActive && it.Sources[0].Seq == seq })
+		if i < 0 {
+			t.Fatalf("no item in force cites line %d", seq)
+		}
+		return i
+	}
+	tagged := func(seq int64, tag string) score.Result {
+		ex := base()
+		ex.Items[at(seq)].Authority = tag
+		return score.Score(sc, ex)
+	}
+	if it := base().Items[at(13)]; it.Authority != score.TagAccepted || it.Text != "DOTTEREL-W; weekly" {
+		t.Fatalf("the ideal store files w2 as %+v", it)
+	}
+	r := tagged(13, score.TagStated)
+	want := score.Score(sc, base()).Metrics
+	want.FactHolds = fiveSixths
+	if fr := r.Facts[len(r.Facts)-1]; fr.Fact != "w2" || fr.Outcome != score.Found || !slices.Equal(fr.Problems, []score.Problem{score.ProblemAuthority}) ||
+		!closeMetrics(r.Metrics, want) || r.Items[at(13)].Outcome != score.Found {
+		t.Errorf("w2 under stated is %s %v, item %s, metrics %+v; want found [authority] and %+v", fr.Outcome, fr.Problems, r.Items[at(13)].Outcome, r.Metrics, want)
+	}
+	for _, tc := range []struct {
+		seq int64
+		tag string
+	}{{13, score.TagAccepted}, {1, score.TagStated}, {1, score.TagAccepted}} {
+		if bad := clean(sc, tagged(tc.seq, tc.tag)); len(bad) != 0 {
+			t.Errorf("line %d under %s: %v", tc.seq, tc.tag, bad)
+		}
+	}
+
+	// v1's recorded pages: v1.09 tags the acceptance accepted; tagged
+	// stated, it is found with the wrong authority. v1.10's TERN-7 holds
+	// under either tag.
+	v109, v110 := scenario.V1()[8], scenario.V1()[9]
+	p := idealV1(v109)
+	before := score.Score(v109, read(t, p))
+	p.Now.Decisions[0].Tag = score.TagStated
+	after := score.Score(v109, read(t, p))
+	want = before.Metrics
+	want.FactHolds -= 1.0 / float64(required(v109))
+	if required(v109) != 1 || len(after.Facts) != 3 || v109.Facts[2].Supersedes != v109.Facts[1].ID {
+		t.Fatalf("v1.09 is %+v", v109.Facts)
+	}
+	if fr := after.Facts[2]; fr.Outcome != score.Found || !slices.Equal(fr.Problems, []score.Problem{score.ProblemAuthority}) || !closeMetrics(after.Metrics, want) {
+		t.Errorf("v1.09's acceptance under stated is %s %v, metrics %+v; want found [authority] and %+v", fr.Outcome, fr.Problems, after.Metrics, want)
+	}
+	for _, tag := range []string{score.TagAccepted, score.TagStated} {
+		p := idealV1(v110)
+		if p.Now.Decisions[0].Text != "Nix flakes handle everything, TERN-7" || v110.Facts[2].Supersedes != v110.Facts[0].ID || v110.Facts[0].Authority != scenario.AuthorityUser {
+			t.Fatalf("v1.10's page or facts moved: %+v", v110.Facts)
+		}
+		p.Now.Decisions[0].Tag = tag
+		if bad := clean(v110, score.Score(v110, read(t, p))); len(bad) != 0 {
+			t.Errorf("v1.10's TERN-7 under %s: %v", tag, bad)
+		}
+	}
+}
+
+// hedged is a made-up scenario with one finding whose hedge is a slot
+// left unasked of an open question. unasked names the kinds it is left
+// unasked of; given a kind the finding does not permit, the scenario is
+// not valid, which the scorer does not check.
+func hedged(unasked ...scenario.Kind) scenario.Scenario {
+	at := time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
+	return scenario.Scenario{ID: "test.hedged", Family: "test", Name: "a hypothesis", Split: scenario.SplitHeldout, Passes: []scenario.Pass{{}},
+		Sessions: []scenario.Session{{Host: string(adapter.Codex), ID: "5eed0004-dddd-4000-8000-000000000001", Branch: "main", Turns: []scenario.Turn{
+			{At: at, Author: event.AuthorAgent, Kind: event.KindReply, Text: "My guess is that the WAXWING-4 cache slows the start.", Plants: []string{"h1"}},
+		}}},
+		Facts: []scenario.Fact{{ID: "h1", Kinds: []scenario.Kind{scenario.KindOpen, scenario.KindFact}, Authority: scenario.AuthorityOther, Must: scenario.MustStore,
+			Slots: []scenario.Slot{{Class: scenario.SlotIdent, Value: "WAXWING-4"}, {Class: scenario.SlotLimit, Value: "guess", Forms: []string{"suspect"}, Unasked: unasked}}}},
+	}
+}
+
+// TestUnaskedSlot: an item in a kind that leaves a slot unasked holds its
+// fact without that slot; in another kind the fact permits, or one it does
+// not, lacking the slot is limit_dropped. A slot left unasked of a kind
+// the fact does not permit, which Validate refuses, is still asked of it.
+func TestUnaskedSlot(t *testing.T) {
+	sc := hedged(scenario.KindOpen)
+	if err := sc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if bad := clean(sc, score.Score(sc, score.Ideal(sc))); len(bad) != 0 {
+		t.Fatalf("the ideal store: %v", bad)
+	}
+	src := score.Source{Session: "5eed0004", Seq: 1}
+	for _, tc := range []struct {
+		sc         scenario.Scenario
+		kind       scenario.Kind
+		text       string
+		item, fact string
+	}{
+		{sc, scenario.KindOpen, "Does the WAXWING-4 cache slow the start?", "supports", "holds []"},
+		{sc, scenario.KindOpen, "Does the WAXWING-4 cache slow the start? A guess.", "supports", "holds []"},
+		{sc, scenario.KindFact, "The WAXWING-4 cache slows the start", "limit_dropped", "limit_dropped []"},
+		{sc, scenario.KindFact, "I suspect the WAXWING-4 cache slows the start", "supports", "holds []"},
+		{sc, scenario.KindNext, "Check the WAXWING-4 cache", "limit_dropped", "limit_dropped []"},
+		{sc, scenario.KindNext, "Check the WAXWING-4 cache, a guess", "found", "found [kind]"},
+		{sc, scenario.KindOpen, "Does the cache slow the start?", "value_dropped", "value_dropped []"},
+		{hedged(scenario.KindNext), scenario.KindNext, "Check the WAXWING-4 cache", "limit_dropped", "limit_dropped []"},
+		{hedged(scenario.KindNext), scenario.KindOpen, "Does the WAXWING-4 cache slow the start?", "limit_dropped", "limit_dropped []"},
+	} {
+		r := score.Score(tc.sc, score.Export{Items: []score.Item{active(tc.kind, score.TagSuggested, tc.text, src)}})
+		if got := fmt.Sprintf("%s %v", r.Facts[0].Outcome, r.Facts[0].Problems); string(r.Items[0].Outcome) != tc.item || got != tc.fact {
+			t.Errorf("%q as %s, unasked of %v: the item is %s and the fact %s; want %s and %s", tc.text, tc.kind, tc.sc.Facts[0].Slots[1].Unasked, r.Items[0].Outcome, got, tc.item, tc.fact)
+		}
+	}
+	if err := hedged(scenario.KindNext).Validate(); err == nil {
+		t.Error("a slot unasked of a kind the fact does not permit is valid")
+	}
+}
+
+// echoes is a made-up scenario with two corrections and the agent's
+// reply that echoes both old values, which ends at the next line.
+func echoes() scenario.Scenario {
+	at := func(m int) time.Time { return time.Date(2026, 3, 2, 9, m, 0, 0, time.UTC) }
+	user := func(m int, text string, plants ...string) scenario.Turn {
+		return scenario.Turn{At: at(m), Author: event.AuthorTyped, Kind: event.KindPrompt, Text: text, Plants: plants}
+	}
+	s := "5eed0005-eeee-4000-8000-000000000001"
+	fact := func(id string, authority scenario.Authority, supersedes, ref, value string) scenario.Fact {
+		f := scenario.Fact{ID: id, Kinds: []scenario.Kind{scenario.KindDecision, scenario.KindFact}, Authority: authority, Must: scenario.MustStore, Supersedes: supersedes,
+			Slots: []scenario.Slot{{Class: scenario.SlotIdent, Value: ref}, {Class: scenario.SlotPhrase, Value: value}}}
+		if authority == scenario.AuthorityOther {
+			f.Kinds, f.Until = []scenario.Kind{scenario.KindFact}, &scenario.Ref{Session: s, Seq: 6}
+		}
+		return f
+	}
+	return scenario.Scenario{ID: "test.echoes", Family: "test", Name: "two corrections and their echo", Split: scenario.SplitTuning, Passes: []scenario.Pass{{}},
+		Sessions: []scenario.Session{{Host: string(adapter.Codex), ID: s, Branch: "main", Turns: []scenario.Turn{
+			user(1, "Run the queue on alpha, QUEUE-1.", "a1"),
+			user(2, "Keep the logs in bravo, LOGS-1.", "b1"),
+			user(3, "Correction: run the queue on gamma, QUEUE-2.", "a2"),
+			user(4, "Correction: keep the logs in delta, LOGS-2.", "b2"),
+			{At: at(5), Author: event.AuthorAgent, Kind: event.KindReply, Text: "Done: the queue runs on alpha, QUEUE-8, and the logs stay in bravo, LOGS-8.",
+				Plants: []string{"ea", "eb"}},
+			user(6, "Nothing to note here."),
+		}}},
+		Facts: []scenario.Fact{
+			fact("a1", scenario.AuthorityUser, "", "QUEUE-1", "alpha"), fact("b1", scenario.AuthorityUser, "", "LOGS-1", "bravo"),
+			fact("a2", scenario.AuthorityUser, "a1", "QUEUE-2", "gamma"), fact("b2", scenario.AuthorityUser, "b1", "LOGS-2", "delta"),
+			fact("ea", scenario.AuthorityOther, "", "QUEUE-8", "alpha"), fact("eb", scenario.AuthorityOther, "", "LOGS-8", "bravo"),
+		},
+	}
+}
+
+// TestCorrectionsEcho: an active item that holds a correction in full and
+// names the value it replaced is not stale when it also cites the agent's
+// echo of that value, with or without the old line. The echo is still
+// kept in force by an item that holds the old value alone, one that holds
+// the echo in full beside the correction, and one that holds the echo of
+// one correction beside the other correction, whose replaced value it is
+// not. The cost, recorded: value matching cannot read a negation, so an
+// item that takes the echoed value beside the correction is spared too.
+func TestCorrectionsEcho(t *testing.T) {
+	sc := echoes()
+	if err := sc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if bad := clean(sc, score.Score(sc, score.Ideal(sc))); len(bad) != 0 {
+		t.Fatalf("the ideal store: %v", bad)
+	}
+	line := func(seq int) score.Source { return score.Source{Session: "5eed0005", Seq: int64(seq)} }
+	for _, tc := range []struct {
+		text  string
+		lines []int
+		stale []string
+	}{
+		{"Run the queue on gamma, QUEUE-2, corrected from alpha", []int{3, 5}, nil},
+		{"Run the queue on gamma, QUEUE-2, corrected from alpha", []int{1, 3, 5}, nil},
+		{"Keep the logs in delta, LOGS-2, not bravo", []int{2, 4, 5}, nil},
+		{"Run the queue on gamma, QUEUE-2; not alpha, keep the logs in delta, LOGS-2, not bravo", []int{3, 4, 5}, nil},
+		{"Run the queue on alpha, not gamma, QUEUE-2", []int{3, 5}, nil}, // the cost
+		{"Run the queue on alpha", []int{5}, []string{"ea"}},
+		{"Run the queue on alpha", []int{1, 5}, []string{"a1", "ea"}},
+		{"Run the queue on gamma, QUEUE-2; the agent said alpha, QUEUE-8", []int{3, 5}, []string{"ea"}},
+		{"Keep the logs in delta, LOGS-2; the queue on alpha", []int{4, 5}, []string{"ea"}},
+		{"Keep the logs in delta, LOGS-2; the queue on alpha", []int{1, 4, 5}, []string{"a1", "ea"}},
+	} {
+		ex := score.Ideal(sc)
+		var sources []score.Source
+		for _, l := range tc.lines {
+			sources = append(sources, line(l))
+		}
+		ex.Items = append(ex.Items, active(scenario.KindDecision, score.TagStated, tc.text, sources...))
+		r := score.Score(sc, ex)
+		var stale []string
+		for _, fr := range r.Facts {
+			if fr.Outcome == score.StaleInForce {
+				stale = append(stale, fr.Fact)
+			} else if fr.Outcome != score.Holds {
+				t.Errorf("%q, citing %v: %s is %s", tc.text, tc.lines, fr.Fact, fr.Outcome)
+			}
+		}
+		want := score.Supports
+		if len(tc.stale) > 0 {
+			want = score.StaleInForce
+		}
+		if got := r.Items[len(r.Items)-1].Outcome; got != want || !slices.Equal(stale, tc.stale) || r.Metrics.StaleInForce != len(tc.stale) {
+			t.Errorf("%q, citing %v: the item is %s, kept in force %v, metrics %+v; want %s and %v", tc.text, tc.lines, got, stale, r.Metrics, want, tc.stale)
+		}
+	}
+}
+
 // TestNoRequiredFact: a scenario whose facts need not be stored has both
 // shares at 1, whatever the store holds.
 func TestNoRequiredFact(t *testing.T) {
