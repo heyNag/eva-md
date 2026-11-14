@@ -327,6 +327,26 @@ func TestCheckNamesEachFault(t *testing.T) {
 			ps[at(ps, orders)].Keys = nil
 			return ps
 		}}, "has no key"},
+		{"a project named by the empty key, merged into a listed one", broken{projects: func(ps []registry.Project) []registry.Project {
+			i := at(ps, orders)
+			ps[i] = registry.Project{ID: "", Kind: registry.KindLocal, Keys: []string{""}, MergedInto: id(general)}
+			return sorted(ps)
+		}}, "has an empty first key"},
+		{"a project named by the empty key alone", broken{projects: func(ps []registry.Project) []registry.Project {
+			i := at(ps, orders)
+			ps[i] = registry.Project{ID: "", Kind: registry.KindLocal, Keys: []string{""}}
+			return sorted(ps)
+		}}, "has an empty first key"},
+		{"an empty key after the first", broken{projects: func(ps []registry.Project) []registry.Project {
+			i := at(ps, orders)
+			ps[i].Keys = append(ps[i].Keys, "")
+			return ps
+		}}, "has an empty key"},
+		{"a key listed twice in one project", broken{projects: func(ps []registry.Project) []registry.Project {
+			i := at(ps, orders)
+			ps[i].Keys = append(ps[i].Keys, orders)
+			return ps
+		}}, "is listed twice in"},
 		{"an unknown kind", broken{projects: func(ps []registry.Project) []registry.Project {
 			ps[at(ps, orders)].Kind = "remote"
 			return ps
@@ -397,6 +417,36 @@ func TestCheckNamesEachFault(t *testing.T) {
 		err := registrytest.Check(ctx, c.b)
 		if !errors.Is(err, registrytest.ErrContract) || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: Check = %v; want a fault naming %q", c.name, err, c.want)
+		}
+	}
+}
+
+// ByKey that gives the listed project with any one field changed fails
+// Check, which names the clause "ByKey of every key gives its project".
+func TestCheckComparesEveryFieldOfByKey(t *testing.T) {
+	ctx := context.Background()
+	f := mustNew(t, entries()...)
+	orders, general := "github.com__acme__orders", "general"
+	for name, change := range map[string]func(p *registry.Project){
+		"ID":          func(p *registry.Project) { p.ID = id(general) },
+		"Kind":        func(p *registry.Project) { p.Kind = registry.KindLocal },
+		"Title":       func(p *registry.Project) { p.Title = "acme/other" },
+		"Keys":        func(p *registry.Project) { p.Keys = append(p.Keys, "github.com__acme__orders-old") },
+		"Remotes":     func(p *registry.Project) { p.Remotes = append(p.Remotes, "github.com/acme/other") },
+		"RootCommits": func(p *registry.Project) { p.RootCommits = []string{"0000000000000000000000000000000000000001"} },
+		"Roots":       func(p *registry.Project) { p.Roots = append(p.Roots, "/made/up/other") },
+		"MergedInto":  func(p *registry.Project) { p.MergedInto = id(general) },
+		"Related":     func(p *registry.Project) { p.Related = []string{id(general)} },
+	} {
+		b := broken{r: f, byKey: func(key string, p registry.Project, ok bool) (registry.Project, bool) {
+			if key == orders {
+				change(&p)
+			}
+			return p, ok
+		}}
+		err := registrytest.Check(ctx, b)
+		if !errors.Is(err, registrytest.ErrContract) || !strings.Contains(err.Error(), "not its listed project") {
+			t.Errorf("ByKey with another %s: Check = %v; want a fault naming %q", name, err, "not its listed project")
 		}
 	}
 }

@@ -145,10 +145,11 @@ var ErrContract = errors.New("registrytest: the registry breaks its contract")
 
 // Check names the first fault of a registry against the contract: the
 // listing is sorted by id with no id twice; every id is ProjectID of the
-// project's first key, and every kind is known; no key names two
-// projects; ByKey of every key gives its project; MergedInto and Related
-// name listed projects, and never the project itself. An error of the
-// registry's own is returned as it is.
+// project's first key, which is never empty, and every kind is known; no
+// key is empty, and none is listed twice or names two projects; ByKey of
+// every key gives its project; MergedInto and Related name listed
+// projects, and never the project itself. An error of the registry's own
+// is returned as it is.
 func Check(ctx context.Context, r registry.Registry) error {
 	ps, err := r.Projects(ctx)
 	if err != nil {
@@ -169,14 +170,24 @@ func Check(ctx context.Context, r registry.Registry) error {
 		if len(p.Keys) == 0 {
 			return fault("the project %s has no key", p.ID)
 		}
-		if id, _ := registry.ProjectID(p.Keys[0]); id != p.ID {
+		id, ok := registry.ProjectID(p.Keys[0])
+		if !ok {
+			return fault("the project %q has an empty first key", p.ID)
+		}
+		if id != p.ID {
 			return fault("the project %s is not the id of its first key %q, which is %q", p.ID, p.Keys[0], id)
 		}
 		if !p.Kind.Known() {
 			return fault("the project %s has the unknown kind %q", p.ID, p.Kind)
 		}
 		for _, k := range p.Keys {
+			if k == "" {
+				return fault("the project %s has an empty key", p.ID)
+			}
 			if other, ok := owner[k]; ok {
+				if other == p.ID {
+					return fault("the key %q is listed twice in %s", k, p.ID)
+				}
 				return fault("the key %q names two projects, %s and %s", k, other, p.ID)
 			}
 			owner[k] = p.ID
