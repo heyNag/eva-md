@@ -137,3 +137,12 @@ It holds that a hook runs git only to read, and only at a chat's start, for iden
 The first hook of a chat in a folder that is no repository runs `git rev-parse --show-toplevel` once; a prompt, the push retry and the next day's maintain start no git.
 A hook's output and what it stores are the same with a search index that is whole, damaged or gone, and the index's files are unchanged after it.
 A program a hook started by its full path would not be seen by these tests.
+
+**2026-11-14, HO-12c: the hooks' part of the prepared notice, behind the switch `health`.**
+With the switch on, a brief asks for the job `doctor --notice`, with the reason `health` and no git, when `<state>/health/notice.json` is missing or 30 minutes old, at the cost of one stat.
+The worker's wake leaves that job alone, and `eva-md work --wake --reason health` is refused, as before.
+A check cut short by its time limit marks the notice as checked, so chat starts wait 30 minutes before asking again.
+With the switch on, the push check's timer is `commit/push-checked`, and preparing removes a met trust flag and v1's `commit/push-retry`.
+So a healthy state holds no file of eva-md's whose name says something waits or failed; a heartbeat keeps its host's event name.
+The hook's write of its output reports whether it reached the host, and a line that did not is not recorded as shown.
+With the switch off or on, each handler at a chat's launch is recovered on its own: one that panics starts nothing of its own, stops no other, and the hook still exits 0.

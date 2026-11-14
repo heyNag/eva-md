@@ -148,4 +148,16 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 ## Since the split
 
-No change yet.
+**2026-11-14, HO-12c: with the switch `health` on, the notice is one prepared line.**
+With `[switches] health = true`, a chat start reads its host's line from `<state>/health/notice.json` in place of working out v1's notice: the most severe condition that is relevant to that host, of a closed list.
+Most severe first: `config.unknown_keys`, `wiki.unreadable`, `wiki.instance`, `trust.review`, `capture.silent`, `hook.failing` at SessionStart or UserPromptSubmit, `update.signin` and `push.diverged`.
+Then: `hook.failing` at any other event, `update.failing`, `update.quarantined`, `wiki.schema_newer`, `recovery.drift`, `commit.stale` and `push.stale`.
+Each line starts `eva.md: `, has at most 160 characters, says what is wrong and the one step, and never says "run eva-md doctor".
+A condition about a host nobody has used in 14 days is never shown, and a host's own `capture.silent` and `trust.review`, which its running hook disproves, are left out of its own line.
+A line is shown when it was prepared in the last 24 hours and its id was not shown in the last 24 hours.
+Showing it is recorded in `<state>/health/shown.json` after the output, and only when the output reached the host.
+Each hook event is judged on its newest 8 runs in 7 days: 4 or more runs, half of them failed.
+A wiki the update and the commit refuse is `wiki.unreadable` (no `index.md`, or a schema that is missing, not TOML or of no version) or `wiki.instance` (an instance missing on either side, or another).
+`trust.review` waits for a Codex chat after the flag, unless Codex's chat folder can't be read, and is over once a Codex hook has run after it; a flag that does not read as install writes it stays pending.
+`commit.stale` and `push.stale` past their budgets wait until the day's maintain has had an hour.
+Off, the default, the notice is v1's.
