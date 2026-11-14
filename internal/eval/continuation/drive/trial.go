@@ -176,6 +176,36 @@ func (p *plan) runTrial(ctx context.Context, run string, t task.Task, n int, owe
 	}
 	tr.CLI = probe.CLI
 	res := trialResult{version: probe.Version}
+	// The flags that turn the host's web tools off, for every call of the
+	// chat: an entry that must ask the CLI first does so here, in the
+	// trial's environment, within VersionTimeout.
+	web, err := p.entry.WebOff(func(args ...string) ([]byte, error) {
+		files, err := calls.start(traceTools)
+		if err != nil {
+			traceErr = err
+			return nil, err
+		}
+		lctx, cancel := context.WithTimeout(ctx, VersionTimeout)
+		defer cancel()
+		c, err := runCall(lctx, tr.CLI, args, tr.Env, tr.Dirs.Home, 1<<20, files)
+		if c.traceErr != nil {
+			traceErr = traceFault(c.traceErr)
+			return nil, traceErr
+		}
+		if err != nil || c.over {
+			return nil, errors.New("the host's CLI did not answer")
+		}
+		return c.out, nil
+	})
+	if traceErr != nil {
+		return res, traceErr
+	}
+	if err != nil {
+		return res, err
+	}
+	if len(web) == 0 {
+		return res, errors.New("the host table turns no web tool off")
+	}
 
 	var launch Launch
 	*owed = &tr
@@ -231,7 +261,7 @@ func (p *plan) runTrial(ctx context.Context, run string, t task.Task, n int, owe
 		return res, nil
 	}
 
-	s := session{p: p, tr: tr, env: env, extra: extra, hidden: hidden, calls: calls}
+	s := session{p: p, tr: tr, env: env, extra: extra, web: web, hidden: hidden, calls: calls}
 	code, err := s.run(ctx)
 	res.tokens += s.counted
 	res.outcome, res.model = s.outcome, s.model
@@ -293,6 +323,7 @@ type session struct {
 	tr      Trial
 	env     []string
 	extra   []string
+	web     []string // hostEntry.WebOff's flags, which every call has
 	outcome task.Outcome
 	model   string
 	// spent is the time the session's calls took, which --session-timeout
@@ -349,7 +380,7 @@ func (s *session) run(ctx context.Context) (string, error) {
 	var asked int
 	id := ""
 	for round := 1; ; round++ {
-		r, err := s.call(ctx, chat{Prompt: prompt, Turns: t.MaxTurns, Model: s.p.opts.Model, Resume: id, Extra: s.extra})
+		r, err := s.call(ctx, chat{Prompt: prompt, Turns: t.MaxTurns, Model: s.p.opts.Model, Resume: id, Extra: s.extra, Web: s.web})
 		s.outcome.AgentEvents += r.AgentEvents
 		s.outcome.PromptTokens += r.PromptTokens
 		s.outcome.CachedTokens += r.CachedTokens
@@ -490,8 +521,10 @@ func followUp(failing []string, facts []task.Fact) string {
 // that printed nothing, an output with no final event). An answer without
 // its usage, or with 0 prompt and output tokens, whatever ended the CLI
 // after it, and an output past its limit, which may hide the usage, are
-// CodeNoUsage: what the call spent no ceiling can count. The tokens the
-// output names are kept, for the ceiling. A call that exits other than 0
+// CodeNoUsage: what the call spent no ceiling can count. An output that
+// names a web tool's call is CodeWebUsed before all of these, and also
+// when the session's limit ended the call. The tokens the output names
+// are kept, for the ceiling. A call that exits other than 0
 // with an answer, as at the turn bound, is graded as it stands. An error
 // is the driver's own failure to run the CLI, which stops the run, or to
 // keep the call's trace, which stops it too, the call's tokens counted.
@@ -527,8 +560,15 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 		return spentOnly(s.p.entry.Read(out)), traceFault(got.traceErr)
 	case cctx.Err() != nil:
 		// What the call printed before the limit ended it is read for the
-		// tokens it names, which the ceiling counts.
-		return spentOnly(s.p.entry.Read(out)), errTimeout
+		// tokens it names, which the ceiling counts, and for a web tool's
+		// call, which stops the run however the call ended.
+		r := s.p.entry.Read(out)
+		if r.Web {
+			cut := spentOnly(r)
+			cut.Fail = CodeWebUsed
+			return cut, nil
+		}
+		return spentOnly(r), errTimeout
 	}
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {
@@ -536,6 +576,10 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 	}
 	r := s.p.entry.Read(out)
 	switch {
+	case r.Web:
+		// The chat had a web tool it should not have had, whatever else
+		// the call gave: the set-up is wrong.
+		r.Fail = CodeWebUsed
 	case over:
 		r.Fail = CodeNoUsage
 	case r.Fail != "":

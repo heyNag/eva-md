@@ -88,11 +88,14 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 				calls := r.calls()
 				var chats []fakehost.Call
 				for _, call := range calls {
-					if call.Mode != "version" {
+					if call.Mode == "start" || call.Mode == "continue" {
 						chats = append(chats, call)
 					}
 				}
-				if len(chats) != want.Rounds || len(calls) != want.Rounds+1 || calls[0].Mode != "version" {
+				// Codex lists its features once a trial, before its web tools
+				// are turned off; Claude Code needs no list.
+				lists := map[adapter.ID]int{adapter.Codex: 1}[h.ID]
+				if len(chats) != want.Rounds || len(calls) != want.Rounds+1+lists || calls[0].Mode != "version" || countMode(calls, "tools") != lists {
 					t.Fatalf("calls: %+v", calls)
 				}
 				tk, _ := task.Load(r.script.Task)
@@ -130,7 +133,7 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 						call.Fixed["GIT_CONFIG_NOSYSTEM"] != "1" || call.Fixed["PATH"] != filepath.Join(dir, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH") {
 						t.Fatalf("the built variables: %v", call.Fixed)
 					}
-					if call.Mode == "version" {
+					if call.Mode == "version" || call.Mode == "tools" {
 						continue
 					}
 					if call.Dir != filepath.Join(dir, "workspace") {
@@ -139,6 +142,7 @@ func TestHiddenTaskOnEachHost(t *testing.T) {
 					if len(off) == 0 || !holdsRun(call.Args, off) {
 						t.Fatalf("the call %v lacks the flags that turn memory and plugins off", call.Args)
 					}
+					checkWebOff(t, h.ID, call.Args)
 					for _, f := range call.Files {
 						if strings.HasPrefix(f, "checks/") || f == "answer.txt" && call.Mode == "start" {
 							t.Fatalf("the workspace held %s at a prompt", f)
@@ -649,6 +653,11 @@ func TestArmPrepareAndAfter(t *testing.T) {
 			t.Fatalf("--eva-md is not linked into the trial's bin: %q %v", to, err)
 		}
 		calls := r.calls()
+		// A condition's own flags come before those that turn the web tools
+		// off, which every chat still has.
+		if chats := checkChatsWebOff(t, adapter.ClaudeCode, calls); chats != 2 {
+			t.Fatalf("%d chats, want 2", chats)
+		}
 		if !slices.Contains(calls[1].Args, "--made-up-flag") || !slices.Contains(calls[1].Env, "EVAL_MADE_UP_ACTOR") || slices.Contains(calls[0].Env, "EVAL_MADE_UP_ACTOR") {
 			t.Fatalf("calls: %+v", calls)
 		}
@@ -727,6 +736,10 @@ func TestPluginLaunch(t *testing.T) {
 				t.Fatalf("run: %+v %v\n%s", s, err, out)
 			}
 			calls := r.calls()
+			// Each chat that loads the plugin has the host's web tools off.
+			if chats := checkChatsWebOff(t, h.ID, calls); chats < 1 {
+				t.Fatalf("no chat ran: %+v", calls)
+			}
 			args := calls[len(calls)-1].Args
 			home := calls[len(calls)-1].Fixed["HOME"]
 			// The plugin's chat has the host's own memory off by its variable
@@ -1023,7 +1036,7 @@ func TestCallsWithNoAnswerAreHostFailed(t *testing.T) {
 				if r.script.From == 2 {
 					first = 2
 				}
-				if chats := len(r.calls()) - countMode(r.calls(), "version"); chats != first+2 {
+				if chats := countMode(r.calls(), "start") + countMode(r.calls(), "continue"); chats != first+2 {
 					t.Fatalf("%d chats, want %d", chats, first+2)
 				}
 			})

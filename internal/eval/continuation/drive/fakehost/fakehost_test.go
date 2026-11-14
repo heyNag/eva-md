@@ -3,6 +3,7 @@ package fakehost
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,7 +25,9 @@ func TestOtherCallsAreRefused(t *testing.T) {
 	if err := os.Mkdir(record, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data, _ := json.Marshal(Script{Dir: record, Task: filepath.Join(tasks, FixtureID)})
+	// Its Codex lists no web feature, so its web search's setting alone
+	// turns its web tools off.
+	data, _ := json.Marshal(Script{Dir: record, Task: filepath.Join(tasks, FixtureID), Features: []string{"shell_tool"}})
 	file := filepath.Join(dir, "script.json")
 	if err := os.WriteFile(file, data, 0o644); err != nil {
 		t.Fatal(err)
@@ -43,8 +46,16 @@ func TestOtherCallsAreRefused(t *testing.T) {
 		{adapter.ClaudeCode, []string{"-p", "a made-up prompt"}, 2, "other"},
 		{adapter.ClaudeCode, []string{"-p", "--", "a", "made-up prompt"}, 2, "other"},
 		{adapter.ClaudeCode, []string{"--version"}, 0, "version"},
-		{adapter.Codex, []string{"exec", "--json", "--", "-a made-up prompt"}, 0, "start"},
-		{adapter.ClaudeCode, []string{"-p", "--", "--resume"}, 0, "start"},
+		{adapter.Codex, []string{"exec", "--json", "-c", "web_search=disabled", "--", "-a made-up prompt"}, 0, "start"},
+		{adapter.ClaudeCode, []string{"-p", "--disallowedTools", "WebSearch", "WebFetch", "--", "--resume"}, 0, "start"},
+		{adapter.Codex, []string{"features", "list"}, 0, "tools"},
+		{adapter.ClaudeCode, []string{"features", "list"}, 2, "other"},
+		// A chat that does not turn its web tools off is recorded, then
+		// refused as a fault of the fake's own.
+		{adapter.Codex, []string{"exec", "--json", "--", "a made-up prompt"}, 3, "start"},
+		{adapter.ClaudeCode, []string{"-p", "--", "a made-up prompt"}, 3, "start"},
+		{adapter.ClaudeCode, []string{"-p", "--disallowedTools", "WebSearch", "--", "a made-up prompt"}, 3, "start"},
+		{adapter.ClaudeCode, []string{"-p", "--disallowedTools", "WebSearch", "--model", "WebFetch", "--", "a made-up prompt"}, 3, "start"},
 	}
 	for i, c := range cases {
 		h, _ := adapter.ByID(string(c.host))
@@ -56,11 +67,14 @@ func TestOtherCallsAreRefused(t *testing.T) {
 		if err != nil || len(calls) != i+1 || calls[i].Mode != c.mode {
 			t.Fatalf("%v: %+v %v", c.args, calls, err)
 		}
-		if c.mode == "other" && out.Len() != 0 {
+		if (c.mode == "other" || c.code == 3) && out.Len() != 0 {
 			t.Fatalf("%v answered %q", c.args, out.String())
 		}
 		// The prompt is the argument after "--", even one that looks like a
 		// flag, and is never read as one.
+		if c.mode == "tools" && out.String() != fmt.Sprintf("%-32s %-14s %s\n", "shell_tool", "stable", "false") {
+			t.Fatalf("%v listed %q", c.args, out.String())
+		}
 		if c.mode == "start" && (calls[i].Prompt != c.args[len(c.args)-1] || !strings.HasPrefix(calls[i].Session, "fake-session-")) {
 			t.Fatalf("%v: %+v", c.args, calls[i])
 		}
@@ -93,7 +107,7 @@ func TestEachCallsEndIsRecorded(t *testing.T) {
 	}
 	t.Chdir(t.TempDir())
 	h, _ := adapter.ByID(string(adapter.ClaudeCode))
-	start := []string{"-p", "--", "a made-up prompt"}
+	start := []string{"-p", "--disallowedTools", "WebSearch", "WebFetch", "--", "a made-up prompt"}
 	cases := []struct {
 		script Script
 		args   []string
@@ -104,6 +118,7 @@ func TestEachCallsEndIsRecorded(t *testing.T) {
 		{Script{Task: filepath.Join(tasks, FixtureID), SignIn: true}, start, 1, ""},
 		{Script{Task: filepath.Join(tasks, FixtureID)}, start, 0, ""},
 		{Script{Task: filepath.Join(dir, "no-such-task")}, start, 3, "laying the overlay: "},
+		{Script{Task: filepath.Join(tasks, FixtureID)}, []string{"-p", "--", "a made-up prompt"}, 3, "answering the chat: its web tools were not turned off"},
 	}
 	for i, c := range cases {
 		script(c.script)

@@ -33,7 +33,13 @@ const (
 
 // Ends lists every way a run ends, a closed list, in a fixed order: a
 // Record's Ended is one of them.
-var Ends = []string{EndedDone, EndedError, CodeNoUsage, CodeMemoryOff, CodeHiddenFound, EndedArmStopped}
+var Ends = []string{EndedDone, EndedError, CodeNoUsage, CodeMemoryOff, CodeHiddenFound, CodeWebUsed, EndedArmStopped}
+
+// laterCodes are the codes of Codes added after records were first
+// written: LoadRuns reads a record that does not count one as counting it
+// 0, so that a results folder written before stays readable. A record
+// that is written counts every code.
+var laterCodes = []string{CodeWebUsed}
 
 // Record is what one run did: a JSON line appended to RunsFile in the
 // results folder when the run ends, however it ends, once its folder under
@@ -267,6 +273,13 @@ func LoadRuns(dir string) ([]Record, error) {
 		var r Record
 		if !wholeFields(line) || decodeStrict(line, &r) != nil {
 			return nil, fmt.Errorf("the runs file: line %d is not a record", i+1)
+		}
+		// A record written before a code of laterCodes was on the list
+		// left no trial unjudged by it.
+		for _, code := range laterCodes {
+			if _, ok := r.Unjudged[code]; !ok && r.Unjudged != nil {
+				r.Unjudged[code] = 0
+			}
 		}
 		if msg := r.check(); msg != "" {
 			return nil, fmt.Errorf("the runs file: line %d: %s", i+1, msg)

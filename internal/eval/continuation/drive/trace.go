@@ -14,14 +14,17 @@ import (
 )
 
 // A trace (--trace) keeps what each call of a host's CLI the driver
-// starts printed, the version's and each chat call's, so that a wrong
-// reading of a real host's output, such as a call read as giving no
-// usage, a rate limit read as a host's failure or a model not found, can
-// be mended from the run. Each call writes three files: its stdout and its
-// stderr as the driver read them and within the limit it reads stdout by,
-// and, once its wait has ended, how it ended, in one line (exitLine):
+// starts printed, the version's, the list of its features where the host
+// table asks for one (Codex's, before its web tools are turned off), and
+// each chat call's, so that a wrong reading of a real host's output, such
+// as a call read as giving no usage, a rate limit read as a host's failure
+// or a model not found, can be mended from the run. Each call writes three
+// files: its stdout and its stderr as the driver read them and within the
+// limit it reads stdout by, and, once its wait has ended, how it ended, in
+// one line (exitLine):
 //
 //	<trace>/<run>/<task>/<condition>/t<n>/<k>-version.stdout, .stderr, .exit
+//	<trace>/<run>/<task>/<condition>/t<n>/<k>-tools.stdout, .stderr, .exit
 //	<trace>/<run>/<task>/<condition>/t<n>/<k>-chat.stdout, .stderr, .exit
 //
 // where k counts the trial's calls from 1. The .exit file tells a call
@@ -38,7 +41,10 @@ import (
 // Kinds of the calls a trace keeps.
 const (
 	traceVersion = "version"
-	traceChat    = "chat"
+	// traceTools is the call that asks the CLI which of its web tools
+	// there are to turn off, where the host table asks (hostEntry.WebOff).
+	traceTools = "tools"
+	traceChat  = "chat"
 )
 
 // checkTrace refuses --trace when it is not a folder that is new or empty,

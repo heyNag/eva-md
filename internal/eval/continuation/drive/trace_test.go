@@ -89,8 +89,10 @@ func TestTraceKeepsEachCall(t *testing.T) {
 				t.Fatalf("the plan does not say a trace is kept:\n%s", out)
 			}
 			calls := r.calls()
-			if len(calls) != 6 {
-				t.Fatalf("%d calls, want a version, a start and a follow-up for each trial", len(calls))
+			// Codex lists its features in each trial, before its chats.
+			lists := map[string]int{"codex": 1}[host]
+			if len(calls) != 2*(3+lists) || countMode(calls, "tools") != 2*lists {
+				t.Fatalf("%d calls, want a version, a list of features on Codex, a start and a follow-up for each trial", len(calls))
 			}
 			want := map[string]fs.FileMode{".": fs.ModeDir | 0o700}
 			for _, dir := range []string{s.Run, filepath.Join(s.Run, fakehost.FixtureID), filepath.Join(s.Run, fakehost.FixtureID, "off")} {
@@ -99,10 +101,13 @@ func TestTraceKeepsEachCall(t *testing.T) {
 			trial, k := 0, 0
 			for i, c := range calls {
 				kind := "chat"
-				if c.Mode == "version" {
+				switch c.Mode {
+				case "version":
 					kind = "version"
 					trial, k = trial+1, 0
 					want[filepath.Join(s.Run, fakehost.FixtureID, "off", "t"+strconv.Itoa(trial))] = fs.ModeDir | 0o700
+				case "tools":
+					kind = "tools"
 				}
 				k++
 				name := filepath.Join(s.Run, fakehost.FixtureID, "off", "t"+strconv.Itoa(trial), strconv.Itoa(k)+"-"+kind)

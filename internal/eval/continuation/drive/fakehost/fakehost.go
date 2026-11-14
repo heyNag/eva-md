@@ -6,9 +6,11 @@
 // only when ScriptVar names a script, which the driver passes only when a
 // test names it with --pass-env.
 //
-// It answers --version, and starts and continues headless sessions in the
-// shapes of the driver's host table (drive/hosts.go), which are its own
-// until the pilot (EV-03) records the real ones. Each call is recorded as
+// It answers --version, Codex's features list, and starts and continues
+// headless sessions in the shapes of the driver's host table
+// (drive/hosts.go), which are its own until the pilot (EV-03) records the
+// real ones. A chat whose arguments do not turn the host's web tools off
+// (WebOff) is a fault of its own, which answers nothing. Each call is recorded as
 // a line of Calls in the script's folder: its arguments, the names of its
 // variables (and the values of the four the driver builds and OffVar's),
 // its folder,
@@ -149,6 +151,80 @@ type Script struct {
 	// Printed keeps what each call printed, on stdout and on stderr, in
 	// files of Dir that Printed reads.
 	Printed bool `json:"printed"`
+	// Features are the features Codex's features list names, each off;
+	// when empty, DefaultFeatures. NoFeatures makes that list exit 1
+	// having printed nothing.
+	Features   []string `json:"features"`
+	NoFeatures bool     `json:"no_features"`
+	// Web makes an answer name a call of a web tool, in one of the host's
+	// shapes: "tool" a tool call (Claude Code's WebSearch, Codex's
+	// web_search item completed), "fetch" a fetch (Claude Code's WebFetch;
+	// on Codex a web_search item started only), "server" the API's own
+	// (Claude Code's server_tool_use block named web_fetch; on Codex as
+	// "tool"), "count" the API's count of searches in Claude Code's
+	// usage.server_tool_use.web_search_requests, and "model_count" its
+	// count of fetches in a model's webFetchRequests in modelUsage (each on
+	// Codex as "tool"). It is one of the failures From and Session keep to
+	// some calls.
+	Web string `json:"web"`
+}
+
+// DefaultFeatures are the features Codex's features list names when a
+// script names none: the web features the host table turns off, and some
+// it keeps, the shell's among them.
+var DefaultFeatures = []string{"shell_tool", "unified_exec", "apply_patch_freeform", "standalone_web_search",
+	"browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "hooks", "plugins"}
+
+// codexWebFeatures are the features a Codex chat must have turned off when
+// its features list names them: the fake's own copy of what the host
+// table turns off, so that a table that stops turning one off fails.
+var codexWebFeatures = []string{"standalone_web_search", "browser_use", "browser_use_external",
+	"browser_use_full_cdp_access", "computer_use"}
+
+// WebOff reports whether a chat's arguments, before the prompt, turn the
+// host's web tools off, as the host table must: on Claude Code,
+// --disallowedTools followed by WebSearch and WebFetch; on Codex,
+// -c web_search=disabled and --disable for each of the web features that
+// features names. A chat call without them is a fault of the fake's own,
+// exit 3.
+func WebOff(id adapter.ID, args, features []string) bool {
+	if end := slices.Index(args, "--"); end >= 0 {
+		args = args[:end]
+	}
+	switch id {
+	case adapter.ClaudeCode:
+		i := slices.Index(args, "--disallowedTools")
+		if i < 0 {
+			return false
+		}
+		var denied []string
+		for _, a := range args[i+1:] {
+			if strings.HasPrefix(a, "-") {
+				break
+			}
+			denied = append(denied, a)
+		}
+		return slices.Contains(denied, "WebSearch") && slices.Contains(denied, "WebFetch")
+	case adapter.Codex:
+		pair := func(flag, value string) bool {
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == flag && args[i+1] == value {
+					return true
+				}
+			}
+			return false
+		}
+		if !pair("-c", "web_search=disabled") {
+			return false
+		}
+		for _, name := range codexWebFeatures {
+			if slices.Contains(features, name) && !pair("--disable", name) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // OffVar is a variable that turns a host's own memory off, whose value the
@@ -164,7 +240,7 @@ const ChildVar = "EVA_FAKEHOST_CHILD"
 type Call struct {
 	Pid     int               `json:"pid"` // the process the call ran as
 	Host    adapter.ID        `json:"host"`
-	Mode    string            `json:"mode"` // "version", "start", "continue", or "other" for a call that is none
+	Mode    string            `json:"mode"` // "version", "tools" (Codex's features list), "start", "continue", or "other" for a call that is none
 	Args    []string          `json:"args"`
 	Env     []string          `json:"env"`   // every variable's name, sorted
 	Fixed   map[string]string `json:"fixed"` // HOME, PATH, TMPDIR, GIT_CONFIG_NOSYSTEM and OffVar
@@ -205,7 +281,12 @@ func Main() {
 	if host.ID == "" {
 		return
 	}
-	os.Exit(serve(host, file, os.Args[1:], os.Stdout, os.Stderr))
+	// Not os.Exit: the fake is the test binary run again, so under the race
+	// detector it is race-built too, and os.Exit would first let the race
+	// runtime finish, which sleeps a second. The tests start the fake
+	// hundreds of times. Nothing is buffered, and neither runs a deferred
+	// function.
+	syscall.Exit(serve(host, file, os.Args[1:], os.Stdout, os.Stderr))
 }
 
 // serve answers one call, printing on out and errOut, and gives its exit
@@ -280,6 +361,19 @@ func serve(host adapter.Host, file string, args []string, out, errOut io.Writer)
 		fmt.Fprintf(out, "%s (fake)\n", v)
 		return 0
 	}
+	if host.ID == adapter.Codex && slices.Equal(args, []string{"features", "list"}) {
+		c.Mode = "tools"
+		if err := record(s, c); err != nil {
+			return failed("recording the call", err)
+		}
+		if s.NoFeatures {
+			return 1
+		}
+		for _, name := range s.features() {
+			fmt.Fprintf(out, "%-32s %-14s %s\n", name, "stable", "false")
+		}
+		return 0
+	}
 	if !parse(host.ID, &c) {
 		// Not a headless chat: recorded, and refused.
 		c.Mode = "other"
@@ -306,6 +400,9 @@ func serve(host adapter.Host, file string, args []string, out, errOut io.Writer)
 	}
 	if err := record(s, c); err != nil {
 		return failed("recording the call", err)
+	}
+	if !WebOff(host.ID, args, s.features()) {
+		return failed("answering the chat", errors.New("its web tools were not turned off"))
 	}
 	if s.Stall {
 		if err := spawn(s.Ready); err != nil {
@@ -375,6 +472,9 @@ func serve(host adapter.Host, file string, args []string, out, errOut io.Writer)
 		emit(out, map[string]any{"type": "padding", "text": strings.Repeat("p", s.Pad)})
 	}
 	s.NoUsage = s.NoUsage && failing
+	if !failing {
+		s.Web = ""
+	}
 	answer(host.ID, s, session, model, out)
 	if s.KilledAfter && failing {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
@@ -390,6 +490,14 @@ func serve(host adapter.Host, file string, args []string, out, errOut io.Writer)
 		return 1
 	}
 	return 0
+}
+
+// features are the features the script's Codex lists.
+func (s Script) features() []string {
+	if len(s.Features) > 0 {
+		return s.Features
+	}
+	return DefaultFeatures
 }
 
 // spawn starts the test binary again as a child (ChildVar) that holds
@@ -743,6 +851,13 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 			emit(out, map[string]any{"type": "assistant", "session_id": session,
 				"message": withModel(map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "Edit"}}}, "model")})
 		}
+		block := map[string]any{"tool": map[string]any{"type": "tool_use", "name": "WebSearch"},
+			"fetch":  map[string]any{"type": "tool_use", "name": "WebFetch"},
+			"server": map[string]any{"type": "server_tool_use", "name": "web_fetch"}}[s.Web]
+		if block != nil {
+			emit(out, map[string]any{"type": "assistant", "session_id": session,
+				"message": withModel(map[string]any{"content": []any{block}}, "model")})
+		}
 		emit(out, map[string]any{"type": "assistant", "session_id": session,
 			"message": withModel(map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}}, "model")})
 		subtype := "success"
@@ -751,9 +866,20 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 		}
 		result := map[string]any{"type": "result", "subtype": subtype, "is_error": s.TurnBound, "session_id": session}
 		if !s.NoUsage {
-			result["usage"] = map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output}
+			// A real result counts the API's web searches and fetches, 0 when
+			// there were none.
+			searches, fetches := 0, 0
+			switch s.Web {
+			case "count":
+				searches = 1
+			case "model_count":
+				fetches = 1
+			}
+			result["usage"] = map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output,
+				"server_tool_use": map[string]any{"web_search_requests": searches, "web_fetch_requests": 0}}
 			if model != "" {
-				result["modelUsage"] = map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}
+				result["modelUsage"] = map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output,
+					"webSearchRequests": 0, "webFetchRequests": fetches}}
 			}
 		}
 		emit(out, result)
@@ -762,6 +888,12 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 		emit(out, map[string]any{"type": "turn.started"})
 		for range s.Events {
 			emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution"}})
+		}
+		switch s.Web {
+		case "fetch":
+			emit(out, map[string]any{"type": "item.started", "item": map[string]any{"type": "web_search"}})
+		case "tool", "server", "count", "model_count":
+			emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "web_search"}})
 		}
 		emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": text}})
 		done := map[string]any{"type": "turn.completed"}

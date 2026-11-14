@@ -240,7 +240,7 @@ func TestContinuationRun(t *testing.T) {
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 	if len(lines) != 5 || lines[0] != "plan: condition off, host codex, tasks 1, trials 2 each, sessions 2; ceilings: sessions 2, tokens 100000; trial folders removed" ||
 		lines[2] != "trial hidden-banner.t1: solved 1, first try 0, corrections 1, rounds 2" ||
-		!strings.HasSuffix(lines[4], ": planned 2, judged 2, no model 0, not run 0, unjudged sign_in 0, rate_limited 0, timeout 0, other_model 0, setup_failed 0, update_failed 0, host_failed 0, no_usage 0, memory_off 0, hidden_found 0; tokens 3720, rows 18") {
+		!strings.HasSuffix(lines[4], ": planned 2, judged 2, no model 0, not run 0, unjudged sign_in 0, rate_limited 0, timeout 0, other_model 0, setup_failed 0, update_failed 0, host_failed 0, no_usage 0, memory_off 0, hidden_found 0, web_used 0; tokens 3720, rows 18") {
 		t.Fatalf("output:\n%s", out)
 	}
 	if strings.Contains(out, secret) || strings.Contains(out, r.base) || strings.Contains(out, fakehost.FixtureColor) || strings.Contains(out, fakehost.FixtureRepo) {
@@ -362,8 +362,14 @@ func TestContinuationRunStopsOnNoUsage(t *testing.T) {
 				if _, err := os.Stat(filepath.Join(r.base, "out", results.FileName)); !os.IsNotExist(err) {
 					t.Fatal("a run with no usage wrote rows")
 				}
-				if starts := len(r.calls(t)); starts != 2 {
-					t.Fatalf("%d calls, want the version and one chat", starts)
+				// Codex lists its features before its chat, to turn its web
+				// tools off.
+				want := 2
+				if host == "codex" {
+					want = 3
+				}
+				if starts := len(r.calls(t)); starts != want {
+					t.Fatalf("%d calls, want the version, Codex's list of features, and one chat", starts)
 				}
 				records, err := drive.LoadRuns(filepath.Join(r.base, "out"))
 				if err != nil || len(records) != 1 || records[0].Ended != drive.CodeNoUsage || records[0].Host != host {
@@ -431,9 +437,10 @@ func TestContinuationRunTrace(t *testing.T) {
 	})
 	slices.Sort(kept)
 	var want []string
-	for _, call := range []string{"1-version", "2-chat", "3-chat"} {
+	for _, call := range []string{"1-version", "2-tools", "3-chat", "4-chat"} {
 		for _, ext := range []string{".exit", ".stderr", ".stdout"} {
-			// Two trials, each with its three calls.
+			// Two trials, each with its four calls: Codex lists its
+			// features before its chats.
 			want = append(want, call+ext, call+ext)
 		}
 	}

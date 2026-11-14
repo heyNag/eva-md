@@ -66,7 +66,7 @@ func TestTwoConditionsGiveTwoRecords(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.SplitN(string(data), "\n", 2)[0]), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if len(fields) != 20 || string(fields["unjudged"]) != `{"hidden_found":0,"host_failed":0,"memory_off":0,"no_usage":0,"other_model":0,"rate_limited":0,"setup_failed":0,"sign_in":0,"timeout":0,"update_failed":0}` {
+	if len(fields) != 20 || string(fields["unjudged"]) != `{"hidden_found":0,"host_failed":0,"memory_off":0,"no_usage":0,"other_model":0,"rate_limited":0,"setup_failed":0,"sign_in":0,"timeout":0,"update_failed":0,"web_used":0}` {
 		t.Fatalf("fields: %s", data)
 	}
 }
