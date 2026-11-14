@@ -28,7 +28,7 @@ func init() {
 		run:      continuation,
 	})
 	addContinuation("run", continuationCommand{
-		synopsis: "run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--trace DIR] [--spend-model-quota]",
+		synopsis: "run --tasks DIR --repos DIR --host ID --cli PATH --condition C --trials N --work DIR --out DIR --max-sessions N --max-tokens N [--model ID] [--session-timeout D] [--pass-env NAME]... [--eva-md PATH] [--repo DIR] [--keep-trials] [--trace DIR] [--sign-in PATH, with --condition " + string(task.Eva) + "] [--spend-model-quota]",
 		run:      continuationRun,
 	})
 	addContinuation("check", continuationCommand{
@@ -90,15 +90,66 @@ type names []string
 func (n *names) String() string     { return strings.Join(*n, ",") }
 func (n *names) Set(v string) error { *n = append(*n, v); return nil }
 
+// oncePath is a flag that takes a path once, and not an empty one. It
+// keeps why it refused a value, in fixed words, since the flag package's
+// own message can quote the value.
+type oncePath struct {
+	name, path, refused string
+}
+
+func (p *oncePath) String() string { return p.path }
+
+func (p *oncePath) Set(v string) error {
+	switch {
+	case p.path != "":
+		p.refused = "--" + p.name + " is given twice"
+	case v == "":
+		p.refused = "--" + p.name + " needs a program's path"
+	default:
+		p.path = v
+		return nil
+	}
+	return errors.New(p.refused)
+}
+
 // continuationRun exits 0 when every planned trial was judged, 1 when one
 // was left unjudged or not run, and 2 when nothing started or the run
 // stopped.
 func continuationRun(ctx context.Context, args []string, out, errOut io.Writer) int {
+	o, msg := runOptions(args)
+	if msg != "" {
+		return continuationFail(errOut, msg)
+	}
+	s, err := drive.Run(ctx, o, out)
+	var usage *drive.UsageError
+	switch {
+	case errors.As(err, &usage):
+		return continuationFail(errOut, usage.Error())
+	case errors.Is(err, drive.ErrNoQuota):
+		fmt.Fprintln(errOut, "eva-eval: "+err.Error())
+		return 2
+	case err != nil:
+		return fail(errOut, err)
+	case s.Judged != s.Planned:
+		return 1
+	}
+	return 0
+}
+
+// runOptions reads continuation run's flags into the driver's options, or
+// gives a usage error's words. Its --sign-in, a program the eva condition
+// runs in each trial before setup, in the trial's environment and with its
+// home as its folder, to sign the host's CLI in there by the host's own
+// means, is for that condition alone, and that condition needs --eva-md:
+// either missing is a usage error. The condition checks the program before
+// any trial starts.
+func runOptions(args []string) (drive.Options, string) {
 	f := flag.NewFlagSet("eva-eval continuation run", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	var o drive.Options
 	var condition string
 	var pass names
+	signIn := oncePath{name: "sign-in"}
 	f.StringVar(&o.Tasks, "tasks", "", "")
 	f.StringVar(&o.Repos, "repos", "", "")
 	f.StringVar(&o.Host, "host", "", "")
@@ -116,33 +167,31 @@ func continuationRun(ctx context.Context, args []string, out, errOut io.Writer) 
 	f.StringVar(&o.Repo, "repo", ".", "")
 	f.BoolVar(&o.KeepTrials, "keep-trials", false, "")
 	f.StringVar(&o.Trace, "trace", "", "")
+	f.Var(&signIn, "sign-in", "")
 	f.BoolVar(&o.Spend, "spend-model-quota", false, "")
 	if err := f.Parse(args); err != nil {
+		if signIn.refused != "" {
+			return drive.Options{}, signIn.refused
+		}
 		// The flag package's message can quote a value, so it is not shown.
-		return continuationFail(errOut, "a flag of continuation run is unknown or has no valid value")
+		return drive.Options{}, "a flag of continuation run is unknown or has no valid value"
 	}
 	if f.NArg() != 0 {
-		return continuationFail(errOut, "continuation run takes no arguments besides its flags")
+		return drive.Options{}, "continuation run takes no arguments besides its flags"
 	}
 	if o.SessionTimeout <= 0 {
-		return continuationFail(errOut, "--session-timeout is not a positive duration")
+		return drive.Options{}, "--session-timeout is not a positive duration"
 	}
 	o.Condition = task.Condition(condition)
 	o.PassEnv = pass
-	s, err := drive.Run(ctx, o, out)
-	var usage *drive.UsageError
+	o.SignIn = signIn.path
 	switch {
-	case errors.As(err, &usage):
-		return continuationFail(errOut, usage.Error())
-	case errors.Is(err, drive.ErrNoQuota):
-		fmt.Fprintln(errOut, "eva-eval: "+err.Error())
-		return 2
-	case err != nil:
-		return fail(errOut, err)
-	case s.Judged != s.Planned:
-		return 1
+	case o.SignIn != "" && o.Condition != task.Eva:
+		return drive.Options{}, "--sign-in is for --condition " + string(task.Eva) + " alone"
+	case o.Condition == task.Eva && o.EvaMD == "":
+		return drive.Options{}, "--condition " + string(task.Eva) + " needs --eva-md, an evaluation build of eva-md"
 	}
-	return 0
+	return o, ""
 }
 
 // continuationCheck checks each task offline, a line a task, and exits 1
