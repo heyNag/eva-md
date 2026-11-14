@@ -550,6 +550,16 @@ func TestRunRefuses(t *testing.T) {
 	if _, err := Run(context.Background(), arm(f), scripts(t, "v1.05"), (&canned{t: t, f: f}).ask, failingWriter{}); err == nil {
 		t.Error("a recording that cannot be written did not stop the run")
 	}
+	// A context that ends stops the run before its next call.
+	ctx, cancel := context.WithCancel(context.Background())
+	c = &canned{t: t, f: f}
+	cancelling := func(ctx context.Context, call Call) (Reply, error) {
+		cancel()
+		return c.ask(ctx, call)
+	}
+	if res, err := Run(ctx, arm(f), scripts(t, "v1.05", "v1.03"), cancelling, nil); !errors.Is(err, context.Canceled) || len(c.calls) != 1 || !reflect.DeepEqual(res, Result{}) {
+		t.Errorf("a context that ended: %v after %d calls", err, len(c.calls))
+	}
 }
 
 // TestRepeat: each round runs every script afresh, and gives each

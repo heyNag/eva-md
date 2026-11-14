@@ -393,8 +393,12 @@ func (r *runner) pass(round int, s spike.Script, n int, in spike.Input, shown []
 }
 
 // call asks c, checks the reply, keeps its answer and records the call.
-// The answer is nil for a failed call and for one that gave no JSON.
+// The answer is nil for a failed call and for one that gave no JSON. A
+// context that has ended asks nothing.
 func (r *runner) call(c Call) (Reply, []byte, error) {
+	if err := r.ctx.Err(); err != nil {
+		return Reply{}, nil, fmt.Errorf("arm: %w", err)
+	}
 	reply, err := r.ask(r.ctx, c)
 	if err != nil {
 		return Reply{}, nil, fmt.Errorf("arm: script %s round %d pass %d, %s call: %w", c.Script, c.Round, c.Pass, c.Kind, err)
