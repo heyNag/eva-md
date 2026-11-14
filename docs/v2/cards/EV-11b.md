@@ -49,3 +49,18 @@ The card's checker left these to the lead.
 - The test on the repository holds the ledger's structure, its sums and the rows a merged `deletes` block has frozen. Any other difference from today's count makes `eva-eval size --ledger` exit 1, and the lead runs it and rewrites the figures at each merge and each readout: a builder of another card cannot own the ledger, so no builder's check may fail on it.
 - Each loose reading of what leaves is the builder's, listed in the report, and stands only once the lead has accepted it at the merge.
 - Whether CI's `guards` job runs the ledger is the lead's, after the merge.
+
+## As merged
+
+Merged from `pkg/ev-11b-r1` on 2026-11-14, after a review, one fix round and a verification that accepted it. A restart of the machine cut the first verifier off; a second started afresh. The review's major fault: seven rows counted whole files of which the same reading keeps a part, against the ledger's own rule, so what leaves was overstated by about 4,000 lines. Those files are set aside now, each named in its bullet with what is kept.
+
+**The first reading**, by the command at the merge: built 63,269; v1 code that leaves 20,609; instruments that leave 5,871; so 26,480 leave; v2 code nothing calls yet 10,241; end state 47,030 against the ceiling's 53,694. About 6,700 lines are left for what v2 still builds into the binary.
+
+The lead's rulings at the merge:
+
+- **Each loose reading still counted is accepted as a reading**, to be confirmed by the card that deletes the file: `internal/resume`'s `lines.go` and `lineage.go`; the four files of the guided setup, though they come to about three times the plan's estimate, since only `eva-md setup` reaches them; `internal/health`'s `knowledge.go`, `code.go` and `times.go`; and `cmd/eva-md`'s `update.go`, `maintain.go`, `knowledge.go` and `commit.go`.
+- **The rule's three exceptions stand**: a time limit tests raise, a part that names a package a row deletes, and one declaration of at most 12 lines keep nothing of a file.
+- **`internal/hook`'s `maintain.go` and `spawn.go` stay out** until DV-26's card names what of them goes.
+- **CI's `guards` job does not run the ledger.** A merge that moves a count would turn it red until the lead had written the figures again. The lead runs `go run ./cmd/eva-eval size --ledger docs/v2/size-ledger.md` at each merge that changes Go the binary holds, and at each readout, and writes what it prints.
+
+Known and left: a package that deletes a path a merged card froze, before the card of its stage is marked merged, fails the ledger's test of this repository on its own branch. Every stage is CUT-4 today. The card that first deletes such a path ahead of CUT-4 gets the ledger in its paths, and the lead sets the row's stage in the same merge.

@@ -42,7 +42,7 @@ Rules every card carries, so they are said once here:
 | [HF-01](HF-01.md) | The shapes of the hosts' records, as a read-only command | merged |
 | [DV-03a](DV-03a.md) | Contract spike (throwaway): its scripts, renderer and two forms of the contract | merged |
 | [DV-03b](DV-03b.md) | Contract spike: its checker, repair round and measures | merged, with a second round for four rulings of the lead's; three known limits of its checker are named for DV-21 |
-| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | ready, since DV-03b's second round is merged |
+| [DV-03c](DV-03c.md) | Contract spike: an arm's passes, recording, replay, fidelity and rows | building since 2026-11-14 |
 | [DV-03d](DV-03d.md) | Contract spike: `eva-eval spike`, the plan of the run, and the frontier | after DV-03c and DL-04; the live run is the owner's to allow, on a price the lead states first |
 | [EV-03a](EV-03a.md) | The pilot (throwaway): ten tasks, their format and their offline check | merged |
 | [EV-03b](EV-03b.md) | The pilot's ten tasks, exported to the continuation format | building since 2026-11-13; it replaces the card for a pilot's own driver (the ruling below the table) |
@@ -74,7 +74,7 @@ Rules every card carries, so they are said once here:
 | [HO-13c](HO-13c.md) | An upgrade that checks the signature, asks nothing and keeps the previous binary | after the readout, HO-13a and HO-11 |
 | [HO-13d](HO-13d.md) | A daily check for a release, and one line when one has waited a week | after HO-13c and HO-12c |
 | [EV-11](EV-11.md) | Ownership and size checks | merged; owed: DV-13's `paths` block, once DV-12b is merged; EV-11b is the ledger of what leaves the binary and when |
-| [EV-11b](EV-11b.md) | The size ledger: what leaves the binary, and when | building since 2026-11-13; the lead brings it to each stage's readout |
+| [EV-11b](EV-11b.md) | The size ledger: what leaves the binary, and when | merged; by its first reading the end state is 47,030 lines against the ceiling's 53,694 |
 | [IF-01a](IF-01a.md) | The contract matrix and its check | merged; no need is open: the lead's rulings of 2026-11-12 are in [the matrix](../contract-matrix.md) and [its rulings record](../contract-matrix-rulings.md) |
 | [IF-01b](IF-01b.md) | The reader's fake | merged |
 | [IF-01c](IF-01c.md) | The store's fake and the retrieval core's fake | merged; owed: the fake gains `ItemsCiting`, and keeps words and `Evidence`, once ST-05 puts them in the store's interface and the model |
