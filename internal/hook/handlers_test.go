@@ -632,7 +632,7 @@ func TestHandlersAtOnePlacePanic(t *testing.T) {
 			names = append(names, fmt.Sprintf("%d %s", h.at, h.name))
 		}
 	}
-	want := []string{"0 maintain", "1 prompt gap", "1 stop backlog", "1 session end and compaction", "2 chat-start catch-up"}
+	want := []string{"0 maintain", "1 prompt gap", "1 stop backlog", "1 session end and compaction", "2 chat-start catch-up", "3 wake the worker"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("the package's handlers are %q, want %q", names, want)
 	}
