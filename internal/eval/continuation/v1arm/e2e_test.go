@@ -94,7 +94,8 @@ func buildEvalBinary() (string, error) {
 // End to end, on each host: the evaluation build passes the arm's check;
 // setup runs the host's plugin commands on HO-14's fake CLIs, and the
 // plugin it installs is one a chat loads; the replayed chat is captured,
-// so the brief of a new chat in the workspace holds a word of it; and the
+// so the brief of a new chat in the workspace holds a word of it, as
+// v1 gives a chat of three exchanges; and the
 // update, which no model answers, is update_failed. The test ends once no
 // job eva-md's hooks started holds a lock.
 func TestEndToEnd(t *testing.T) {
@@ -154,12 +155,16 @@ func TestEndToEnd(t *testing.T) {
 			cmd := exec.CommandContext(ctx, filepath.Join(tr.Dirs.Bin, "eva-md"), "brief", "--cwd", tr.Dirs.Workspace, "--host", string(h.ID))
 			cmd.Dir, cmd.Env = tr.Dirs.Home, tr.Env
 			out, err := cmd.Output()
-			if err != nil || !strings.Contains(string(out), "layout of the banner") {
+			if err != nil || !strings.Contains(string(out), briefWord) {
 				t.Fatalf("the brief: %v\n%s", err, out)
 			}
 		})
 	}
 }
+
+// briefWord is a made-up word every turn of the end-to-end trial's earlier
+// chat holds.
+const briefWord = "quillfeatherx"
 
 // endToEndTrial is a trial built by hand for the evaluation build: the
 // fixture task's workspace, prepared as the driver prepares it, and the
@@ -173,6 +178,19 @@ func endToEndTrial(t *testing.T, h adapter.Host, binary string) aTrial {
 	}
 	x, err := task.Load(filepath.Join(tasks, fakehost.FixtureID))
 	if err != nil {
+		t.Fatal(err)
+	}
+	// v1's brief resumes a chat of three exchanges or more, so the earlier
+	// chat is the fixture's, three times over, each turn with the word.
+	var history []task.Turn
+	for i := 0; i < 3; i++ {
+		for _, turn := range x.History {
+			turn.Text += " The made-up word is " + briefWord + "."
+			history = append(history, turn)
+		}
+	}
+	x.History = history
+	if err := x.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	root := filepath.Join(base, "work", "run", x.ID, string(task.Eva), "t1")
