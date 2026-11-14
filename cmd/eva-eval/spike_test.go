@@ -211,7 +211,7 @@ func TestRunPlanIsAFreshPlan(t *testing.T) {
 	if !strings.Contains(string(fresh), "Against the row's allowance: "+num(calls)+" calls at most, under it") {
 		t.Errorf("the plan does not say its %d calls are under the row's allowance", calls)
 	}
-	for _, words := range []string{"divided by 4 and rounded up", "unknown until DV-02's recordings", "Spoken scripts", "about a tenth more", "lead's to state"} {
+	for _, words := range []string{"divided by 4 and rounded up", "unknown until DV-02's recordings", "Spoken scripts", "about a tenth more", "lead's to state", "run the host's CLI more than once"} {
 		if !strings.Contains(string(fresh), words) {
 			t.Errorf("the plan's head does not say %q", words)
 		}
