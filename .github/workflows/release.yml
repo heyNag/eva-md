@@ -118,6 +118,71 @@ jobs:
           cd "$out"
           shasum -a 256 eva-md-darwin-arm64 eva-md-darwin-amd64 install.sh uninstall.sh LICENSES.txt > SHA256SUMS
           cat SHA256SUMS
+      - name: Check no binary carries a build tag
+        run: |
+          # A release is built with no build tag. Each binary must be eva-md's
+          # command, record no tags setting, and hold neither of the marks
+          # the evaluation build's code leaves: its files' path and the name
+          # of its variable. SHA256SUMS ties what this reads to what verify
+          # checks and the release publishes.
+          shopt -s nullglob
+          bins=("$RUNNER_TEMP"/release/eva-md-darwin-*)
+          if [ "${#bins[@]}" = 0 ]; then
+            echo "::error::Found no eva-md-darwin-* binary in $RUNNER_TEMP/release to check"
+            exit 1
+          fi
+          nl=$'\n'
+          tab=$'\t'
+          want="${tab}path${tab}github.com/heyNag/eva-md/cmd/eva-md"
+          tags_re='^[[:space:]]+build[[:space:]]+[-]tags='
+          bad=0
+          for bin in "${bins[@]}"; do
+            name=${bin##*/}
+            if [ ! -f "$bin" ] || [ -L "$bin" ]; then
+              echo "::error::$name is not a regular file"
+              bad=1
+              continue
+            fi
+            if ! info=$(go version -m "$bin" 2>&1); then
+              echo "::error::$name has no build information go version -m can read: ${info//$nl/ }"
+              bad=1
+              continue
+            fi
+            ours=no
+            path=
+            while IFS= read -r line; do
+              if [ "$line" = "$want" ]; then
+                ours=yes
+              fi
+              case $line in
+                "${tab}path${tab}"*) path=${line#"${tab}path${tab}"} ;;
+              esac
+              if [[ $line =~ $tags_re ]]; then
+                setting=${line//$tab/ }
+                echo "::error::$name was built with a build tag: ${setting# }"
+                bad=1
+              fi
+            done <<< "$info"
+            if [ "$ours" != yes ]; then
+              echo "::error::$name is built from ${path:-no package go version -m names}, not github.com/heyNag/eva-md/cmd/eva-md"
+              bad=1
+            fi
+            for mark in /cmd/eva-md/evalbuild EVA_MD_EVAL_ACTOR; do
+              found=0
+              grep -a -F -q -e "$mark" -- "$bin" || found=$?
+              if [ "$found" = 0 ]; then
+                echo "::error::$name holds $mark, a mark of the evaluation build"
+                bad=1
+              elif [ "$found" != 1 ]; then
+                echo "::error::$name could not be read for $mark: grep exited $found"
+                bad=1
+              fi
+            done
+          done
+          if [ "$bad" != 0 ]; then
+            exit 1
+          fi
+          echo "Checked ${#bins[@]} binaries: none carries a build tag"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release
