@@ -726,30 +726,40 @@ func TestATraceThatCannotBeMade(t *testing.T) {
 			t.Errorf("the recording is still there")
 		}
 	})
-	for _, made := range []bool{true, false} {
-		t.Run(fmt.Sprintf("the pages folder, the trace's folder made %v", made), func(t *testing.T) {
+	// A pages folder that cannot be made takes the trace and the recording
+	// with it, so the recording can be made again; with no trace, the
+	// recording all the same.
+	for _, trace := range []string{"new", "made", ""} {
+		t.Run(fmt.Sprintf("the pages folder, the trace %q", trace), func(t *testing.T) {
 			tmp := isolate(t)
 			t.Setenv("PATH", t.TempDir())
 			dir := t.TempDir()
 			must(t, os.Symlink(filepath.Join(dir, "gone"), filepath.Join(dir, "link")))
-			trace := filepath.Join(dir, "new", "trace")
+			recording := filepath.Join(dir, "answers.jsonl")
+			args := []string{"--host", "claude-code", "--spend-model-quota", "--record", recording, "--pages", filepath.Join(dir, "link", "pages")}
 			want := []string{"link"}
-			if !made {
-				trace = filepath.Join(dir, "trace")
-				must(t, os.Mkdir(trace, 0o755))
-				must(t, os.Chmod(trace, 0o755))
+			switch trace {
+			case "new":
+				args = append(args, "--trace", filepath.Join(dir, "new", "trace"))
+			case "made":
+				must(t, os.Mkdir(filepath.Join(dir, "trace"), 0o755))
+				must(t, os.Chmod(filepath.Join(dir, "trace"), 0o755))
+				args = append(args, "--trace", filepath.Join(dir, "trace"))
 				want = append(want, "trace")
 			}
 			var out, errOut bytes.Buffer
-			args := []string{"--host", "claude-code", "--spend-model-quota", "--trace", trace, "--pages", filepath.Join(dir, "link", "pages")}
-			if code := run(context.Background(), args, &out, &errOut, noRunner(t)); code != 1 || out.Len() != 0 || !strings.HasPrefix(errOut.String(), "live-accuracy: could not make the pages folder: ") {
+			if code := run(context.Background(), args, &out, &errOut, noRunner(t)); code != 1 || out.Len() != 0 ||
+				!strings.HasPrefix(errOut.String(), "live-accuracy: could not make the pages folder: ") || strings.Count(errOut.String(), "\n") != 1 {
 				t.Fatalf("exit %d, out %q, err %q", code, out.String(), errOut.String())
 			}
 			if left := leftIn(t, dir); !slices.Equal(left, want) {
 				t.Errorf("the run left %q", left)
 			}
-			if !made {
-				if info, err := os.Stat(trace); err != nil || info.Mode().Perm() != 0o755 {
+			if _, err := os.Lstat(recording); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("the recording: %v", err)
+			}
+			if trace == "made" {
+				if info, err := os.Stat(filepath.Join(dir, "trace")); err != nil || info.Mode().Perm() != 0o755 {
 					t.Errorf("the trace's folder: %v, %v", info.Mode(), err)
 				}
 			}
