@@ -34,6 +34,9 @@ internal/hook/notice_test.go
 internal/hook/resume.go
 internal/hook/maintain.go
 internal/hook/handlers.go
+internal/hook/handlers_test.go
+internal/hook/hook.go
+internal/hook/wake_test.go
 cmd/eva-md/commands.go
 cmd/eva-md/notice_test.go
 README.md
@@ -65,3 +68,9 @@ Written when HO-12b merged (its card's "As merged" says what it left for this pa
 4. **The documents** are the lead's at the merge: give one sentence a line for `docs/spec/health.md`'s "Since the split" (it has about 800 bytes of room, so few and short; say which of them could go to `docs/spec/hooks.md` or the spec that holds the chat-start notice instead) and for `docs/known-limitations.md`. README's doctor line is this part's own, in the paths block.
 5. **The check** is the scoped one the order names, not the whole suite; the latency gate is run once, against origin/main, when the machine is quiet, with the switch off and with it on.
 
+## The lead's rulings at the merge, 2026-11-14
+
+1. **Three more files are in the paths block**, each for a reason the reviews gave: `internal/hook/hook.go` (the hook's output write says whether it reached the host, so a line that did not is not recorded as shown), `internal/hook/handlers_test.go` (its list of the package's handlers gains this part's two) and `internal/hook/wake_test.go` (the reason word `health` is the hooks' and not the worker's wake's, so `eva-md work --wake --reason health` stays refused and `wake.go` is unchanged).
+2. **A line is shown when it was prepared in the last 24 hours, not 2** (item 4 and its acceptance line said 2). With 2 hours, a chat start more than two hours after the last one showed nothing and only asked, so a person whose starts are hours apart never saw a line. A line prepared before its condition closed can so be shown once; the same start asks for a fresh check (docs/known-limitations.md says so).
+3. **The closed list stays closed**: an update held for a day by a failed MCP server has no condition of its own, and shows once three passes in a row have failed (`update.failing`); `status` and `doctor` show the hold at once.
+4. **The hosts' own event names are no names of a fault.** `heartbeats/claude-code/PostToolUseFailure.json` and `StopFailure.json` are named for the host's events, which a healthy install fires whenever a tool call fails; plan section 13.4 is about files eva-md names for a state of its own (`needs-trust.json`, `push-retry`). The healthy fixture's word check passes over the hosts' event names under `heartbeats/`.
