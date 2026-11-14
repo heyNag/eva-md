@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heyNag/eva-md/internal/testgitenv"
 	"github.com/heyNag/eva-md/internal/testlimits"
 	"github.com/heyNag/eva-md/internal/threadpage"
 	"github.com/heyNag/eva-md/internal/update"
@@ -22,10 +23,13 @@ import (
 	"github.com/heyNag/eva-md/internal/update/accuracy/live"
 )
 
-// The time limits that protect a host CLI's run, such as the wait for its
-// output once it exits, are raised for every test, before any test runs, so
-// a slow machine can't fail one.
+// The git configuration and commit identity the environment carries are
+// cleared before any test runs, since the tests link code that starts git;
+// and the time limits that protect a host CLI's run, such as the wait for
+// its output once it exits, are raised for every test, so a slow machine
+// can't fail one.
 func TestMain(m *testing.M) {
+	testgitenv.Clear()
 	testlimits.Raise()
 	os.Exit(m.Run())
 }

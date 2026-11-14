@@ -253,36 +253,9 @@ func gitScope(files []goFile) map[string]string {
 
 // unclearedGit are the packages whose tests reach a package that starts
 // git, yet do not clear the environment's git configuration first, each
-// with its reason. A new one clears it in its TestMain, or is added here
-// with its reason.
-var unclearedGit = map[string]string{
-	"cmd/live-accuracy":                         throughOthers,
-	"internal/config":                           throughOthers,
-	"internal/eval/continuation/drive/fakehost": throughOthers,
-	"internal/eval/continuation/report":         throughOthers,
-	"internal/eval/families":                    throughOthers,
-	"internal/eval/pilot/task":                  throughOthers,
-	"internal/eval/retrieval":                   throughOthers,
-	"internal/eval/retrieval/retrievaltest":     throughOthers,
-	"internal/eval/scenario":                    throughOthers,
-	"internal/eval/score":                       throughOthers,
-	"internal/eval/spike":                       throughOthers,
-	"internal/eval/spike/arm":                   throughOthers,
-	"internal/eval/v1page":                      throughOthers,
-	"internal/ledger/audit":                     throughOthers,
-	"internal/ledger/inboxv1":                   throughOthers,
-	"internal/ledger/registry":                  throughOthers,
-	"internal/threadpage":                       throughOthers,
-	"internal/update/accuracy/live":             throughOthers,
-	"internal/work":                             throughOthers,
-}
-
-// throughOthers is why the packages of unclearedGit do not clear yet: no
-// test of theirs starts git itself, but they link code that does, the
-// program's or the evaluation's, which their tests may run. A TestMain of
-// each that clears would change tests EV-10c may not change, so it is left
-// to a later card.
-const throughOthers = "no test of it starts git itself, but it links code that does; a TestMain that clears is a later card's, as EV-10c changes no existing test"
+// with its reason. It is empty: every such package clears it in its
+// TestMain. A new one does the same, or is added here with its reason.
+var unclearedGit = map[string]string{}
 
 // realHomeNames are the folders under the real home the tests must never
 // reach: the hosts' and eva-md's own.
