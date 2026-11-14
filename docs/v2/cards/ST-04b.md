@@ -52,3 +52,11 @@ The card's checker left these to the lead.
 - The group's name `negative` stands.
 - The codec's `SPEC.md` is not widened here: it has four bytes to spare, and ST-03c makes the room.
 - The lead accepts the retrieval baseline again on `main` after the merge.
+
+## As merged
+
+Merged on 2026-11-14 (4891b1a, from `pkg/st-04b-r1`, after one review, one round of fixes and a verification that accepted it). The lead accepted the retrieval baseline again on `main` at that commit, in a scratch home: its 42 rows hold the values the branch's did, the 40 earlier ones unchanged, and two more (false events over all negatives, tuning 108 of 234 and held-out 120 of 241).
+
+- ST-03c had merged the colon-end fixture first; this card made it a copy of its neighbour with the writer line alone changed, as the card words it, and holds the refusal's words.
+- The card's line numbers moved: the `code = 1` it names at `main.go:267` is at line 277.
+- **Owed: `docs/verification.md`**, three changes, which wait for EV-10a's merge since EV-10a holds that file while it builds. (1) In the paragraph on the trace, "A pages folder that cannot be made after it takes the trace away again, but leaves the recording, an empty file: remove it before the next run, which wants a file that does not exist yet." becomes "A pages folder that cannot be made takes the trace and the recording away too, so the next run can make the recording again." (2) In the live accuracy run's entry, "and a pages folder that cannot be made after it takes the trace away again (`TestATraceThatCannotBeMade`)" becomes "and a pages folder that cannot be made takes both away, with a trace or without one (`TestATraceThatCannotBeMade`)". (3) In the same entry, after "(`TestAPageThatCannotBeWritten`)": "; a run whose answers meet the target exits 0 with every page written, and 1 when only the last script's page cannot be written, its report printed and the page named on stderr (`TestTheLastPageOfARunThatMeetsTheTarget`)".

@@ -57,7 +57,7 @@ func TestThePropertiesTable(t *testing.T) {
 			t.Errorf("%s has no section", prop)
 		}
 	}
-	if want := []string{PropCrashSafety, PropExactlyOnce, PropProtection, PropRestore, PropReplay}; !slices.Equal(rows, want) {
+	if want := []string{PropCrashSafety, PropExactlyOnce, PropProtection, PropRestore, PropReplay, PropSessionKept}; !slices.Equal(rows, want) {
 		t.Errorf("the table's properties are %v, want %v", rows, want)
 	}
 }

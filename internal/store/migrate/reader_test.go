@@ -48,6 +48,10 @@ func TestCheck(t *testing.T) {
 		{name: "min_reader in an open array", content: "schema = 2\nstore_id = \"" + id + "\"\nlist = [ \"]\",\nmin_reader = 1, ]\nmin_reader = 9\n", known: 2, err: ErrNoManifest},
 		{name: "min_reader quoted with an escape", content: manifest("2", "2") + "\"min\\u005freader\" = 9\n", known: 2, err: ErrNoManifest},
 		{name: "min_reader spaced and dotted", content: manifest("2", "2") + "min_reader .x = 9\n", known: 2, err: ErrNoManifest},
+		// With no plain min_reader beside it, only the dotted key's own
+		// refusal stops it being read as min_reader = 1.
+		{name: "min_reader only dotted", content: "schema = 2\nmin_reader.x = 1\nstore_id = \"" + id + "\"\n", known: 2, err: ErrNoManifest},
+		{name: "min_reader only spaced and dotted", content: "schema = 2\nmin_reader .x = 1\nstore_id = \"" + id + "\"\n", known: 2, err: ErrNoManifest},
 		{name: "a byte-order mark before a key", content: manifest("2", "2") + "\xef\xbb\xbfmin_reader = 9\n", known: 2, err: ErrNoManifest},
 		{name: "a line that is no key", content: manifest("2", "2") + "min_reader\n", known: 2, err: ErrNoManifest},
 		{name: "schema not an integer", content: manifest("\"2\"", "2"), known: 2, err: ErrNoManifest},

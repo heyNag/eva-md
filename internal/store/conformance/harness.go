@@ -79,7 +79,8 @@ const (
 )
 
 // Failure is a property that did not hold: which, on which seed, and at
-// which step of the schedule.
+// which step of the schedule. A failure of a whole run belongs to no step:
+// it has the run's last seed and the Step runLevel.
 type Failure struct {
 	Property string
 	Seed     int64
@@ -87,7 +88,13 @@ type Failure struct {
 	Detail   string
 }
 
+// runLevel is the Step of a failure that belongs to a run, not a step.
+const runLevel = -1
+
 func (f *Failure) Error() string {
+	if f.Step < 0 {
+		return fmt.Sprintf("%s fails on seed %d: %s", f.Property, f.Seed, f.Detail)
+	}
 	return fmt.Sprintf("%s fails on seed %d at step %d: %s", f.Property, f.Seed, f.Step, f.Detail)
 }
 
@@ -105,10 +112,13 @@ type runner struct {
 	step   int
 	armed  *crash
 	fired  bool
+	// crashed counts, by step, the armed crashes that fired over the run
+	// the check is part of.
+	crashed crashed
 }
 
 func newRunner(prop string, s Subject, seed int64) *runner {
-	return &runner{prop: prop, seed: seed, s: s, now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	return &runner{prop: prop, seed: seed, s: s, now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), crashed: crashed{}}
 }
 
 func (r *runner) fail(format string, a ...any) error {
@@ -121,6 +131,7 @@ func (r *runner) clock() time.Time { return r.now }
 func (r *runner) fault(s store.Step, i int) error {
 	if r.armed != nil && r.armed.step == s && r.armed.n == i {
 		r.armed, r.fired = nil, true
+		r.crashed[s]++
 		return errCrash
 	}
 	return nil
@@ -183,10 +194,28 @@ func passAt(t time.Time, random []byte) string {
 	return string(out)
 }
 
+// known reports whether a pass is in the subject's history.
+func (r *runner) known(pass string) bool {
+	return slices.ContainsFunc(r.s.History(), func(c Commit) bool { return c.Pass == pass })
+}
+
+// unfired is the failure of an armed crash that did not fire where it
+// must. Every Apply of a well-formed pass on an open store reaches recover,
+// and plan when the pass was not in history before that Apply; a crash
+// armed at a later step may not fire, as a pass can write fewer files or
+// nothing.
+func (r *runner) unfired(c *crash, known bool) error {
+	if c.step == store.StepRecover || c.step == store.StepPlan && !known {
+		return r.fail("a crash armed at %s did not fire", c.step)
+	}
+	return nil
+}
+
 // apply runs a pass. With a crash, it stops the pass there, reopens as a
 // new process would, and runs it again, as the worker does.
 func (r *runner) apply(txn store.Txn, c *crash) (store.Result, error) {
 	if c != nil {
+		known := r.known(txn.Pass)
 		r.armed, r.fired = c, false
 		res, err := r.st.Apply(txn)
 		r.armed = nil
@@ -196,7 +225,7 @@ func (r *runner) apply(txn store.Txn, c *crash) (store.Result, error) {
 		case !r.fired && err != nil:
 			return res, r.fail("Apply: %v", err)
 		case !r.fired:
-			return res, nil
+			return res, r.unfired(c, known)
 		}
 		if err := r.reopen(); err != nil {
 			return res, err
@@ -290,6 +319,16 @@ func (r *runner) pickSession(n int) (string, bool) {
 // handEdit makes an edit with the store closed, and reopens, so the store
 // adopts it. It returns the path, or "" when there was no file to edit.
 func (r *runner) handEdit(ev event) (string, error) {
+	path, err := r.editFile(ev)
+	if path == "" || err != nil {
+		return path, err
+	}
+	return path, r.open()
+}
+
+// editFile is handEdit with the store left closed. With no file to edit it
+// changes nothing and returns "".
+func (r *runner) editFile(ev event) (string, error) {
 	var path string
 	if ev.session {
 		p, ok := r.pickSession(ev.pick)
@@ -310,7 +349,7 @@ func (r *runner) handEdit(ev event) (string, error) {
 	if err := r.s.HandEdit(path, ev.edit); err != nil {
 		return "", r.fail("hand edit: %v", err)
 	}
-	return path, r.open()
+	return path, nil
 }
 
 // ackTxn is a person's acknowledgement of an item's hand edit.
