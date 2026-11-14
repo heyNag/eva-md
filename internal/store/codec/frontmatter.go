@@ -190,10 +190,11 @@ func (d *Doc) Protection() Protection {
 			p.Locked = p.Locked || !unlocked
 		case "verified":
 			empty := bare && map[string]bool{"": true, "[]": true, "{}": true, `""`: true, "null": true, "~": true}[strings.Trim(stripComment(e.rest), " \t")]
-			if empty && d.tabUnder(e.lines[0]) {
-				// "verified:" then "\tby: river": YAML refuses the tab, and
-				// a reader that takes it for indentation, as v1 did, reads a
-				// line under the key.
+			if empty && d.linesUnder(e.lines[0]) {
+				// "verified:" then "# c" and "\t- by: river": a reader that
+				// keeps a key's block open past lines with no colon, and
+				// takes a tab for indentation, as v1 did, reads a line under
+				// the key.
 				empty = false
 			}
 			p.Verified = p.Verified || !empty
@@ -205,12 +206,46 @@ func (d *Doc) Protection() Protection {
 	return p
 }
 
-// tabUnder reports whether the first line after line i of the frontmatter
-// that is not blank, as Go trims white space, starts with a tab.
-func (d *Doc) tabUnder(i int) bool {
+// linesUnder reports whether a line after line i of the frontmatter is
+// under it as v1 read a key's block: the block runs past lines that are
+// blank, as Go trims white space, or have no colon outside quotes, and ends
+// at the next line that has one; a line in it that starts with a space, a
+// tab or "-" is under the key, whichever entry the codec gave it to.
+func (d *Doc) linesUnder(i int) bool {
 	for j := i + 1; j < d.close; j++ {
-		if l := text(d.lines[j]); strings.TrimSpace(l) != "" {
-			return strings.HasPrefix(l, "\t")
+		l := text(d.lines[j])
+		switch {
+		case strings.TrimSpace(l) == "":
+		case strings.HasPrefix(l, " "), strings.HasPrefix(l, "\t"), strings.HasPrefix(l, "-"):
+			return true
+		case colonOutsideQuotes(l):
+			return false
+		}
+	}
+	return false
+}
+
+// colonOutsideQuotes reports whether s has a colon outside quotes, as v1
+// cut a line into a key and its value: a quote opens at ' or ", closes at
+// the same quote, and inside "..." a backslash escapes the next rune; a
+// quote never closed runs to the line's end.
+func colonOutsideQuotes(s string) bool {
+	var quote rune
+	escaped := false
+	for _, r := range s {
+		switch {
+		case quote == '"' && escaped:
+			escaped = false
+		case quote == '"' && r == '\\':
+			escaped = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == ':':
+			return true
 		}
 	}
 	return false

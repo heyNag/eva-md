@@ -62,11 +62,32 @@ func newKeyForms() []keyFormRow {
 		{"a short unicode escape", `"lo\u06": x`, both},
 		{"an escape past the last code point", `"\U00110000": x`, both},
 		{"an unknown escape after a tab", "\t\"lo\\qcked\": x", both},
-		// A tab-led line after an empty bare verified, which v1 read as a
-		// line under the key, blank lines between or not.
+		// A line under an empty bare verified that the codec does not give
+		// it, as v1 read a key's block: open past blank lines and lines
+		// with no colon outside quotes, a tab taken for indentation, and
+		// each "-" item in it a verified entry.
 		{"a tab-led line under an empty verified", "verified:\n\tby: river", vf},
 		{"a tab-led line under a verified comment", "verified: # by river\n\tby: river", vf},
+		{"a tab-led item after a comment", "verified:\n# c\n\t- by: river", vf},
+		{"a tab-led item after a comment, under ~", "verified: ~\n# by hand\n\t- by: river", vf},
+		{"a tab-led item after a comment, under null", "verified: null\n# by river\n\t- by: river", vf},
+		{`a tab-led item after a comment, under ""`, "verified: \"\"\n# c\n\t- by: river", vf},
+		{"a tab-led dash alone after a comment", "verified:\n# c\n\t-", vf},
+		{"a tab-led flow item after a comment", "verified:\n# c\n\t- {by: river}", vf},
+		{"a tab-led item after plain text", "verified:\nnocolon\n\t- by: river", vf},
+		{"a tab-led item after plain text, under null", "verified: null\nsee below\n\t- by: river", vf},
+		{"a tab-led item after text led by a space", "verified: ~\n note\n\t- by: river", vf},
+		{"a tab-led item after a quoted colon", "verified:\n'a:b'\n\t- by: river", vf},
+		{"a tab-led item after an anchor", "verified:\n&a x\n\t- by: river", vf},
+		{"an item after an explicit key", "verified:\n? note\n  - by: river", vf},
+		{"a dash item after an explicit key", "verified:\n? x\n- by: river", vf},
+		{"an item after a key with an unclosed quote", "verified:\ngenrat\"d: x\n  - by: river", vf},
+		{"a dash item after a key with an unclosed quote", "verified:\ngenrat\"d: x\n- by: river", vf},
+		// v1 read no entry from a tab-led line that is no item, nor from a
+		// line under [] or {}: a lenient reader may, so they protect.
+		{"a tab-led pair after a comment", "verified:\n# c\n\tby: river", vf},
 		{"a tab-led line after a blank one under an empty list", "verified: []\n\n\tby: river", vf},
+		{"a tab-led item after a comment, under {}", "verified: {}\n# c\n\t- by: river", vf},
 	}
 	// Each of three Unicode spaces before a key, before its colon, inside
 	// its quotes and around them.
@@ -97,7 +118,12 @@ var keyFormsUnprotected = []keyFormRow{
 	{"the word as a value", "title: locked: x", Protection{}},
 	{"the bare key with false", "locked: false", Protection{}},
 	{"the bare verified key, empty", "verified: []", Protection{}},
-	{"a comment between an empty verified and a tab-led line", "verified:\n# c\n\tby: river", Protection{}},
+	// A null with a comment after it, one of SPEC.md section 12's empty
+	// forms, as ~ or as null.
+	{"a comment after ~", "verified: ~ # by river", Protection{}},
+	{"a comment after null", "verified: null # by river", Protection{}},
+	{"a comment and a key between an empty verified and a tab-led item", "verified:\n# c\nnote: x\n\t- by: river", Protection{}},
+	{"a key with a quoted colon between an empty verified and an item", "verified:\n'a': b\n- by: river", Protection{}},
 	{"an escape YAML has, in another key", "\"ti\\u0074le\\_\": x", Protection{}},
 	{"an unknown escape in a value", `title: "lo\qcked"`, Protection{}},
 	{"a quote that never closes, in a value", "title: 'locked: x", Protection{}},
