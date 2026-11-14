@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -35,7 +36,11 @@ var (
 	findingRow = regexp.MustCompile(`^\| ([A-Z]+)-[0-9]+ \|`)
 	keepRow    = regexp.MustCompile(`^\| ([A-Z]+-K[0-9]{2,}) \| ([^|]+) \| ([^|]+) \|$`)
 	heldBy     = regexp.MustCompile(`^((?:cmd|internal)(?:/[a-z0-9_-]+)+):((?:Test|Benchmark|Fuzz)[A-Za-z0-9_]*)$`)
-	testFunc   = regexp.MustCompile(`(?m)^func ((?:Test|Benchmark|Fuzz)[A-Za-z0-9_]*)\(`)
+	// A check that is no Go test, such as the benchmark, stands in a cell
+	// as check:<path>, its file's path from the repository's root, which a
+	// workflow's run step names.
+	heldByCheck = regexp.MustCompile(`^check:((?:scripts|cmd|internal)(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)+)$`)
+	testFunc    = regexp.MustCompile(`(?m)^func ((?:Test|Benchmark|Fuzz)[A-Za-z0-9_]*)\(`)
 )
 
 const (
@@ -101,6 +106,19 @@ type keepEntry struct {
 	file, id, item string
 	line           int
 	tests          []string // as <package path>:<TestName>; none for "none yet"
+	checks         []string // the paths of the checks that are no Go test
+}
+
+// held says whether a test or a check holds the row's item.
+func (e keepEntry) held() bool { return len(e.tests)+len(e.checks) > 0 }
+
+// cell is the row's tests and checks as its cell names them.
+func (e keepEntry) cell() string {
+	cell := slices.Clone(e.tests)
+	for _, c := range e.checks {
+		cell = append(cell, "check:"+c)
+	}
+	return strings.Join(cell, ", ")
 }
 
 // part says whether the row's item says what of it no test holds.
@@ -174,8 +192,10 @@ func keepSection(d doc) ([]keepEntry, []string) {
 			named := map[string]bool{}
 			for _, t := range strings.Split(cell, ", ") {
 				switch {
-				case !heldBy.MatchString(t):
-					problems = append(problems, fmt.Sprintf("%s: %s names %q, which is not <package path>:<TestName>, and its cell is not %q", where, m[1], t, noTest))
+				case heldByCheck.MatchString(t) && !named[t]:
+					e.checks = append(e.checks, heldByCheck.FindStringSubmatch(t)[1])
+				case !heldBy.MatchString(t) && !heldByCheck.MatchString(t):
+					problems = append(problems, fmt.Sprintf("%s: %s names %q, which is not <package path>:<TestName> or check:<path>, and its cell is not %q", where, m[1], t, noTest))
 				case strings.HasSuffix(t, ":"+setUp):
 					problems = append(problems, fmt.Sprintf("%s: %s names %s, which sets up its package's tests and holds no item", where, m[1], t))
 				case named[t]:
@@ -212,6 +232,46 @@ func testsOf(root, pkg string) map[string]bool {
 		}
 	}
 	return names
+}
+
+// workflows holds the workflows whose run steps run a check.
+const workflows = ".github/workflows"
+
+// runStep is a line that opens a step's run, inline or as a block.
+var runStep = regexp.MustCompile(`^(\s*)(?:- )?run:\s*(.*)$`)
+
+// runByWorkflow says whether a run step of a workflow at root names path,
+// as a word of its command, inline or in its block; a comment does not
+// count.
+func runByWorkflow(root, path string) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(workflows), "*.yml"))
+	word := regexp.MustCompile(`(^|[\s"'=])` + regexp.QuoteMeta(path) + `($|[\s"';|&)])`)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		block := -1 // the indent of the run key whose block the lines are in
+		for _, l := range strings.Split(string(data), "\n") {
+			indent := len(l) - len(strings.TrimLeft(l, " "))
+			if block >= 0 && strings.TrimSpace(l) != "" && indent <= block {
+				block = -1
+			}
+			text := ""
+			switch m := runStep.FindStringSubmatch(l); {
+			case block >= 0:
+				text = l
+			case m != nil && strings.HasPrefix(m[2], "|") || m != nil && strings.HasPrefix(m[2], ">"):
+				block = len(m[1])
+			case m != nil:
+				text = m[2]
+			}
+			if text = strings.TrimSpace(text); !strings.HasPrefix(text, "#") && word.MatchString(text) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // mustKeep is what the check read: each list, each spec's rows.
@@ -257,6 +317,7 @@ func checkMustKeep(root string) []string {
 	placed := map[string]bool{}
 	inFile := map[string]bool{}
 	defined := map[string]map[string]bool{}
+	run := map[string]bool{}
 	for _, e := range mk.rows {
 		where := fmt.Sprintf("%s:%d", e.file, e.line)
 		if !known[e.id] {
@@ -268,7 +329,7 @@ func checkMustKeep(root string) []string {
 		inFile[e.file+" "+e.id] = true
 		if f, ok := first[e.id]; !ok {
 			first[e.id] = e
-		} else if f.item != e.item || strings.Join(f.tests, ", ") != strings.Join(e.tests, ", ") {
+		} else if f.item != e.item || f.cell() != e.cell() {
 			problems = append(problems, fmt.Sprintf("%s: %s reads differently from its row at %s:%d; an item reads the same in every spec", where, e.id, f.file, f.line))
 		}
 		placed[e.id] = true
@@ -282,6 +343,16 @@ func checkMustKeep(root string) []string {
 				problems = append(problems, fmt.Sprintf("%s: %s names %s, but %s holds no test file", where, e.id, t, pkg))
 			case !defined[pkg][name]:
 				problems = append(problems, fmt.Sprintf("%s: %s names %s, which no _test.go file of %s defines", where, e.id, t, pkg))
+			}
+		}
+		for _, c := range e.checks {
+			if _, ok := run[c]; !ok {
+				run[c] = runByWorkflow(root, c)
+			}
+			if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(c))); err != nil || !info.Mode().IsRegular() {
+				problems = append(problems, fmt.Sprintf("%s: %s names check:%s, which is no file of the repository", where, e.id, c))
+			} else if !run[c] {
+				problems = append(problems, fmt.Sprintf("%s: %s names check:%s, which no run step of a workflow in %s runs", where, e.id, c, workflows))
 			}
 		}
 	}
@@ -307,7 +378,7 @@ func TestEachMustKeepItemSitsInASpecWithItsTests(t *testing.T) {
 	mk, _ := readMustKeep(root)
 	held, part := map[string]bool{}, map[string]bool{}
 	for _, e := range mk.rows {
-		if len(e.tests) > 0 {
+		if e.held() {
 			held[e.id] = true
 			part[e.id] = part[e.id] || e.part()
 		}
@@ -335,8 +406,9 @@ func TestEachMustKeepItemSitsInASpecWithItsTests(t *testing.T) {
 }
 
 // copyMustKeep copies what the check reads into a folder of the test's
-// own: the specs, the register and the test files of every package the
-// tables name, so the copy passes as the repository does.
+// own: the specs, the register, the test files of every package the tables
+// name, the checks they name and the workflows, so the copy passes as the
+// repository does.
 func copyMustKeep(t *testing.T) string {
 	t.Helper()
 	root, dst := repoRoot(t), copyTree(t)
@@ -350,6 +422,13 @@ func copyMustKeep(t *testing.T) string {
 			pkg, _, _ := strings.Cut(test, ":")
 			pkgs[pkg] = true
 		}
+		for _, c := range e.checks {
+			copyFile(t, root, dst, c)
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(workflows), "*.yml"))
+	for _, f := range files {
+		copyFile(t, root, dst, workflows+"/"+filepath.Base(f))
 	}
 	for pkg := range pkgs {
 		files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(pkg), "*_test.go"))
