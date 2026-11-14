@@ -29,10 +29,16 @@ func emptyWork(t *testing.T, r *rig) {
 // stoppedBy fails unless the run stopped with the code.
 func stoppedBy(t *testing.T, err error, code string) {
 	t.Helper()
-	var stopped *Stopped
-	if !errors.As(err, &stopped) || stopped.Code != code {
+	if !isStopped(err, code) {
 		t.Fatalf("run: %v", err)
 	}
+}
+
+// isStopped reports whether err is the run's stop at an unjudged trial of
+// the code given.
+func isStopped(err error, code string) bool {
+	var stopped *Stopped
+	return errors.As(err, &stopped) && stopped.Code == code
 }
 
 // A hidden file the chat puts within its reach, at its path in the
@@ -356,15 +362,17 @@ func TestAStartHoldingAHiddenPathIsJudged(t *testing.T) {
 // No trial's folder is left, even one the chat made read-only in its
 // workspace and its home, whether the trial is judged, unjudged, or the
 // one the run stopped in; and the work folder is left empty, so another
-// run may use it.
+// run may use it. Each run keeps a trace, so that a trial that comes out
+// other than it should says how each call ended and what it printed.
 func TestNoTrialFolderIsLeft(t *testing.T) {
 	for _, h := range adapter.All() {
 		t.Run(string(h.ID), func(t *testing.T) {
 			r := newRig(t, 1)
 			r.opts.Host, r.opts.Trials = string(h.ID), 2
 			r.script.ReadOnly = true
+			r.traced("one")
 			if s, out, err := r.run(); err != nil || s.Judged != 2 {
-				t.Fatalf("run: %+v %v\n%s", s, err, out)
+				t.Fatalf("run: %+v %v\n%s\n%s", s, err, out, r.diagnose())
 			}
 			// The fake did leave what it was asked to.
 			if calls := r.calls(); !strings.Contains(strings.Join(calls[len(calls)-1].Around, " "), "home/made-up-locked/inner/file") {
@@ -373,16 +381,63 @@ func TestNoTrialFolderIsLeft(t *testing.T) {
 			emptyWork(t, r)
 			r.opts.Out = filepath.Join(r.base, "out-two")
 			r.script.SignIn = true
+			r.traced("two")
 			if s, out, err := r.run(); err != nil || s.Unjudged[CodeSignIn] != 2 {
-				t.Fatalf("run: %+v %v\n%s", s, err, out)
+				t.Fatalf("run: %+v %v\n%s\n%s", s, err, out, r.diagnose())
 			}
 			emptyWork(t, r)
 			r.opts.Out = filepath.Join(r.base, "out-three")
 			r.script.SignIn, r.script.NoUsage = false, true
-			_, _, err := r.run()
-			stoppedBy(t, err, CodeNoUsage)
+			r.traced("three")
+			_, out, err := r.run()
+			if !isStopped(err, CodeNoUsage) {
+				t.Fatalf("run: %v\n%s\n%s", err, out, r.diagnose())
+			}
 			emptyWork(t, r)
 		})
+	}
+}
+
+// A trial that comes out unjudged as a host's failure can be told apart in
+// a test's diagnosis: a fault of the fake's own is named, with its exit,
+// in the fake's record of its ends, in how the driver saw the call end and
+// in what the trace kept of its stderr; a fake that a signal ended has no
+// end, and the driver saw the signal.
+func TestADiagnosisSaysHowEachCallEnded(t *testing.T) {
+	r := newRig(t, 1)
+	r.script.Task = filepath.Join(r.base, "no-such-task")
+	r.traced("fault")
+	s, out, err := r.run()
+	if err != nil || s.Unjudged[CodeHostFailed] != 1 {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+	d := r.diagnose()
+	for _, want := range []string{
+		"claude-code version, session \"\": exit 0\n",
+		"claude-code start, session \"fake-session-1\": exit 3, laying the overlay: ",
+		"1: exit status 3; read as answered false, fail \"host_failed\"",
+		"-chat.stderr (", "fakehost: laying the overlay: ",
+		"-version.stdout (", "1.2.3 (fake)",
+	} {
+		if !strings.Contains(d, want) {
+			t.Fatalf("the diagnosis has no %q:\n%s", want, d)
+		}
+	}
+	r.fresh("killed")
+	r.script.Task, r.script.Killed = filepath.Join(r.opts.Tasks, fakehost.FixtureID), true
+	r.traced("killed")
+	s, out, err = r.run()
+	if err != nil || s.Unjudged[CodeHostFailed] != 1 {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+	d = r.diagnose()
+	for _, want := range []string{
+		"claude-code start, session \"fake-session-2\": no end recorded",
+		"2: signal: killed; read as answered false, fail \"host_failed\"",
+	} {
+		if !strings.Contains(d, want) {
+			t.Fatalf("the diagnosis has no %q:\n%s", want, d)
+		}
 	}
 }
 

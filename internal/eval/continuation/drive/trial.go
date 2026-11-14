@@ -510,6 +510,9 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 	case !r.Answered:
 		r.Fail = CodeHostFailed
 	}
+	if s.p.opts.ended != nil {
+		s.p.opts.ended(err, r)
+	}
 	return r, nil
 }
 
