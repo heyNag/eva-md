@@ -148,51 +148,56 @@ func TestManagedHooks(t *testing.T) {
 }
 
 // Claude Code gives its usage in two places, usage and modelUsage: either
-// is enough, and the one naming more tokens is counted, so neither place
-// can hide what was spent. A result with neither, or a modelUsage naming
-// no model, gave no usage, and so did a call with one result that lacks
-// it among several.
+// is enough. The rows keep modelUsage's tokens when it names a model, else
+// usage's, as EV-17b read them, and the ceiling counts the place that names
+// more, so neither place can hide what was spent. A result with neither,
+// or a modelUsage naming no model, gave no usage, and so did a call with
+// one result that lacks it among several.
 func TestStreamJSONUsage(t *testing.T) {
 	for name, c := range map[string]struct {
-		out            string
-		usage          bool
-		prompt, output int64
+		out                   string
+		usage                 bool
+		prompt, output, spent int64
 	}{
-		"usage alone":           {`{"type":"result","subtype":"success","usage":{"input_tokens":7,"output_tokens":2}}`, true, 7, 2},
-		"modelUsage alone":      {`{"type":"result","subtype":"success","modelUsage":{"m-a":{"inputTokens":9,"outputTokens":4}}}`, true, 9, 4},
-		"usage names more":      {`{"type":"result","subtype":"success","usage":{"input_tokens":70,"output_tokens":20},"modelUsage":{"m-a":{"inputTokens":9,"outputTokens":4}}}`, true, 70, 20},
-		"modelUsage names more": {`{"type":"result","subtype":"success","usage":{"input_tokens":7,"output_tokens":2},"modelUsage":{"m-a":{"inputTokens":90,"outputTokens":40}}}`, true, 90, 40},
-		"an empty usage":        {`{"type":"result","subtype":"success","usage":{}}`, true, 0, 0},
-		"neither":               {`{"type":"result","subtype":"success"}`, false, 0, 0},
-		"no model named":        {`{"type":"result","subtype":"success","modelUsage":{}}`, false, 0, 0},
-		"usage not an object":   {`{"type":"result","subtype":"success","usage":12}`, false, 0, 0},
-		"a null usage":          {`{"type":"result","subtype":"success","usage":null}`, false, 0, 0},
+		"usage alone":           {`{"type":"result","subtype":"success","usage":{"input_tokens":7,"output_tokens":2}}`, true, 7, 2, 9},
+		"modelUsage alone":      {`{"type":"result","subtype":"success","modelUsage":{"m-a":{"inputTokens":9,"outputTokens":4}}}`, true, 9, 4, 13},
+		"usage names more":      {`{"type":"result","subtype":"success","usage":{"input_tokens":70,"output_tokens":20},"modelUsage":{"m-a":{"inputTokens":9,"outputTokens":4}}}`, true, 9, 4, 90},
+		"modelUsage names more": {`{"type":"result","subtype":"success","usage":{"input_tokens":7,"output_tokens":2},"modelUsage":{"m-a":{"inputTokens":90,"outputTokens":40}}}`, true, 90, 40, 130},
+		"two results, each its larger": {`{"type":"result","subtype":"success","usage":{"input_tokens":70,"output_tokens":20},"modelUsage":{"m-a":{"inputTokens":9,"outputTokens":4}}}` + "\n" +
+			`{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tokens":1},"modelUsage":{"m-a":{"inputTokens":5,"outputTokens":5}}}`, true, 14, 9, 100},
+		"an empty usage":      {`{"type":"result","subtype":"success","usage":{}}`, true, 0, 0, 0},
+		"neither":             {`{"type":"result","subtype":"success"}`, false, 0, 0, 0},
+		"no model named":      {`{"type":"result","subtype":"success","modelUsage":{}}`, false, 0, 0, 0},
+		"usage not an object": {`{"type":"result","subtype":"success","usage":12}`, false, 0, 0, 0},
+		"a null usage":        {`{"type":"result","subtype":"success","usage":null}`, false, 0, 0, 0},
 		"one of two lacks it": {`{"type":"result","subtype":"success","usage":{"input_tokens":7,"output_tokens":2}}` + "\n" +
-			`{"type":"result","subtype":"success"}`, false, 7, 2},
-		"no result": {`{"type":"assistant","message":{"model":"m-a","content":[]}}`, false, 0, 0},
+			`{"type":"result","subtype":"success"}`, false, 7, 2, 9},
+		"no result": {`{"type":"assistant","message":{"model":"m-a","content":[]}}`, false, 0, 0, 0},
 	} {
 		r := readStreamJSON([]byte(c.out))
-		if r.Usage != c.usage || r.PromptTokens != c.prompt || r.OutputTokens != c.output {
+		if r.Usage != c.usage || r.PromptTokens != c.prompt || r.OutputTokens != c.output || r.Spent != c.spent {
 			t.Errorf("%s: %+v", name, r)
 		}
 	}
 }
 
 // Codex gives its usage in each turn.completed: one turn without it, among
-// several, means the call gave none.
+// several, means the call gave none. The ceiling counts each turn's prompt
+// and output tokens.
 func TestExecJSONUsage(t *testing.T) {
 	for name, c := range map[string]struct {
 		out   string
 		usage bool
+		spent int64
 	}{
-		"each turn":        {`{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":1}}`, true},
-		"an empty usage":   {`{"type":"turn.completed","usage":{}}`, true},
-		"none":             {`{"type":"turn.completed"}`, false},
-		"a null usage":     {`{"type":"turn.completed","usage":null}`, false},
-		"one of two lacks": {`{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":1}}` + "\n" + `{"type":"turn.completed"}`, false},
-		"no turn":          {`{"type":"thread.started","thread_id":"th-1"}`, false},
+		"each turn":        {`{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":1}}`, true, 6},
+		"an empty usage":   {`{"type":"turn.completed","usage":{}}`, true, 0},
+		"none":             {`{"type":"turn.completed"}`, false, 0},
+		"a null usage":     {`{"type":"turn.completed","usage":null}`, false, 0},
+		"one of two lacks": {`{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":1}}` + "\n" + `{"type":"turn.completed"}`, false, 6},
+		"no turn":          {`{"type":"thread.started","thread_id":"th-1"}`, false, 0},
 	} {
-		if r := readExecJSON([]byte(c.out)); r.Usage != c.usage {
+		if r := readExecJSON([]byte(c.out)); r.Usage != c.usage || r.Spent != c.spent {
 			t.Errorf("%s: %+v", name, r)
 		}
 	}

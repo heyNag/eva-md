@@ -59,6 +59,11 @@ type report struct {
 	// counts the tokens of carries it, and there is one. A call answered
 	// without it spent what no ceiling can count.
 	Usage bool
+	// Spent is what --max-tokens counts of the call: its prompt and output
+	// tokens, from each final event by whichever of the host's places for
+	// them names more. The rows' tokens are read as the reader says, which
+	// may name fewer.
+	Spent int64
 }
 
 // pluginLoad is how a chat loads eva-md's plugin: flags, and files written
@@ -286,8 +291,9 @@ func num(raw json.RawMessage) int64 {
 
 // readStreamJSON reads Claude Code's stream-json: the session id from any
 // event; a tool call for each tool_use block of an assistant message; and
-// from the result event the tokens, by modelUsage (every model call of the
-// run) or by usage, whichever names more, and whether it failed for
+// from the result event the tokens, by modelUsage when it names models
+// (every model call of the run) else by usage, and for the ceiling by
+// whichever of the two names more (Spent), and whether it failed for
 // sign-in (401 or 403) or a rate limit (429). The model that answered is
 // the one modelUsage credits with the most output tokens, else the last
 // assistant message's. The call answered when a result event is no error,
@@ -343,17 +349,17 @@ func readStreamJSON(out []byte) report {
 			if named || given {
 				counted++
 			}
-			// The place that names more tokens is counted, modelUsage on a
-			// tie, so that what one place leaves out the ceiling still counts.
-			if named && mu.prompt+mu.output >= by.prompt+by.output {
+			// The ceiling counts the place that names more tokens, so that
+			// what one of them leaves out is still counted; the rows keep
+			// EV-17b's measure: modelUsage when it names models, else usage.
+			r.Spent += max(mu.prompt+mu.output, by.prompt+by.output)
+			if named {
 				by = mu
+				r.Model = best
 			}
 			r.PromptTokens += by.prompt
 			r.CachedTokens += by.cached
 			r.OutputTokens += by.output
-			if named {
-				r.Model = best
-			}
 			var failed bool
 			_ = json.Unmarshal(e["is_error"], &failed)
 			subtype, status := str(e["subtype"]), num(e["api_error_status"])
@@ -422,6 +428,7 @@ func readExecJSON(out []byte) report {
 			r.PromptTokens += num(u["input_tokens"])
 			r.CachedTokens += num(u["cached_input_tokens"])
 			r.OutputTokens += num(u["output_tokens"])
+			r.Spent += num(u["input_tokens"]) + num(u["output_tokens"])
 			if m := str(e["model"]); m != "" {
 				r.Model = m
 			}

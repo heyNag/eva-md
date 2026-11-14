@@ -17,7 +17,8 @@
 // decoy/ overlay over the folder until every one of the script's facts has
 // appeared in a prompt of the session, and its solution/ overlay after. A
 // script can make it stall until it is killed, with a child holding its
-// output; leave such a child behind an answer; fail its sign-in, a rate
+// output, before its answer or after it; leave such a child behind an
+// answer; fail its sign-in, a rate
 // limit or with another status; exit having printed nothing; kill itself,
 // before an answer or after a whole one; answer with no session, with no
 // usage, or at the turn bound; name another model, or none; pad its output.
@@ -78,6 +79,10 @@ type Script struct {
 	// pipe the child writes a line to once it runs.
 	Stall bool   `json:"stall"`
 	Ready string `json:"ready"`
+	// StallAfter makes a call print its answer, as usual, and then stall as
+	// Stall does. It is one of the failures From and Session keep to some
+	// calls.
+	StallAfter bool `json:"stall_after"`
 	// Leave makes a call answer as usual and exit, leaving such a child
 	// behind, blocked until it is killed.
 	Leave bool `json:"leave"`
@@ -296,6 +301,12 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	answer(host.ID, s, session, model, out)
 	if s.KilledAfter && failing {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+		block()
+	}
+	if s.StallAfter && failing {
+		if spawn(s.Ready) != nil {
+			return 3
+		}
 		block()
 	}
 	if s.TurnBound && host.ID == adapter.ClaudeCode {

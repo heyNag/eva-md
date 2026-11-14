@@ -3,9 +3,14 @@ package drive
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/heyNag/eva-md/internal/eval/continuation/task"
 	"github.com/heyNag/eva-md/internal/host/adapter"
@@ -25,8 +30,14 @@ func TestNoUsageStopsTheRun(t *testing.T) {
 			starts int    // sessions started
 			line   string // the stopped trial's line
 		}{
-			"no usage":     {func(r *rig) { r.script.NoUsage = true }, 0, 0, 1, "trial hidden-banner.t1: unjudged, no_usage\n"},
-			"0 tokens":     {func(r *rig) { r.script.Prompt, r.script.Cached, r.script.Output = 0, 0, 0 }, 0, 0, 1, "trial hidden-banner.t1: unjudged, no_usage\n"},
+			"no usage": {func(r *rig) { r.script.NoUsage = true }, 0, 0, 1, "trial hidden-banner.t1: unjudged, no_usage\n"},
+			"0 tokens": {func(r *rig) { r.script.Prompt, r.script.Cached, r.script.Output = 0, 0, 0 }, 0, 0, 1, "trial hidden-banner.t1: unjudged, no_usage\n"},
+			// A signal that ends the CLI after its answer does not make the
+			// answer's missing usage a failure of the host's.
+			"no usage, then killed": {func(r *rig) { r.script.NoUsage, r.script.KilledAfter = true, true }, 0, 0, 1, "trial hidden-banner.t1: unjudged, no_usage\n"},
+			"0 tokens, then killed": {func(r *rig) {
+				r.script.Prompt, r.script.Cached, r.script.Output, r.script.KilledAfter = 0, 0, 0, true
+			}, 0, 0, 1, "trial hidden-banner.t1: unjudged, no_usage\n"},
 			"in round two": {func(r *rig) { r.script.NoUsage, r.script.From = true, 2 }, 0, 1050, 1, "trial hidden-banner.t1: unjudged, no_usage\n"},
 			"in the second session": {func(r *rig) { r.script.NoUsage, r.script.Session = true, 2 }, 1, 2100, 2,
 				"trial hidden-banner.t2: unjudged, no_usage\n"},
@@ -113,6 +124,48 @@ func TestALongLineWithinTheLimitIsRead(t *testing.T) {
 			r.script.Pad = 1 << 20
 			if s, out, err := r.run(); err != nil || s.Judged != 1 || s.Tokens != 2100 {
 				t.Fatalf("run: %+v %v\n%s", s, err, out)
+			}
+		})
+	}
+}
+
+// A call that printed its answer and usage, then ran past the session's
+// limit, is unjudged, timeout, but the tokens it named are counted: the
+// ceiling stops the run before the next trial. The limit ends at an exact
+// point, once the fake's child that holds the output runs.
+func TestATimedOutCallsTokensAreCounted(t *testing.T) {
+	for _, h := range adapter.All() {
+		t.Run(string(h.ID), func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Host, r.opts.Trials, r.opts.MaxTokens = string(h.ID), 2, 1
+			ready := filepath.Join(r.base, "ready")
+			if err := syscall.Mkfifo(ready, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			r.script.StallAfter, r.script.Ready = true, ready
+			r.opts.sessionLimit = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+				c, cancel := context.WithCancel(ctx)
+				go func() {
+					// Opening blocks until the child opens the pipe to write.
+					if f, err := os.Open(ready); err == nil {
+						_, _ = io.ReadAll(f)
+						_ = f.Close()
+					}
+					cancel()
+				}()
+				return c, cancel
+			}
+			res := guarded(t, r)
+			if res.err != nil || res.s.Unjudged[CodeTimeout] != 1 || res.s.Judged != 0 || res.s.Tokens != 1050 || res.s.NotRun != 1 ||
+				!strings.Contains(res.out, "--max-tokens reached") {
+				t.Fatalf("run: %+v %v\n%s", res.s, res.err, res.out)
+			}
+			if starts := countMode(r.calls(), "start"); starts != 1 {
+				t.Fatalf("%d sessions started", starts)
+			}
+			records, err := LoadRuns(r.opts.Out)
+			if err != nil || len(records) != 1 || records[0].Tokens != 1050 || records[0].Ended != EndedDone {
+				t.Fatalf("records %+v: %v", records, err)
 			}
 		})
 	}

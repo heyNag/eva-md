@@ -164,7 +164,7 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 
 	s := session{p: p, tr: tr, env: env, extra: extra, hidden: hidden}
 	code, err := s.run(ctx)
-	res.tokens = s.outcome.PromptTokens + s.outcome.OutputTokens
+	res.tokens = s.counted
 	res.outcome, res.model = s.outcome, s.model
 	if ctx.Err() != nil {
 		return res, ctx.Err()
@@ -228,6 +228,9 @@ type session struct {
 	// spent is the time the session's calls took, which --session-timeout
 	// bounds; grading is not counted.
 	spent time.Duration
+	// counted are the tokens --max-tokens counts of the session's calls
+	// (report.Spent).
+	counted int64
 	// hidden are the task's hidden files, which the session looks for in
 	// the trial's folder after each call and each grading a prompt follows.
 	hidden *hidden
@@ -261,6 +264,7 @@ func (s *session) run(ctx context.Context) (string, error) {
 		s.outcome.PromptTokens += r.PromptTokens
 		s.outcome.CachedTokens += r.CachedTokens
 		s.outcome.OutputTokens += r.OutputTokens
+		s.counted += r.Spent
 		// Whatever the call gave, a hidden file it left within the chat's
 		// reach is a fault of the set-up.
 		if ctx.Err() == nil {
@@ -382,18 +386,19 @@ func followUp(failing []string, facts []task.Fact) string {
 // call runs one headless call of the chat in the workspace, within what
 // is left of the session's time limit, and reads its output. The time it
 // took is added to the outcome. A call ended by the limit gives
-// errTimeout. A call that gives no answer leaves the trial unjudged, and
-// its report says why in Fail: sign-in and rate limit when the host says
-// so, and CodeHostFailed for any other, a CLI a signal ended among them,
-// even one that had printed an answer, since its work may be cut short,
-// or an output that holds no answer (a failure of the host's service, an
-// exit that printed nothing, an output with no final event). An answer
-// without its usage, or with 0 prompt and output tokens, and an output
-// past its limit, which may hide the usage, are CodeNoUsage: what the call
-// spent no ceiling can count. The tokens the output names are kept, for
-// the ceiling. A call that exits other than 0 with an answer, as at the
-// turn bound, is graded as it stands. An error is the driver's own failure
-// to run the CLI, which stops the run.
+// errTimeout, with the tokens its output named before the limit. A call
+// that gives no answer leaves the trial unjudged, and its report says why
+// in Fail: sign-in and rate limit when the host says so, and
+// CodeHostFailed for any other, a CLI a signal ended among them, even one
+// that had printed an answer, since its work may be cut short, or an
+// output that holds no answer (a failure of the host's service, an exit
+// that printed nothing, an output with no final event). An answer without
+// its usage, or with 0 prompt and output tokens, whatever ended the CLI
+// after it, and an output past its limit, which may hide the usage, are
+// CodeNoUsage: what the call spent no ceiling can count. The tokens the
+// output names are kept, for the ceiling. A call that exits other than 0
+// with an answer, as at the turn bound, is graded as it stands. An error
+// is the driver's own failure to run the CLI, which stops the run.
 func (s *session) call(ctx context.Context, c chat) (report, error) {
 	left := s.p.opts.SessionTimeout - s.spent
 	if left <= 0 {
@@ -415,35 +420,44 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 	s.outcome.WallMs += s.p.opts.Clock().Sub(start).Milliseconds()
 	switch {
 	case ctx.Err() != nil:
-		return report{}, ctx.Err()
+		return spentOnly(s.p.entry.Read(out)), ctx.Err()
 	case cctx.Err() != nil:
-		return report{}, errTimeout
+		// What the call printed before the limit ended it is read for the
+		// tokens it names, which the ceiling counts.
+		return spentOnly(s.p.entry.Read(out)), errTimeout
 	}
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {
 		return report{}, fmt.Errorf("the host's CLI: %w", pathless(err))
 	}
 	r := s.p.entry.Read(out)
-	if over {
-		r.Fail = CodeNoUsage
-		return r, nil
-	}
-	if r.Fail != "" {
-		return r, nil
-	}
-	if exit != nil {
-		if ws, ok := exit.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			r.Fail = CodeHostFailed
-			return r, nil
-		}
-	}
 	switch {
+	case over:
+		r.Fail = CodeNoUsage
+	case r.Fail != "":
+	case r.Answered && (!r.Usage || r.Spent == 0):
+		// Whatever ended the CLI afterwards, a signal among them: an answer
+		// spent what no ceiling can count.
+		r.Fail = CodeNoUsage
+	case exit != nil && signaled(exit):
+		r.Fail = CodeHostFailed
 	case !r.Answered:
 		r.Fail = CodeHostFailed
-	case !r.Usage || r.PromptTokens+r.OutputTokens == 0:
-		r.Fail = CodeNoUsage
 	}
 	return r, nil
+}
+
+// signaled reports whether a signal ended the process.
+func signaled(exit *exec.ExitError) bool {
+	ws, ok := exit.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled()
+}
+
+// spentOnly is r's tokens alone: what a call that the session's limit or
+// the run's end cut short named, which the ceiling counts, though nothing
+// of it is graded.
+func spentOnly(r report) report {
+	return report{PromptTokens: r.PromptTokens, CachedTokens: r.CachedTokens, OutputTokens: r.OutputTokens, Spent: r.Spent}
 }
 
 // cappedBuffer keeps the first limit bytes written to it, and says
