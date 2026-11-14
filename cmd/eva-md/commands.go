@@ -17,6 +17,7 @@ import (
 
 	"github.com/heyNag/eva-md/internal/config"
 	"github.com/heyNag/eva-md/internal/health"
+	"github.com/heyNag/eva-md/internal/host/adapter"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/install"
 	"github.com/heyNag/eva-md/internal/paths"
@@ -91,12 +92,12 @@ func runResume(ctx context.Context, args []string, out, errOut io.Writer) int {
 	f.SetOutput(io.Discard)
 	cwd := f.String("cwd", "", "")
 	variant := f.String("as", "startup", "")
-	host := f.String("host", "codex", "")
+	host := f.String("host", string(adapter.Codex), "")
 	sid := f.String("session", "", "")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return usage(errOut, "invalid arguments for brief")
 	}
-	if *host != "codex" && *host != "claude-code" {
+	if _, ok := adapter.ByID(*host); !ok {
 		return usage(errOut, "brief --host must be codex or claude-code")
 	}
 	switch *variant {
@@ -445,7 +446,8 @@ func liveChecks(ctx context.Context, d paths.Dirs, errOut io.Writer) []health.Ch
 		c = config.Default()
 	}
 	var checks []health.Check
-	for _, host := range []string{update.HostClaude, update.HostCodex} {
+	for _, h := range adapter.All() {
+		host := string(h.ID)
 		name := host + " live update"
 		if app, absent := health.Absent(host); absent && !health.Installed(d, host) {
 			checks = append(checks, health.Check{Name: name, Status: "UNKNOWN", Detail: app + " isn't installed on this Mac; no call was made"})
@@ -488,11 +490,8 @@ func liveCheck(name string, res update.LiveResult) health.Check {
 
 // liveFix is what to do about a live check's failure class.
 func liveFix(reason, host string) string {
-	cli := "claude"
-	login := "claude auth login"
-	if host == update.HostCodex {
-		cli, login = "codex", "codex login"
-	}
+	h, _ := adapter.ByID(host)
+	cli, login := h.Names.CLI, h.Login()
 	switch reason {
 	case update.ReasonAuth:
 		return "log in with " + login + ", then run eva-md doctor --live again"

@@ -84,33 +84,36 @@ func QuickNotice(ctx context.Context, d paths.Dirs, c config.Config, activeHost 
 		}
 		_ = json.Unmarshal(fields["host"], &pending.Host)
 		_ = json.Unmarshal(fields["needs_trust"], &pending.NeedsTrust)
-		if pending.Host != "codex" || !pending.NeedsTrust {
+		reviewer, ok := trustPending(pending.Host)
+		if !ok || !pending.NeedsTrust {
 			return "eva.md: hook trust status is unavailable; run eva-md doctor."
 		}
 		// A Codex hook that is running now has been trusted. Its own
 		// heartbeat is written only after this notice is built.
-		running := len(activeHost) > 0 && activeHost[0] == "codex"
-		b, valid := readBeat(d, "codex", "SessionStart", now)
+		running := len(activeHost) > 0 && activeHost[0] == string(reviewer.ID)
+		b, valid := readBeat(d, string(reviewer.ID), "SessionStart", now)
 		if !running && (!valid || !b.At.After(info.ModTime())) {
-			return "eva.md: review its hooks in Codex /hooks; run eva-md doctor to verify."
+			return "eva.md: review its hooks in " + reviewer.Names.App + " /hooks; run eva-md doctor to verify."
 		}
 	}
 	if len(activeHost) > 0 {
-		other := "codex"
-		if activeHost[0] == "codex" {
-			other = "claude-code"
-		}
-		check := captureFreshness(ctx, d, other, now)
-		if check.Status == "FAIL" {
-			return "eva.md: recent " + other + " activity has no matching capture heartbeat; run eva-md doctor."
+		// The capture freshness of each host but the one running now.
+		for _, other := range updateHosts {
+			if other == activeHost[0] {
+				continue
+			}
+			check := captureFreshness(ctx, d, other, now)
+			if check.Status == "FAIL" {
+				return "eva.md: recent " + other + " activity has no matching capture heartbeat; run eva-md doctor."
+			}
 		}
 	}
-	for _, host := range []string{"claude-code", "codex"} {
+	for _, host := range updateHosts {
 		if failed, runs := hookRuns(d, host, now); hooksFailing(failed, runs) {
 			return fmt.Sprintf("eva.md: %d of the last %d %s hook runs failed; run eva-md doctor.", failed, runs, host)
 		}
 	}
-	for _, host := range []string{"claude-code", "codex"} {
+	for _, host := range updateHosts {
 		if _, found, _ := catchup.ReadDrift(d, host); found {
 			return "eva.md: transcript recovery no longer recognizes " + host + "'s transcripts, so missed replies are not recovered; run eva-md doctor."
 		}
