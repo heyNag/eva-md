@@ -54,6 +54,12 @@ func TestNoUsageStopsTheRun(t *testing.T) {
 				if starts := countMode(r.calls(), "start"); starts != c.starts {
 					t.Fatalf("%d sessions started", starts)
 				}
+				records, err := LoadRuns(r.opts.Out)
+				if err != nil || len(records) != 1 || records[0].Ended != CodeNoUsage || records[0].Unjudged[CodeNoUsage] != 1 ||
+					records[0].Judged != c.judged || records[0].NotRun != 2-c.judged || records[0].Tokens != c.tokens {
+					t.Fatalf("records %+v: %v", records, err)
+				}
+				emptyWork(t, r)
 			})
 		}
 	}
@@ -87,6 +93,12 @@ func TestMemoryOffStopsTheRun(t *testing.T) {
 			if starts := countMode(r.calls(), "start"); starts != want {
 				t.Fatalf("%d sessions started", starts)
 			}
+			records, err := LoadRuns(r.opts.Out)
+			if err != nil || len(records) != 1 || records[0].Ended != CodeMemoryOff || records[0].Unjudged[CodeMemoryOff] != 1 ||
+				records[0].Judged != 0 || records[0].NotRun != 2 || records[0].Rows != 0 {
+				t.Fatalf("records %+v: %v", records, err)
+			}
+			emptyWork(t, r)
 		})
 	}
 }

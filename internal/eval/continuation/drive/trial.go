@@ -83,13 +83,14 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	if err := task.Prepare(ctx, t, p.opts.Repos, tr.Dirs.Workspace); err != nil {
 		return trialResult{}, err
 	}
-	// A hidden file's bytes in the trial's folder before any chat is the
-	// task's fault, and stops the run.
+	// A hidden file's bytes within the chat's reach before any chat is the
+	// task's fault, or that of code an earlier trial's grading ran, and
+	// stops the run.
 	hidden, err := loadHidden(t, tr.Dirs.Workspace)
 	if err != nil {
 		return trialResult{}, err
 	}
-	if in, err := hidden.found(root, tr.Dirs.Grade); err != nil {
+	if in, err := hidden.found(p.work); err != nil {
 		return trialResult{}, err
 	} else if in {
 		return trialResult{unjudged: CodeHiddenFound}, nil
@@ -233,9 +234,9 @@ type session struct {
 }
 
 // reached reports whether a hidden file is within the chat's reach: in the
-// trial's folder, but the grading's.
+// work folder, which holds the trial's (see hidden.found).
 func (s *session) reached() (bool, error) {
-	return s.hidden.found(s.tr.Dirs.Root, s.tr.Dirs.Grade)
+	return s.hidden.found(s.p.work)
 }
 
 // errTimeout is a call's error when the session's time limit ended it.

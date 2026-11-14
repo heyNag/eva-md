@@ -6,12 +6,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/heyNag/eva-md/internal/eval/continuation/drive/fakehost"
+	"github.com/heyNag/eva-md/internal/eval/continuation/task"
 	"github.com/heyNag/eva-md/internal/host/adapter"
 )
 
@@ -75,27 +77,99 @@ func TestAHiddenFileWithinReachStopsTheRun(t *testing.T) {
 	}
 }
 
-// Code a hidden test runs, which copies the hidden file out of the grading
-// copy into the trial's home, is found before the prompt that would follow
-// the grading: one call, and the run stops.
-func TestAHiddenTestThatCopiesItselfIsFound(t *testing.T) {
-	r := newRig(t, 1)
-	r.opts.Trials = 2
-	// The test runs in <trial>/grade/r<n>/workspace.
+// copyingTest makes the fixture's hidden test of the colour copy itself,
+// as code a grading runs may, to the path to, read from the folder the test
+// runs in: <trial>/grade/r<n>/workspace.
+func copyingTest(t *testing.T, r *rig, to string) {
+	t.Helper()
 	colour := filepath.Join(r.script.Task, "hidden", fakehost.FixtureRepo, "checks", "colour")
-	body := "#!/bin/sh\ncp checks/colour ../../../home/made-up-copy\ngrep -q " + fakehost.FixtureColor + " answer.txt\n"
+	body := "#!/bin/sh\ncp checks/colour " + to + "\ngrep -q " + fakehost.FixtureColor + " answer.txt\n"
 	if err := os.WriteFile(colour, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	s, out, err := r.run()
-	stoppedBy(t, err, CodeHiddenFound)
-	if s.NotRun != 1 || s.Unjudged[CodeHiddenFound] != 1 {
-		t.Fatalf("run: %+v\n%s", s, out)
+}
+
+// Code a hidden test runs, which copies the hidden file out of the grading
+// copy, into the trial's home, into the trial's grading folder beside the
+// copy, or beside the trial's folder, is found before the prompt that would
+// follow the grading: one call, and the run stops, leaving nothing.
+func TestAHiddenTestThatCopiesItselfIsFound(t *testing.T) {
+	for name, to := range map[string]string{
+		"the home":             "../../../home/made-up-copy",
+		"the grading folder":   "../../made-up-copy",
+		"beside the trial":     "../../../../made-up-copy",
+		"the run's own folder": "../../../../../../made-up-copy",
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Trials = 2
+			copyingTest(t, r, to)
+			s, out, err := r.run()
+			stoppedBy(t, err, CodeHiddenFound)
+			if s.NotRun != 1 || s.Unjudged[CodeHiddenFound] != 1 || s.Judged != 0 {
+				t.Fatalf("run: %+v\n%s", s, out)
+			}
+			if calls := r.calls(); countMode(calls, "start") != 1 || countMode(calls, "continue") != 0 {
+				t.Fatalf("calls: %+v", calls)
+			}
+			emptyWork(t, r)
+		})
 	}
-	if calls := r.calls(); countMode(calls, "start") != 1 || countMode(calls, "continue") != 0 {
-		t.Fatalf("calls: %+v", calls)
+}
+
+// A copy the last grading of a trial leaves where a later trial's chat can
+// reach it, beside the trial's folder or in a trial's folder --keep-trials
+// keeps, is found before the next trial's chat: the first trial is judged,
+// the second starts no call, and the run stops.
+func TestACopyALastGradingLeavesStopsTheNextTrial(t *testing.T) {
+	for name, c := range map[string]struct {
+		to   string
+		keep bool
+	}{
+		"beside the trial": {"../../../../made-up-copy", false},
+		"in a kept trial":  {"../../../home/made-up-copy", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			// The ideal record solves the trial in its first round, so its
+			// grading is its last and no prompt follows it.
+			r.opts.Condition, r.opts.Trials, r.opts.KeepTrials = task.Oracle, 3, c.keep
+			copyingTest(t, r, c.to)
+			s, out, err := r.run()
+			stoppedBy(t, err, CodeHiddenFound)
+			if s.Judged != 1 || s.Unjudged[CodeHiddenFound] != 1 || s.NotRun != 1 ||
+				!strings.Contains(out, "trial hidden-banner.t2: unjudged, hidden_found\n") {
+				t.Fatalf("run: %+v\n%s", s, out)
+			}
+			if calls := r.calls(); countMode(calls, "start") != 1 || countMode(calls, "continue") != 0 {
+				t.Fatalf("calls: %+v", calls)
+			}
+			if !c.keep {
+				emptyWork(t, r)
+			}
+		})
 	}
-	emptyWork(t, r)
+}
+
+// A hidden file's bytes in a folder its owner may not read, or may not
+// enter, are found: the folder is given its owner's rights first.
+func TestFoundInAFolderTheOwnerCannotRead(t *testing.T) {
+	data := []byte("#!/bin/sh\nmade-up hidden test\n")
+	for name, mode := range map[string]os.FileMode{"not read": 0o300, "not entered": 0o600} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, "locked")
+			write(t, filepath.Join(dir, "copy.txt"), "made-up before\n"+string(data))
+			if err := os.Chmod(dir, mode); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+			h := &hidden{content: [][]byte{data}, longest: len(data)}
+			if in, err := h.found(root); err != nil || !in {
+				t.Fatalf("found: %v %v", in, err)
+			}
+		})
+	}
 }
 
 // A start that holds a hidden file's bytes, from the repository or the
@@ -158,6 +232,33 @@ func TestNoTrialFolderIsLeft(t *testing.T) {
 			emptyWork(t, r)
 		})
 	}
+}
+
+// Each trial's folder goes before the next trial starts, whether it was
+// judged or unjudged: when a trial is prepared, its folder is the only one
+// beside it.
+func TestATrialFolderGoesBeforeTheNext(t *testing.T) {
+	r := newRig(t, 1)
+	r.opts.Condition, r.opts.Trials = task.Eva, 3
+	r.script.SignIn, r.script.Session = true, 2
+	var beside [][]string
+	useArm(t, Arm{Prepare: func(_ context.Context, tr Trial) (Launch, error) {
+		entries, err := os.ReadDir(filepath.Dir(tr.Dirs.Root))
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		beside = append(beside, names)
+		return Launch{}, err
+	}})
+	s, out, err := r.run()
+	if err != nil || s.Judged != 2 || s.Unjudged[CodeSignIn] != 1 {
+		t.Fatalf("run: %+v %v\n%s", s, err, out)
+	}
+	if want := [][]string{{"t1"}, {"t2"}, {"t3"}}; !reflect.DeepEqual(beside, want) {
+		t.Fatalf("beside each trial's folder: %v, want %v", beside, want)
+	}
+	emptyWork(t, r)
 }
 
 // --keep-trials keeps every trial's folder, as the plan line and the record

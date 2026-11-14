@@ -15,9 +15,10 @@ import (
 	"github.com/heyNag/eva-md/internal/eval/continuation/task"
 )
 
-// What a chat can reach: the trial's folder, which the driver checks for
-// the task's hidden files after the workspace is prepared, after each call
-// and after each grading a prompt follows, and removes once the trial is
+// What a chat can reach: the trial's folder, and through it the run's
+// folders under --work, which the driver checks for the task's hidden
+// files after the workspace is prepared, after each call and after each
+// grading a prompt follows, and removes once the trial, or the run, is
 // over. See the package comment for what it cannot guard.
 
 // removeTimeout bounds the tries at removing a trial's folder, or a
@@ -79,15 +80,12 @@ func writable(dir string) {
 	}
 }
 
-// removeRun removes the folders of the run's tasks and conditions under
-// work, and the run's own, when they hold nothing: once its trials' folders
-// are removed, the work folder is as empty as the run found it.
-func (p *plan) removeRun(run string) {
-	for _, t := range p.tasks {
-		_ = os.Remove(filepath.Join(p.work, run, t.ID, string(p.opts.Condition)))
-		_ = os.Remove(filepath.Join(p.work, run, t.ID))
-	}
-	_ = os.Remove(filepath.Join(p.work, run))
+// removeRun removes the run's folder under work and all it holds, as
+// remove does: once its trials' folders are removed, it holds the folders
+// of its tasks and conditions, and whatever code a grading ran wrote
+// beside them. Then the work folder is as empty as the run found it.
+func (p *plan) removeRun(ctx context.Context, run string) error {
+	return p.remove(ctx, filepath.Join(p.work, run))
 }
 
 // hidden are a task's hidden files as a trial's workspace would hold them:
@@ -149,17 +147,22 @@ func loadHidden(t task.Task, ws string) (*hidden, error) {
 // chunk is how much of a file is read at once.
 const chunk = 1 << 20
 
-// found reports whether the trial's folder root, but its grading folder,
-// holds a hidden file: by path, a file at a path one would have in the
-// workspace that the workspace lacked when it was prepared; by content, a
-// regular file, no link followed, that holds a hidden file's bytes whole.
-// Every file is read, however large, a piece at a time, so memory is
-// bounded by the hidden files and not by what the chat wrote. A folder or
-// file the owner cannot read is given the owner's rights first; one that
-// still cannot be read is an error.
-func (h *hidden) found(root, grade string) (bool, error) {
+// found reports whether the folder root holds a hidden file: by path, a
+// file at a path one would have in the workspace that the workspace lacked
+// when it was prepared; by content, a regular file anywhere under root, no
+// link followed, that holds a hidden file's bytes whole. The driver gives
+// it the work folder whole, where the run's folders are: the trial's, its
+// grading folder among them, which holds no grading's copy by then, since
+// each copy is removed before the check that follows it; the folders that
+// hold the trial's, which the code a grading runs can write into too; and
+// the trials --keep-trials keeps, which a later chat can reach. Every file
+// is read, however large, a piece at a time, so memory is bounded by the
+// hidden files and not by what the chat wrote. A folder or file the owner
+// cannot read is given the owner's rights first; one that still cannot be
+// read is an error.
+func (h *hidden) found(root string) (bool, error) {
 	window := make([]byte, chunk+h.longest)
-	in, err := h.walk(root, grade, window)
+	in, err := h.walk(root, window)
 	if in || err != nil {
 		return in, err
 	}
@@ -178,25 +181,22 @@ func (h *hidden) found(root, grade string) (bool, error) {
 	return false, nil
 }
 
-// walk reads every regular file under dir but the folder skip, links not
-// followed, and reports whether one holds a hidden file's bytes.
-func (h *hidden) walk(dir, skip string, window []byte) (bool, error) {
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrPermission) {
-		if info, lerr := os.Lstat(dir); lerr == nil && info.IsDir() {
-			_ = os.Chmod(dir, info.Mode().Perm()|0o700)
-		}
-		entries, err = os.ReadDir(dir)
+// walk reads every regular file under dir, links not followed, and
+// reports whether one holds a hidden file's bytes. A folder its owner may
+// not read or enter is given those rights first.
+func (h *hidden) walk(dir string, window []byte) (bool, error) {
+	if info, err := os.Lstat(dir); err == nil && info.IsDir() && info.Mode().Perm()&0o500 != 0o500 {
+		_ = os.Chmod(dir, info.Mode().Perm()|0o700)
 	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false, fmt.Errorf("reading the trial's folder: %w", pathless(err))
 	}
 	for _, e := range entries {
 		p := filepath.Join(dir, e.Name())
 		switch {
-		case p == skip:
 		case e.IsDir():
-			if in, err := h.walk(p, skip, window); in || err != nil {
+			if in, err := h.walk(p, window); in || err != nil {
 				return in, err
 			}
 		case e.Type().IsRegular():

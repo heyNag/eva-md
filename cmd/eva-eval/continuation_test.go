@@ -73,8 +73,15 @@ func (r contRig) tmpRoot() string { return filepath.Join(r.base, "made-up-tmp") 
 // setScript writes the fake's script, with the rig's record and task.
 func (r contRig) setScript(t *testing.T, s fakehost.Script) {
 	t.Helper()
-	s.Dir, s.Task, s.Facts = r.record, filepath.Join(r.tasks, fakehost.FixtureID), []string{fakehost.FixtureColor}
 	s.Events, s.Prompt, s.Cached, s.Output = 3, 900, 400, 30
+	r.writeScript(t, s)
+}
+
+// writeScript writes the fake's script with the rig's record and task, and
+// the tokens s gives.
+func (r contRig) writeScript(t *testing.T, s fakehost.Script) {
+	t.Helper()
+	s.Dir, s.Task, s.Facts = r.record, filepath.Join(r.tasks, fakehost.FixtureID), []string{fakehost.FixtureColor}
 	data, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
@@ -268,21 +275,35 @@ func TestContinuationRunGoesOnPastAHostFailure(t *testing.T) {
 	}
 }
 
-// A call that answers without its usage stops the run: no row, the rest
-// not run, the summary printed, and exit 2.
+// On each host, a call that answers without its usage, or with 0 tokens,
+// stops the run: no row, the rest not run, the summary printed, the
+// record's ended no_usage, and exit 2.
 func TestContinuationRunStopsOnNoUsage(t *testing.T) {
-	r := newContRig(t)
-	r.setScript(t, fakehost.Script{NoUsage: true})
-	code, out, errOut := cmd(r.args("--spend-model-quota")...)
-	if code != 2 || !strings.Contains(errOut, "the run stopped") || !strings.Contains(out, "trial hidden-banner.t1: unjudged, no_usage\n") ||
-		!strings.Contains(out, ": planned 2, judged 0, no model 0, not run 1, ") {
-		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
-	}
-	if _, err := os.Stat(filepath.Join(r.base, "out", results.FileName)); !os.IsNotExist(err) {
-		t.Fatal("a run with no usage wrote rows")
-	}
-	if starts := len(r.calls(t)); starts != 2 {
-		t.Fatalf("%d calls, want the version and one chat", starts)
+	for _, host := range []string{"claude-code", "codex"} {
+		for name, script := range map[string]fakehost.Script{
+			"no usage": {NoUsage: true, Events: 3, Prompt: 900, Cached: 400, Output: 30},
+			"0 tokens": {Events: 3},
+		} {
+			t.Run(host+"/"+name, func(t *testing.T) {
+				r := newContRig(t)
+				r.writeScript(t, script)
+				code, out, errOut := cmd(r.args("--spend-model-quota", "--host", host)...)
+				if code != 2 || !strings.Contains(errOut, "the run stopped") || !strings.Contains(out, "trial hidden-banner.t1: unjudged, no_usage\n") ||
+					!strings.Contains(out, ": planned 2, judged 0, no model 0, not run 1, ") || !strings.Contains(out, "host "+host+",") {
+					t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+				}
+				if _, err := os.Stat(filepath.Join(r.base, "out", results.FileName)); !os.IsNotExist(err) {
+					t.Fatal("a run with no usage wrote rows")
+				}
+				if starts := len(r.calls(t)); starts != 2 {
+					t.Fatalf("%d calls, want the version and one chat", starts)
+				}
+				records, err := drive.LoadRuns(filepath.Join(r.base, "out"))
+				if err != nil || len(records) != 1 || records[0].Ended != drive.CodeNoUsage || records[0].Host != host {
+					t.Fatalf("records %+v: %v", records, err)
+				}
+			})
+		}
 	}
 }
 

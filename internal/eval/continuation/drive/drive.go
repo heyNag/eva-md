@@ -15,9 +15,10 @@
 //
 // What a chat can reach: --work must be empty or absent; each trial's
 // folder is removed once its rows are written, it is unjudged, or the run
-// stops in it, unless --keep-trials keeps it; and after the workspace is
-// prepared, after each call and after each grading a prompt follows, the
-// trial's folder, but the grading's own, is checked for a hidden test, by
+// stops in it, and the run's folder when the run ends, unless --keep-trials
+// keeps them; and after the workspace is prepared, after each call and
+// after each grading a prompt follows, the work folder, which holds the
+// trial's and no grading's copy by then, is checked for a hidden test, by
 // its path in the workspace and by its bytes in any file. One found stops
 // the run as hidden_found. What this cannot guard: a chat run as the
 // invoking user can read --tasks, --repos and --out by their paths, or
@@ -643,7 +644,9 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	fmt.Fprintf(out, "run %s\n", s.Run)
 	versions, err := p.trials(ctx, &s, commit, dirty, out)
 	if !o.KeepTrials {
-		p.removeRun(s.Run)
+		if rerr := p.removeRun(ctx, s.Run); rerr != nil {
+			err = errors.Join(err, fmt.Errorf("removing the run's folder: %w", rerr))
+		}
 	}
 	var unjudged []string
 	for _, c := range Codes {
