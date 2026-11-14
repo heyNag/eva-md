@@ -192,7 +192,7 @@ func UpdateWaits(ctx context.Context, d paths.Dirs, c config.Config, kind string
 				if len(s.Failures) > 0 {
 					w.Class = s.Failures[0]
 				}
-			case slices.Contains(s.Quarantined, sid):
+			case slices.ContainsFunc(s.Quarantined, func(q string) bool { return sameSession(q, sid) }):
 				w.Reason, w.Class, w.NextTry = work.WaitHeld, update.StopQuarantined, tomorrow
 			case s.Calls >= c.DailyCap:
 				w.Reason = work.WaitBudget
@@ -218,6 +218,13 @@ func sessionOf(name string) (host, sid string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+// sameSession reports whether id, a session as the run log records it, the
+// id its entries carry, is sid, the session part of its inbox file's name.
+func sameSession(id, sid string) bool {
+	safe, err := paths.SafeName(id)
+	return err == nil && safe == sid
 }
 
 // offRecord reports whether the chat is off the record now, by the marker

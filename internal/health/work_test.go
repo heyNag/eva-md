@@ -104,9 +104,9 @@ func waitFixture(t *testing.T, which int) (paths.Dirs, config.Config) {
 		c.DailyCap = 1
 		chat(update.HostClaude, "c1", false)
 		record(update.HostClaude, "c1", update.ReasonAuth)
-		chat(update.HostCodex, "q", false)
+		chat(update.HostCodex, "q/x", false)
 		for range 3 {
-			record(update.HostCodex, "q", update.ReasonInvalidOutput)
+			record(update.HostCodex, "q/x", update.ReasonInvalidOutput)
 		}
 		chat(update.HostCodex, "b", false)
 		chat(update.HostCodex, "off", true)
