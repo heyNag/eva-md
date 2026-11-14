@@ -912,6 +912,30 @@ class Controls(unittest.TestCase):
         self.assertFalse(core.uneven_load(each, None))
         self.assertFalse(core.uneven_load(each, [1.0]*5))
 
+    def test_uneven_load_takes_the_halves_by_the_binarys_own_runs(self):
+        # The slower and quicker halves are the binary's own slower and
+        # quicker runs, by its levels, against the other binary's runs too.
+        # Here its last three runs are slower (1.2 against 1.0), but over
+        # the other binary's runs beside them its first, fourth and fifth
+        # are: 3.0, 1.2 and 1.3 against 1.15, 1.0 and 1.0. Taken by its own
+        # levels, the runs over the other's are not uneven (1.2 against
+        # 1.15, the medians of runs 3 to 5 and 0 to 2), so the load is not
+        # its own; taken by the runs over the other's, both would be.
+        levels = [1.0, 1.0, 1.0, 1.2, 1.2, 1.2]
+        paired = [3.0, 1.15, 1.0, 1.2, 1.3, 1.0]
+        other = [mine/theirs for mine, theirs in zip(levels, paired)]
+        self.assertFalse(core.uneven_load(levels, other))
+
+        def gap(values, order):
+            slower, quicker = sorted(values[i] for i in order[3:]), sorted(values[i] for i in order[:3])
+            return slower[1] > core.UNEVEN*quicker[1]
+        by_paired = sorted(range(6), key=paired.__getitem__)
+        self.assertTrue(gap(levels, by_paired) and gap(paired, by_paired))
+        # Its own levels are uneven, and with the other binary's runs level
+        # the load is its own.
+        self.assertTrue(gap(levels, sorted(range(6), key=levels.__getitem__)))
+        self.assertTrue(core.uneven_load(levels, [1.0]*6))
+
     def test_uneven_load_stops_the_verdict(self):
         # Two figures, three of the new binary's runs slower by their own
         # shares: no quick run, but uneven load. The p95s are too noisy to
@@ -2205,6 +2229,236 @@ class MissedLimits(unittest.TestCase):
         (timing,) = [st for st, _, _ in self.timings(fn) if st in set(ast.walk(self.within(raised, parents, ast.For)))]
         self.assertEqual((ast.literal_eval(timing.value.args[1]), ast.unparse(timing.value.args[2])), ("SessionStart", "'m1-records-' + str(i)"))
         self.assertLess(timing.lineno, raised.lineno)
+
+
+class CodeBriefs(unittest.TestCase):
+    """The code briefs' check: a brief whose pointers lack their notes is
+    passed over only when git's trace of its counts shows that the brief's
+    clock cut them short. On made-up outcomes, times and trace lines, on a
+    real git's trace, and on the scenario's code."""
+
+    GUARD = 30  # seconds: a hang guard, never what decides a test
+    K = core.KILLED
+
+    def brief(self, notes, counts, ms=40.0, number=3):
+        return core.code_brief(number, notes, counts, ms)
+
+    def fails(self, notes, counts, ms=40.0):
+        with self.assertRaises(RuntimeError) as e:
+            self.brief(notes, counts, ms)
+        return str(e.exception)
+
+    def test_three_notes_need_three_counts_each_exited_0(self):
+        T = True
+        self.assertIs(self.brief([T, T, T], [0, 0, 0]), False)
+        self.assertIs(self.brief([T, T, T], [0, 0, 0], ms=1400.0), False)
+        for counts in ([0, 0], [0, 0, 128], [128, 0, 0], [0, 0, self.K], [0, 0, 0, 0], []):
+            self.assertIn("every note shown needs exactly 3 counts, each exited 0", self.fails([T, T, T], counts), counts)
+
+    def test_c_lacking_after_a_count_killed_passes_at_any_ms(self):
+        for ms in (0.5, 59.9, 60.0, 1400.0):
+            self.assertIs(self.brief([True, True, False], [0, 0, self.K], ms), True, ms)
+        self.assertIs(self.brief([True, False, False], [0, self.K], 10.0), True)
+        self.assertIs(self.brief([False, False, False], [self.K], 10.0), True)
+
+    def test_notes_lacking_with_no_count_killed_pass_from_the_least_time_a_cut_takes(self):
+        self.assertEqual(core.CODE_CALL_MS, 60)
+        for notes, counts in (([True, True, False], [0, 0]), ([True, True, False], [0, 0, 0]),
+                              ([False, False, False], []), ([True, False, False], [0, 0])):
+            self.assertIs(self.brief(notes, counts, 60.0), True, (notes, counts))
+            self.assertIn("no count was killed, and the brief took less than 60 ms", self.fails(notes, counts, 59.9), (notes, counts))
+
+    def test_a_note_lacking_before_one_shown_fails(self):
+        for notes in ([True, False, True], [False, True, True], [False, False, True]):
+            self.assertIn("a pointer lacks its note before one that has it",
+                          self.fails(notes, [0, self.K], 1400.0), notes)
+
+    def test_more_than_one_count_after_those_of_the_notes_shown_fails(self):
+        for counts in ([0, 0, self.K, self.K], [0, 0, 0, 0], [0, 0, 0, self.K], [0, 0, self.K, 0]):
+            self.assertIn("more than one count, or one that failed", self.fails([True, True, False], counts, 1400.0), counts)
+        self.assertIn("more than one count", self.fails([False, False, False], [self.K, self.K], 1400.0))
+        # Nor may the one after them have failed.
+        for counts in ([0, 0, 128], [0, 0, 1]):
+            self.assertIn("one that failed", self.fails([True, True, False], counts, 1400.0), counts)
+
+    def test_a_note_shown_needs_a_count_that_exited_0(self):
+        for counts in ([0], [0, 128], [0, self.K], [self.K, 0, 0], []):
+            self.assertIn("a note shown has no count that exited 0", self.fails([True, True, False], counts, 1400.0), counts)
+
+    def test_a_missing_pointer_fails(self):
+        for notes in ([True, True, None], [None, True, True], [None, None, None], [True, None, False]):
+            self.assertIn("a pointer is missing", self.fails(notes, [0, 0, 0], 1400.0), notes)
+
+    def test_the_message_names_the_brief_its_pointers_and_counts(self):
+        self.assertEqual(self.fails([True, False, None], [0, 128, self.K], 1203.44),
+                         "code brief 3, 1203.4 ms: a pointer is missing; pointers lacking their note: B; missing: C; "
+                         "counts: exited 0, exited 128, killed")
+        self.assertEqual(self.fails([True, True, True], [], 41.0),
+                         "code brief 3, 41.0 ms: every note shown needs exactly 3 counts, each exited 0; "
+                         "pointers lacking their note: none; missing: none; counts: none")
+
+    def test_one_in_two_passed_over_passes_and_one_more_fails(self):
+        self.assertEqual(core.CODE_PASSED_OVER_SHARE, 0.5)
+        for total in (10, 20, 11):
+            half = total//2
+            self.assertTrue(core.code_briefs_allowed(half, total), total)
+            self.assertFalse(core.code_briefs_allowed(half+1, total), total)
+        self.assertTrue(core.code_briefs_allowed(0, 10))
+
+    def test_what_is_said_of_briefs_passed_over(self):
+        self.assertIsNone(core.code_briefs_said(0, 0, 10))
+        self.assertEqual(core.code_briefs_said(2, 1, 10), "benchmark: code_brief: 2 of 10 briefs passed over, "
+                         "their code's counts cut short by time, 1 of them with a count killed")
+
+    def test_the_notes_of_a_brief(self):
+        context = ("eva.md resume\n"
+                   "System: Code A: Code of this repo (code moved 1 commit since 2026-10-30): /x/eva-md show systems/code-a\n"
+                   "System: Code B: Code of this repo (as of 2026-10-30): /x/eva-md show systems/code-b\n"
+                   "System: Code Bee: (code moved 1 commit since 2026-10-30): /x/eva-md show systems/code-bee\n"
+                   "System index: 403 systems: /x/eva-md show systems/index")
+        self.assertEqual(core.code_notes(context), [True, False, None])
+        self.assertEqual(core.code_notes(""), [None, None, None])
+
+    # Lines of the shape git's trace2 event target writes, made up: a count
+    # started and exited, one started and killed (no exit), the live git's
+    # rev-list --count, which carries none of the count's other arguments,
+    # and a status; and a line cut short.
+    TRACE = [
+        {"event": "version", "sid": "s1", "evt": "4", "exe": "2.56.0"},
+        {"event": "start", "sid": "s1", "t_abs": 0.0002, "argv": ["git", "-c", "core.fsmonitor=false", "--no-optional-locks",
+                                                                   "--literal-pathspecs", "-C", "/x", "rev-list", "--count",
+                                                                   "--max-count=1001", "0a1b..HEAD", "--"]},
+        {"event": "cmd_name", "sid": "s1", "name": "rev-list", "hierarchy": "rev-list"},
+        {"event": "start", "sid": "s2", "argv": ["git", "-C", "/x", "rev-list", "--count", "0a1b..HEAD"]},
+        {"event": "exit", "sid": "s2", "code": 0},
+        {"event": "exit", "sid": "s1", "t_abs": 0.0008, "code": 0},
+        {"event": "atexit", "sid": "s1", "code": 0},
+        {"event": "start", "sid": "s3", "argv": ["git", "--no-optional-locks", "--literal-pathspecs", "-C", "/x", "rev-list",
+                                                 "--count", "--max-count=1001", "0a1b..HEAD", "--", "internal/x"]},
+        {"event": "start", "sid": "s4", "argv": ["git", "-C", "/x", "status", "--porcelain=v2", "--branch"]},
+        {"event": "exit", "sid": "s4", "code": 0},
+    ]
+
+    def test_the_trace_reader_returns_the_counts_alone_in_order(self):
+        lines = [json.dumps(e) for e in self.TRACE] + ['{"event":"start","sid":"s5","argv":["git","rev-']
+        self.assertEqual(core.code_counts(lines), [0, self.K])
+        # The exit is the count's own, by its sid; a code of 128 is kept.
+        changed = [dict(e, code=128) if e.get("sid") == "s1" and e["event"] == "exit" else e for e in self.TRACE]
+        self.assertEqual(core.code_counts([json.dumps(e) for e in changed]), [128, self.K])
+        # Each of the count's arguments is needed.
+        for arg in core.CODE_COUNT_ARGS:
+            without = [dict(e, argv=[a for a in e["argv"] if a != arg]) if e.get("sid") == "s1" and "argv" in e else e for e in self.TRACE]
+            self.assertEqual(core.code_counts([json.dumps(e) for e in without]), [self.K], arg)
+        self.assertEqual(core.code_counts([]), [])
+        self.assertEqual(core.code_counts(["", "[]", "null", "not json"]), [])
+
+    def test_a_real_gits_trace_reads_as_its_counts(self):
+        # The config the benchmark writes, read by git from the global
+        # config: a count that exits, one that fails, one killed while it
+        # waits on its input, and calls that are no count.
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            repo, trace = d/"repo", d/"trace.json"
+            (d/"gitconfig").write_text(core.trace_config(trace))
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "EVA_MD"))}
+            env.update(HOME=str(d), GIT_CONFIG_GLOBAL=str(d/"gitconfig"), GIT_CONFIG_NOSYSTEM="1", LC_ALL="C")
+
+            def git(*args, check=True):
+                return subprocess.run(["git"] + list(args), env=env, cwd=str(d), capture_output=True, text=True,
+                                      timeout=self.GUARD, check=check)
+            git("init", "-q", str(repo))
+            count = ["--literal-pathspecs", "-C", str(repo), "rev-list", "--count", "--max-count=1001"]
+            self.assertEqual(git(*count, "--all", "--").stdout, "0\n")
+            self.assertEqual(git(*count, "nosuchcommit..HEAD", "--", check=False).returncode, 128)
+            git("-C", str(repo), "rev-list", "--count", "--all")
+            git("-C", str(repo), "status", "--porcelain")
+            p = subprocess.Popen(["git"] + count + ["--stdin"], env=env, cwd=str(d), stdin=subprocess.PIPE,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            try:
+                guard = time.monotonic()+self.GUARD
+                while "--stdin" not in (trace.read_text() if trace.exists() else ""):
+                    self.assertLess(time.monotonic(), guard, "git wrote no start of the count to its trace")
+                    time.sleep(0.01)
+            finally:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.wait(timeout=self.GUARD)
+                p.stdin.close()
+            self.assertEqual(core.code_counts(trace.read_text().splitlines()), [0, 128, self.K])
+
+    def test_the_figures_mirror_the_go_code(self):
+        root = HERE.parent.parent
+        systems = (root/"internal/resume/systems.go").read_text()
+        (call,) = re.findall(r"\n\tCodeCall += (\d+) \* time\.Millisecond\n", systems)
+        (budget,) = re.findall(r"\n\tCodeBudget += (\d+) \* time\.Millisecond\n", systems)
+        self.assertEqual(int(call), core.CODE_CALL_MS)
+        self.assertLessEqual(core.CODE_CALL_MS, int(budget))
+        # A count's arguments: Commits's, with MaxCount+1, and git's own
+        # in coderef, which the live git's calls do not carry.
+        (most,) = re.findall(r"\nconst MaxCount = (\d+)\n", (root/"internal/coderef/coderef.go").read_text())
+        git = (root/"internal/coderef/git.go").read_text()
+        self.assertIn('args := append([]string{"rev-list", "--count", "--max-count=" + strconv.Itoa(MaxCount+1), commit + "..HEAD", "--"}, paths...)', git)
+        self.assertIn('\t\t"--literal-pathspecs",\n', git)
+        self.assertEqual(core.CODE_COUNT_ARGS, ("rev-list", "--count", "--max-count=%d" % (int(most)+1), "--literal-pathspecs"))
+        live = (root/"internal/resume/git.go").read_text()
+        self.assertIn('"rev-list", "--count"', live)
+        self.assertNotIn("--max-count", live)
+        self.assertNotIn("--literal-pathspecs", live)
+
+    def loop(self):
+        tree = ast.parse((HERE.parent/"benchmark.py").read_text())
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "code_scenarios")
+        parents = {child: node for node in ast.walk(fn) for child in ast.iter_child_nodes(node)}
+        (timed,) = [st for st in ast.walk(fn) if isinstance(st, ast.Assign) and isinstance(st.value, ast.Call)
+                    and getattr(st.value.func, "id", None) == "hook" and ast.literal_eval(st.value.args[1]) == "SessionStart"
+                    and isinstance(st.targets[0], ast.Tuple)]
+        loop = timed
+        while not isinstance(loop, ast.For):
+            loop = parents[loop]
+        return fn, parents, timed, loop
+
+    def test_each_brief_is_judged_by_the_decision_with_its_elapsed(self):
+        fn, parents, timed, loop = self.loop()
+        out, elapsed = [e.id for e in timed.targets[0].elts]
+        self.assertEqual(elapsed, "elapsed")
+        # The decision, once, on the loop's brief: its number, its notes
+        # from its output, its counts and its elapsed.
+        (decision,) = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "code_brief"]
+        self.assertIn(decision, set(ast.walk(loop)))
+        number, notes, counts, ms = decision.args
+        self.assertEqual(ast.unparse(number), loop.target.id)
+        self.assertEqual(ast.unparse(notes), "code_notes(added_context(%s))" % out)
+        self.assertEqual((type(ms), ms.id), (ast.Name, elapsed))
+        self.assertGreater(decision.lineno, timed.lineno)
+        # Its output is read there alone, and its elapsed is the hook's.
+        uses = [n for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id == out and isinstance(n.ctx, ast.Load)]
+        self.assertEqual([parents[n] for n in uses], [notes.args[0]])
+        stores = [n for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id == elapsed and isinstance(n.ctx, ast.Store)]
+        self.assertEqual([self.within(n, parents, ast.For) for n in stores if n in set(ast.walk(loop))], [loop])
+        # The counts are the trace's that the brief's config named.
+        (assign,) = [st for st in ast.walk(loop) if isinstance(st, ast.Assign) and ast.unparse(st.targets[0]) == ast.unparse(counts)]
+        self.assertEqual(ast.unparse(assign.value), "code_counts(trace.read_text().splitlines() if trace.exists() else [])")
+        (config,) = [c for c in ast.walk(loop) if isinstance(c, ast.Call) and getattr(c.func, "attr", None) == "write_text"]
+        self.assertEqual(ast.unparse(config), "gitconfig.write_text(trace_config(trace))")
+        self.assertTrue(config.lineno < timed.lineno < assign.lineno < decision.lineno)
+        # A brief passed over is counted, and no other check reads a note.
+        (counted,) = [n for n in ast.walk(loop) if isinstance(n, ast.If) and n.test is decision]
+        self.assertIn("passed_over += 1", ast.unparse(counted))
+        self.assertFalse([n for n in ast.walk(loop) if isinstance(n, ast.Constant) and isinstance(n.value, str) and "code moved" in n.value])
+        # The config goes once the loop ends, however it ends; then more
+        # than one in two passed over fails.
+        tried = self.within(loop, parents, ast.Try)
+        self.assertEqual([ast.unparse(s) for s in tried.finalbody], ["gitconfig.unlink(missing_ok=True)"])
+        (share,) = [n for n in ast.walk(fn) if isinstance(n, ast.If) and "code_briefs_allowed" in ast.unparse(n.test)]
+        self.assertEqual(ast.unparse(share.test), "not code_briefs_allowed(passed_over, len(briefs))")
+        self.assertIsInstance(share.body[0], ast.Raise)
+        self.assertGreater(share.lineno, tried.end_lineno)
+
+    def within(self, node, parents, kind):
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, kind):
+                return node
+        return None
 
 
 class GateLoops(unittest.TestCase):

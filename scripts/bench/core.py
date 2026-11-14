@@ -185,6 +185,12 @@ KILLED = "killed"
 CODE_SYSTEMS = ("A", "B", "C")
 
 
+def trace_config(target):
+    """A global git config that sends git's trace2 event stream to the file
+    target; git reads that key from the global and system config alone."""
+    return "[trace2]\n\teventTarget = %s\n" % json.dumps(str(target), ensure_ascii=False)
+
+
 def code_notes(context):
     """Each of a code brief's pointers to System: Code A, B and C, in that
     order: whether it says how far its code moved, or None when the brief

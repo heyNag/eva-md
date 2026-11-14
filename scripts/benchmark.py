@@ -755,7 +755,7 @@ def code_scenarios(hook, cwd, wiki, state, key, home, briefs_timed=10, prompts_t
     the 400 pages, say it moved 14 commits: every pointer must say so, read
     from the status with no git. A --cwd repo with a single commit skips the
     briefs. briefs_timed briefs and prompts_timed prompts are timed."""
-    from evabench import KILLED, code_brief, code_briefs_allowed, code_briefs_said, code_counts, code_notes
+    from evabench import KILLED, code_brief, code_briefs_allowed, code_briefs_said, code_counts, code_notes, trace_config
     from evabench import context as added_context
     head1=subprocess.run(["git","-C",str(cwd),"rev-parse","HEAD~1"],capture_output=True,text=True)
     systems=wiki/"systems"
@@ -778,7 +778,7 @@ def code_scenarios(hook, cwd, wiki, state, key, home, briefs_timed=10, prompts_t
         try:
             for i in range(briefs_timed):
                 trace=traces/("brief-%d.json"%i)
-                gitconfig.write_text("[trace2]\n\teventTarget = %s\n"%json.dumps(str(trace)))
+                gitconfig.write_text(trace_config(trace))
                 out,elapsed=hook("codex","SessionStart","m1-code-"+str(i),source="startup")
                 counts=code_counts(trace.read_text().splitlines() if trace.exists() else [])
                 if code_brief(i,code_notes(added_context(out)),counts,elapsed):
