@@ -117,6 +117,68 @@ func TestAHiddenTestThatCopiesItselfIsFound(t *testing.T) {
 	}
 }
 
+// The trial's grading folder is the driver's user's alone, and a grading
+// whose folder a chat run as that user redirected, by a link at its round's
+// folder or at the grading folder, or by a folder of its own there, writes
+// no copy: the trial is hidden_found before any copy is made, so the
+// hidden tests are written nowhere, no later prompt goes, and the run
+// stops.
+func TestARedirectedGradingFolderStopsTheRun(t *testing.T) {
+	for name, plant := range map[string]func(t *testing.T, grade, outside string){
+		"a link at the round's folder": func(t *testing.T, grade, outside string) {
+			if err := os.Symlink(outside, filepath.Join(grade, "r1")); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a link at the grading folder": func(t *testing.T, grade, outside string) {
+			if err := os.Remove(grade); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, grade); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a folder of the chat's": func(t *testing.T, grade, _ string) {
+			mkdir(t, filepath.Join(grade, "r1"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Condition, r.opts.Trials = task.Eva, 2
+			outside := filepath.Join(r.base, "made-up-outside")
+			mkdir(t, outside)
+			var mode os.FileMode
+			useArm(t, Arm{Prepare: func(_ context.Context, tr Trial) (Launch, error) {
+				info, err := os.Lstat(tr.Dirs.Grade)
+				if err != nil {
+					return Launch{}, err
+				}
+				mode = info.Mode().Perm()
+				plant(t, tr.Dirs.Grade, outside)
+				return Launch{}, nil
+			}})
+			s, out, err := r.run()
+			stoppedBy(t, err, CodeHiddenFound)
+			if mode != 0o700 {
+				t.Fatalf("the grading folder's mode is %v", mode)
+			}
+			if s.Judged != 0 || s.Unjudged[CodeHiddenFound] != 1 || s.NotRun != 1 {
+				t.Fatalf("run: %+v\n%s", s, out)
+			}
+			if calls := r.calls(); countMode(calls, "start") != 1 || countMode(calls, "continue") != 0 {
+				t.Fatalf("calls: %+v", calls)
+			}
+			if got := list(t, outside); len(got) != 0 {
+				t.Fatalf("a grading wrote %v where the link points", got)
+			}
+			if rows := r.rows(); rows != nil {
+				t.Fatalf("rows: %+v", rows)
+			}
+			emptyWork(t, r)
+		})
+	}
+}
+
 // A copy the last grading of a trial leaves where a later trial's chat can
 // reach it, beside the trial's folder or in a trial's folder --keep-trials
 // keeps, is found before the next trial's chat: the first trial is judged,
@@ -194,6 +256,41 @@ func TestAStartHoldingAHiddenFileStopsTheRun(t *testing.T) {
 				t.Fatalf("run: %+v\n%s", s, out)
 			}
 			if calls := r.calls(); len(calls) != 0 {
+				t.Fatalf("calls: %+v", calls)
+			}
+			emptyWork(t, r)
+		})
+	}
+}
+
+// A condition that writes a hidden file's bytes into the trial, as a
+// condition's Prepare or the plugin's files may, stops the run before the
+// chat starts: the version is read, and no session starts.
+func TestAConditionThatLaysAHiddenFileStopsTheRun(t *testing.T) {
+	for name, where := range map[string]func(tr Trial) string{
+		"in the workspace": func(tr Trial) string { return filepath.Join(tr.Dirs.Workspace, "answer.txt") },
+		"in the home":      func(tr Trial) string { return filepath.Join(tr.Dirs.Home, ".made-up-plugin", "notes.md") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, 1)
+			r.opts.Condition, r.opts.Trials = task.Eva, 2
+			data, err := os.ReadFile(filepath.Join(r.script.Task, "hidden", fakehost.FixtureRepo, "checks", "colour"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			useArm(t, Arm{Prepare: func(_ context.Context, tr Trial) (Launch, error) {
+				p := where(tr)
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					return Launch{}, err
+				}
+				return Launch{}, os.WriteFile(p, append([]byte("made-up notes\n"), data...), 0o644)
+			}})
+			s, out, err := r.run()
+			stoppedBy(t, err, CodeHiddenFound)
+			if s.Judged != 0 || s.Unjudged[CodeHiddenFound] != 1 || s.NotRun != 1 || s.Tokens != 0 {
+				t.Fatalf("run: %+v\n%s", s, out)
+			}
+			if calls := r.calls(); countMode(calls, "version") != 1 || countMode(calls, "start") != 0 {
 				t.Fatalf("calls: %+v", calls)
 			}
 			emptyWork(t, r)

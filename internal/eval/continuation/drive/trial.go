@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,10 +60,15 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	if err := os.Mkdir(root, 0o755); err != nil {
 		return trialResult{}, pathless(err)
 	}
-	for _, dir := range []string{tr.Dirs.Home, tr.Dirs.Tmp, tr.Dirs.Bin, tr.Dirs.Grade} {
+	for _, dir := range []string{tr.Dirs.Home, tr.Dirs.Tmp, tr.Dirs.Bin} {
 		if err := os.Mkdir(dir, 0o755); err != nil {
 			return trialResult{}, pathless(err)
 		}
+	}
+	// The grading's copies, which hold the hidden tests, are the driver's
+	// user's alone: a chat run as another user cannot read or write there.
+	if err := os.Mkdir(tr.Dirs.Grade, 0o700); err != nil {
+		return trialResult{}, pathless(err)
 	}
 	if err := os.WriteFile(filepath.Join(tr.Dirs.Home, ".gitconfig"), []byte(gitconfig), 0o644); err != nil {
 		return trialResult{}, pathless(err)
@@ -161,6 +167,14 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 		extra = load.Args
 	}
 	extra = append(extra, launch.Args...)
+	// What the condition wrote into the trial, its plugin's files among
+	// them, is checked too, before any chat can read it.
+	if in, err := hidden.found(p.work); err != nil {
+		return res, err
+	} else if in {
+		res.unjudged = CodeHiddenFound
+		return res, nil
+	}
 
 	s := session{p: p, tr: tr, env: env, extra: extra, hidden: hidden}
 	code, err := s.run(ctx)
@@ -242,6 +256,24 @@ func (s *session) reached() (bool, error) {
 	return s.hidden.found(s.p.work)
 }
 
+// gradingFolder makes scratch, the folder of a grading's copy, in the
+// trial's grading folder, for the driver's user alone. It reports false,
+// making nothing, when the grading folder is no longer the real folder the
+// trial made, or something already stands at scratch, such as a link a
+// chat run as the driver's user planted: the copy, which holds the hidden
+// tests, would be written where it points, out of the check's sight. That
+// is a hidden file put within a chat's reach.
+func (s *session) gradingFolder(scratch string) (bool, error) {
+	if info, err := os.Lstat(s.tr.Dirs.Grade); err != nil || !info.IsDir() {
+		return false, nil
+	}
+	err := os.Mkdir(scratch, 0o700)
+	if errors.Is(err, fs.ErrExist) {
+		return false, nil
+	}
+	return err == nil, pathless(err)
+}
+
 // errTimeout is a call's error when the session's time limit ended it.
 var errTimeout = errors.New("the session's time limit was reached")
 
@@ -299,6 +331,11 @@ func (s *session) run(ctx context.Context) (string, error) {
 		// The grading's copy holds the hidden tests, and the chat can reach
 		// the trial's folder, so it is removed before any next prompt.
 		scratch := filepath.Join(s.tr.Dirs.Grade, "r"+strconv.Itoa(round))
+		if made, err := s.gradingFolder(scratch); err != nil {
+			return "", err
+		} else if !made {
+			return CodeHiddenFound, nil
+		}
 		g, err := task.Grade(ctx, t, t.Dir, s.tr.Dirs.Workspace, scratch)
 		if rerr := s.p.remove(ctx, scratch); err == nil && rerr != nil {
 			err = fmt.Errorf("removing the grading's copy: %w", rerr)
