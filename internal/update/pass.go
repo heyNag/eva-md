@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/heyNag/eva-md/internal/catchup"
+	"github.com/heyNag/eva-md/internal/cost"
 	"github.com/heyNag/eva-md/internal/identity"
 	"github.com/heyNag/eva-md/internal/knowledgepage"
 	"github.com/heyNag/eva-md/internal/okfadapter"
@@ -120,7 +121,7 @@ func (r *run) pass(ctx context.Context, c *chatFile) bool {
 	case planSkip:
 		return r.skip(c, p.rec, p.reason, p.end, p.more, p.off)
 	}
-	stop, retry := r.gate(p.rec.Host, p.rec.Session, p.label)
+	stop, retry := r.gate(p.rec.Host, p.rec.Session, p.label, estimate(p))
 	if stop != "" {
 		return false
 	}
@@ -303,17 +304,25 @@ func (r *run) parent(ctx context.Context, a area, host, sid, branch string) (*th
 }
 
 // gate checks what may stop a pass that needs a model call: the host's
-// stops, then the session's quarantine. It returns the reason it stopped,
-// and whether the pass is a quarantined session's one retry on a day after
-// the quarantine began.
-func (r *run) gate(host, sid, label string) (stop string, retry bool) {
+// stops, then the session's quarantine, then, with the switch token_budget
+// on, whether need, the pass's estimate, would take the host's tokens today
+// past its budget. It returns the reason it stopped, and whether the pass
+// is a quarantined session's one retry on a day after the quarantine began.
+func (r *run) gate(host, sid, label string, need cost.Usage) (stop string, retry bool) {
 	if stop := r.hostStop(host); stop != "" {
 		return stop, false
 	}
-	return r.quarantine(host, sid, label)
+	if stop, retry = r.quarantine(host, sid, label); stop != "" {
+		return stop, false
+	}
+	if stop := r.overEstimate(host, need); stop != "" {
+		return stop, false
+	}
+	return "", retry
 }
 
-// hostStop checks what stops every model call of a host: its daily cap,
+// hostStop checks what stops every model call of a host: its daily cap and,
+// with the switch token_budget on, its daily budget of weighted tokens,
 // then, unless a person started the job, a hold or a backoff. A host it
 // stops stays stopped for the rest of the job.
 func (r *run) hostStop(host string) string {
@@ -321,6 +330,11 @@ func (r *run) hostStop(host string) string {
 	today := now.Format(time.DateOnly)
 	if n := r.log.calls(host, today); n >= r.j.Config.DailyCap {
 		return r.stopHost(host, StopBudget, fmt.Sprintf("%d of %d model calls today", n, r.j.Config.DailyCap))
+	}
+	if TokenBudget.On(r.j.Config) {
+		if spent, budget := Spent(r.log, host, now).Weighted(), r.j.Config.TokenBudget(); spent >= budget {
+			return r.stopHost(host, StopBudget, budgetWords(spent, budget))
+		}
 	}
 	if r.j.Manual {
 		return ""
@@ -391,6 +405,7 @@ func (r *run) call(ctx context.Context, c *chatFile, p plan, retry bool) bool {
 	rec := p.rec
 	rec.Model, rec.ModelNote, rec.Effort, rec.EffortUsed = res.Model, res.ModelNote, effort, res.Effort
 	rec.TokensIn, rec.TokensOut, rec.Degraded, rec.DurationMS = res.TokensIn, res.TokensOut, res.Degraded, took.Milliseconds()
+	rec.TokensCachedIn = res.TokensCachedIn
 	rec.ModelReported = res.ModelReported
 	if rec.Calls = res.Attempts; rec.Calls == 0 && res.Reason != ReasonCLIMissing {
 		rec.Calls = 1
@@ -523,15 +538,15 @@ func saveFailure(err error) string {
 	return ReasonPageRefused
 }
 
-// effort is the effort a run for host and model starts at: the config's,
-// resolved against the host's table, or lower where today's run log shows
+// effort is the effort a run for host and model starts at: the config's
+// (see effortFor), resolved against the host's table, or lower where today's run log shows
 // it refused (see startEffort).
 func (r *run) effort(host, model string) (string, error) {
 	h, ok := lookupHost(host)
 	if !ok {
 		return "", fmt.Errorf("update: unknown host %q", host)
 	}
-	want, err := resolveEffort(h.efforts, r.j.Config.EffortFor(host, model))
+	want, err := resolveEffort(h.efforts, effortFor(r.j.Config, host, model))
 	if err != nil {
 		return "", err
 	}

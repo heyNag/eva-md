@@ -158,6 +158,7 @@ type codexStream struct {
 	skipped             int // lines that are not JSON, such as a notice
 	diag                diagnostics
 	tokensIn, tokensOut int
+	tokensCachedIn      int
 }
 
 func (s *codexStream) Write(p []byte) (int, error) {
@@ -251,11 +252,13 @@ func (s *codexStream) item(raw json.RawMessage) {
 }
 
 // usage adds a turn's tokens. Codex's input_tokens already include the
-// cached ones, and its output_tokens the reasoning ones.
+// cached ones, which cached_input_tokens counts apart, and its
+// output_tokens the reasoning ones.
 func (s *codexStream) usage(raw json.RawMessage) {
 	var u map[string]any
 	if json.Unmarshal(raw, &u) == nil {
 		s.tokensIn += count(u["input_tokens"])
+		s.tokensCachedIn += count(u["cached_input_tokens"])
 		s.tokensOut += count(u["output_tokens"])
 	}
 }
@@ -264,7 +267,7 @@ func (s *codexStream) usage(raw json.RawMessage) {
 // that failed, or skipped lines, beside an otherwise valid answer are
 // degraded notes, not a failure.
 func (s *codexStream) result(c child, output string) attempt {
-	a := attempt{tokensIn: s.tokensIn, tokensOut: s.tokensOut}
+	a := attempt{tokensIn: s.tokensIn, tokensOut: s.tokensOut, tokensCachedIn: s.tokensCachedIn}
 	switch {
 	case c.missing:
 		a.reason = ReasonCLIMissing

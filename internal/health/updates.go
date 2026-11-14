@@ -53,6 +53,9 @@ type UpdateFigures struct {
 	Reported int `json:"model_reported"`
 	Default  int `json:"model_default"`
 	Other    int `json:"model_other"`
+	// Cost is what each host's updates spent, with the update's switch
+	// token_budget on (see costSection); off, it is absent.
+	Cost []HostCost `json:"cost,omitempty"`
 }
 
 // Spread is a set of values: how many, their median, 95th percentile by the
@@ -80,8 +83,9 @@ type DayCalls struct {
 }
 
 // Updates reads the run log of the 7 days that end on now's day and sums it
-// up. It reads the config only for the daily cap, the default's when it
-// can't be read, and writes nothing.
+// up. It reads the config only for the daily cap and the switch
+// token_budget, which adds the cost section, the default's when it can't be
+// read, and writes nothing.
 func Updates(d paths.Dirs, now time.Time) (UpdateFigures, error) {
 	records, err := update.Days(d.State, now, updateDays)
 	if err != nil {
@@ -91,7 +95,9 @@ func Updates(d paths.Dirs, now time.Time) (UpdateFigures, error) {
 	if err != nil {
 		c = config.Default()
 	}
-	return updateFigures(records, now, c.DailyCap), nil
+	f := updateFigures(records, now, c.DailyCap)
+	f.Cost = costSection(c, records, now)
+	return f, nil
 }
 
 // updateFigures sums records up, those of the 7 days that end on now's day.
@@ -276,7 +282,7 @@ func (f UpdateFigures) Lines() []string {
 	lines = append(lines, "model calls a day, each host against the cap: "+strings.Join(days, "; "))
 	lines = append(lines, fmt.Sprintf("model reported: %d %s named the model that answered; of them %d asked for the host's default and %d named a model other than the one asked for",
 		f.Reported, plural(f.Reported, "pass", "passes"), f.Default, f.Other))
-	return lines
+	return append(lines, costLines(f.Cost)...)
 }
 
 // words says a Spread in unit, values divided by per: "median 1.5 s, p95
