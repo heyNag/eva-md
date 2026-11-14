@@ -78,3 +78,20 @@ Three more points from the same check:
 - **Where each command runs.** The run-book's wrapper, given as `--cli`, takes a call of the host's CLI made in the trial's workspace for a chat and gives the trial to the chat's user. So setup and the update run with the trial's home as their folder, never the workspace; only the replayed hooks name the workspace, in their payload's `cwd`, and they run eva-md, not the host's CLI. A test holds the folder of each.
 - **A run does not go on through trials that all fail the same way.** `setup_failed` and `update_failed` stop the run when the first two trials of a run both end in one of them: each further trial would end the same. A later one is counted and the run goes on.
 - **Jobs that outlive the chat can call the model.** With a sign-in in the trial's home, eva-md's own jobs started by the new chat's last hooks can spend after item 5's wait. The removal of the trial's folder takes their sign-in away; what they spend before that is uncounted, and the run-book's limit at the provider is what bounds it. The card says so in its package comment.
+
+## As merged
+
+Merged from `pkg/ev-17c-r1` on 2026-11-14, after a review that found only small faults, a fix round for them and a verification that accepted it. The end-to-end test is in: eva-md built from the checkout with the evaluation tag, a real setup against a fake of the host's plugin commands, and a brief that prints the replayed chat. It showed one thing no fake had: v1's brief resumes a chat only when it has three prompts and three replies, so the trial replays three exchanges.
+
+The lead's rulings at the merge:
+
+- **The stop rule fires on any two failures**: when a run's first two trials end in `setup_failed` or `update_failed`, in any mix, the run stops.
+- **`--sign-in` stays as built for the pilot**: the command's wrapper passes it to the arm. A field of the driver's options would be cleaner and is owed with the points below.
+
+Owed on the driver's files, in one short round before the first full run, none of which changes a figure of a run that goes well:
+
+- A code of its own for a run the stop rule ended: as built the third trial's `Prepare` returns a plain error, the run's record says `error`, and that trial is counted neither unjudged nor not run, so the record's counts do not add up to what was planned.
+- `--sign-in` as a field of the driver's options and a flag of the command.
+- What a failed update or the sign-in program spent: `Prepare` returns no cost, so only what `After` sums reaches the ceiling.
+
+Known and left: a job of eva-md's that the new chat's last hooks started may still be running, signed in, when the trial's folder is removed; what it spends is not counted, and the limit at the provider bounds it. Test as root, one case fails by design (an inbox no one may read), as about twenty of eva-md's do.
