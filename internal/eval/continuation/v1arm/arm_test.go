@@ -167,28 +167,32 @@ func TestPrepareGivesThePluginAndThePerson(t *testing.T) {
 // only pass of it was skipped, leaves the trial unjudged with its code
 // and writes no row; no chat starts.
 func TestFailuresAreUnjudged(t *testing.T) {
+	// calls is how many eva-md calls the trial made: setup and nothing
+	// after it when the plugin is missing, as the driver would find too
+	// late, after the hooks and the update had run.
 	cases := map[string]struct {
-		edit func(r *rig)
-		code string
+		edit  func(r *rig)
+		code  string
+		calls int
 	}{
-		"sign-in fails":  {func(r *rig) { r.useSignIn(signInScript{Fail: true}) }, drive.CodeSetupFailed},
-		"setup fails":    {func(r *rig) { r.eva.SetupFail = []int{1} }, drive.CodeSetupFailed},
-		"no plugin":      {func(r *rig) { r.eva.NoPlugin = true }, drive.CodeSetupFailed},
-		"a hook fails":   {func(r *rig) { r.eva.HookFail = "Stop" }, drive.CodeSetupFailed},
-		"update exits 1": {func(r *rig) { r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 ok", Outcome: update.OutcomeOK, Exit: 1}} }, drive.CodeUpdateFailed},
-		"no pass":        {func(r *rig) { r.eva.Updates = []fakeUpdate{{Line: "nothing pending"}} }, drive.CodeUpdateFailed},
-		"a failed pass":  {func(r *rig) { r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 failed", Outcome: update.OutcomeFailed}} }, drive.CodeUpdateFailed},
+		"sign-in fails":  {func(r *rig) { r.useSignIn(signInScript{Fail: true}) }, drive.CodeSetupFailed, 0},
+		"setup fails":    {func(r *rig) { r.eva.SetupFail = []int{1} }, drive.CodeSetupFailed, 1},
+		"no plugin":      {func(r *rig) { r.eva.NoPlugin = true }, drive.CodeSetupFailed, 1},
+		"a hook fails":   {func(r *rig) { r.eva.HookFail = "Stop" }, drive.CodeSetupFailed, 4},
+		"update exits 1": {func(r *rig) { r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 ok", Outcome: update.OutcomeOK, Exit: 1}} }, drive.CodeUpdateFailed, 6},
+		"no pass":        {func(r *rig) { r.eva.Updates = []fakeUpdate{{Line: "nothing pending"}} }, drive.CodeUpdateFailed, 6},
+		"a failed pass":  {func(r *rig) { r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 failed", Outcome: update.OutcomeFailed}} }, drive.CodeUpdateFailed, 6},
 		"a skipped pass": {func(r *rig) {
 			r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 skipped", Outcome: update.OutcomeSkipped}}
-		}, drive.CodeUpdateFailed},
+		}, drive.CodeUpdateFailed, 6},
 		"another session's pass": {func(r *rig) {
 			r.eva.Updates = []fakeUpdate{{Line: "nothing pending"}}
 			r.eva.RunLog = []update.Record{{Host: r.opts.Host, Session: "made-up-other-session", Outcome: update.OutcomeOK}}
-		}, drive.CodeUpdateFailed},
+		}, drive.CodeUpdateFailed, 6},
 		"another host's pass": {func(r *rig) {
 			r.eva.Updates = []fakeUpdate{{Line: "nothing pending"}}
 			r.eva.RunLog = []update.Record{{Host: "made-up-host", Session: SessionID(drive.Trial{Task: task.Task{ID: "hidden-banner"}, Number: 1}), Outcome: update.OutcomeOK}}
-		}, drive.CodeUpdateFailed},
+		}, drive.CodeUpdateFailed, 6},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -203,6 +207,9 @@ func TestFailuresAreUnjudged(t *testing.T) {
 			}
 			if chats := r.chats(); len(chats) != 0 {
 				t.Fatalf("%d chats", len(chats))
+			}
+			if n := len(r.calls()); n != c.calls {
+				t.Fatalf("eva-md ran %d times", n)
 			}
 		})
 	}
@@ -494,8 +501,10 @@ func TestTheEarlierChatsWordsStayOut(t *testing.T) {
 		"judged":       func(r *rig) {},
 		"setup fails":  func(r *rig) { r.eva.SetupFail = []int{1} },
 		"a hook fails": func(r *rig) { r.eva.HookFail = "UserPromptSubmit" },
-		"update fails": func(r *rig) { r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 failed " + word, Outcome: update.OutcomeFailed, Exit: 1}} },
-		"memory off":   func(r *rig) { r.eva.Plant = nil },
+		"update fails": func(r *rig) {
+			r.eva.Updates = []fakeUpdate{{Line: "1 pass: 1 failed " + word, Outcome: update.OutcomeFailed, Exit: 1}}
+		},
+		"memory off": func(r *rig) { r.eva.Plant = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t, adapter.All()[0])

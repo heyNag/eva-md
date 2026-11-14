@@ -40,12 +40,17 @@ func TestMain(m *testing.M) {
 	fakehost.Main()
 	hostfake.Main()
 	testgitenv.Clear()
+	startEnv = os.Environ()
 	drive.VersionTimeout = 10 * time.Minute
 	drive.WaitDelay = 10 * time.Minute
 	SignInTimeout, SetupTimeout, HookTimeout, UpdateTimeout, LockTimeout = time.Hour, time.Hour, time.Hour, time.Hour, time.Hour
 	// The fake eva-md is no evaluation build; TestCheck turns the check on.
 	skipTagCheck = true
-	os.Exit(m.Run())
+	code := m.Run()
+	if buildRoot != "" {
+		_ = os.RemoveAll(buildRoot)
+	}
+	os.Exit(code)
 }
 
 // The variables that name a fake's script.
