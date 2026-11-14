@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/heyNag/eva-md/internal/eval/scenario"
 )
 
 // runPass runs pass n of s as an arm would: renders it with what st shows,
@@ -70,7 +72,8 @@ func TestTallyOfAHandBuiltRun(t *testing.T) {
 		"ops_proposed": 8, "ops_accepted_first": 2, "ops_accepted_final": 4,
 		"refused_bad_shape": 0, "refused_unknown_target": 1, "refused_bad_entry": 1, "refused_quote_not_found": 0,
 		"refused_bad_segment": 0, "refused_ungrounded": 1, "refused_tag_too_low": 1,
-		"answers_invalid": 1, "schema_breaks": 1, "nothing": 1, "role_fixed": 1,
+		"answers_invalid_first": 1, "answers_invalid_repair": 0, "schema_breaks_first": 0, "schema_breaks_repair": 1,
+		"nothing": 1, "role_fixed": 1,
 		"repair_calls": 1, "repair_sent": 5, "repair_recovered": 2,
 		"repair_input_bytes":  prefix + len(RepairBoundary) + 1 + len(answer) + 1 + len(RepairHead) + 1 + len(tail),
 		"repair_prefix_bytes": prefix,
@@ -202,7 +205,7 @@ func TestCountsAddUp(t *testing.T) {
 	type run struct{ id, name, repair string }
 	runs := []run{
 		{"assent.01", "faults", "faults.repair"}, {"assent.01", "assent-cited", ""}, {"assent.02", "assent-cited", ""},
-		{"v1.05", "ungrounded", "ungrounded.repair"},
+		{"v1.05", "ungrounded", "ungrounded.repair"}, {"v1.06", "paste-decision", ""},
 	}
 	for _, id := range faithful {
 		runs = append(runs, run{id, "faithful", ""})
@@ -252,15 +255,23 @@ func checkSums(t *testing.T, name string, tally Tally) {
 }
 
 // TestTallyIDs: the counts are the card's, refused_<code> for every code,
-// each once, and each is among the ids the spike writes, so the run's
-// Forbid is checked against it; an empty tally gives every count as zero
-// and no ratio.
+// each once, and no word the scripts plant is in one, as DV-03c writes it,
+// as TestNoPlantedValueIsInAnID holds the ids the spike writes; an empty
+// tally gives every count as zero and no ratio.
 func TestTallyIDs(t *testing.T) {
-	written := writtenIDs()
+	var written []string
 	for _, id := range append(slices.Clone(CountIDs), RatioIDs...) {
-		if !slices.Contains(written, "spike."+id) {
-			t.Errorf("%s is not among the ids the spike writes", id)
+		written = append(written, "spike."+id)
+	}
+	for _, s := range Scripts() {
+		for _, w := range scenario.Forbid(s.Scenario) {
+			if id := inID(w, written); id != "" {
+				t.Errorf("%s: the planted %q is in the id %s", s.Scenario.ID, w, id)
+			}
 		}
+	}
+	if inID("schema-breaks", written) == "" || inID("Repair", written) == "" {
+		t.Error("the check misses a word in an id")
 	}
 	for _, c := range Codes {
 		if !slices.Contains(CountIDs, "refused_"+c.ID) {
@@ -268,7 +279,7 @@ func TestTallyIDs(t *testing.T) {
 		}
 	}
 	sorted := slices.Sorted(slices.Values(CountIDs))
-	if len(slices.Compact(sorted)) != len(CountIDs) || len(CountIDs) != 24+len(Codes) {
+	if len(slices.Compact(sorted)) != len(CountIDs) || len(CountIDs) != 26+len(Codes) {
 		t.Errorf("%d counts: %v", len(CountIDs), CountIDs)
 	}
 	var empty Tally
@@ -301,7 +312,39 @@ func TestTallyReadsFirstWithoutARepairCall(t *testing.T) {
 	bad.Add(runPass(t, scriptByID(t, "assent.01"), 1, &Store{}, f, canned(t, f, "assent.01.1.faults"), []byte("not json")))
 	bad.Add(Outcome{Script: scriptByID(t, "v1.03"), Invalid: true, First: o.First})
 	c := counts(bad)
-	if c["answers_invalid"] != 2 || c["repair_calls"] != 1 || c["repair_sent"] != 5 || c["repair_recovered"] != 0 || c["ops_proposed"] != 8 || c["schema_breaks"] != 0 {
+	if c["answers_invalid_first"] != 1 || c["answers_invalid_repair"] != 1 || c["repair_calls"] != 1 || c["repair_sent"] != 5 || c["repair_recovered"] != 0 ||
+		c["ops_proposed"] != 8 || c["schema_breaks_first"] != 0 || c["schema_breaks_repair"] != 0 {
 		t.Errorf("counts %v", c)
+	}
+}
+
+// TestFirstAndRepairAnswersAreCountedApart: an answer that is not the
+// schema's JSON, and one that breaks its schema, count under _first when it
+// is a first answer and under _repair when it is a repair answer, never
+// under the other.
+func TestFirstAndRepairAnswersAreCountedApart(t *testing.T) {
+	f := FormQuotes
+	s := scriptByID(t, "assent.01")
+	faults := canned(t, f, "assent.01.1.faults")
+	over := `{"ops":[` + strings.TrimSuffix(strings.Repeat(`{"op":"note","id":null,"kind":"found","text":"Noted.","admit":null,"ev":[{"e":7,"q":"yes","as":"said"}]},`, MaxOps+1), ",") + `],"nothing":null}`
+	repairOver := `{"fixes":[` + strings.TrimSuffix(strings.Repeat(`{"index":1,"op":null},`, MaxOps+1), ",") + `]}`
+	for _, c := range []struct {
+		name           string
+		answer, repair []byte
+		want           [4]int // answers_invalid_first, answers_invalid_repair, schema_breaks_first, schema_breaks_repair
+	}{
+		{"a first answer not JSON", []byte("not json"), nil, [4]int{1, 0, 0, 0}},
+		{"a repair answer not JSON", faults, []byte("not json"), [4]int{0, 1, 0, 0}},
+		{"a first answer over the bound", []byte(over), nil, [4]int{0, 0, 1, 0}},
+		{"a repair answer over the bound", faults, []byte(repairOver), [4]int{0, 0, 0, 1}},
+		{"the canned repair, with a fix that breaks the schema", faults, canned(t, f, "assent.01.1.faults.repair"), [4]int{0, 0, 0, 1}},
+		{"a faithful answer", canned(t, f, "assent.01.1.faithful"), nil, [4]int{0, 0, 0, 0}},
+	} {
+		var tally Tally
+		tally.Add(runPass(t, s, 1, &Store{}, f, c.answer, c.repair))
+		got := [4]int{tally.Count("answers_invalid_first"), tally.Count("answers_invalid_repair"), tally.Count("schema_breaks_first"), tally.Count("schema_breaks_repair")}
+		if got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
 	}
 }
