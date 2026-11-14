@@ -47,7 +47,10 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// A hang-up ends a run as an interrupt does: a driver that a dropped
+	// connection killed outright would leave the chat it started, which
+	// runs in a process group of its own, with no limit and no record.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)

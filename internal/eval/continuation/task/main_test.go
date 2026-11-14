@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,6 +28,9 @@ const (
 	// blocks until it is killed.
 	stubGroup = "stub-group"
 	stubChild = "stub-child" // prints its pid, then blocks until it is killed
+	// stub-telemetry exits 0 only when the mode file Go reads in its home
+	// says off.
+	stubTelemetry = "stub-telemetry"
 )
 
 func TestMain(m *testing.M) {
@@ -48,6 +50,16 @@ func TestMain(m *testing.M) {
 		case stubChild:
 			fmt.Println(os.Getpid())
 			block()
+		case stubTelemetry:
+			config, err := os.UserConfigDir()
+			if err != nil {
+				os.Exit(2)
+			}
+			mode, err := os.ReadFile(filepath.Join(config, "go", "telemetry", "mode"))
+			if err != nil || strings.TrimSpace(string(mode)) != "off" {
+				os.Exit(1)
+			}
+			os.Exit(0)
 		}
 	}
 	testgitenv.Clear()
@@ -117,7 +129,9 @@ func run(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := telemetryOff(home); err != nil {
+	// A go command run with this home otherwise leaves a process behind
+	// that writes into it after the command ends, while the tests remove it.
+	if err := GoTelemetryOff(home); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -126,22 +140,6 @@ func run(m *testing.M) int {
 	os.Setenv("GIT_CONFIG_GLOBAL", config)
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	return m.Run()
-}
-
-// telemetryOff turns Go's telemetry off in home, where Go keeps its mode
-// (os.UserConfigDir's folder): a go command run with that home otherwise
-// leaves a process behind that writes into it after the command ends, while
-// the tests remove it.
-func telemetryOff(home string) error {
-	config := filepath.Join(home, ".config")
-	if runtime.GOOS == "darwin" {
-		config = filepath.Join(home, "Library", "Application Support")
-	}
-	dir := filepath.Join(config, "go", "telemetry")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "mode"), []byte("off\n"), 0o600)
 }
 
 // fixtures is the folder of the package's tasks, and repos its

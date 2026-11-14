@@ -10,17 +10,20 @@
 // shapes of the driver's host table (drive/hosts.go), which are its own
 // until the pilot (EV-03) records the real ones. Each call is recorded as
 // a line of Calls in the script's folder: its arguments, the names of its
-// variables (and the values of the four the driver builds), its folder,
+// variables (and the values of the four the driver builds and OffVar's),
+// its folder,
 // its prompt, its session and the files of its folder before it changed
 // any, and those of the folder that holds it. Then it lays the task's
 // decoy/ overlay over the folder until every one of the script's facts has
 // appeared in a prompt of the session, and its solution/ overlay after. A
 // script can make it stall until it is killed, with a child holding its
-// output; leave such a child behind an answer; fail its sign-in, a rate
+// output, before its answer or after it; leave such a child behind an
+// answer; fail its sign-in, a rate
 // limit or with another status; exit having printed nothing; kill itself,
-// before an answer or after a whole one; answer with no session, or at the
-// turn bound; name another model, or none. Its failures can be kept to one
-// session and to the rounds of a session from one on.
+// before an answer or after a whole one; answer with no session, with no
+// usage, or at the turn bound; name another model, or none; pad its output.
+// Its failures can be kept to one session and to the rounds of a session
+// from one on.
 //
 // Only tests import it.
 package fakehost
@@ -76,6 +79,10 @@ type Script struct {
 	// pipe the child writes a line to once it runs.
 	Stall bool   `json:"stall"`
 	Ready string `json:"ready"`
+	// StallAfter makes a call print its answer, as usual, and then stall as
+	// Stall does. It is one of the failures From and Session keep to some
+	// calls.
+	StallAfter bool `json:"stall_after"`
 	// Leave makes a call answer as usual and exit, leaving such a child
 	// behind, blocked until it is killed.
 	Leave bool `json:"leave"`
@@ -105,7 +112,30 @@ type Script struct {
 	// exiting 1 (Claude Code's shape; Codex's exec has no turn bound, and
 	// answers as usual).
 	TurnBound bool `json:"turn_bound"`
+	// NoUsage makes an answer give no usage: Claude Code's result event has
+	// neither usage nor modelUsage, and Codex's turn.completed no usage. It
+	// is one of the failures From and Session keep to some calls.
+	NoUsage bool `json:"no_usage"`
+	// Pad is the size of a line of padding, an event no reader knows, the
+	// fake prints before its answer.
+	Pad int `json:"pad"`
+	// ReadOnly makes a call leave a folder only its owner may read and
+	// enter, holding a file only its owner may read, in the workspace and in
+	// the home, as Go's module cache is.
+	ReadOnly bool `json:"read_only"`
+	// Steal makes a call copy the task's first hidden file, by its path in
+	// the hidden overlay, within the chat's reach: "path" at the path it
+	// would have in the workspace, "at-path" other bytes at that path,
+	// "home" into the home under another name,
+	// "tmp" into the temporary folder, and "padded" into the home between
+	// two megabytes of other bytes. It is one of the failures From and
+	// Session keep to some calls.
+	Steal string `json:"steal"`
 }
+
+// OffVar is a variable that turns a host's own memory off, whose value the
+// record keeps beside the four the driver builds.
+const OffVar = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"
 
 // ChildVar is the variable that makes the test binary a fake's child: it
 // writes a line to the named pipe the variable names, when it names one,
@@ -118,7 +148,7 @@ type Call struct {
 	Mode    string            `json:"mode"` // "version", "start", "continue", or "other" for a call that is none
 	Args    []string          `json:"args"`
 	Env     []string          `json:"env"`   // every variable's name, sorted
-	Fixed   map[string]string `json:"fixed"` // HOME, PATH, TMPDIR, GIT_CONFIG_NOSYSTEM
+	Fixed   map[string]string `json:"fixed"` // HOME, PATH, TMPDIR, GIT_CONFIG_NOSYSTEM and OffVar
 	Dir     string            `json:"dir"`
 	Session string            `json:"session,omitempty"`
 	Prompt  string            `json:"prompt,omitempty"`
@@ -165,7 +195,7 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	for _, kv := range os.Environ() {
 		name, value, _ := strings.Cut(kv, "=")
 		c.Env = append(c.Env, name)
-		if name == "HOME" || name == "PATH" || name == "TMPDIR" || name == "GIT_CONFIG_NOSYSTEM" {
+		if name == "HOME" || name == "PATH" || name == "TMPDIR" || name == "GIT_CONFIG_NOSYSTEM" || name == OffVar {
 			c.Fixed[name] = value
 		}
 	}
@@ -248,6 +278,12 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	if err := lay(s.Task, overlay, dir); err != nil {
 		return 3
 	}
+	if s.ReadOnly && (readOnly(dir) != nil || readOnly(os.Getenv("HOME")) != nil) {
+		return 3
+	}
+	if s.Steal != "" && failing && steal(s, dir) != nil {
+		return 3
+	}
 	session := c.Session
 	if s.NoSession && failing {
 		session = ""
@@ -258,9 +294,19 @@ func serve(host adapter.Host, file string, args []string, out io.Writer) int {
 	if s.Leave && spawn("") != nil {
 		return 3
 	}
+	if s.Pad > 0 {
+		emit(out, map[string]any{"type": "padding", "text": strings.Repeat("p", s.Pad)})
+	}
+	s.NoUsage = s.NoUsage && failing
 	answer(host.ID, s, session, model, out)
 	if s.KilledAfter && failing {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+		block()
+	}
+	if s.StallAfter && failing {
+		if spawn(s.Ready) != nil {
+			return 3
+		}
 		block()
 	}
 	if s.TurnBound && host.ID == adapter.ClaudeCode {
@@ -394,6 +440,78 @@ func lay(taskDir, o, dir string) error {
 	return nil
 }
 
+// readOnly makes, under dir, a folder that holds a folder that holds a
+// file, each only its owner may read (and enter), unless it is there.
+func readOnly(dir string) error {
+	top := filepath.Join(dir, "made-up-locked")
+	if _, err := os.Lstat(top); err == nil {
+		return nil
+	}
+	inner := filepath.Join(top, "inner")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(inner, "file"), []byte("locked\n"), 0o400); err != nil {
+		return err
+	}
+	if err := os.Chmod(inner, 0o500); err != nil {
+		return err
+	}
+	return os.Chmod(top, 0o500)
+}
+
+// steal copies the task's first hidden file where the script's Steal
+// says, the workspace being ws.
+func steal(s Script, ws string) error {
+	t, err := task.Load(s.Task)
+	if err != nil {
+		return err
+	}
+	var src, rel, root string
+	for _, name := range t.Repos {
+		dir := filepath.Join(s.Task, task.OverlayHidden, name)
+		_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || src != "" || !d.Type().IsRegular() {
+				return err
+			}
+			src = p
+			rel, err = filepath.Rel(dir, p)
+			root = ws
+			if t.Workdir == task.WorkdirOutside {
+				root = filepath.Join(ws, name)
+			}
+			return err
+		})
+	}
+	if src == "" {
+		return errors.New("the task has no hidden file")
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	var to string
+	switch s.Steal {
+	case "path":
+		to = filepath.Join(root, rel)
+	case "at-path":
+		to, data = filepath.Join(root, rel), []byte("other bytes at a hidden file's path\n")
+	case "home":
+		to = filepath.Join(os.Getenv("HOME"), ".cache", "made-up-notes.txt")
+	case "tmp":
+		to = filepath.Join(os.Getenv("TMPDIR"), "made-up-scratch")
+	case "padded":
+		to = filepath.Join(os.Getenv("HOME"), "made-up-padded.bin")
+		data = append(append([]byte(strings.Repeat("x", 1<<20-3)), data...), strings.Repeat("y", 1<<20)...)
+	default:
+		return errors.New("no such way to steal")
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(to, data, 0o644)
+}
+
 // files lists the files under dir, as slash paths, leaving out git's own
 // folders.
 func files(dir string) ([]string, error) {
@@ -493,10 +611,12 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 		if s.TurnBound {
 			subtype = "error_max_turns"
 		}
-		result := map[string]any{"type": "result", "subtype": subtype, "is_error": s.TurnBound, "session_id": session,
-			"usage": map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output}}
-		if model != "" {
-			result["modelUsage"] = map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}
+		result := map[string]any{"type": "result", "subtype": subtype, "is_error": s.TurnBound, "session_id": session}
+		if !s.NoUsage {
+			result["usage"] = map[string]any{"input_tokens": s.Prompt - s.Cached, "cache_read_input_tokens": s.Cached, "cache_creation_input_tokens": 0, "output_tokens": s.Output}
+			if model != "" {
+				result["modelUsage"] = map[string]any{model: map[string]any{"inputTokens": s.Prompt - s.Cached, "cacheReadInputTokens": s.Cached, "cacheCreationInputTokens": 0, "outputTokens": s.Output}}
+			}
 		}
 		emit(out, result)
 	case adapter.Codex:
@@ -506,8 +626,11 @@ func answer(id adapter.ID, s Script, session, model string, out io.Writer) {
 			emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution"}})
 		}
 		emit(out, map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "Done."}})
-		emit(out, withModel(map[string]any{"type": "turn.completed",
-			"usage": map[string]any{"input_tokens": s.Prompt, "cached_input_tokens": s.Cached, "output_tokens": s.Output}}, "model"))
+		done := map[string]any{"type": "turn.completed"}
+		if !s.NoUsage {
+			done["usage"] = map[string]any{"input_tokens": s.Prompt, "cached_input_tokens": s.Cached, "output_tokens": s.Output}
+		}
+		emit(out, withModel(done, "model"))
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -483,6 +484,51 @@ func TestGradeNeverWritesThroughALink(t *testing.T) {
 	})
 }
 
+// The chat's code that one hidden test runs, as a go test or a make target
+// would, cannot make a later hidden test pass by changing it in the
+// grading's copy: rewritten, replaced by a link to a script that passes,
+// or removed from a folder made read-only. Each later test runs on the
+// hidden files laid again, or fails when they cannot be, and a wrong
+// answer stays wrong.
+func TestGradeLaysTheHiddenFilesAgainBeforeEachTest(t *testing.T) {
+	for name, script := range map[string]string{
+		"rewritten": "printf '#!/bin/sh\\nexit 0\\n' > checks/second\n",
+		"a link":    "printf '#!/bin/sh\\nexit 0\\n' > pass.sh\nchmod +x pass.sh\nrm -f checks/second\nln -s ../pass.sh checks/second\n",
+		"locked":    "rm -f checks/second\nchmod 0555 checks\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			x := base(t)
+			x.Workdir, x.Repos = WorkdirRepo, []string{"ledgerkit"}
+			x.Tests = []Test{
+				{ID: "first", Repo: "ledgerkit", Run: []string{"checks/first"}},
+				{ID: "second", Repo: "ledgerkit", Run: []string{"checks/second"}, Facts: []string{"f-made-up"}},
+			}
+			taskDir := tempDir(t)
+			for rel, body := range map[string]string{
+				"hidden/ledgerkit/checks/first":  "#!/bin/sh\nsh ./run.sh\nexit 0\n",
+				"hidden/ledgerkit/checks/second": "#!/bin/sh\ngrep -q right answer.txt\n",
+			} {
+				write(t, taskDir, rel, body)
+				if err := os.Chmod(filepath.Join(taskDir, filepath.FromSlash(rel)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ws := tempDir(t)
+			write(t, ws, "answer.txt", "wrong\n")
+			write(t, ws, "run.sh", script)
+			scratch := filepath.Join(tempDir(t), "grade")
+			// The copy's folder the script locks is opened again, so that
+			// the test's folder can be removed.
+			t.Cleanup(func() { _ = os.Chmod(filepath.Join(scratch, "workspace", "checks"), 0o755) })
+			g, err := Grade(context.Background(), x, taskDir, ws, scratch)
+			want := Grading{Pass: []string{"first"}, Fail: []Failure{{"second", []string{"f-made-up"}}}}
+			if err != nil || !reflect.DeepEqual(g, want) {
+				t.Fatalf("Grade = %+v, %v, want %+v", g, err, want)
+			}
+		})
+	}
+}
+
 func TestGradeRefusesOverlap(t *testing.T) {
 	x, ws := prepared(t, "control-max", "")
 	before := snapshot(t, ws)
@@ -497,5 +543,53 @@ func TestGradeRefusesOverlap(t *testing.T) {
 	}
 	if after := snapshot(t, ws); !slices.Equal(before, after) {
 		t.Fatal("a refused grading changed the workspace")
+	}
+}
+
+// telemetryDir is Go's telemetry folder in the home folder home, as
+// os.UserConfigDir names it on this system with no XDG_CONFIG_HOME.
+func telemetryDir(home string) string {
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", "go", "telemetry")
+	}
+	return filepath.Join(home, ".config", "go", "telemetry")
+}
+
+// GoTelemetryOff writes off to the mode file Go reads in a home, making
+// its folders.
+func TestGoTelemetryOff(t *testing.T) {
+	home := tempDir(t)
+	if err := GoTelemetryOff(home); err != nil {
+		t.Fatal(err)
+	}
+	mode, err := os.ReadFile(filepath.Join(telemetryDir(home), "mode"))
+	if err != nil || strings.TrimSpace(string(mode)) != "off" {
+		t.Fatalf("the mode file: %q %v", mode, err)
+	}
+}
+
+// A test runs with Go's telemetry off in its home: a stub that fails
+// unless the mode file there says off passes.
+func TestGradeTurnsGoTelemetryOff(t *testing.T) {
+	x, ws := stubTask(t, stubTelemetry)
+	g, err := Grade(context.Background(), x, tempDir(t), ws, filepath.Join(tempDir(t), "grade"))
+	if err != nil || !reflect.DeepEqual(g, Grading{Pass: []string{stubTelemetry}}) {
+		t.Fatalf("Grade = %+v, %v", g, err)
+	}
+}
+
+// After a grading whose tests run go, the telemetry folder of the
+// grading's home holds the mode file alone: go kept no counters there,
+// which is what leaves a process writing into it.
+func TestGradeLeavesNoTelemetry(t *testing.T) {
+	x, ws := prepared(t, "control-max", OverlaySolution)
+	scratch := filepath.Join(tempDir(t), "grade")
+	g, err := Grade(context.Background(), x, x.Dir, ws, scratch)
+	if err != nil || !g.Solved() {
+		t.Fatalf("Grade = %+v, %v", g, err)
+	}
+	entries, err := os.ReadDir(telemetryDir(filepath.Join(scratch, "home")))
+	if err != nil || len(entries) != 1 || entries[0].Name() != "mode" {
+		t.Fatalf("the telemetry folder holds %v: %v", entries, err)
 	}
 }

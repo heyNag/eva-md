@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,11 +21,13 @@ import (
 )
 
 // Time limits of the processes a trial starts besides its chats: reading
-// the CLI's version, and the wait for a killed process's output. Tests
-// raise them.
+// the CLI's version, and the wait for a killed process's output. They are
+// exported so that the tests of this package and of the packages that use
+// it, such as a condition's, can raise them once; nothing else changes
+// them.
 var (
-	versionTimeout = 30 * time.Second
-	waitDelay      = 10 * time.Second
+	VersionTimeout = 30 * time.Second
+	WaitDelay      = 10 * time.Second
 )
 
 // outputLimit is the most of what one call prints on stdout that is kept.
@@ -57,12 +60,22 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	if err := os.Mkdir(root, 0o755); err != nil {
 		return trialResult{}, pathless(err)
 	}
-	for _, dir := range []string{tr.Dirs.Home, tr.Dirs.Tmp, tr.Dirs.Bin, tr.Dirs.Grade} {
+	for _, dir := range []string{tr.Dirs.Home, tr.Dirs.Tmp, tr.Dirs.Bin} {
 		if err := os.Mkdir(dir, 0o755); err != nil {
 			return trialResult{}, pathless(err)
 		}
 	}
+	// The grading's copies, which hold the hidden tests, are the driver's
+	// user's alone: a chat run as another user cannot read or write there.
+	if err := os.Mkdir(tr.Dirs.Grade, 0o700); err != nil {
+		return trialResult{}, pathless(err)
+	}
 	if err := os.WriteFile(filepath.Join(tr.Dirs.Home, ".gitconfig"), []byte(gitconfig), 0o644); err != nil {
+		return trialResult{}, pathless(err)
+	}
+	// A go command the chat runs keeps no counters in its home, and leaves
+	// no process writing there once the trial's folder is to be removed.
+	if err := task.GoTelemetryOff(tr.Dirs.Home); err != nil {
 		return trialResult{}, pathless(err)
 	}
 	if err := os.Symlink(p.cli, filepath.Join(tr.Dirs.Bin, p.host.Names.CLI)); err != nil {
@@ -76,6 +89,18 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	if err := task.Prepare(ctx, t, p.opts.Repos, tr.Dirs.Workspace); err != nil {
 		return trialResult{}, err
 	}
+	// A hidden file's bytes within the chat's reach before any chat is the
+	// task's fault, or that of code an earlier trial's grading ran, and
+	// stops the run.
+	hidden, err := loadHidden(t, tr.Dirs.Workspace)
+	if err != nil {
+		return trialResult{}, err
+	}
+	if in, err := hidden.found(p.work); err != nil {
+		return trialResult{}, err
+	} else if in {
+		return trialResult{unjudged: CodeHiddenFound}, nil
+	}
 	tr.Env = []string{
 		"HOME=" + tr.Dirs.Home,
 		"PATH=" + tr.Dirs.Bin + string(filepath.ListSeparator) + os.Getenv("PATH"),
@@ -85,6 +110,7 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 	for _, name := range p.opts.PassEnv {
 		tr.Env = append(tr.Env, name+"="+os.Getenv(name))
 	}
+	tr.Env = append(tr.Env, p.entry.OffEnv...)
 	link := filepath.Join(tr.Dirs.Bin, p.host.Names.CLI)
 	probe := adapter.Probe(ctx, p.host.ID, adapter.Env{
 		LookPath: func(file string) (string, error) {
@@ -94,12 +120,12 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 			return link, nil
 		},
 		// The probe's own limit, 5 seconds, is not used: the version is read
-		// within versionTimeout, in the trial's environment.
+		// within VersionTimeout, in the trial's environment.
 		Run: func(_ context.Context, cli string, args ...string) ([]byte, error) {
-			vctx, cancel := context.WithTimeout(ctx, versionTimeout)
+			vctx, cancel := context.WithTimeout(ctx, VersionTimeout)
 			defer cancel()
-			out, err := runGroup(vctx, cli, args, tr.Env, tr.Dirs.Home, 64<<10)
-			if err != nil {
+			out, over, err := runGroup(vctx, cli, args, tr.Env, tr.Dirs.Home, 64<<10)
+			if err != nil || over {
 				return nil, errors.New("the host's version is unavailable")
 			}
 			return out, nil
@@ -141,10 +167,18 @@ func (p *plan) trial(ctx context.Context, run string, t task.Task, n int) (trial
 		extra = load.Args
 	}
 	extra = append(extra, launch.Args...)
+	// What the condition wrote into the trial, its plugin's files among
+	// them, is checked too, before any chat can read it.
+	if in, err := hidden.found(p.work); err != nil {
+		return res, err
+	} else if in {
+		res.unjudged = CodeHiddenFound
+		return res, nil
+	}
 
-	s := session{p: p, tr: tr, env: env, extra: extra}
+	s := session{p: p, tr: tr, env: env, extra: extra, hidden: hidden}
 	code, err := s.run(ctx)
-	res.tokens = s.outcome.PromptTokens + s.outcome.OutputTokens
+	res.tokens = s.counted
 	res.outcome, res.model = s.outcome, s.model
 	if ctx.Err() != nil {
 		return res, ctx.Err()
@@ -208,6 +242,36 @@ type session struct {
 	// spent is the time the session's calls took, which --session-timeout
 	// bounds; grading is not counted.
 	spent time.Duration
+	// counted are the tokens --max-tokens counts of the session's calls
+	// (report.Spent).
+	counted int64
+	// hidden are the task's hidden files, which the session looks for in
+	// the trial's folder after each call and each grading a prompt follows.
+	hidden *hidden
+}
+
+// reached reports whether a hidden file is within the chat's reach: in the
+// work folder, which holds the trial's (see hidden.found).
+func (s *session) reached() (bool, error) {
+	return s.hidden.found(s.p.work)
+}
+
+// gradingFolder makes scratch, the folder of a grading's copy, in the
+// trial's grading folder, for the driver's user alone. It reports false,
+// making nothing, when the grading folder is no longer the real folder the
+// trial made, or something already stands at scratch, such as a link a
+// chat run as the driver's user planted: the copy, which holds the hidden
+// tests, would be written where it points, out of the check's sight. That
+// is a hidden file put within a chat's reach.
+func (s *session) gradingFolder(scratch string) (bool, error) {
+	if info, err := os.Lstat(s.tr.Dirs.Grade); err != nil || !info.IsDir() {
+		return false, nil
+	}
+	err := os.Mkdir(scratch, 0o700)
+	if errors.Is(err, fs.ErrExist) {
+		return false, nil
+	}
+	return err == nil, pathless(err)
 }
 
 // errTimeout is a call's error when the session's time limit ended it.
@@ -228,6 +292,20 @@ func (s *session) run(ctx context.Context) (string, error) {
 	id := ""
 	for round := 1; ; round++ {
 		r, err := s.call(ctx, chat{Prompt: prompt, Turns: t.MaxTurns, Model: s.p.opts.Model, Resume: id, Extra: s.extra})
+		s.outcome.AgentEvents += r.AgentEvents
+		s.outcome.PromptTokens += r.PromptTokens
+		s.outcome.CachedTokens += r.CachedTokens
+		s.outcome.OutputTokens += r.OutputTokens
+		s.counted += r.Spent
+		// Whatever the call gave, a hidden file it left within the chat's
+		// reach is a fault of the set-up.
+		if ctx.Err() == nil {
+			if in, err := s.reached(); err != nil {
+				return "", err
+			} else if in {
+				return CodeHiddenFound, nil
+			}
+		}
 		if errors.Is(err, errTimeout) {
 			return CodeTimeout, nil
 		}
@@ -235,10 +313,6 @@ func (s *session) run(ctx context.Context) (string, error) {
 			return "", err
 		}
 		s.outcome.Rounds = round
-		s.outcome.AgentEvents += r.AgentEvents
-		s.outcome.PromptTokens += r.PromptTokens
-		s.outcome.CachedTokens += r.CachedTokens
-		s.outcome.OutputTokens += r.OutputTokens
 		switch {
 		case r.Fail != "":
 			return r.Fail, nil
@@ -257,9 +331,14 @@ func (s *session) run(ctx context.Context) (string, error) {
 		// The grading's copy holds the hidden tests, and the chat can reach
 		// the trial's folder, so it is removed before any next prompt.
 		scratch := filepath.Join(s.tr.Dirs.Grade, "r"+strconv.Itoa(round))
+		if made, err := s.gradingFolder(scratch); err != nil {
+			return "", err
+		} else if !made {
+			return CodeHiddenFound, nil
+		}
 		g, err := task.Grade(ctx, t, t.Dir, s.tr.Dirs.Workspace, scratch)
-		if rerr := os.RemoveAll(scratch); err == nil && rerr != nil {
-			err = fmt.Errorf("removing the grading's copy: %w", pathless(rerr))
+		if rerr := s.p.remove(ctx, scratch); err == nil && rerr != nil {
+			err = fmt.Errorf("removing the grading's copy: %w", rerr)
 		}
 		if err != nil {
 			return "", err
@@ -276,6 +355,13 @@ func (s *session) run(ctx context.Context) (string, error) {
 			// The follow-up the card gives this trial cannot be sent to the
 			// same session: the trial is no measure of the condition.
 			return CodeHostFailed, nil
+		}
+		// The code the grading ran may have left a hidden file within the
+		// reach of the prompt that follows.
+		if in, err := s.reached(); err != nil {
+			return "", err
+		} else if in {
+			return CodeHiddenFound, nil
 		}
 		var failing []string
 		var facts []task.Fact
@@ -337,15 +423,19 @@ func followUp(failing []string, facts []task.Fact) string {
 // call runs one headless call of the chat in the workspace, within what
 // is left of the session's time limit, and reads its output. The time it
 // took is added to the outcome. A call ended by the limit gives
-// errTimeout. A call that gives no answer leaves the trial unjudged, and
-// its report says why in Fail: sign-in and rate limit when the host says
-// so, and CodeHostFailed for any other, a CLI a signal ended among them,
-// even one that had printed an answer, since its work may be cut short,
-// or an output that holds no answer (a failure of the host's service, an
-// exit that printed nothing, an output with no final event). The tokens
-// the output names are kept, for the ceiling. A call that exits other
-// than 0 with an answer, as at the turn bound, is graded as it stands. An
-// error is the driver's own failure to run the CLI, which stops the run.
+// errTimeout, with the tokens its output named before the limit. A call
+// that gives no answer leaves the trial unjudged, and its report says why
+// in Fail: sign-in and rate limit when the host says so, and
+// CodeHostFailed for any other, a CLI a signal ended among them, even one
+// that had printed an answer, since its work may be cut short, or an
+// output that holds no answer (a failure of the host's service, an exit
+// that printed nothing, an output with no final event). An answer without
+// its usage, or with 0 prompt and output tokens, whatever ended the CLI
+// after it, and an output past its limit, which may hide the usage, are
+// CodeNoUsage: what the call spent no ceiling can count. The tokens the
+// output names are kept, for the ceiling. A call that exits other than 0
+// with an answer, as at the turn bound, is graded as it stands. An error
+// is the driver's own failure to run the CLI, which stops the run.
 func (s *session) call(ctx context.Context, c chat) (report, error) {
 	left := s.p.opts.SessionTimeout - s.spent
 	if left <= 0 {
@@ -358,45 +448,68 @@ func (s *session) call(ctx context.Context, c chat) (report, error) {
 	cctx, cancel := limit(ctx, left)
 	defer cancel()
 	start, began := s.p.opts.Clock(), time.Now()
-	out, err := runGroup(cctx, s.tr.CLI, s.p.entry.Argv(c), s.env, s.tr.Dirs.Workspace, outputLimit)
+	most := s.p.opts.outputLimit
+	if most <= 0 {
+		most = outputLimit
+	}
+	out, over, err := runGroup(cctx, s.tr.CLI, s.p.entry.Argv(c), s.env, s.tr.Dirs.Workspace, most)
 	s.spent += time.Since(began)
 	s.outcome.WallMs += s.p.opts.Clock().Sub(start).Milliseconds()
 	switch {
 	case ctx.Err() != nil:
-		return report{}, ctx.Err()
+		return spentOnly(s.p.entry.Read(out)), ctx.Err()
 	case cctx.Err() != nil:
-		return report{}, errTimeout
+		// What the call printed before the limit ended it is read for the
+		// tokens it names, which the ceiling counts.
+		return spentOnly(s.p.entry.Read(out)), errTimeout
 	}
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {
 		return report{}, fmt.Errorf("the host's CLI: %w", pathless(err))
 	}
 	r := s.p.entry.Read(out)
-	if r.Fail != "" {
-		return r, nil
-	}
-	if exit != nil {
-		if ws, ok := exit.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			r.Fail = CodeHostFailed
-			return r, nil
-		}
-	}
-	if !r.Answered {
+	switch {
+	case over:
+		r.Fail = CodeNoUsage
+	case r.Fail != "":
+	case r.Answered && (!r.Usage || r.Spent == 0):
+		// Whatever ended the CLI afterwards, a signal among them: an answer
+		// spent what no ceiling can count.
+		r.Fail = CodeNoUsage
+	case exit != nil && signaled(exit):
+		r.Fail = CodeHostFailed
+	case !r.Answered:
 		r.Fail = CodeHostFailed
 	}
 	return r, nil
 }
 
-// cappedBuffer keeps the first limit bytes written to it.
+// signaled reports whether a signal ended the process.
+func signaled(exit *exec.ExitError) bool {
+	ws, ok := exit.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled()
+}
+
+// spentOnly is r's tokens alone: what a call that the session's limit or
+// the run's end cut short named, which the ceiling counts, though nothing
+// of it is graded.
+func spentOnly(r report) report {
+	return report{PromptTokens: r.PromptTokens, CachedTokens: r.CachedTokens, OutputTokens: r.OutputTokens, Spent: r.Spent}
+}
+
+// cappedBuffer keeps the first limit bytes written to it, and says
+// whether more came.
 type cappedBuffer struct {
 	buffer bytes.Buffer
 	limit  int
+	over   bool
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	n := len(p)
 	if room := b.limit - b.buffer.Len(); n > room {
 		p = p[:max(room, 0)]
+		b.over = true
 	}
 	_, _ = b.buffer.Write(p)
 	return n, nil
@@ -406,14 +519,14 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 // group of its own that is killed when ctx ends and as soon as cli has
 // exited, so that nothing it left running goes on editing the workspace
 // while it is graded, and gives the first limit bytes the group printed on
-// stdout. Its stderr is dropped. Its stdout is a pipe of runGroup's own,
-// so that the wait ends when cli exits, not when the last process holding
-// the pipe does; one that left the group and still holds it after
-// waitDelay is an error.
-func runGroup(ctx context.Context, cli string, args, env []string, dir string, limit int) ([]byte, error) {
+// stdout, and whether it printed more. Its stderr is dropped. Its stdout
+// is a pipe of runGroup's own, so that the wait ends when cli exits, not
+// when the last process holding the pipe does; one that left the group and
+// still holds it after WaitDelay is an error.
+func runGroup(ctx context.Context, cli string, args, env []string, dir string, limit int) ([]byte, bool, error) {
 	r, w, err := os.Pipe()
 	if err != nil {
-		return nil, pathless(err)
+		return nil, false, pathless(err)
 	}
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Dir = dir
@@ -421,7 +534,7 @@ func runGroup(ctx context.Context, cli string, args, env []string, dir string, l
 	cmd.Stdout = w
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
-	cmd.WaitDelay = waitDelay
+	cmd.WaitDelay = WaitDelay
 	out := &cappedBuffer{limit: limit}
 	copied := make(chan struct{})
 	go func() {
@@ -434,7 +547,7 @@ func runGroup(ctx context.Context, cli string, args, env []string, dir string, l
 		err = cmd.Wait()
 		_ = killGroup(cmd.Process.Pid)
 	}
-	held := time.NewTimer(waitDelay)
+	held := time.NewTimer(WaitDelay)
 	defer held.Stop()
 	select {
 	case <-copied:
@@ -446,7 +559,7 @@ func runGroup(ctx context.Context, cli string, args, env []string, dir string, l
 		}
 	}
 	_ = r.Close()
-	return out.buffer.Bytes(), err
+	return out.buffer.Bytes(), out.over, err
 }
 
 // killGroup kills the process group pid leads.

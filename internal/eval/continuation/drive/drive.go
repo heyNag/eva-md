@@ -9,7 +9,35 @@
 // folder and bin folder, and only the variables the run names. Nothing it
 // starts runs outside its folder, and it never writes a host's trust
 // record or settings. A trial a host failure leaves unjudged writes no row,
-// and the run goes on to the next.
+// and the run goes on to the next. A trial unjudged for a fault of the
+// set-up, a call that gave no usage among them, stops the run: every
+// further trial would spend a session to learn nothing.
+//
+// What a chat can reach: --work must be empty or absent; each trial's
+// folder is removed once its rows are written, it is unjudged, or the run
+// stops in it, and the run's folder when the run ends, unless --keep-trials
+// keeps them, when each trial's folder is closed to all but the driver's
+// user once its trial ends; and after the workspace is prepared, after
+// the condition has prepared the trial, after each call and after each
+// grading a prompt follows, the work folder, which holds the trial's and no
+// grading's copy by then, is checked for a hidden test, by its path in the
+// workspace and by its bytes, stored whole, in any file. One found stops
+// the run as hidden_found, and so does a grading folder that a chat
+// replaced or filled, through which a grading's copy would land out of the
+// check's sight. The grading folder is the driver's user's alone, and a
+// grading lays the hidden tests again before each of them, so that the
+// chat's code one test runs cannot rewrite the next.
+//
+// What this cannot guard: a chat run as the invoking user can read
+// --tasks, --repos and --out by their paths, and the trials --keep-trials
+// keeps, or copy a hidden test reworded, compressed or encoded, as git's
+// own objects store it; a process that leaves its process group outlives
+// the call that started it; and code the grading runs may write wherever
+// that user can, a hidden test into the workspace's git objects among
+// them, which a later prompt's chat can read. So a real run starts the CLI
+// as a second user, through a wrapper given as --cli, with the tasks and
+// repositories out of that user's reach, and grading as another user still
+// (EV-17e) is what keeps the code a grading runs from the hidden tests.
 package drive
 
 import (
@@ -17,6 +45,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -47,10 +76,34 @@ const (
 	// answer), or an answer that names no session when the trial needs a
 	// follow-up.
 	CodeHostFailed = "host_failed"
+	// CodeNoUsage is a call that answered without its usage, or with 0
+	// prompt and output tokens, or whose output ran past its limit: what it
+	// spent no ceiling can count.
+	CodeNoUsage = "no_usage"
+	// CodeMemoryOff is a condition that found the host's own memory on
+	// where it must be off. Only an Arm gives it.
+	CodeMemoryOff = "memory_off"
+	// CodeHiddenFound is a hidden test, or its bytes, found within a
+	// chat's reach, or a grading folder a chat redirected, which would put
+	// a grading's copy of the hidden tests out of the check's sight.
+	CodeHiddenFound = "hidden_found"
 )
 
 // Codes lists every code of an unjudged trial, in a fixed order.
-var Codes = []string{CodeSignIn, CodeRateLimited, CodeTimeout, CodeOtherModel, CodeSetupFailed, CodeUpdateFailed, CodeHostFailed}
+var Codes = []string{CodeSignIn, CodeRateLimited, CodeTimeout, CodeOtherModel, CodeSetupFailed, CodeUpdateFailed, CodeHostFailed,
+	CodeNoUsage, CodeMemoryOff, CodeHiddenFound}
+
+// stopCodes are the codes that stop the run: each says the set-up is
+// wrong, so every further trial would spend a session to learn nothing.
+var stopCodes = []string{CodeNoUsage, CodeMemoryOff, CodeHiddenFound}
+
+// Stopped is Run's error when a trial left unjudged with one of the codes
+// that stop a run ended it: the trials after it were not run.
+type Stopped struct {
+	Code string
+}
+
+func (e *Stopped) Error() string { return "the run stopped: a trial is unjudged, " + e.Code }
 
 // Unjudged is the error that leaves a trial unjudged: a host or a
 // condition failed in a way that says nothing of the answer.
@@ -82,6 +135,7 @@ type Options struct {
 	EvaMD          string        // an eva-md binary, linked into each trial's bin/ as eva-md
 	Repo           string        // the repository the rows' commit is read from
 	Spend          bool          // --spend-model-quota: without it nothing starts
+	KeepTrials     bool          // --keep-trials: the trials' folders are kept
 
 	// Delivered says whether the chat of a trial was given a fact, by id,
 	// before the round that supplied it. Nil: not measured, and no
@@ -94,6 +148,15 @@ type Options struct {
 	// the session's time limit, d, has passed; nil is context.WithTimeout.
 	// A test ends it at an exact point instead.
 	sessionLimit func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
+	// outputLimit is the most a call may print on stdout; 0 is
+	// outputLimit's. A test gives a small one.
+	outputLimit int
+	// removeLimit gives the context that bounds the tries at removing a
+	// folder, d being removeTimeout; nil is context.WithTimeout. removeAll
+	// removes one; nil is os.RemoveAll. A test fails it and ends the limit
+	// at an exact point instead.
+	removeLimit func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
+	removeAll   func(path string) error
 }
 
 // Dirs are a trial's folders.
@@ -205,6 +268,18 @@ var (
 	redirectPrefixes = []string{"GIT_", "XDG_"}
 	redirectNames    = []string{"GNUPGHOME", "SSH_AUTH_SOCK"}
 )
+
+// setsOff reports whether a host's OffEnv sets the variable name.
+func setsOff(name string) bool {
+	for _, e := range hosts {
+		for _, kv := range e.OffEnv {
+			if strings.HasPrefix(kv, name+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // redirects reports whether --pass-env may not pass the variable name.
 func redirects(name string) bool {
@@ -393,7 +468,7 @@ func prepare(o Options) (*plan, error) {
 		switch {
 		case !envName.MatchString(name):
 			return nil, usagef("--pass-env %d is not a variable's name", i+1)
-		case slices.Contains(builtEnv, name):
+		case slices.Contains(builtEnv, name) || setsOff(name):
 			return nil, usagef("--pass-env %s is one the driver sets itself", name)
 		case redirects(name):
 			return nil, usagef("--pass-env %s would point the chat at a configuration outside its trial", name)
@@ -418,7 +493,74 @@ func prepare(o Options) (*plan, error) {
 	for _, t := range p.tasks {
 		p.forbid = append(p.forbid, task.Forbid(t)...)
 	}
+	if err := p.checkOut(); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// checkOut refuses a results folder a chat could reach, inside --work or
+// holding it, and one that holds an earlier attempt at a trial of the run:
+// a row of the continuation instrument with the run's host and condition
+// and a scenario of one of its tasks, or a record of a run with the host
+// and condition that names one of its tasks. A second attempt would mix
+// its trials with the first's, so it takes a fresh --out. A rows or runs
+// file that cannot be read is refused too. It writes nothing.
+func (p *plan) checkOut() error {
+	out, err := resolve(p.opts.Out)
+	if err != nil {
+		return usagef("--out cannot be read")
+	}
+	if within(out, p.work) || within(p.work, out) {
+		return usagef("--out overlaps --work, where a chat could reach it")
+	}
+	if info, err := os.Lstat(out); err == nil && !info.IsDir() {
+		return usagef("--out is not a folder")
+	}
+	ids := map[string]bool{}
+	for _, t := range p.tasks {
+		ids[t.ID] = true
+	}
+	host, condition := string(p.host.ID), string(p.opts.Condition)
+	again := usagef("--out holds an earlier attempt at a trial of host %s, condition %s, and one of these tasks: a second attempt takes a fresh --out", host, condition)
+	if _, err := os.Lstat(filepath.Join(out, results.FileName)); !errors.Is(err, fs.ErrNotExist) {
+		rows, err := results.Load(filepath.Join(out, results.FileName))
+		if err != nil {
+			return usagef("--out's rows cannot be read")
+		}
+		for _, r := range rows {
+			parts := strings.Split(r.Metric, ".")
+			if r.Instrument == task.Instrument && r.Host == host && len(parts) > 2 && parts[2] == condition && ids[scenarioTask(r.Scenario)] {
+				return again
+			}
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(out, RunsFile)); !errors.Is(err, fs.ErrNotExist) {
+		records, err := LoadRuns(out)
+		if err != nil {
+			return usagef("--out's runs cannot be read")
+		}
+		for _, r := range records {
+			if r.Host == host && r.Condition == condition && slices.ContainsFunc(r.Tasks, func(id string) bool { return ids[id] }) {
+				return again
+			}
+		}
+	}
+	return nil
+}
+
+// scenarioTask is the task's id of a trial's scenario, <task>.t<n>, or ""
+// for a scenario of no such form.
+func scenarioTask(scenario string) string {
+	i := strings.LastIndex(scenario, ".t")
+	if i < 0 {
+		return ""
+	}
+	n := scenario[i+2:]
+	if n == "" || strings.Trim(n, "0123456789") != "" {
+		return ""
+	}
+	return scenario[:i]
 }
 
 // invokingHomes are the invoking home as given, cleaned, and then with
@@ -458,7 +600,8 @@ func executable(p string) (string, error) {
 // Run checks the options, prints the plan to out, and, given leave to
 // spend model quota, runs every trial within the ceilings and appends the
 // rows of each judged one to the results folder. A *UsageError, or
-// ErrNoQuota, says nothing started. out gets ids and figures only.
+// ErrNoQuota, says nothing started; a *Stopped says a trial's code stopped
+// the run, after its summary was printed. out gets ids and figures only.
 func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 	if o.Clock == nil {
 		o.Clock = time.Now
@@ -479,8 +622,12 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 		s.Planned = len(p.tasks) * o.Trials
 		sessions = strconv.Itoa(s.Planned)
 	}
-	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %s; ceilings: sessions %d, tokens %d\n",
-		o.Condition, p.host.ID, len(p.tasks), o.Trials, sessions, o.MaxSessions, o.MaxTokens)
+	folders := "removed"
+	if o.KeepTrials {
+		folders = "kept, each closed to others once it ends"
+	}
+	fmt.Fprintf(out, "plan: condition %s, host %s, tasks %d, trials %d each, sessions %s; ceilings: sessions %d, tokens %d; trial folders %s\n",
+		o.Condition, p.host.ID, len(p.tasks), o.Trials, sessions, o.MaxSessions, o.MaxTokens, folders)
 	if !countable || int64(s.Planned) > o.MaxSessions {
 		return s, usagef("the plan's %s sessions are over --max-sessions %d", sessions, o.MaxSessions)
 	}
@@ -507,43 +654,10 @@ func Run(ctx context.Context, o Options, out io.Writer) (Summary, error) {
 		return s, err
 	}
 	fmt.Fprintf(out, "run %s\n", s.Run)
-	store := results.Store{Dir: o.Out, Forbid: p.forbid}
-	done := 0
-trials:
-	for _, t := range p.tasks {
-		for n := 1; n <= o.Trials; n++ {
-			if s.Tokens >= o.MaxTokens {
-				// The rest are counted, in one line, not listed.
-				s.NotRun = s.Planned - done
-				fmt.Fprintf(out, "trial %s.t%d and the %d after it: not run, --max-tokens reached\n", t.ID, n, s.NotRun-1)
-				break trials
-			}
-			done++
-			r, err := p.trial(ctx, s.Run, t, n)
-			s.Tokens += r.tokens
-			if err != nil {
-				return s, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
-			}
-			if r.unjudged != "" {
-				s.Unjudged[r.unjudged]++
-				fmt.Fprintf(out, "trial %s.t%d: unjudged, %s\n", t.ID, n, r.unjudged)
-				continue
-			}
-			base := results.Row{Commit: commit, Dirty: dirty, Host: string(p.host.ID), HostVersion: r.version, Model: r.model, Time: o.Clock()}
-			rows, err := task.Rows(t, o.Condition, n, r.outcome, base)
-			if err == nil {
-				err = store.Append(rows...)
-			}
-			if err != nil {
-				return s, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
-			}
-			s.Judged++
-			if r.model == "" {
-				s.NoModel++
-			}
-			s.Rows += len(rows)
-			fmt.Fprintf(out, "trial %s.t%d: solved %d, first try %d, corrections %d, rounds %d\n",
-				t.ID, n, b2i(r.outcome.Solved), b2i(r.outcome.FirstTry), r.outcome.Corrections, r.outcome.Rounds)
+	versions, err := p.trials(ctx, &s, commit, dirty, out)
+	if !o.KeepTrials {
+		if rerr := p.removeRun(ctx, s.Run); rerr != nil {
+			err = errors.Join(err, fmt.Errorf("removing the run's folder: %w", rerr))
 		}
 	}
 	var unjudged []string
@@ -552,7 +666,132 @@ trials:
 	}
 	fmt.Fprintf(out, "run %s: planned %d, judged %d, no model %d, not run %d, unjudged %s; tokens %d, rows %d\n",
 		s.Run, s.Planned, s.Judged, s.NoModel, s.NotRun, strings.Join(unjudged, ", "), s.Tokens, s.Rows)
-	return s, nil
+	if rerr := appendRecord(o.Out, p.record(s, commit, dirty, versions, err), p.forbid); rerr != nil {
+		err = errors.Join(err, fmt.Errorf("the run's record: %w", rerr))
+	}
+	return s, err
+}
+
+// trials runs the plan's trials in the run s, counting what each gave in
+// s, and returns the versions of the host's CLI they read. It stops at the
+// first error, or at a trial left unjudged with a code of stopCodes, which
+// gives a *Stopped; the trials after the one it stops at are counted not
+// run.
+func (p *plan) trials(ctx context.Context, s *Summary, commit string, dirty bool, out io.Writer) ([]string, error) {
+	o := p.opts
+	store := results.Store{Dir: o.Out, Forbid: p.forbid}
+	var versions []string
+	done := 0
+	for _, t := range p.tasks {
+		for n := 1; n <= o.Trials; n++ {
+			if s.Tokens >= o.MaxTokens {
+				// The rest are counted, in one line, not listed.
+				s.NotRun = s.Planned - done
+				fmt.Fprintf(out, "trial %s.t%d and the %d after it: not run, --max-tokens reached\n", t.ID, n, s.NotRun-1)
+				return versions, nil
+			}
+			done++
+			r, err := p.trial(ctx, s.Run, t, n)
+			s.Tokens += r.tokens
+			if r.version != "" && !slices.Contains(versions, r.version) {
+				versions = append(versions, r.version)
+			}
+			switch {
+			case err != nil:
+			case r.unjudged != "":
+				s.Unjudged[r.unjudged]++
+				fmt.Fprintf(out, "trial %s.t%d: unjudged, %s\n", t.ID, n, r.unjudged)
+			default:
+				err = p.write(s, store, t, n, r, commit, dirty, out)
+			}
+			// Once its rows are written, it is unjudged, or the run stops in
+			// it, the trial's folder goes, or, when the run keeps it, is
+			// closed to all but the driver's user.
+			root := trialRoot(p.work, s.Run, t.ID, o.Condition, n)
+			if o.KeepTrials {
+				if cerr := closeKept(root); cerr != nil {
+					err = errors.Join(err, fmt.Errorf("closing its folder: %w", cerr))
+				}
+			} else if rerr := p.remove(ctx, root); rerr != nil {
+				err = errors.Join(err, fmt.Errorf("removing its folder: %w", rerr))
+			}
+			switch {
+			case err != nil:
+				s.NotRun = s.Planned - done
+				return versions, fmt.Errorf("trial %s.t%d: %w", t.ID, n, err)
+			case slices.Contains(stopCodes, r.unjudged):
+				s.NotRun = s.Planned - done
+				return versions, &Stopped{Code: r.unjudged}
+			}
+		}
+	}
+	return versions, nil
+}
+
+// closeKept closes the folder of a trial --keep-trials keeps to all but its
+// owner, the driver's user, before the next trial's chat starts. The
+// trial's home and workspace may be another user's, the chat's, as the
+// run-book's wrapper gives them, and they hold the trial's solved work and
+// the host's record of its prompts, which state the facts; that user can
+// no longer reach them through the trial's folder. A chat run as the
+// driver's user can, as it can read --tasks (see the package comment).
+func closeKept(root string) error {
+	info, err := os.Lstat(root)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return pathless(err)
+	case !info.IsDir():
+		return errors.New("it is no longer a folder")
+	}
+	return pathless(os.Chmod(root, 0o700))
+}
+
+// write appends the rows of the judged trial n of task t, and counts them
+// in s.
+func (p *plan) write(s *Summary, store results.Store, t task.Task, n int, r trialResult, commit string, dirty bool, out io.Writer) error {
+	base := results.Row{Commit: commit, Dirty: dirty, Host: string(p.host.ID), HostVersion: r.version, Model: r.model, Time: p.opts.Clock()}
+	rows, err := task.Rows(t, p.opts.Condition, n, r.outcome, base)
+	if err == nil {
+		err = store.Append(rows...)
+	}
+	if err != nil {
+		return err
+	}
+	s.Judged++
+	if r.model == "" {
+		s.NoModel++
+	}
+	s.Rows += len(rows)
+	fmt.Fprintf(out, "trial %s.t%d: solved %d, first try %d, corrections %d, rounds %d\n",
+		t.ID, n, b2i(r.outcome.Solved), b2i(r.outcome.FirstTry), r.outcome.Corrections, r.outcome.Rounds)
+	return nil
+}
+
+// record is the Record of the run s, which ended with err.
+func (p *plan) record(s Summary, commit string, dirty bool, versions []string, err error) Record {
+	r := Record{V: recordVersion, Run: s.Run, Instrument: task.Instrument, Host: string(p.host.ID), HostVersions: slices.Sorted(slices.Values(versions)),
+		Condition: string(p.opts.Condition), Model: p.opts.Model, Commit: commit, Dirty: dirty, Tasks: []string{}, Trials: p.opts.Trials,
+		Planned: s.Planned, Judged: s.Judged, NotRun: s.NotRun, Unjudged: map[string]int{}, NoModel: s.NoModel, Tokens: s.Tokens, Rows: s.Rows,
+		Kept: p.opts.KeepTrials, Ended: EndedDone}
+	if r.HostVersions == nil {
+		r.HostVersions = []string{}
+	}
+	for _, t := range p.tasks {
+		r.Tasks = append(r.Tasks, t.ID)
+	}
+	for _, c := range Codes {
+		r.Unjudged[c] = s.Unjudged[c]
+	}
+	var stopped *Stopped
+	switch {
+	case errors.As(err, &stopped):
+		r.Ended = stopped.Code
+	case err != nil:
+		r.Ended = EndedError
+	}
+	return r
 }
 
 func b2i(b bool) int {

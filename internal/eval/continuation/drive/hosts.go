@@ -55,6 +55,15 @@ type report struct {
 	// never graded, since what the workspace holds then says nothing of the
 	// chat.
 	Answered bool
+	// Usage says the host gave its usage: each final event the reader
+	// counts the tokens of carries it, and there is one. A call answered
+	// without it spent what no ceiling can count.
+	Usage bool
+	// Spent is what --max-tokens counts of the call: its prompt and output
+	// tokens, from each final event by whichever of the host's places for
+	// them names more. The rows' tokens are read as the reader says, which
+	// may name fewer.
+	Spent int64
 }
 
 // pluginLoad is how a chat loads eva-md's plugin: flags, and files written
@@ -71,6 +80,10 @@ type hostEntry struct {
 	// Off are the flags of a chat with the host's own memory off and no
 	// plugin loaded.
 	Off []string
+	// OffEnv are the variables, NAME=value, that turn the host's own memory
+	// off too, beside its flags. Every chat of the host has them, whatever
+	// its condition, one that loads the plugin among them.
+	OffEnv []string
 	// Plugin gives what loads eva-md's plugin as setup installed it in the
 	// trial's home, with the host's own memory still off. It never writes a
 	// trust record.
@@ -92,8 +105,10 @@ var hosts = map[adapter.ID]hostEntry{
 	//   - F-069: --max-turns bounds the run, and --resume <id> continues the
 	//     session.
 	//   - F-062: the settings given by --settings turn its own memory off
-	//     for this run, writing no settings file. A trial's home is new, so
-	//     no plugin is installed there to turn off.
+	//     for this run, writing no settings file, and so does the variable
+	//     CLAUDE_CODE_DISABLE_AUTO_MEMORY (evaluate.md 4.5 and 14, fact 3),
+	//     which every chat gets too. A trial's home is new, so no plugin is
+	//     installed there to turn off.
 	//   - F-115: --plugin-dir loads a plugin from a folder, and its hooks
 	//     fire under an API key.
 	//   - F-067: the run is headless under an API key; its permission mode
@@ -113,7 +128,8 @@ var hosts = map[adapter.ID]hostEntry{
 			args = append(args, c.Extra...)
 			return append(args, "--", c.Prompt)
 		},
-		Off: []string{"--settings", `{"autoMemoryEnabled":false}`},
+		Off:    []string{"--settings", `{"autoMemoryEnabled":false}`},
+		OffEnv: []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"},
 		Plugin: func(home string, h adapter.Host) (pluginLoad, error) {
 			dir := pluginDir(home, h)
 			if info, err := os.Stat(dir); err != nil || !info.IsDir() {
@@ -131,7 +147,7 @@ var hosts = map[adapter.ID]hostEntry{
 	//   - F-169: --disable hooks --disable plugins turn hooks and plugins off
 	//     for this run, writing no settings file.
 	//   - F-170 (not EV-03's): its own memory is off by default and takes no
-	//     exec session, so nothing turns it off.
+	//     exec session, so nothing turns it off, and it has no OffEnv.
 	//   - F-163: managed hooks need no review, so eva-md's hooks are loaded
 	//     as managed hooks, from a requirements file under the trial's home,
 	//     and the plugin itself stays off. Where Codex reads that file in a
@@ -246,7 +262,8 @@ func tomlString(s string) string {
 	return b.String()
 }
 
-// lines calls f with each line of out that is a JSON object.
+// lines calls f with each line of out that is a JSON object. A line may be
+// as long as out, which runGroup keeps within the output's limit.
 func lines(out []byte, f func(map[string]json.RawMessage)) {
 	s := bufio.NewScanner(bytes.NewReader(out))
 	s.Buffer(make([]byte, 0, 64<<10), len(out)+1)
@@ -275,16 +292,19 @@ func num(raw json.RawMessage) int64 {
 // readStreamJSON reads Claude Code's stream-json: the session id from any
 // event; a tool call for each tool_use block of an assistant message; and
 // from the result event the tokens, by modelUsage when it names models
-// (every model call of the run) else by usage, and whether it failed for
+// (every model call of the run) else by usage, and for the ceiling by
+// whichever of the two names more (Spent), and whether it failed for
 // sign-in (401 or 403) or a rate limit (429). The model that answered is
 // the one modelUsage credits with the most output tokens, else the last
 // assistant message's. The call answered when a result event is no error,
 // or is the end of a run at its turn bound (subtype error_max_turns),
 // which leaves the chat's work as it stands; any other error, such as one
-// of the host's service (a 5xx), is no answer.
+// of the host's service (a 5xx), is no answer. The usage was given when
+// each result event has a usage object or a modelUsage naming a model.
 func readStreamJSON(out []byte) report {
 	var r report
 	broken := false
+	finals, counted := 0, 0
 	lines(out, func(e map[string]json.RawMessage) {
 		if id := str(e["session_id"]); id != "" {
 			r.Session = id
@@ -307,28 +327,39 @@ func readStreamJSON(out []byte) report {
 				r.Model = m.Model
 			}
 		case "result":
+			finals++
 			var models map[string]map[string]json.RawMessage
-			if json.Unmarshal(e["modelUsage"], &models) == nil && len(models) > 0 {
-				best, most := "", int64(-1)
-				for name, u := range models {
-					cached := num(u["cacheReadInputTokens"])
-					r.PromptTokens += num(u["inputTokens"]) + num(u["cacheCreationInputTokens"]) + cached
-					r.CachedTokens += cached
-					n := num(u["outputTokens"])
-					r.OutputTokens += n
-					if n > most || n == most && name < best {
-						best, most = name, n
-					}
+			named := json.Unmarshal(e["modelUsage"], &models) == nil && len(models) > 0
+			var by, mu tokens
+			best, most := "", int64(-1)
+			for name, u := range models {
+				cached := num(u["cacheReadInputTokens"])
+				n := num(u["outputTokens"])
+				mu.add(tokens{num(u["inputTokens"]) + num(u["cacheCreationInputTokens"]) + cached, cached, n})
+				if n > most || n == most && name < best {
+					best, most = name, n
 				}
-				r.Model = best
-			} else {
-				var u map[string]json.RawMessage
-				_ = json.Unmarshal(e["usage"], &u)
-				cached := num(u["cache_read_input_tokens"])
-				r.PromptTokens += num(u["input_tokens"]) + num(u["cache_creation_input_tokens"]) + cached
-				r.CachedTokens += cached
-				r.OutputTokens += num(u["output_tokens"])
 			}
+			var u map[string]json.RawMessage
+			given := json.Unmarshal(e["usage"], &u) == nil && u != nil
+			if given {
+				cached := num(u["cache_read_input_tokens"])
+				by = tokens{num(u["input_tokens"]) + num(u["cache_creation_input_tokens"]) + cached, cached, num(u["output_tokens"])}
+			}
+			if named || given {
+				counted++
+			}
+			// The ceiling counts the place that names more tokens, so that
+			// what one of them leaves out is still counted; the rows keep
+			// EV-17b's measure: modelUsage when it names models, else usage.
+			r.Spent += max(mu.prompt+mu.output, by.prompt+by.output)
+			if named {
+				by = mu
+				r.Model = best
+			}
+			r.PromptTokens += by.prompt
+			r.CachedTokens += by.cached
+			r.OutputTokens += by.output
 			var failed bool
 			_ = json.Unmarshal(e["is_error"], &failed)
 			subtype, status := str(e["subtype"]), num(e["api_error_status"])
@@ -347,7 +378,18 @@ func readStreamJSON(out []byte) report {
 		}
 	})
 	r.Answered = r.Answered && !broken
+	r.Usage = finals > 0 && counted == finals
 	return r
+}
+
+// tokens are a final event's prompt (cached included), cached and output
+// tokens.
+type tokens struct{ prompt, cached, output int64 }
+
+func (t *tokens) add(u tokens) {
+	t.prompt += u.prompt
+	t.cached += u.cached
+	t.output += u.output
 }
 
 // readExecJSON reads Codex's exec --json: the session id from
@@ -357,10 +399,12 @@ func readStreamJSON(out []byte) report {
 // turn names; and from turn.failed or error whether it failed for sign-in
 // (401 or 403) or a rate limit (429). The call answered when a turn
 // completed and none failed: exec has no turn bound, so a turn.failed or
-// an error event is no answer.
+// an error event is no answer. The usage was given when each
+// turn.completed has a usage object.
 func readExecJSON(out []byte) report {
 	var r report
 	broken := false
+	finals, counted := 0, 0
 	lines(out, func(e map[string]json.RawMessage) {
 		switch str(e["type"]) {
 		case "thread.started":
@@ -376,11 +420,15 @@ func readExecJSON(out []byte) report {
 				r.AgentEvents++
 			}
 		case "turn.completed":
+			finals++
 			var u map[string]json.RawMessage
-			_ = json.Unmarshal(e["usage"], &u)
+			if json.Unmarshal(e["usage"], &u) == nil && u != nil {
+				counted++
+			}
 			r.PromptTokens += num(u["input_tokens"])
 			r.CachedTokens += num(u["cached_input_tokens"])
 			r.OutputTokens += num(u["output_tokens"])
+			r.Spent += num(u["input_tokens"]) + num(u["output_tokens"])
 			if m := str(e["model"]); m != "" {
 				r.Model = m
 			}
@@ -406,5 +454,6 @@ func readExecJSON(out []byte) report {
 		}
 	})
 	r.Answered = r.Answered && !broken
+	r.Usage = finals > 0 && counted == finals
 	return r
 }

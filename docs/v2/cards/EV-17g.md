@@ -63,3 +63,23 @@ The card's checker left these to the lead.
 - **If the card proves too large for one run**, item 6 becomes a second round after the rest has merged, and the builder says so and stops there.
 - EV-17e keeps what this card cannot do: grading as another user, and the invoking build cache.
 - Not in this card, and not owed: a check of a call's output for the tasks folder's name, and a flag to start at a later trial.
+
+## As merged
+
+Merged from `pkg/ev-17g-r1` on 2026-11-14, after two reviews, one fix round and a verification that accepted it. A restart of the machine cut the first builder off with all nine items committed; a second read that work against the card, found a gap in item 6 and closed it. The reviews found three major faults, all mended: a call that printed an answer with no usage and was then ended by a signal went uncounted and did not stop the run; under `--keep-trials` a later chat could read the earlier trials' solved workspaces; and code one hidden test ran could rewrite a later hidden test in the shared grading copy, so a wrong answer could be judged solved.
+
+Accepted as built, beyond the card:
+
+- **The hidden check reads the whole `--work` folder**, the grading folder included, not the trial's alone: code a hidden test runs could otherwise leave a copy beside the trial for the next chat. No grading copy exists when the check runs.
+- **A run that keeps no trials removes its whole folder under `--work`** when it ends.
+- **Under `--keep-trials` each kept trial is closed to all but the driver's user** once it ends.
+- **The hidden files are laid again before each test of a grading**, and the grading copy is the driver's alone.
+- **Claude Code's tokens are the larger of what `usage` and `modelUsage` name**, as the model runner reads them (DV-11c).
+
+The lead's rulings at the merge:
+
+1. **A call whose spend cannot be counted does not stop the run**: a session that hit its time limit before the host printed any usage, or a host's failure with no final event. The run goes on and counts the trial unjudged; `--max-sessions` and the session's limit bound such calls, not `--max-tokens`. The hard bound on spend is a limit the owner sets on each key at its provider, and the run-book has the lead compare each run's counted tokens with the provider's own figure.
+2. **The driver keeps each call's raw output when asked**, in a folder only its user reads, outside the work and results folders and never committed: without it a wrong reading of a real host (no usage, a rate limit read as a failure, no model) cannot be mended from the run. A short second round on this card's files adds the flag.
+3. **A hang-up ends the run as an interrupt does.** `cmd/eva-eval/main.go` listened for an interrupt and a termination only, so a dropped connection killed the driver and left the chat running with no limit. The lead mended that file with this merge.
+
+Known and left, for EV-17e: grading runs the chat's code as the driver's user, so that code can read what that user can; a copy of a hidden test that is compressed or reworded is not found by the check; and a process that leaves its group outlives its call. The run-book runs the chat as a second user and says what that does not cover.
