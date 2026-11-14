@@ -458,7 +458,7 @@ func TestEffortFor(t *testing.T) {
 	low := c
 	low.Switches = map[string]any{"low_effort_default": true}
 	for _, tc := range []struct {
-		c                  config.Config
+		c                 config.Config
 		host, model, want string
 	}{
 		{c, HostClaude, "", config.EffortHighest},
