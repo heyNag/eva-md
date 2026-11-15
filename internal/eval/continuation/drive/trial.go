@@ -34,10 +34,10 @@ var (
 const outputLimit = 256 << 20
 
 // gitconfig is the trial home's git configuration: a made-up identity,
-// commits unsigned, and no background maintenance, since setup and the
-// agent may commit.
+// commits unsigned, and no background maintenance or collection, since
+// setup and the agent may commit.
 const gitconfig = "[user]\n\tname = Continuation Trial\n\temail = trial@example.invalid\n" +
-	"[commit]\n\tgpgsign = false\n[maintenance]\n\tauto = false\n"
+	"[commit]\n\tgpgsign = false\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n"
 
 // trialResult is what one trial gave.
 type trialResult struct {

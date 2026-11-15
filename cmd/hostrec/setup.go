@@ -242,8 +242,19 @@ func gitEnv() []string {
 	return append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
 }
 
+// quietGit turns off the work git may start in the background after a
+// commit, a fetch or a push: gitEnv shuts out every config file, so the
+// settings are given to each git, and nothing of git's makes or removes
+// files in a repository after its command has returned.
+var quietGit = []string{"-c", "gc.auto=0", "-c", "maintenance.auto=false"}
+
+// gitArgs is the arguments of a git in dir: the folder, quietGit, and args.
+func gitArgs(dir string, args ...string) []string {
+	return append(append([]string{"-C", dir}, quietGit...), args...)
+}
+
 func gitIn(dir string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.Command("git", gitArgs(dir, args...)...)
 	cmd.Env = gitEnv()
 	cmd.Stdin = nil
 	return cmd.CombinedOutput()

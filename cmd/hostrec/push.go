@@ -97,7 +97,7 @@ func cmdPush(c *cli, args []string) int {
 	git := func(args ...string) (string, int) {
 		ctx, cancel := context.WithTimeout(context.Background(), hostTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", work}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", gitArgs(work, args...)...)
 		cmd.Env = env
 		cmd.WaitDelay = time.Second
 		out, err := cmd.CombinedOutput()
