@@ -115,3 +115,9 @@ A workflow holds no `check:<path>` cell when, outside its block scalars, it is w
 The same holds for a sequence entry whose keys start on the next line, a node at a job's indent that is no job's key, and a value that goes on past its line.
 A folded run step runs no check, and neither does a run line that pipes the check, follows it with `&&` or `||`, or carries it on past a backslash.
 The guard of `ci.yml` in `internal/release` refuses the forms that could hide a key from its own reader: these, a tag or an anchor on a key, and a job's key with a comment after it.
+
+**2026-11-15: CI's macOS test job runs Go 1.26.9.**
+No behaviour of eva-md changes.
+That job installs Go 1.26.9 in place of `go.mod`'s 1.26.0: from 1.26.0 to 1.26.4 the race detector on darwin/arm64 at times crashes a child between fork and exec (golang/go#79804, fixed in 1.26.5).
+It failed that job four times (runs 176, 200, 202 and 234), each in the continuation driver's package, whose tests start hundreds of processes.
+The other jobs and the release still run `go.mod`'s own version; which Go a release is built with is the owner's to change.
