@@ -160,3 +160,9 @@ A whole guided setup against the fake hosts starts no headless run of a prompt (
 **2026-11-14, EV-10d: every test package that reaches git clears its environment first.**
 No behaviour changes.
 The 19 test packages EV-10c could only list call `testgitenv.Clear()` first in a `TestMain`, so the list of packages that do not is empty, and stays as the place for a later exception with its reason.
+
+**2026-11-15, EV-10e: git's background work is off in every test rig that commits.**
+No behaviour changes.
+In a package whose tests commit, clone, fetch or push, every write of the global git config a test makes sets `gc.auto = 0` and `maintenance.auto = false`, and a test that names a global config writes one.
+A test's commit through git that reads no global config gives both settings with `-c`.
+`TestGitRigsTurnBackgroundWorkOff` in `internal/spec` holds this from the source; a file left as it is is listed in `internal/spec/gitrigs_test.go` with its reason.

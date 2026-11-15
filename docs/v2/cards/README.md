@@ -102,7 +102,7 @@ Rules every card carries, so they are said once here:
 | [EV-10b](EV-10b.md) | Each spec lists the must-keep items it touches and the tests that hold them | merged; it found that tests held 270 of 291 items wholly, 10 in part and 11 not yet, which EV-10c took up; one item (MCP-K16) was decided on 2026-11-14 and gets its test with v2's capture |
 | [EV-10c](EV-10c.md) | Tests for the must-keep items no test holds | merged; of 291 items tests hold 276 wholly, 14 in part and 1 not yet (MCP-K16, which waits for v2's capture) |
 | [EV-10d](EV-10d.md) | Every test package that reaches git clears its environment first | merged |
-| [EV-10e](EV-10e.md) | Git's background work off in every test rig that commits | building since 2026-11-14 |
+| [EV-10e](EV-10e.md) | Git's background work off in every test rig that commits | merged |
 
 SEAM-0 of the plan is split into four parts so that each is small and they do not touch the same files: a (this wave), b the hook's handler list, c the registries for status rows, config keys and benchmark scenarios, d (this wave). Part c is in the next wave, before the counters release that needs its registries; the benchmark's own list of scenarios is built by EV-16. Part b, the hook's handler list, changes the most time-critical code in the product, so it is built just before the first package that adds a step to the hook (DV-12), and not sooner. A fifth part, e, was added after one run of CI failed in a way its log could not explain: it makes the death of a git child by a signal say which signal.
 

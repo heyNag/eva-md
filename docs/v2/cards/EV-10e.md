@@ -50,3 +50,29 @@ Any file of the program, the evaluation's program code among it (`internal/eval/
 - The check of the source passes, and each seeded fault fails it.
 - No test added here sleeps or skips, and the pinned counts of sleeps and skips are unchanged.
 - The report holds item 3's list.
+
+## As merged
+
+Merged on 2026-11-15 from `pkg/ev-10e-r1`, after one review (protection: two major, three minor, all mended, each with seeds that fail without the mend) and a verification that accepted it with one minor point, a seed the check lacked (a method of another package called straight on a literal), which the lead added in the merge with a second for a pointer to one; both fail when the reading they seed is taken out. Tests only: 34 test files of seventeen of the eighteen packages, and the new check.
+
+**What the survey got wrong, and what it missed.**
+
+- `cmd/eva-eval` set both settings already, so nothing changed there.
+- Six rigs named a global config file they never wrote, and committed (`cmd/eva-md`, `internal/health`, `internal/hook`, `internal/mcp`, `internal/update`, `internal/resume`): each writes one now. Rigs the survey did not list: the account config of `cmd/hostrec`'s remote tests, the signing configs that `internal/coderef` and `internal/resume` write over the global file, and `internal/identity`'s benchmark repository.
+- No test asserted on a configuration's exact text. `cmd/eva-md`'s `TestFakeMacStartsNoMaintenance` reads git's trace for the fake Mac's own config, which now turns collection off too, and passes unchanged.
+
+**The check, as merged.** The first build read every string of a file, so a rig that stopped writing its config still passed where the file declared the settings in a constant; the review showed it by taking the write out of two rigs. It now reads what each write writes, through local names, the module's constants and package-level variables:
+
+- every write of the global config turns both settings off, and a later value of a key replaces an earlier one, as in git;
+- adding to the config, or `git config --global`, turns neither back on;
+- each `Setenv` of `GIT_CONFIG_GLOBAL` is paired, in its function, with such a write;
+- a git given settings with `-c` turns neither back on, and gives both itself where its package writes no global config with both;
+- a commit, clone, fetch or push through a function of the module whose git reads no global config gives both with `-c`.
+
+A package is in scope when a test of it reaches a git that names `commit`, `clone`, `fetch` or `push`, by its own helpers, a method, a function of the program, git found with `exec.LookPath`, or a `sh -c` script. Three files outside this card's paths are listed with their reasons, not changed: `internal/eval/continuation/task/main_test.go` and two of `internal/store/migrate`, where the program's own git gives both settings with `-c`.
+
+**The lead's mends in program code**, in a commit of the lead's after the package's, since the review found two places a rig cannot reach. The host recorder (`cmd/hostrec`) gives every git an empty global config, so the commit of its scratch repository and its push ran with collection and maintenance on: each of its gits now gets both settings with `-c`. The continuation trial's home config (`internal/eval/continuation/drive/trial.go`) turned maintenance off and left collection on: it turns both off. No release builds either tool.
+
+**Known and left.** The check reads names, not types, and its header lists what it holds and what it does not. A package whose tests only merge or pull is out of scope; none is known. A `-c` helper passes without the settings where its package writes a global config with both (`internal/resume/git_test.go`), since git reads that config too.
+
+**For every builder from now on.** A test that gives git a configuration, in a package whose tests commit, sets `gc.auto = 0` and `maintenance.auto = false` in it; `go test ./internal/spec` fails when one does not, and its message names the list for an exception with its reason.
