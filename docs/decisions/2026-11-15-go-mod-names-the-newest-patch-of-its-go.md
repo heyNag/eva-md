@@ -19,6 +19,8 @@ Before each release, whoever prepares it looks for a newer patch of the same lin
 A release is built with a Go that has the fixes of its line.
 Building from source needs Go 1.26.11 or newer, or an older Go that may fetch it.
 The macOS job's own later patch, set earlier the same day for the race detector's fault, is gone again: `go.mod`'s version is past the fix, and must stay at 1.26.5 or later.
+The hooks are as fast as they were: on the build machine the latency gate passed between a binary built with 1.26.0 and one built with 1.26.11, all 19 figures judged, and every target was met.
+A test written against the old version by its number fails when the version moves: one row of the pilot's task checks did, and now takes the patch after `go.mod`'s own.
 
 ## Reopens
 
