@@ -151,6 +151,8 @@ The run-book was written for a person at one shell in a container of their own. 
   export ANTHROPIC_API_KEY=stand-in-not-a-key CODEX_API_KEY=stand-in-not-a-key
   PROXYPASS="--pass-env HTTPS_PROXY --pass-env SSL_CERT_FILE --pass-env NODE_EXTRA_CA_CERTS --pass-env CODEX_CA_CERTIFICATE"
   NODEDIR=$(dirname "$(command -v node || echo /nonexistent/node)")   # node's folder; /nonexistent, never ".", when there is none
+  # listeners: the TCP ports something on this machine listens on
+  listeners() { awk 'FNR>1 && $4=="0A" {n=split($2,a,":"); print a[n]}' /proc/net/tcp /proc/net/tcp6 2>/dev/null | sort -u | while read -r h; do echo $((0x$h)); done; }
   # as_chat COMMAND...: runs it as pilot-chat, from an empty environment that names only what it needs
   as_chat() { env -i PATH="$NODEDIR:/usr/bin:/bin" HOME=/nonexistent HTTPS_PROXY="$HTTPS_PROXY" SSL_CERT_FILE=$P/ca/ca-bundle.crt CURL_CA_BUNDLE=$P/ca/ca-bundle.crt NODE_EXTRA_CA_CERTS=$P/ca/ca-bundle.crt CODEX_CA_CERTIFICATE=$P/ca/ca-bundle.crt setpriv --reuid=pilot-chat --regid=pilot-chat --init-groups -- "$@"; }
   ```
@@ -219,16 +221,27 @@ A 401 means the proxy did not replace the stand-in: the secret's host or header 
 
 Call `get_environment`, then `update_environment` with the environment's name and `applies_to` exactly as returned, `remove_allowed_hosts` naming every host of the allowed list it returns but `api.anthropic.com` and `api.openai.com`, should it list them (so `github.com`, and any host added for set-up), and `allow_package_managers: false`. The owner approves the prompt. The change reaches the proxy within about half a minute.
 
-That narrows what the proxy lets through. It does not bind the machine: a cloud machine may keep its earlier rules for connections that go around the proxy until it is replaced, and it has been seen to let such connections out. So the user the chats run as is bound to the proxy by the machine's own firewall, as root. This was tried on 2026-11-15 in a cloud container of this kind, with a stand-in user and an address that belongs to no one: the rule was accepted, and that user's direct line went from showing an address to `exit 7 ip  status 000`. **(a guess** still that the evaluation's own container is alike.)
+That narrows what the proxy lets through. It does not bind the machine: a cloud machine may keep its earlier rules for connections that go around the proxy until it is replaced, and it has been seen to let such connections out. So the user the chats run as is bound to the proxy by the machine's own firewall, as root. Keep these lines as `/srv/pilot/bind.sh`, mode 700, and run them with `bash /srv/pilot/bind.sh`, before any chat has run and with no process of `pilot-chat` alive; they can be run again at any time:
 
 ```
 . /srv/pilot/env.sh
-case "$HTTPS_PROXY" in http://127.0.0.1:*) echo loopback;; *) echo other;; esac
-iptables -I OUTPUT 1 -m owner --uid-owner pilot-chat ! -o lo -j REJECT; ip6tables -I OUTPUT 1 -m owner --uid-owner pilot-chat ! -o lo -j REJECT
-U=$(id -u pilot-chat); iptables -S OUTPUT | grep -c -- "--uid-owner $U "; ip6tables -S OUTPUT | grep -c -- "--uid-owner $U "; cat /proc/sys/kernel/random/boot_id
+U=$(id -u pilot-chat) || exit 1
+case "$HTTPS_PROXY" in http://127.0.0.1:*) PORT=${HTTPS_PROXY##*:}; PORT=${PORT%%/*};; *) echo "bind: the proxy is not on 127.0.0.1: no rule added"; exit 1;; esac
+bound() { awk 'FNR>1 {n=split($2,a,":"); print a[n]}' /proc/net/udp /proc/net/udp6 2>/dev/null | sort -u | while read -r h; do echo $((0x$h)); done; }
+for t in iptables ip6tables; do
+  $t -N PILOTCHAT 2>/dev/null || $t -F PILOTCHAT
+  $t -C OUTPUT -m owner --uid-owner "$U" -j PILOTCHAT 2>/dev/null || $t -I OUTPUT 1 -m owner --uid-owner "$U" -j PILOTCHAT
+  $t -A PILOTCHAT ! -o lo -j REJECT
+  for p in $(bound); do $t -A PILOTCHAT -o lo -p udp --dport "$p" -j REJECT; done
+  for p in $(listeners); do [ "$p" = "$PORT" ] || $t -A PILOTCHAT -o lo -p tcp --dport "$p" -j REJECT; done
+  printf '%s: jump %s, rules %s\n' $t "$($t -S OUTPUT | grep -c -- "--uid-owner $U ")" "$($t -S PILOTCHAT | grep -c -- '-A PILOTCHAT')"
+done
+cat /proc/sys/kernel/random/boot_id
 ```
 
-The first line must print `loopback`: the rule lets `pilot-chat` reach only this machine itself, where the proxy listens. If it prints `other`, add no rule and ask the owner. The counts look for the user's number, since `iptables` lists a rule by number and never by name. Each must print 1; if `ip6tables` alone refuses, go on, and the proof's IPv6 line decides. Write the last line down: it changes when the machine restarts, and a restart drops the rule.
+Everything `pilot-chat` sends goes through a chain of its own, which refuses all that would leave the machine and, on the machine itself, every port that something already listens on but the proxy's. A cloud container runs services of its own there, its environment manager among them, and they are no chat's business. A port a chat opens itself later, as a task's tests may, stays reachable. This was tried on 2026-11-15 in a cloud container of this kind, with a stand-in user: the rules were accepted; that user's direct lines went from showing an address to `exit 7 ip  status 000`; the machine's other listeners, two of which had answered it, refused it; the proxy still answered, and so did a server that user started itself. **(a guess** still that the evaluation's own container is alike.)
+
+Each of the two lines must read `jump 1` and `rules` of 1 or more; the counts look for the user's number, since `iptables` lists a rule by number and never by name. If `ip6tables` alone refuses, go on, and the proof's IPv6 line decides. If it prints `bind: the proxy is not on 127.0.0.1`, no rule was added: ask the owner. Write the last line down: it changes when the machine restarts, and a restart drops every rule.
 
 Then prove it from inside, as the user the chats run as: through the proxy, as a chat's tools go, and around it, as a chat with a shell could try. Keep these lines as `/srv/pilot/proof.sh`, mode 700, so that the proof is made the same way each time, and run it with `bash /srv/pilot/proof.sh 2>&1 | tee /srv/pilot/logs/proof-$(date -u +%Y%m%dT%H%M%S).txt`:
 
@@ -239,26 +252,29 @@ for h in $hosts; do printf 'proxy  %s: ' "$h"; as_chat curl -sS -o /dev/null -m 
 direct() { printf 'direct %s: ' "$1"; as_chat curl -sS -g --noproxy '*' -o /dev/null -m 20 -w 'exit %{exitcode} ip %{remote_ip} status %{http_code}\n' "$1" 2>/dev/null | grep . || echo 'no result'; }
 for h in $hosts api.anthropic.com api.openai.com; do direct "https://$h/"; done
 for u in https://140.82.112.3/ http://140.82.112.3/ https://1.1.1.1/ http://1.1.1.1/ 'https://[2606:4700:4700::1111]/' http://169.254.169.254/ https://198.51.100.7/; do direct "$u"; done
+PORT=${HTTPS_PROXY##*:}; PORT=${PORT%%/*}
+for p in $(listeners); do [ "$p" = "$PORT" ] && n='the proxy' || n="port $p"; printf 'local %s: ' "$n"; as_chat curl -sS --noproxy '*' -o /dev/null -m 5 -w 'exit %{exitcode} status %{http_code}\n' "http://127.0.0.1:$p/" 2>/dev/null | grep . || echo 'no result'; done
 printf 'dns: '; as_chat getent hosts example.com | grep -c .
 printf 'rule: '; iptables -S OUTPUT | grep -c -- "--uid-owner $(id -u pilot-chat) "; printf 'boot: '; cat /proc/sys/kernel/random/boot_id
 ```
 
 - **Through the proxy**, every host of the list must be refused: `connect` is 403 or 407, which is the proxy's answer, and `status` is 000. A `connect 200` means the host is reachable: wait a minute and run it again, and if it stays, stop and tell the owner. A `connect 000` is no answer either way: the proxy can hold a connection for about a minute before it refuses it, which is why the limit here is 90 seconds; if it stays 000, read the proxy's status page and ask the owner.
-- **Around the proxy**, no line may show an address. A line passes when `ip` is followed at once by `status`, as in `exit 7 ip  status 000`: no connection was made. With the rule in place a name reads `exit 6` (`pilot-chat` can no longer look a name up, and needs not: the proxy does that), an address reads `exit 7`, and `dns:` prints 0. The lines with addresses in place of names matter most: a name that is not found proves nothing about an address, and they try plain HTTP, IPv6 and the machine's metadata address as well. The two API hosts are no exception: a chat reaches them only through the proxy, the one place its key is added.
-- **An address after `ip`**, on any line, means a connection was made around the proxy, whatever the exit or the status: stop. Do not try to read such lines without the rule. A cloud machine's gateway can answer a direct connection to any address itself, with a certificate of its own, so an address does not tell a host that was reached from one that was refused; the last line, `198.51.100.7`, belongs to no one, and an address there shows exactly that (it showed one in a container whose network was not limited). **This is the check that decides whether the design holds.**
+- **Around the proxy**, no line may show an address. A line passes when `ip` is followed at once by `status`, as in `exit 7 ip  status 000`: no connection was made. With the rules in place a name reads `exit 6` (`pilot-chat` can no longer look a name up, and needs not: the proxy does that), an address reads `exit 7`, and `dns:` prints 0. The lines with addresses in place of names matter most: a name that is not found proves nothing about an address, and they try plain HTTP, IPv6 and the machine's metadata address as well. The two API hosts are no exception: a chat reaches them only through the proxy, the one place its key is added.
+- **On the machine itself**, every `local` line reads `exit 7` but the proxy's own, which answers with a status: a chat may talk to the proxy and to what it starts itself, and to nothing else that listens here.
+- **An address after `ip`**, on any line, means a connection was made around the proxy, whatever the exit or the status: stop. Do not try to read such lines without the rules. A cloud machine's gateway can answer a direct connection to any address itself, with a certificate of its own, so an address does not tell a host that was reached from one that was refused; the last line, `198.51.100.7`, belongs to no one, and an address there shows exactly that (it showed one in a container whose network was not limited). **This is the check that decides whether the design holds.**
 - **`no result`** means the command did not run: run that one line again without `2>/dev/null` and read why. It is never a pass.
-- **If `iptables` refuses the rule**, run the proof anyway and hand the owner its lines. It passes without the rule only if no line shows an address and the lines with addresses read `exit 7` or `exit 28`. If any line shows an address, stop: tell the owner that this machine cannot be shown to hold the evaluation, and that what comes next is theirs to choose (a session started anew on the narrowed environment cannot do set-up; another kind of container can).
+- **If `iptables` refuses the rules**, run the proof anyway and hand the owner its lines. It passes without them only if no line shows an address, the lines with addresses read `exit 7` or `exit 28`, and every `local` line but the proxy's reads `exit 7`. If any line shows an address, stop: tell the owner that this machine cannot be shown to hold the evaluation, and that what comes next is theirs to choose (a session started anew on the narrowed environment cannot do set-up; another kind of container can).
 - If a tool refuses to run one of these probes for a reason of its own, that is no result: say so and ask the owner, and do not take it for a refused host.
 
-**The proof is made again before every run**, smoke or full, and before each arm of the spike: it takes about two minutes and costs nothing. If `rule:` prints 0 or `boot:` has changed, the machine restarted and dropped the rule: add it again first. A network that was proven once says nothing of a machine that has restarted since.
+**The proof is made again before every run**, smoke or full, and before each arm of the spike, after `pkill -KILL -u pilot-chat`: it takes about two minutes and costs nothing. If `rule:` prints 0 or `boot:` has changed, the machine restarted and dropped the rules: run `bind.sh` again first. A network that was proven once says nothing of a machine that has restarted since.
 
 Three more checks, once:
 
-1. **The keys still arrive**: step 5's two calls again; both must still print 200, through the proxy and under the rule.
+1. **The keys still arrive**: step 5's two calls again; both must still print 200, through the proxy and under the rules.
 2. **What `pilot-chat` can read** (the run-book's step 7, item 8), through `as_chat` and not as the run-book writes it: `as_chat sh -c "ls $P/export $P/out $P/trace $P/eva-md /root; cat $P/export/tasks/d01/task.json"` must print `Permission denied` each time. And `ls -ld /srv/pilot/eva-md /srv/pilot/export*` shows mode 700, `ls -l /srv/pilot/env.sh` mode 600.
 3. **The way out for results**: write a made-up file, `printf 'test\n' > /srv/pilot/send-test.txt`, and hand it to the owner with the tool that sends a file to the user **(a guess that it works once the network is narrowed)**. If it does not arrive, stop before any smoke run and tell the owner: step 8 depends on it.
 
-For the owner's information, not as a pass or a fail: `for u in https://github.com/ https://198.51.100.7/; do printf 'root direct %s: ' "$u"; curl -sS -k -g --noproxy '*' -o /dev/null -m 20 -w 'exit %{exitcode} ip %{remote_ip} status %{http_code}\n' "$u" 2>/dev/null | grep . || echo 'no result'; done` shows what root reaches around the proxy; tell the owner both lines. Grading runs a chat's code as root, which the rule does not bind (section 3).
+For the owner's information, not as a pass or a fail: `for u in https://github.com/ https://198.51.100.7/; do printf 'root direct %s: ' "$u"; curl -sS -k -g --noproxy '*' -o /dev/null -m 20 -w 'exit %{exitcode} ip %{remote_ip} status %{http_code}\n' "$u" 2>/dev/null | grep . || echo 'no result'; done` shows what root reaches around the proxy; tell the owner both lines. Grading runs a chat's code as root, which the rules do not bind (section 3).
 
 **No chat starts on any host until every line here is as written.**
 
@@ -288,9 +304,9 @@ After **each** run, once its readings are confirmed and the run-book's check aft
 3. Ask the owner for that key's usage over the run's hours: its tokens beside the run's own count (the run-book's step 8), and whether any line is a web search or fetch. A web line means the run's results are not used (section 3): start no further run, and ask the owner.
 4. When a host's three runs are done, make that host's report (the run-book's step 10) and give the owner its printed figures, which name no model.
 
-**If the container is lost.** A run that was going leaves no record: its whole share counts as spent, and its tasks can be run again only from the reserve, which is smaller than a run. So ask the owner before going on. A run whose archive the owner holds is not lost: the owner gives the file back to the new session. The set-up is lost too: the first command of the owner's message (step 3) is run again, then steps 4 and 6, with `M_CC` and `M_CX` put into `env.sh` again from the first smoke runs' rows. Step 4 needs the network widened for it, which is one approval; then it is narrowed, the firewall rule is added and the proof is made again before any chat. A machine that only restarted keeps its files and loses the rule: step 6 says how that is seen.
+**If the container is lost.** A run that was going leaves no record: its whole share counts as spent, and its tasks can be run again only from the reserve, which is smaller than a run. So ask the owner before going on. A run whose archive the owner holds is not lost: the owner gives the file back to the new session. The set-up is lost too: the first command of the owner's message (step 3) is run again, then steps 4 and 6, with `M_CC` and `M_CX` put into `env.sh` again from the first smoke runs' rows. Step 4 needs the network widened for it, which is one approval; then it is narrowed, `bind.sh` is run and the proof is made again before any chat. A machine that only restarted keeps its files and loses the rules: step 6 says how that is seen.
 
-**If `hosts.go` must be corrected after step 6** (the run-book's step 9): the build's lead merges the correction on `main` and gives the evaluation agent its patch as text (`git format-patch -1 --stdout`), through the owner. Apply it in the clone with `git am < <the patch's file>`, with the identity and signing root's git already has, so the checkout is clean (`git status --short` prints nothing) and holds a commit. If git stops for want of either, set nothing and turn nothing off (`AGENTS.md`): use the widening below. Then build by the run-book's step 4 without its first line, whose fetch would fail and whose checkout would undo the patch: `. /srv/pilot/env.sh; cd $P/eva-md && git status --short && git log -1 --format=%H && GOPROXY=off go build -mod=readonly -tags evamd_eval -o $P/bin/eva-md ./cmd/eva-md && chmod 755 $P/bin/eva-md && GOPROXY=off go build -mod=readonly -o $P/bin/eva-eval ./cmd/eva-eval && chmod 700 $P/bin/eva-eval && go version -m $P/bin/eva-md | grep -e -tags`. Reports then name both the clone's commit and `main`'s. If that cannot work, the network is widened only when no run is going and the run-book's check after a run shows nothing of `pilot-chat` and nothing under `$P/work` left alive; then fetch, build, narrow, and make step 6's proof again, its rule included.
+**If `hosts.go` must be corrected after step 6** (the run-book's step 9): the build's lead merges the correction on `main` and gives the evaluation agent its patch as text (`git format-patch -1 --stdout`), through the owner. Apply it in the clone with `git am < <the patch's file>`, with the identity and signing root's git already has, so the checkout is clean (`git status --short` prints nothing) and holds a commit. If git stops for want of either, set nothing and turn nothing off (`AGENTS.md`): use the widening below. Then build by the run-book's step 4 without its first line, whose fetch would fail and whose checkout would undo the patch: `. /srv/pilot/env.sh; cd $P/eva-md && git status --short && git log -1 --format=%H && GOPROXY=off go build -mod=readonly -tags evamd_eval -o $P/bin/eva-md ./cmd/eva-md && chmod 755 $P/bin/eva-md && GOPROXY=off go build -mod=readonly -o $P/bin/eva-eval ./cmd/eva-eval && chmod 700 $P/bin/eva-eval && go version -m $P/bin/eva-md | grep -e -tags`. Reports then name both the clone's commit and `main`'s. If that cannot work, the network is widened only when no run is going and the run-book's check after a run shows nothing of `pilot-chat` and nothing under `$P/work` left alive; then fetch, build, narrow, and make step 6's proof again, `bind.sh` included.
 
 ### Step 9: the contract spike (the evaluation agent)
 
@@ -350,7 +366,7 @@ Each arm names its model with `--model`, which is written nowhere, and a call an
 | Each vendor answers `/v1/models` to a key, at no cost | Step 5: both calls print 200 | A 404: the owner names another call that costs nothing on that vendor; a 401 is the row above |
 | A vendor bounds a workspace or a project, not one key | Step 5: the owner reads each console | The owner chooses another bound before that key is saved |
 | The evaluation agent's own traffic is not billed to the key | Step 5: the console shows nothing after an hour | Stop; the owner removes the secret |
-| The evaluation's container lets root add a firewall rule for one user, as a container of its kind did, and `pilot-chat`'s CLI needs no name looked up but through the proxy | Step 6: both counts print 1 and no line of the proof shows an address; step 7: a smoke run is judged | Without the rule the proof passes only on its own lines (step 6); else stop, and the owner chooses |
+| The evaluation's container lets root add a firewall rule for one user, as a container of its kind did, and `pilot-chat`'s CLI needs no name looked up but through the proxy | Step 6: `bind.sh` prints `jump 1` twice and the proof is as written; step 7: a smoke run is judged | Without the rules the proof passes only on its own lines (step 6); else stop, and the owner chooses |
 | The tool that sends a file to the user works once the network is narrowed | Step 6: a made-up file arrives | No run starts; the owner chooses another way out for the results |
 | `tmux` outlives the command that started it, and the driver needs nothing `env -i` leaves out | Step 4: a `sleep 900` session is there in a later command; step 7: the first smoke run starts | Ask the owner before any run; a variable the driver wants is added by name |
 | Each CLI needs no host but its vendor's API host for a chat on a key | Step 7: a smoke run is judged | Tell the owner the host's name. It is added only if it cannot serve this repository's files |
@@ -362,7 +378,7 @@ Each arm names its model with `--model`, which is written nowhere, and a call an
 
 - Anything suggests a key leaked, or a real key appears where a stand-in should be: stop every run and tell them to revoke it.
 - A key shows usage that the evaluation did not make.
-- A line of step 6's proof shows an address, with the rule or without it, or the rule cannot be added and the proof does not pass on its own.
+- A line of step 6's proof shows an address or a listener that answers, with the rules or without them, or the rules cannot be added and the proof does not pass on its own.
 - A check of step 4 or step 6 does not print what it must, or a tool refuses to run one of step 6's probes.
 - The made-up file of step 6 does not reach the owner.
 - The owner declines a prompt (steps 1 and 6): ask what they want changed, and do not call it again unasked.
@@ -380,7 +396,7 @@ The environment part is done when all of these are true; from there the run-book
 - [ ] The evaluation's session runs on it with no repository attached, and its first message is the owner's leave.
 - [ ] The run-book's steps 3 to 5 passed their checks, and step 4's last command here printed the plan line and exited 2.
 - [ ] `request_credential` reported both keys saved, both calls of step 5 printed 200, and the owner has said that each key is bounded and showed no usage before the first smoke run.
-- [ ] Step 6's proof is as written on every line, with the firewall rule's count at 1; both calls of step 5 still print 200; `pilot-chat`'s read check prints `Permission denied` each time; `ls -ld` shows mode 700; and the made-up file reached the owner.
+- [ ] Step 6's proof is as written on every line, with `bind.sh`'s rules in place; both calls of step 5 still print 200; `pilot-chat`'s read check prints `Permission denied` each time; `ls -ld` shows mode 700; and the made-up file reached the owner.
 - [ ] The owner has been told which session shows their prompts, and how each result file reaches them.
 
 ## 10. What else is open
