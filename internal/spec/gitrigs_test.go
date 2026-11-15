@@ -1095,3 +1095,173 @@ func TestGitRigsTurnBackgroundWorkOff(t *testing.T) {
 		}
 	}
 }
+
+// The check fails a rig that commits and turns neither setting off, one
+// that turns off only one of the two, one whose later value or section
+// turns one back on, one that holds the settings only in a constant, an
+// assertion or another file it does not write as its config, one that
+// sets GIT_CONFIG_GLOBAL to a file it does not write or unsets the
+// settings with git config, one that writes the file the environment
+// names through a name, a list or os.Create, a -c helper whose package
+// writes no global config that turns both off, given its -c list in the
+// call or in a name, -c or an appended config that turns one back on, and
+// a commit through a function whose git reads no global config without
+// both given with -c; a rig whose package commits through a method of its
+// own or of another package, a function of another package, git found
+// with exec.LookPath, the command given through a constant or a list, or
+// a shell script; a listed rig that sets both, and a listed file that is
+// no rig. It passes a rig whose settings are in a constant of another
+// file, in any case of letters or joined with +, given as git config's
+// words or -c's, appended to or written back over what was there, a -c
+// helper in a package that writes a global config with both, a listed rig
+// that sets neither, and a rig of a package whose tests only read with
+// git, or link a package that commits without calling it.
+func TestARigThatLeavesBackgroundWorkOnIsFound(t *testing.T) {
+	tempHome(t)
+	const (
+		head   = "package b\n\nimport (\n\t\"os\"\n\t\"os/exec\"\n\t\"path/filepath\"\n\t\"strings\"\n\t\"testing\"\n)\n\nvar _, _ = strings.Contains, filepath.Join\n\n"
+		commit = "func TestB(t *testing.T) { _ = exec.Command(\"git\", \"-C\", t.TempDir(), \"commit\", \"-m\", \"x\").Run() }\n\n"
+		both   = `"[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n"`
+		// setenv sets GIT_CONFIG_GLOBAL to a file nothing writes.
+		setenv = "func isolate(t *testing.T) { t.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(t.TempDir(), \"gitconfig\")) }\n"
+	)
+	// rig is a test file of package b that commits and writes text as its
+	// git config.
+	rig := func(text string) string {
+		return head + commit + "func isolate(t *testing.T) {\n\thome := t.TempDir()\n\tt.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(home, \"gitconfig\"))\n" +
+			"\t_ = os.WriteFile(filepath.Join(home, \"gitconfig\"), []byte(" + text + "), 0o600)\n}\n"
+	}
+	// bare is a test file of package b that sets GIT_CONFIG_GLOBAL to a
+	// file nothing writes, and holds body.
+	bare := func(body string) string {
+		return "package b\n\nimport (\n\t\"os/exec\"\n\t\"path/filepath\"\n\t\"testing\"\n)\n\nvar _ = exec.Command\n\n" + setenv + body
+	}
+	base := map[string]string{
+		"internal/a/a.go":         "package a\n\nimport \"os/exec\"\n\nfunc Commit(dir string) error { return run(dir, \"commit\", \"-m\", \"x\") }\n\nfunc Head(dir string) error { return run(dir, \"rev-parse\", \"HEAD\") }\n\nfunc run(dir string, args ...string) error {\n\treturn exec.Command(\"git\", append([]string{\"-C\", dir}, args...)...).Run()\n}\n",
+		"internal/a/main_test.go": "package a\n\nimport (\n\t\"os\"\n\t\"path/filepath\"\n\t\"testing\"\n)\n\nfunc TestA(t *testing.T) {\n\thome := t.TempDir()\n\tt.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(home, \"gitconfig\"))\n\t_ = os.WriteFile(filepath.Join(home, \"gitconfig\"), []byte(\"[gc]\\n\\tauto = 0\\n[maintenance]\\n\\tauto = false\\n\"), 0o600)\n\t_ = Commit(home)\n}\n",
+		// A package whose tests read with git, and link a, which commits,
+		// without calling it.
+		"internal/c/c_test.go": "package c\n\nimport (\n\t\"path/filepath\"\n\t\"testing\"\n\n\t\"" + module + "/internal/a\"\n)\n\nfunc TestC(t *testing.T) {\n\tt.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(t.TempDir(), \"gitconfig\"))\n\t_ = a.Head(t.TempDir())\n}\n",
+		// A package whose git reads no global configuration.
+		"internal/e/e.go": "package e\n\nimport (\n\t\"os\"\n\t\"os/exec\"\n)\n\nfunc GitIn(dir string, args ...string) error {\n\tcmd := exec.Command(\"git\", append([]string{\"-C\", dir}, args...)...)\n\tcmd.Env = env()\n\treturn cmd.Run()\n}\n\nfunc env() []string { return append(os.Environ(), \"GIT_CONFIG_GLOBAL=\"+os.DevNull) }\n",
+	}
+	const (
+		in       = `^internal/b/b_test\.go: internal/b/b_test\.go:\d+ `
+		scopeB   = `, and the tests of internal/b commit, clone, fetch or push \(internal/b/b_test\.go:\d+ starts git and names its commit\), but `
+		writes   = in + `writes the file GIT_CONFIG_GLOBAL names` + scopeB
+		neither  = `it does not set gc\.auto=0 or maintenance\.auto=false$`
+		unpaired = `the function that sets it neither writes that file nor sets gc\.auto=0 and maintenance\.auto=false with git config --global$`
+		flagsB   = in + `gives its git settings with -c` + scopeB
+		alone    = `it does not set gc\.auto=0 or maintenance\.auto=false, and no test file of its package writes a global configuration that does$`
+	)
+	// scoped is the problem of package b's file that sets
+	// GIT_CONFIG_GLOBAL and writes nothing, whose package commits as how
+	// says.
+	scoped := func(how string) string {
+		return in + `sets GIT_CONFIG_GLOBAL, and the tests of internal/b commit, clone, fetch or push \(internal/b/b_test\.go:\d+ ` + how + `\), but ` + unpaired
+	}
+	for _, c := range []struct {
+		name   string
+		files  map[string]string
+		listed map[string]string
+		want   []string
+	}{
+		{"none", nil, nil, nil},
+		{"a rig that commits and sets neither", map[string]string{
+			"internal/b/b_test.go": rig(`"[user]\n\tname = Made Up\n"`),
+		}, nil, []string{writes + neither}},
+		{"a rig that sets gc.auto only", map[string]string{
+			"internal/b/b_test.go": rig(`"[gc]\n\tauto = 0\n"`),
+		}, nil, []string{writes + `it does not set maintenance\.auto=false$`}},
+		{"a rig that sets maintenance.auto only", map[string]string{
+			"internal/b/b_test.go": rig(`"[maintenance]\n\tauto = false\n"`),
+		}, nil, []string{writes + `it does not set gc\.auto=0$`}},
+		{"a rig that sets both", map[string]string{
+			"internal/b/b_test.go": rig(`"[user]\n\tname = Made Up\n" + ` + both),
+		}, nil, nil},
+		{"settings in a constant of another file, in capitals and joined with +", map[string]string{
+			"internal/b/b_test.go":     rig("quiet"),
+			"internal/b/quiet_test.go": "package b\n\nconst quiet = \"[GC]\\n\\tAuto = 0\\n\" + \"[Maintenance]\\n\\tauto = no\\n\"\n",
+		}, nil, nil},
+		{"a value git does not read as off, and auto in another section", map[string]string{
+			"internal/b/b_test.go": rig(`"[gc]\n\tauto = 1\n[core]\n\tauto = false\n"`),
+		}, nil, []string{writes + neither}},
+		{"a later value of gc.auto and a later maintenance section", map[string]string{
+			"internal/b/b_test.go": rig(`"[gc]\n\tauto = 0\n\tauto = 50\n[maintenance]\n\tauto = false\n[maintenance]\n\tauto\n"`),
+		}, nil, []string{writes + neither}},
+		{"settings only in a constant, an assertion and another file the rig does not write", map[string]string{
+			"internal/b/b_test.go": rig(`"[user]\n\tname = Made Up\n"`) + "\nconst quiet = " + both + "\n\nfunc check(t *testing.T, out string) {\n\tif strings.Contains(out, quiet) || strings.Contains(out, \"gc.auto=0\") || strings.Contains(out, \"maintenance.auto=false\") {\n\t\tt.Fatal(out)\n\t}\n\t_ = os.WriteFile(filepath.Join(t.TempDir(), \"other\"), []byte(quiet), 0o600)\n}\n",
+		}, nil, []string{writes + neither}},
+		{"GIT_CONFIG_GLOBAL set to a file nothing writes", map[string]string{
+			"internal/b/b_test.go": head + commit + setenv + "\nvar _ = os.Getenv\n",
+		}, nil, []string{in + `sets GIT_CONFIG_GLOBAL` + scopeB + unpaired}},
+		{"settings as git config's words", map[string]string{
+			"internal/b/b_test.go": head + commit + "func isolate(t *testing.T) {\n\tt.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(t.TempDir(), \"gitconfig\"))\n\t_ = exec.Command(\"git\", \"config\", \"--global\", \"gc.auto\", \"0\").Run()\n\t_ = exec.Command(\"git\", \"config\", \"--global\", \"maintenance.auto\", \"false\").Run()\n\t_ = os.Getenv\n}\n",
+		}, nil, nil},
+		{"the settings unset with git config's words", map[string]string{
+			"internal/b/b_test.go": head + commit + "func isolate(t *testing.T) {\n\tt.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(t.TempDir(), \"gitconfig\"))\n\t_ = exec.Command(\"git\", \"config\", \"--global\", \"--unset\", \"gc.auto\", \"0\").Run()\n\t_ = exec.Command(\"git\", \"config\", \"--unset\", \"maintenance.auto\", \"false\").Run()\n\t_ = os.Getenv\n}\n",
+		}, nil, []string{in + `sets GIT_CONFIG_GLOBAL` + scopeB + unpaired}},
+		{"appended to and written back over", map[string]string{
+			"internal/b/b_test.go": rig(both) + "\nfunc more(t *testing.T) {\n\tf, _ := os.OpenFile(os.Getenv(\"GIT_CONFIG_GLOBAL\"), os.O_APPEND|os.O_WRONLY, 0)\n\t_, _ = f.WriteString(\"[user]\\n\\tname = Made Up\\n\")\n\tglobal := os.Getenv(\"GIT_CONFIG_GLOBAL\")\n\tdata, _ := os.ReadFile(global)\n\t_ = os.WriteFile(global, []byte(string(data)+\"[core]\\n\\tpager = cat\\n\"), 0o600)\n}\n",
+		}, nil, nil},
+		{"an appended config and -c that turn a setting back on", map[string]string{
+			"internal/b/b_test.go": rig(both) + "\nfunc more(t *testing.T) {\n\tf, _ := os.OpenFile(os.Getenv(\"GIT_CONFIG_GLOBAL\"), os.O_APPEND|os.O_WRONLY, 0)\n\t_, _ = f.WriteString(\"[gc]\\n\\tauto = 50\\n\")\n\t_ = exec.Command(\"git\", \"-c\", \"maintenance.auto=true\", \"commit\").Run()\n}\n",
+		}, nil, []string{in + `writes the file GIT_CONFIG_GLOBAL names` + scopeB + `it turns gc\.auto=50 back on$`, flagsB + `it turns maintenance\.auto=true back on$`}},
+		{"the file the environment names, written through a name", map[string]string{
+			"internal/b/b_test.go": head + commit + "func write(t *testing.T) {\n\tglobal := os.Getenv(\"GIT_CONFIG_GLOBAL\")\n\t_ = os.WriteFile(global, nil, 0o600)\n}\n",
+		}, nil, []string{writes + neither}},
+		{"the file the environment names, written through a list and os.Create", map[string]string{
+			"internal/b/b_test.go": head + commit + "func write(t *testing.T) {\n\tfor _, p := range []string{os.Getenv(\"GIT_CONFIG_GLOBAL\"), filepath.Join(t.TempDir(), \".gitconfig\")} {\n\t\t_ = os.WriteFile(p, nil, 0o600)\n\t}\n\tf, _ := os.Create(os.Getenv(\"GIT_CONFIG_GLOBAL\"))\n\t_, _ = f.Write([]byte(\"[user]\\n\\tname = Made Up\\n\"))\n}\n",
+		}, nil, []string{writes + neither, writes + neither}},
+		{"a -c helper, given its -c list in the call and in a name", map[string]string{
+			"internal/b/b_test.go": head + commit + "func git(dir string, args ...string) error {\n\t_ = os.Getenv\n\treturn exec.Command(\"git\", append([]string{\"-c\", \"user.name=Made Up\", \"-C\", dir}, args...)...).Run()\n}\n\nfunc gitToo(dir string, args ...string) error {\n\tall := append([]string{\"-c\", \"user.name=Made Up\"}, args...)\n\tall = append([]string{\"-C\", dir}, all...)\n\treturn exec.Command(\"git\", all...).Run()\n}\n",
+		}, nil, []string{flagsB + alone, flagsB + alone}},
+		{"a -c helper that sets both", map[string]string{
+			"internal/b/b_test.go": head + commit + "func git(dir string, args ...string) error {\n\t_ = os.Getenv\n\treturn exec.Command(\"git\", append([]string{\"-c\", \"gc.auto=0\", \"-c\", \"maintenance.auto=false\", \"-C\", dir}, args...)...).Run()\n}\n",
+		}, nil, nil},
+		{"a -c helper in a package that writes a global config with both", map[string]string{
+			"internal/b/b_test.go":    head + commit + "func git(dir string, args ...string) error {\n\t_ = os.Getenv\n\treturn exec.Command(\"git\", append([]string{\"-c\", \"user.name=Made Up\", \"-C\", dir}, args...)...).Run()\n}\n",
+			"internal/b/main_test.go": "package b\n\nimport (\n\t\"os\"\n\t\"path/filepath\"\n\t\"testing\"\n)\n\nfunc TestMain(m *testing.M) {\n\thome, _ := os.MkdirTemp(\"\", \"b\")\n\tos.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(home, \"gitconfig\"))\n\t_ = os.WriteFile(filepath.Join(home, \"gitconfig\"), []byte(" + both + "), 0o600)\n\tos.Exit(m.Run())\n}\n",
+		}, nil, nil},
+		{"a commit through a function whose git reads no global config", map[string]string{
+			"internal/b/b_test.go": strings.Replace(rig(both), "\"testing\"\n", "\"testing\"\n\n\t\""+module+"/internal/e\"\n", 1) + "\nfunc seed(dir string) {\n\tfor _, argv := range [][]string{{\"add\", \"x\"}, {\"-c\", \"user.name=Made Up\", \"commit\", \"-m\", \"x\"}} {\n\t\t_ = e.GitIn(dir, argv...)\n\t}\n}\n\nfunc seedQuiet(dir string) {\n\tfor _, argv := range [][]string{{\"add\", \"x\"}, {\"commit\", \"-m\", \"x\"}} {\n\t\t_ = e.GitIn(dir, append([]string{\"-c\", \"gc.auto=0\", \"-c\", \"maintenance.auto=false\"}, argv...)...)\n\t}\n}\n",
+		}, nil, []string{in + `commits, clones, fetches or pushes through internal/e\.GitIn, whose git reads no global configuration` + scopeB + neither}},
+		{"git found with exec.LookPath", map[string]string{
+			"internal/b/b_test.go": bare("\nfunc TestB(t *testing.T) {\n\tgit, _ := exec.LookPath(\"git\")\n\t_ = exec.Command(git, \"-C\", t.TempDir(), \"commit\", \"-m\", \"x\").Run()\n}\n"),
+		}, nil, []string{scoped(`starts git and names its commit`)}},
+		{"the command given through a constant", map[string]string{
+			"internal/b/b_test.go": bare("\nconst verb = \"commit\"\n\nfunc TestB(t *testing.T) {\n\t_ = exec.Command(\"git\", verb).Run()\n}\n"),
+		}, nil, []string{scoped(`starts git and names its commit`)}},
+		{"the command in a package-level list", map[string]string{
+			"internal/b/b_test.go": bare("\nvar steps = [][]string{{\"init\"}, {\"push\"}}\n\nfunc TestB(t *testing.T) {\n\tfor _, s := range steps {\n\t\t_ = exec.Command(\"git\", s...).Run()\n\t}\n}\n"),
+		}, nil, []string{scoped(`starts git and names its push`)}},
+		{"a shell script that commits", map[string]string{
+			"internal/b/b_test.go": bare("\nfunc TestB(t *testing.T) {\n\t_ = exec.Command(\"sh\", \"-c\", \"cd x && git -C . commit --allow-empty -m x\").Run()\n}\n"),
+		}, nil, []string{scoped(`starts git and names its commit`)}},
+		{"a shell script that reads with git", map[string]string{
+			"internal/b/b_test.go": bare("\nfunc TestB(t *testing.T) {\n\t_ = exec.Command(\"sh\", \"-c\", \"git rev-parse HEAD # then a commit\").Run()\n}\n"),
+		}, nil, nil},
+		{"a package that commits through a method of its own", map[string]string{
+			"internal/d/d.go":      "package d\n\nimport \"os/exec\"\n\ntype Repo struct{ Dir string }\n\nfunc (r Repo) Push() error { return exec.Command(\"git\", \"-C\", r.Dir, \"push\", \"origin\", \"main\").Run() }\n",
+			"internal/d/d_test.go": "package d\n\nimport (\n\t\"path/filepath\"\n\t\"testing\"\n)\n\nfunc TestD(t *testing.T) {\n\tt.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(t.TempDir(), \"gitconfig\"))\n\t_ = Repo{t.TempDir()}.Push()\n}\n",
+		}, nil, []string{`^internal/d/d_test\.go: internal/d/d_test\.go:\d+ sets GIT_CONFIG_GLOBAL, and the tests of internal/d commit, clone, fetch or push \(internal/d/d_test\.go:\d+ calls internal/d\.\(method\)\.Push, through which internal/d/d\.go:\d+ starts git and names its push\), but ` + unpaired}},
+		{"a package that commits through a method of another package", map[string]string{
+			"internal/d/d.go":      "package d\n\nimport \"os/exec\"\n\ntype Repo struct{ Dir string }\n\nfunc (r Repo) Push() error { return exec.Command(\"git\", \"-C\", r.Dir, \"push\", \"origin\", \"main\").Run() }\n",
+			"internal/b/b_test.go": "package b\n\nimport (\n\t\"path/filepath\"\n\t\"testing\"\n\n\t\"" + module + "/internal/d\"\n)\n\n" + setenv + "\nfunc TestB(t *testing.T) {\n\tr := &d.Repo{Dir: t.TempDir()}\n\t_ = r.Push()\n}\n",
+		}, nil, []string{scoped(`calls internal/d\.\(method\)\.Push, through which internal/d/d\.go:\d+ starts git and names its push`)}},
+		{"a package that commits through the program", map[string]string{
+			"internal/c/c_test.go": "package c\n\nimport (\n\t\"path/filepath\"\n\t\"testing\"\n\n\t\"" + module + "/internal/a\"\n)\n\nfunc TestC(t *testing.T) {\n\tt.Setenv(\"GIT_CONFIG_GLOBAL\", filepath.Join(t.TempDir(), \"gitconfig\"))\n\t_ = a.Commit(t.TempDir())\n}\n",
+		}, nil, []string{`^internal/c/c_test\.go: internal/c/c_test\.go:\d+ sets GIT_CONFIG_GLOBAL, and the tests of internal/c commit, clone, fetch or push \(internal/c/c_test\.go:\d+ calls internal/a\.Commit, through which internal/a/a\.go:\d+ starts git and names its commit\), but ` + unpaired}},
+		{"a listed rig that sets both", nil, map[string]string{"internal/a/main_test.go": "x"}, []string{`^internal/a/main_test\.go turns git's background work off, yet is listed as leaving it on$`}},
+		{"a listed rig that sets neither", map[string]string{
+			"internal/b/b_test.go": rig(`""`),
+		}, map[string]string{"internal/b/b_test.go": "x"}, nil},
+		{"a listed file that is no rig", nil, map[string]string{"internal/c/c_test.go": "x"}, []string{`^internal/c/c_test\.go is listed as leaving git's background work on, but gives git no configuration in a package whose tests commit, clone, fetch or push$`}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			files := maps.Clone(base)
+			maps.Copy(files, c.files)
+			expectProblems(t, files, func(files []goFile) []string { return checkGitRigs(files, c.listed) }, c.want)
+		})
+	}
+}
