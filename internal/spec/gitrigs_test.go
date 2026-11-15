@@ -22,8 +22,8 @@ import (
 // taking an earlier one's place:
 //
 //   - each write of the file GIT_CONFIG_GLOBAL names writes both, and a
-//     write that adds to it, by appending or with git config --global,
-//     turns neither back on;
+//     write that adds to it, by appending, by writing back what it read
+//     of it or with git config --global, turns neither back on;
 //   - each Setenv of GIT_CONFIG_GLOBAL is joined, in the same function, by
 //     a write of the file it names, or by git config --global setting both;
 //   - git given settings with -c turns neither back on, and gives both
@@ -50,9 +50,11 @@ import (
 // function returns; a value written to the configuration in a loop, whose
 // last value the source does not show; git started under a name given
 // other than by exec.LookPath("git"); a function reached other than by a
-// call of its name, or a method called on a value whose type the call does
-// not show; and a command that starts the background work under another
-// name, as a merge or a pull.
+// call of its name, or a method of another package called on a value that
+// neither the call nor an assignment in its function writes out as a value
+// of that package's type; a commit run by a program that is not a test's,
+// such as the binary a test builds; and a command that starts the
+// background work under another name, as a merge or a pull.
 
 // backgroundCommands are git's commands after which git may start its
 // background work.
