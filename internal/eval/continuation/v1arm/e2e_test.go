@@ -343,7 +343,7 @@ func endToEndTrial(t *testing.T, h adapter.Host, binary string) aTrial {
 	for _, dir := range []string{d.Home, d.Tmp, d.Bin} {
 		mkdir(t, dir)
 	}
-	write(t, filepath.Join(d.Home, ".gitconfig"), "[user]\n\tname = Continuation Trial\n\temail = trial@example.invalid\n[commit]\n\tgpgsign = false\n[maintenance]\n\tauto = false\n")
+	write(t, filepath.Join(d.Home, ".gitconfig"), "[user]\n\tname = Continuation Trial\n\temail = trial@example.invalid\n[commit]\n\tgpgsign = false\n[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n")
 	if err := task.GoTelemetryOff(d.Home); err != nil {
 		t.Fatal(err)
 	}

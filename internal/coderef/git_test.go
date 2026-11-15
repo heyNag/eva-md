@@ -317,7 +317,7 @@ func TestLastWithShowSignature(t *testing.T) {
 	if err := os.WriteFile(allowed, []byte("fixture@example.invalid "+string(pub)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	config := "[user]\nname = Eva Fixture\nemail = fixture@example.invalid\nsigningkey = " + key + ".pub\n[gpg]\nformat = ssh\n[gpg \"ssh\"]\nallowedSignersFile = " + allowed + "\n[commit]\ngpgsign = true\n[log]\nshowSignature = true\n[init]\ndefaultBranch = main\n"
+	config := "[user]\nname = Eva Fixture\nemail = fixture@example.invalid\nsigningkey = " + key + ".pub\n[gpg]\nformat = ssh\n[gpg \"ssh\"]\nallowedSignersFile = " + allowed + "\n[commit]\ngpgsign = true\n[log]\nshowSignature = true\n[init]\ndefaultBranch = main\n[gc]\nauto = 0\n[maintenance]\nauto = false\n"
 	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}

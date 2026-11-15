@@ -158,7 +158,7 @@ func isolate(t *testing.T) string {
 		t.Setenv(name, "")
 		os.Unsetenv(name)
 	}
-	write(t, filepath.Join(home, "gitconfig"), "[user]\nname = Eva Fixture\nemail = fixture@example.invalid\n[commit]\ngpgsign = false\n[init]\ndefaultBranch = main\n[log]\nshowSignature = true\n")
+	write(t, filepath.Join(home, "gitconfig"), "[user]\nname = Eva Fixture\nemail = fixture@example.invalid\n[commit]\ngpgsign = false\n[init]\ndefaultBranch = main\n[log]\nshowSignature = true\n[gc]\nauto = 0\n[maintenance]\nauto = false\n")
 	return home
 }
 

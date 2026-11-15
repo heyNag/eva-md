@@ -43,12 +43,21 @@ func TestMain(m *testing.M) {
 // reports a hang.
 const hangGuard = time.Minute
 
+// gitQuiet turns git's background work off in a test's git config: after
+// a commit git may otherwise start its maintenance in the background,
+// which outlives the command and races the removal of the test's folders
+// and the next command's locks.
+const gitQuiet = "[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n"
+
 func fixture(t *testing.T) Options {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(gitQuiet), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dirs := paths.Dirs{State: filepath.Join(home, "state"), Share: filepath.Join(home, "share"), Config: filepath.Join(home, "config")}
 	return Options{Dirs: dirs, Config: config.Config{WikiPath: filepath.Join(home, "wiki")}, Project: identity.Project{Kind: identity.KindRepo, Key: "github.com__team__resume", Slug: "resume", Remote: "github.com/team/resume", Branch: "main"}, Host: "claude-code", Session: "new-chat", Now: time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)}
 }

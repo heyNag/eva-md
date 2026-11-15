@@ -830,6 +830,9 @@ func indexProblems(t *testing.T, host, session string) []string {
 		env, p := setup(t)
 		t.Setenv("HOME", home)
 		t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
+		if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(gitQuiet), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		t.Setenv("TMPDIR", filepath.Join(home, "tmp"))
 		if err := os.MkdirAll(filepath.Join(home, "project"), 0o700); err != nil {
 			t.Fatal(err)

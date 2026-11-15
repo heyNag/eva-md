@@ -21,6 +21,9 @@ func isolate(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte("[gc]\nauto = 0\n[maintenance]\nauto = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return home
 }
 

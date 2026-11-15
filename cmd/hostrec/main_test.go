@@ -41,6 +41,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// gitQuiet turns git's background work off in a test's git config: after
+// a commit or a push git may otherwise start its maintenance in the
+// background, which outlives the command and races the removal of the
+// test's folders and the next command's locks.
+const gitQuiet = "[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n"
+
 // testHome is a made-up evaluation home, with the fake hosts on PATH.
 type testHome struct {
 	home, rec, bin, shared, log string
@@ -70,7 +76,7 @@ func newHome(t *testing.T) *testHome {
 		}
 	}
 	gitconfig := filepath.Join(root, "gitconfig")
-	if err := os.WriteFile(gitconfig, nil, 0o644); err != nil {
+	if err := os.WriteFile(gitconfig, []byte(gitQuiet), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", h.home)

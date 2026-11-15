@@ -137,6 +137,12 @@ func TestFolderName(t *testing.T) {
 	}
 }
 
+// gitQuiet turns git's background work off in a test's git config: after
+// a commit or a clone git may otherwise start its maintenance in the
+// background, which outlives the command and races the removal of the
+// test's folders and the next command's locks.
+const gitQuiet = "[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n"
+
 // gitEnvForTest points git at a temp home and global config with a fixed
 // identity and no signing, so tests never read the user's git config.
 func gitEnvForTest(t *testing.T) string {
@@ -147,7 +153,7 @@ func gitEnvForTest(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := filepath.Join(home, "gitconfig")
-	body := "[user]\n\tname = Test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n"
+	body := "[user]\n\tname = Test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n" + gitQuiet
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

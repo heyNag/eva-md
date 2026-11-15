@@ -22,12 +22,21 @@ import (
 	"github.com/heyNag/eva-md/internal/session"
 )
 
+// gitQuiet turns git's background work off in a test's git config: after
+// a commit, a fetch or a push git may otherwise start its maintenance in
+// the background, which outlives the command and races the removal of the
+// test's folders and the next command's locks.
+const gitQuiet = "[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n"
+
 func setup(t *testing.T) (Env, payload) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if err := os.WriteFile(filepath.Join(home, "gitconfig"), []byte(gitQuiet), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("TMPDIR", filepath.Join(home, "tmp"))
 	t.Setenv("EVA_MD_INNER", "")
 	t.Setenv("CLAUDE_CODE_REMOTE", "")

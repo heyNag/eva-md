@@ -39,7 +39,7 @@ func TestCLIOutputIsCapped(t *testing.T) {
 func TestGitSigningReadsWithTheCommitsEnvironment(t *testing.T) {
 	isolated(t)
 	home := os.Getenv("HOME")
-	if err := os.WriteFile(os.Getenv("GIT_CONFIG_GLOBAL"), []byte("[commit]\n\tgpgsign = false\n"), 0o600); err != nil {
+	if err := os.WriteFile(os.Getenv("GIT_CONFIG_GLOBAL"), []byte("[commit]\n\tgpgsign = false\n"+gitQuiet), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	other := filepath.Join(home, "other.git")
