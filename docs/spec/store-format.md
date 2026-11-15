@@ -17,19 +17,19 @@ No path, frontmatter key or static file names the library eva-md v1 was built on
 `<area>` is `projects/<pid>-<slug>` or `global`. Every file is in exactly one class; any other path is a fault [P6.2d2, S5.1]. The four root files and the two `.eva-md` files above the writers are required, and every project folder holds its `project.md`; as ids are unique, a pid names one folder.
 
 ```
-index.md  README.md  .gitattributes  .gitignore       static, rewritten only by a schema step
-.eva-md/store.toml  .eva-md/schema.toml               the manifest, and v1's refusal marker
-.eva-md/writers/<writer>.toml                         one per machine
-.eva-md/hand-edits/<writer>.tsv                       the hand-edit record (section 7)
-.eva-md/coverage-v1/<writer>.tsv                      v1's frozen coverage, from the migration
-projects/<pid>-<slug>/project.md                      the project identity record
+index.md  README.md  .gitattributes  .gitignore  static, rewritten only by a schema step
+.eva-md/store.toml  .eva-md/schema.toml  the manifest, and v1's refusal marker
+.eva-md/writers/<writer>.toml            one per machine
+.eva-md/hand-edits/<writer>.tsv          the hand-edit record (section 7)
+.eva-md/coverage-v1/<writer>.tsv         v1's frozen coverage, from the migration
+projects/<pid>-<slug>/project.md         the project identity record
 projects/<pid>-<slug>/workstreams/<wid>-<slug>.md
 <area>/items/<yyyy>/<mm>/<iid>-<slug>.md
 <area>/disagreements/<yyyy>/<mm>/<did>-<slug>.md
-projects/<pid>-<slug>/sessions/<yyyy>/<mm>/<host>.<skey>.<writer>.md   one per session, project and writer
-<area>/notes/…                                        people's own text, never rewritten
-systems/<slug>.md                                     frozen system pages
-legacy/v1/…                                           v1 files the migration could not read, byte for byte
+projects/<pid>-<slug>/sessions/<yyyy>/<mm>/<host>.<skey>.<writer>.md  one per session, project and writer
+<area>/notes/…                           people's own text, never rewritten
+systems/<slug>.md                        frozen system pages
+legacy/v1/…                              v1 files the migration could not read, byte for byte
 ```
 
 - A path is a function of what never changes: an id, its month and a slug frozen at creation. A new title, kind, scope or state never moves a file; a change of kind or scope is a new item superseding the old [S5.1].
@@ -39,7 +39,7 @@ legacy/v1/…                                           v1 files the migration c
 
 ## 3. Ids
 
-The grammar: a letter and 13 lower-case Crockford base32 characters (`0123456789abcdefghjkmnpqrstvwxyz`), 14 in all. The 13 are 65 bits, high first: 35 bits of seconds since 2025-01-01T00:00:00Z, then the first 30 bits of SHA-256 of the pass id, LF and the operation's index.
+The grammar: a letter and 13 lower-case Crockford base32 characters (`0123456789abcdefghjkmnpqrstvwxyz`). The 13 are 65 bits, high first: 35 bits of seconds since 2025-01-01T00:00:00Z, then the first 30 bits of SHA-256 of the pass id, LF and the operation's index.
 Ids sort by time, a retried pass mints the same ids, and machines collide only by a 30-bit chance that a no-clobber create detects [P6.2d2, S5.2]. The model never writes an id [P6.3d2].
 
 | Thing | Form |
@@ -104,8 +104,9 @@ A writer record is `label = "<label>"`, `signing_key = "<key or empty>"`, `reads
 A file a person locked or verified, or one that cannot be read, refuses the one operation aimed at it; the pass and every other file go on [P6.2d4, S5.7].
 
 - **Locked**: a `locked` key with any value but a bare `false` (`False`, `FALSE`, a comment after it allowed), so an empty or quoted value locks, and so does a repeated key. Only items, workstreams and system pages may be locked. The engine never writes it (overrides S6.2, where an empty value unlocked).
-- **Verified**: a `verified` key with a value in any shape but `[]`, `{}`, `""`, `null`, `~` or none. `eva-md confirm` writes a JSON list of `{"by", "at"}`; no model's operation does. A model cannot change a verified file's statement, title or detail [S5.7].
-- **Key forms**: a lock is honoured in every form YAML allows [P6.2]. Only a bare `locked:` or `verified:` at a line's start is read by its value; any other form (quoted, escaped, spaces before the colon or none after it, `? locked`, after a tag or anchor, a block indented whole) protects whatever its value. An alias key (`*a`), a merge key (`<<`) or an explicit key that is no scalar does both.
+- **Verified**: a `verified` key with a value in any shape but `[]`, `{}`, `""`, `null`, `~` or none; an empty one too, when a line led by a space, a tab or `-` comes before the next key. `eva-md confirm` writes a JSON list of `{"by", "at"}`; no model's operation does. A model cannot change a verified file's statement, title or detail [S5.7].
+- **Key forms**: a lock is honoured in every form YAML allows [P6.2]. Only a bare `locked:` or `verified:` at a line's start is read by its value; any other form (quoted, escaped, no space after the colon, `? locked`, after a tag or anchor, a block indented whole, or a key that trims to the word by Unicode white space, U+FEFF and quotes) protects whatever its value.
+- **Both**: an alias (`*a`), merge (`<<`) or non-scalar explicit key.
 - **Unreadable**: a byte-order mark, invalid UTF-8, a NUL, a line over 64 KiB, a conflict marker line, or frontmatter not opened on line 1 or never closed. Never written or delivered; listed for repair [S6.2]. Only documents may be unreadable: an unreadable static or record file is a broken store.
 
 ## 7. A hand edit
@@ -121,10 +122,10 @@ One write path, one commit per pass [P6.2d3], authored as `eva.md on <label> <<w
 The subject is `<kind>: <pid or ->` and counts; the body is trailers, one per line:
 
 ```
-Eva-Pass: <ULID>                 the pass, the idempotency key
-Eva-Kind: <kind>                 fast consolidate remember correct confirm acknowledge forget undo migrate init human merge
+Eva-Pass: <ULID>               the pass, the idempotency key
+Eva-Kind: <kind>               fast consolidate remember correct confirm acknowledge forget undo migrate init human merge
 Eva-Writer: <writer>
-Eva-Session: <host>:<session>    when the pass read a session
+Eva-Session: <host>:<session>  when the pass read a session
 Eva-Model: <host>/<model>[@<effort>]   when a model ran
 Eva-Covers: <host>:<session> <from>-<to> <outcome>   once per range
 Eva-Ops: create=<n> revise=<n> refused=<n>
