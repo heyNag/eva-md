@@ -121,3 +121,8 @@ No behaviour of eva-md changes.
 That job installs Go 1.26.9 in place of `go.mod`'s 1.26.0: from 1.26.0 to 1.26.4 the race detector on darwin/arm64 at times crashes a child between fork and exec (golang/go#79804, fixed in 1.26.5).
 It failed that job four times (runs 176, 200, 202 and 234), each in the continuation driver's package, whose tests start hundreds of processes.
 The other jobs and the release still run `go.mod`'s own version; which Go a release is built with is the owner's to change.
+
+**2026-11-15: every job of CI runs `go.mod`'s Go again, which is 1.26.11.**
+No behaviour of eva-md changes.
+`go.mod` names Go 1.26.11 ([the record](../decisions/2026-11-15-go-mod-names-the-newest-patch-of-its-go.md)), so the macOS test job installs it as the other jobs do, and its own later patch of the entry above is gone.
+`go.mod`'s Go stays at 1.26.5 or later, for the race detector's fault that entry names.

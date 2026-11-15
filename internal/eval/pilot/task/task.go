@@ -141,7 +141,7 @@ const MinHistory = 600
 
 // EvaGo is the Go version in eva-md's go.mod. No task's go.mod names a
 // newer one, so the toolchain that builds eva-md runs every task.
-const EvaGo = "1.26.0"
+const EvaGo = "1.26.11"
 
 // Arms are the pilot's conditions, which a row's scenario names.
 var Arms = []string{"off", "eva", "oracle"}

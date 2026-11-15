@@ -96,7 +96,7 @@ Everything here installs into the evaluation account's own home. Never use `sudo
 3. Go, unpacked inside this account (on Intel, write `amd64` in place of `arm64`):
 
    ```
-   curl -fsSL -o ~/hf-tools/go.tgz https://go.dev/dl/go1.26.0.darwin-arm64.tar.gz
+   curl -fsSL -o ~/hf-tools/go.tgz https://go.dev/dl/go1.26.11.darwin-arm64.tar.gz
    tar -C ~/hf-tools -xzf ~/hf-tools/go.tgz && rm ~/hf-tools/go.tgz
    go version
    ```

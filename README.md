@@ -210,7 +210,7 @@ The plugins call a stable copy of the binary at `~/.local/share/eva-md/bin/eva-m
 
 ## Development
 
-To build eva-md from source, with Go 1.26 or newer, and set it up from that build:
+To build eva-md from source, with Go 1.26.11 or newer (an older Go fetches that version itself, where it may), and set it up from that build:
 
 ```sh
 go build -mod=readonly -o bin/eva-md ./cmd/eva-md

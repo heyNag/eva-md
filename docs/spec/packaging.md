@@ -181,3 +181,7 @@ An item that tests hold only in part ends with what of it no test holds, as `(un
 
 **2026-11-14, DV-13: a config key.**
 The config gains `daily_token_budget`: weighted tokens for each host a day, held only with `[switches] token_budget = true`; 0 or absent is 1,000,000, and a negative number is refused.
+
+**2026-11-15: a release is built with Go 1.26.11.**
+`go.mod` names Go 1.26.11 in place of 1.26.0, and the release workflow installs what it names ([the record](../decisions/2026-11-15-go-mod-names-the-newest-patch-of-its-go.md)).
+Building from source needs that version or a newer one, or an older Go that may fetch it.

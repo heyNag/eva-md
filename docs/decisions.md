@@ -34,6 +34,7 @@ The records:
 | [Why a lighter option](decisions/2026-10-30-why-a-lighter-option.md) | 2026-10-30 | Accepted |
 | [Zero-touch](decisions/2026-10-30-zero-touch.md) | 2026-10-30 | Reopened |
 | [Specs and dated records replace the design and verification documents](decisions/2026-11-10-specs-and-dated-records-replace-the-design-and-verification-documents.md) | 2026-11-10 | Accepted |
+| [go.mod names the newest patch of its Go](decisions/2026-11-15-go-mod-names-the-newest-patch-of-its-go.md) | 2026-11-15 | Accepted |
 
 Every heading this file had, beside the record that now holds it:
 
