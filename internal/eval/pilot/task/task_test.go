@@ -283,6 +283,29 @@ func TestTheImportPatterns(t *testing.T) {
 
 // eva-md's Go version, which no task's go.mod may pass, is the one its
 // go.mod names.
+// onePatchPast is the Go version one patch release after v, so that a row
+// which needs a Go just newer than eva-md's follows go.mod when it moves.
+func onePatchPast(v string) string {
+	i := strings.LastIndex(v, ".")
+	n, err := strconv.Atoi(v[i+1:])
+	if i < 0 || err != nil {
+		panic("a Go version with no patch number: " + v)
+	}
+	return v[:i+1] + strconv.Itoa(n+1)
+}
+
+// The helper gives the next patch of a version, eva-md's own among them.
+func TestOnePatchPast(t *testing.T) {
+	for v, want := range map[string]string{"1.26.0": "1.26.1", "1.26.11": "1.26.12", "1.27.9": "1.27.10"} {
+		if got := onePatchPast(v); got != want {
+			t.Errorf("one patch past %s is %s, want %s", v, got, want)
+		}
+	}
+	if next := onePatchPast(EvaGo); !newerGo(next, EvaGo) || newerGo(EvaGo, next) {
+		t.Errorf("%s does not read as newer than eva-md's %s", next, EvaGo)
+	}
+}
+
 func TestEvaGoIsTheModulesGo(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(moduleRoot(t), "go.mod"))
 	if err != nil {
@@ -412,7 +435,7 @@ func TestLoadRefusesEachRule(t *testing.T) {
 		{"a requirement", "h01", ruleGoMod, file("repos/quillmark/go.mod", "module quillmark\n\ngo 1.22\n\nrequire other v1.0.0\n")},
 		{"a toolchain line", "h01", ruleGoMod, file("repos/quillmark/go.mod", "module quillmark\n\ngo 1.22\ntoolchain go1.22.1\n")},
 		{"a module on a host", "h01", ruleGoMod, file("repos/quillmark/go.mod", "module example.com/quillmark\n\ngo 1.22\n")},
-		{"a Go newer than eva-md's", "h01", ruleGoMod, file("repos/quillmark/go.mod", "module quillmark\n\ngo 1.26.1\n")},
+		{"a Go newer than eva-md's", "h01", ruleGoMod, file("repos/quillmark/go.mod", "module quillmark\n\ngo "+onePatchPast(EvaGo)+"\n")},
 		{"a Go two minors newer", "h01", ruleGoMod, file("repos/quillmark/go.mod", "module quillmark\n\ngo 1.100\n")},
 		{"no go.mod", "h01", ruleGoMod, remove("repos/quillmark/go.mod")},
 		{"a go.mod in an overlay with a requirement", "h01", ruleGoMod, file("solution/quillmark/go.mod", "module quillmark\n\ngo 1.22\nrequire other v1.0.0\n")},

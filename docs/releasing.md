@@ -4,7 +4,7 @@ A release is an annotated git tag on a commit of main and the GitHub release the
 
 ## Who releases, and how
 
-The maintainer releases. Before each release, check both desktop apps by hand, as design.md's live resume test asks; neither way checks them.
+The maintainer releases. Before each release, check both desktop apps by hand, as design.md's live resume test asks, and look on go.dev/doc/devel/release for a newer patch of the Go line `go.mod` names and propose it ([the record](decisions/2026-11-15-go-mod-names-the-newest-patch-of-its-go.md)); neither way checks them.
 
 Both ways make the same checks of main with `scripts/release.sh`, all but the signing check from GitHub, and name the same tag and notes; both push only the tag, never a branch and never with force; both have `.github/workflows/release.yml` build, attest and publish the release, and both then check what it published. They differ in who says yes and how that is recorded. Cut a release waits for a required reviewer of the repository's `release` environment to approve it on GitHub, which records who did, and makes an unsigned tag. `scripts/release.sh` asks on the Mac's terminal and makes a tag signed with the maintainer's key.
 

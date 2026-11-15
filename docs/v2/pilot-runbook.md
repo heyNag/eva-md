@@ -42,7 +42,7 @@ If one is not true, stop.
 
 ## 3. The container
 
-**What it holds.** Linux with util-linux (`setpriv`), procps, GNU coreutils and findutils; git 2.44 or newer; Go 1.26.11 or newer, or an older Go that fetches it in step 4; `python3`; each host's CLI, by its own installer, in `/opt/pilot/hosts/<host>/`, 0755, at one version for the whole pilot. Network: the providers' API hosts; GitHub, Go's module proxy and the installers' hosts only for this step and step 4.
+**What it holds.** Linux with util-linux (`setpriv`), procps, GNU coreutils and findutils; git 2.44 or newer; Go 1.26.11 or newer, or a Go from 1.22 on that fetches it in step 4 (grading runs the container's own Go on the tasks, which need 1.22); `python3`; each host's CLI, by its own installer, in `/opt/pilot/hosts/<host>/`, 0755, at one version for the whole pilot. Network: the providers' API hosts; GitHub, Go's module proxy and the installers' hosts only for this step and step 4.
 
 **Two users.** root runs the driver, the `eva` condition's commands, grading and removal. `pilot-chat` runs the chats: no home, no password, no sudo.
 
